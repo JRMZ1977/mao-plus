@@ -21,8 +21,9 @@ scipy==1.13.1                       # ConvexHull, ndimage, stats, signal
 # scikit-learn                      # PCA, KMeans, silhouette — INSTALAR en Fase 3:
 #   pip install scikit-learn
 
-# ── Inferencia IA (MobileSAM ONNX) ───────────────────────────────────────────
+# ── Inferencia IA (MobileSAM ONNX + YOLOv8n) ─────────────────────────────────
 onnxruntime==1.19.2             # runtime ONNX CPU — MobileSAM encoder+decoder
+ultralytics>=8.3.0              # YOLOv8n — detección de instancias (Fase 1 IA)
 
 # ── Utilidades ────────────────────────────────────────────────────────────────
 python-dotenv==1.2.1
