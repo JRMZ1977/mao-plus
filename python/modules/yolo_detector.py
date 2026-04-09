@@ -257,7 +257,7 @@ def _extract_object_from_mask(
 
     return {
         "id":           f"PY_{obj_index + 1:02d}",
-        "bbox":         {"x": bx, "y": by, "width": bw, "height": bh},
+        "bbox":         {"x": bx, "y": by, "w": bw, "h": bh},
         "area":         float(area),
         "perimeter":    float(perimeter),
         "centroid":     [float(cx), float(cy)],

@@ -220,6 +220,23 @@ const PythonBridge = (() => {
       });
     },
 
+    async detectYolo(imageDataURL, { confThreshold = 0.20, minArea = 100, maxObjects = 50, useGrabcut = true } = {}) {
+      if (!_serverAvailable) return null;
+      const blob = _dataURLtoBlob(imageDataURL);
+      return _fetch('/detect-yolo', {
+        method: 'POST',
+        _timeout: 30_000,
+        body: _formData({
+          image:              blob,
+          conf_threshold:     confThreshold,
+          min_area:           minArea,
+          max_objects:        maxObjects,
+          use_grabcut:        useGrabcut,
+          fallback_classical: true,
+        }),
+      });
+    },
+
     async edges(imageDataURL, { method = 'canny', threshold1 = 50, threshold2 = 150 } = {}) {
       if (!_serverAvailable || !isModuleActive('detection')) return null;
       const blob = _dataURLtoBlob(imageDataURL);

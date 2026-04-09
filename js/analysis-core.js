@@ -42960,37 +42960,51 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       // Limpiar detecciones previas
       objects = [];
 
-      // ── Intento Python /api/detect ─────────────────────────────────────────
+      // ── Intento Python (YOLO IA o detect clásico) ────────────────────────
       let _pyDetUsed = false;
-      if (window.PythonBridge && PythonBridge.isModuleActive('detection')) {
+      const _useYolo = document.getElementById('useYoloDetectionCheck')?.checked;
+      if (window.PythonBridge && PythonBridge.isAvailable()) {
         try {
           const imageDataURL = image.src || (image instanceof HTMLCanvasElement
             ? image.toDataURL('image/png') : null);
           if (imageDataURL) {
-            const pyDet = await PythonBridge.detection.detect(imageDataURL, {
-              minArea: detectionConfig.minArea,
-            });
+            let pyDet = null;
+            if (_useYolo) {
+              console.log('[Python] Usando YOLOv8n para detección de instancias...');
+              pyDet = await PythonBridge.detection.detectYolo(imageDataURL, {
+                minArea: detectionConfig.minArea,
+              });
+              if (pyDet) console.log(`[Python] YOLO detect ✓ → ${pyDet.objects?.length ?? 0} objetos (método: ${pyDet.method})`);
+            } else if (PythonBridge.isModuleActive('detection')) {
+              pyDet = await PythonBridge.detection.detect(imageDataURL, {
+                minArea: detectionConfig.minArea,
+              });
+              if (pyDet) console.log(`[Python] detection.detect ✓ → ${pyDet.objects?.length ?? 0} objetos`);
+            }
             if (pyDet && Array.isArray(pyDet.objects) && pyDet.objects.length > 0) {
-              // Mapear resultado Python al formato JS esperado
               objects = pyDet.objects.map((o, idx) => ({
                 id: idx + 1,
                 minX: o.bbox ? o.bbox.x : (o.minX || 0),
                 minY: o.bbox ? o.bbox.y : (o.minY || 0),
-                width:  o.bbox ? o.bbox.w : (o.width || 0),
-                height: o.bbox ? o.bbox.h : (o.height || 0),
+                width:  o.bbox ? (o.bbox.w ?? o.bbox.width ?? 0) : (o.width || 0),
+                height: o.bbox ? (o.bbox.h ?? o.bbox.height ?? 0) : (o.height || 0),
                 area:   o.area || 0,
-                centroide: o.centroid ? { x: o.centroid.x, y: o.centroid.y }
-                           : { x: (o.minX || 0) + (o.width || 0) / 2,
-                               y: (o.minY || 0) + (o.height || 0) / 2 },
+                centroide: o.centroid
+                  ? { x: Array.isArray(o.centroid) ? o.centroid[0] : o.centroid.x,
+                      y: Array.isArray(o.centroid) ? o.centroid[1] : o.centroid.y }
+                  : { x: (o.minX || 0) + (o.width || 0) / 2,
+                      y: (o.minY || 0) + (o.height || 0) / 2 },
                 contour_points: o.contour_points || [],
-                _source: 'python',
+                _source:     _useYolo ? 'python_yolo' : 'python',
+                _yoloConf:   o.yolo_confidence ?? null,
+                _detMethod:  o.detection_method ?? null,
+                _maoIA:      o.mao_ia ?? null,
               }));
               _pyDetUsed = true;
-              console.log(`[Python] detection.detect ✓ → ${objects.length} objetos`);
             }
           }
         } catch (_e) {
-          console.warn('[Python] detection.detect falló, usando JS:', _e.message);
+          console.warn('[Python] detect falló, usando JS:', _e.message);
         }
       }
       // ── Fallback JS ───────────────────────────────────────────────────────
