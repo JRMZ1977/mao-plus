@@ -637,6 +637,30 @@
     card.hidden = false;
     const _vMBtn = document.getElementById('sidebarVerMetricasBtn');
     if (_vMBtn) _vMBtn.hidden = false;
+
+    // ── Tipología arqueológica (Fase 2 IA) ──
+    const tipRow = document.getElementById('srcTipologiaRow');
+    if (tipRow) {
+      const tip = m.tipologia;
+      if (tip && tip.tipo && tip.tipo !== 'Indeterminado') {
+        const confTipPct = Math.round((tip.confianza || 0) * 100);
+        const elIcono = document.getElementById('srcTipologiaIcono');
+        const elTipo  = document.getElementById('srcTipologiaTipo');
+        const elConf  = document.getElementById('srcTipologiaConf');
+        if (elIcono) elIcono.textContent = tip.icono || '🔩';
+        if (elTipo)  elTipo.textContent  = tip.subtipo ? `${tip.tipo} — ${tip.subtipo}` : tip.tipo;
+        if (elConf)  elConf.textContent  = `${confTipPct}%`;
+        // Color dinámico si el backend lo provee
+        if (tip.color && tipRow) {
+          tipRow.style.background   = tip.color.bg     || '';
+          tipRow.style.borderColor  = tip.color.border || '';
+          if (elTipo) elTipo.style.color = tip.color.text || '';
+        }
+        tipRow.hidden = false;
+      } else {
+        tipRow.hidden = true;
+      }
+    }
   }
 
   function setupResultCardObserver() {

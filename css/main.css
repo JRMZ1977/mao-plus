@@ -6200,6 +6200,38 @@ details.morph-result-group > .morph-result-group-body {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
 }
 
+/* ── Badge tipología arqueológica (Fase 2 IA) ── */
+.src-tipologia-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(103, 58, 183, 0.14);
+  border: 1px solid rgba(103, 58, 183, 0.28);
+}
+.src-tipologia-icono {
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.src-tipologia-tipo {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ce93d8;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.src-tipologia-conf {
+  font-size: 10px;
+  color: rgba(206, 147, 216, 0.70);
+  flex-shrink: 0;
+}
+
 /* ── Botón "Ver métricas completas" en sidebar result card ── */
 .src-ver-metricas-btn {
   display: block;

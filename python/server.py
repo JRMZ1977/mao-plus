@@ -859,6 +859,59 @@ async def bifacial_comparison(
 
 
 # ============================================================================
+# FASE 2 IA — CLASIFICACIÓN TIPOLÓGICA ARQUEOLÓGICA
+# Módulo: classifier.py
+# Clasifica objetos en tipos funcionales mediante reglas morfométricas.
+# Input: métricas de /api/metrics. No requiere GPU ni datos de entrenamiento.
+# ============================================================================
+
+@app.post(f"{API_PREFIX}/classify")
+async def classify_object(
+    metrics_json: str = Form(...),   # JSON: dict de métricas (salida de /api/metrics)
+):
+    """
+    Clasificación tipológica arqueológica a partir de métricas morfométricas.
+
+    Tipos detectados:
+      Punta de proyectil (Lanceolada / Triangular / Foliácea)
+      Bifaz             (Amigdaloide / Lanceolado / Oval)
+      Lámina lítica     (Lámina regular / Lámina retocada)
+      Raspador          (Frontal / Discoide / Semicircular)
+      Perforador / Buril
+      Cuchillo lítico   (Dorso / Bifacial)
+      Lasca             (Irregular / Tabular / Decorticado)
+      Núcleo            (Discoide / Informal / Agotado)
+      Guijarro / Canto rodado
+      Microlítico       (Indiferenciado)
+      Indeterminado
+
+    Entrada:
+      metrics_json — JSON string del dict retornado por /api/metrics
+                     o cualquier dict con circularity, solidity,
+                     aspect_ratio_tight, elongation, rectangularity,
+                     equivalent_diameter, forma_detectada.
+
+    Respuesta:
+      {
+        "tipo":        str,    # tipo principal
+        "subtipo":     str,    # subtipo específico
+        "confianza":   float,  # 0–1
+        "descripcion": str,    # descripción interpretativa
+        "metodo":      str,    # "morfometrico_reglas"
+        "color":       dict,   # {bg, border, text} para badge UI
+        "icono":       str,    # carácter unicode representativo
+        "indicadores": dict,   # descriptores usados en la decisión
+      }
+    """
+    import json
+    m = json.loads(metrics_json)
+    # Soportar tanto {"metricas": {...}} como el dict plano directamente
+    if "metricas" in m:
+        m = m["metricas"]
+    return await modules.classifier.classify_async(m)
+
+
+# ============================================================================
 # FASE 1 IA — DETECCIÓN CON YOLOv8n
 # Nuevo módulo: yolo_detector.py
 # Resuelve: separación de objetos pegados/solapados

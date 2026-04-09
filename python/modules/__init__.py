@@ -3,7 +3,7 @@ MAO Plus — Paquete de módulos Python
 Registra qué módulos están implementados y cuáles son stubs.
 """
 
-from python.modules import contour, metrics, morphology, detection, analysis, comparator, scale, ph, persistence, mao_ia_analyzer
+from python.modules import contour, metrics, morphology, detection, analysis, comparator, scale, ph, persistence, mao_ia_analyzer, classifier
 
 # ── Registro de capacidades ─────────────────────────────────────────────────
 
@@ -18,6 +18,7 @@ _MODULES = {
     "ph":              ph,
     "persistence":     persistence,
     "mao_ia_analyzer": mao_ia_analyzer,
+    "classifier":      classifier,
 }
 
 

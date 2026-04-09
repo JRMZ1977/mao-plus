@@ -11374,6 +11374,22 @@
         return false;
       }
       
+      // ── Fase 2 IA: Clasificación tipológica arqueológica ─────────────────────
+      if (window.PythonBridge && PythonBridge.isAvailable()) {
+        try {
+          const _tipologia = await PythonBridge.classifier.classify(metricas);
+          if (_tipologia && _tipologia.tipo) {
+            metricas.tipologia           = _tipologia;
+            metricas.tipo_artefacto      = _tipologia.tipo;
+            metricas.subtipo_artefacto   = _tipologia.subtipo  || '';
+            metricas.confianza_tipologia = _tipologia.confianza || 0;
+            console.log(`[IA Fase 2] Tipología: ${_tipologia.tipo} (${(_tipologia.confianza * 100).toFixed(0)}%)`);
+          }
+        } catch (_eTip) {
+          console.warn('[IA Fase 2] classify falló:', _eTip.message);
+        }
+      }
+
       // Guardar siempre en caché — incluso en modo silencioso (auto-análisis background)
       guardarAnalisisEnCache(obj, metricas);
 
@@ -21351,8 +21367,34 @@
     const razonamiento = metricas.forma_razonamiento || 'No disponible';
     const claseCircularidad = metricas.shape_class_circularity || 'No clasificada';
     const claseAspect = metricas.shape_class_aspect || 'No clasificada';
+
+    // ── Tipología arqueológica (Fase 2 IA) ──
+    const tip = metricas.tipologia;
+    let tipologiaHTML = '';
+    if (tip && tip.tipo) {
+      const tipConf = Math.round((tip.confianza || 0) * 100);
+      const tipColor = tip.color?.bg || '#ede7f6';
+      const tipBorder = tip.color?.border || '#673ab7';
+      const tipText = tip.color?.text || '#4527a0';
+      tipologiaHTML = `
+      <h3 style="color: #4527a0; margin: 24px 0 12px 0; padding-bottom: 8px; border-bottom: 3px solid #4527a0;">
+        XII-a. Tipología Arqueológica — IA Fase 2
+      </h3>
+      <div style="display:flex; align-items:center; gap:12px; padding:14px 16px; background:${tipColor}; border:2px solid ${tipBorder}; border-radius:8px; margin-bottom:14px;">
+        <span style="font-size:28px; line-height:1;">${tip.icono || '🔩'}</span>
+        <div style="flex:1;">
+          <div style="font-size:16px; font-weight:800; color:${tipText};">${tip.tipo}</div>
+          ${tip.subtipo ? `<div style="font-size:13px; color:${tipText}; opacity:0.85;">${tip.subtipo}</div>` : ''}
+          <div style="font-size:11px; color:${tipText}; opacity:0.70; margin-top:4px;">${tip.descripcion || ''}</div>
+        </div>
+        <div style="text-align:right; min-width:52px;">
+          <div style="font-size:20px; font-weight:800; color:${tipColor >= 70 ? '#28a745' : tipConf >= 50 ? '#f9a825' : '#e53935'}; color:${tipText};">${tipConf}%</div>
+          <div style="font-size:10px; color:${tipText}; opacity:0.65;">confianza</div>
+        </div>
+      </div>`;
+    }
     
-    return `
+    return `${tipologiaHTML}
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #673ab7;">
         XII-b. Clasificación Morfológica Detallada
       </h3>

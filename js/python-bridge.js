@@ -454,6 +454,26 @@ const PythonBridge = (() => {
   };
 
   /**
+   * Módulo clasificador tipológico arqueológico (Fase 2 IA).
+   * Retorna null si el servidor no está disponible → no bloqueante.
+   */
+  const classifier = {
+    /**
+     * Clasifica un artefacto según sus métricas morfométricas.
+     * @param {Object} metricsDict  - Objeto metricas con forma_detectada, circularity, etc.
+     * @returns {Promise<{tipo, subtipo, confianza, descripcion, color, icono}|null>}
+     */
+    async classify(metricsDict) {
+      if (!_serverAvailable) return null;
+      return _fetch('/classify', {
+        method: 'POST',
+        _timeout: 10_000,
+        body: _formData({ metrics_json: JSON.stringify(metricsDict) }),
+      });
+    },
+  };
+
+  /**
    * Módulo SAM (MobileSAM ONNX) — segmentación asistida por IA.
    * Endpoints: GET /api/sam/status · POST /api/sam/download · POST /api/sam-contour
    */
@@ -600,6 +620,7 @@ const PythonBridge = (() => {
     bifacial,
     pipeline,
     sam,
+    classifier,
     // Solo para debug en consola
     _debug: () => ({
       serverAvailable: _serverAvailable,
