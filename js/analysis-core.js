@@ -42982,24 +42982,34 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
               if (pyDet) console.log(`[Python] detection.detect ✓ → ${pyDet.objects?.length ?? 0} objetos`);
             }
             if (pyDet && Array.isArray(pyDet.objects) && pyDet.objects.length > 0) {
-              objects = pyDet.objects.map((o, idx) => ({
-                id: idx + 1,
-                minX: o.bbox ? o.bbox.x : (o.minX || 0),
-                minY: o.bbox ? o.bbox.y : (o.minY || 0),
-                width:  o.bbox ? (o.bbox.w ?? o.bbox.width ?? 0) : (o.width || 0),
-                height: o.bbox ? (o.bbox.h ?? o.bbox.height ?? 0) : (o.height || 0),
-                area:   o.area || 0,
-                centroide: o.centroid
-                  ? { x: Array.isArray(o.centroid) ? o.centroid[0] : o.centroid.x,
-                      y: Array.isArray(o.centroid) ? o.centroid[1] : o.centroid.y }
-                  : { x: (o.minX || 0) + (o.width || 0) / 2,
-                      y: (o.minY || 0) + (o.height || 0) / 2 },
-                contour_points: o.contour_points || [],
-                _source:     _useYolo ? 'python_yolo' : 'python',
-                _yoloConf:   o.yolo_confidence ?? null,
-                _detMethod:  o.detection_method ?? null,
-                _maoIA:      o.mao_ia ?? null,
-              }));
+              objects = pyDet.objects.map((o, idx) => {
+                const _minX   = o.bbox ? o.bbox.x : (o.minX || 0);
+                const _minY   = o.bbox ? o.bbox.y : (o.minY || 0);
+                const _width  = o.bbox ? (o.bbox.w ?? o.bbox.width ?? 0) : (o.width || 0);
+                const _height = o.bbox ? (o.bbox.h ?? o.bbox.height ?? 0) : (o.height || 0);
+                const _cx     = o.centroid
+                  ? (Array.isArray(o.centroid) ? o.centroid[0] : o.centroid.x)
+                  : _minX + _width  / 2;
+                const _cy     = o.centroid
+                  ? (Array.isArray(o.centroid) ? o.centroid[1] : o.centroid.y)
+                  : _minY + _height / 2;
+                return {
+                  id:      idx + 1,
+                  minX:    _minX,
+                  minY:    _minY,
+                  maxX:    _minX + _width,
+                  maxY:    _minY + _height,
+                  width:   _width,
+                  height:  _height,
+                  area:    o.area || 0,
+                  centroide:      { x: _cx, y: _cy },
+                  contour_points: o.contour_points || [],
+                  _source:    _useYolo ? 'python_yolo' : 'python',
+                  _yoloConf:  o.yolo_confidence ?? null,
+                  _detMethod: o.detection_method ?? null,
+                  _maoIA:     o.mao_ia ?? null,
+                };
+              });
               _pyDetUsed = true;
             }
           }
