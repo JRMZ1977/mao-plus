@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "type": "command",
+        "osx": ".github/scripts/run-morphology-tests.sh",
+        "linux": ".github/scripts/run-morphology-tests.sh",
+        "cwd": "${workspaceFolder}",
+        "timeout": 60
+      }
+    ]
+  }
+}

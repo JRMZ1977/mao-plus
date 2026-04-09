@@ -1,0 +1,41 @@
+# Entorno virtual Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Dependencias Node
+node_modules/
+
+# Electron build
+dist/
+out/
+build/
+
+# Logs
+*.log
+logs/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# VS Code
+.vscode/
+
+# Datos y proyectos de usuario (no versionar)
+projects/
+uploads/
+temp/
+*.tmp
+
+# Archivos de caché/análisis generados
+*.cache
+
+# Variables de entorno
+.env
+.env.local

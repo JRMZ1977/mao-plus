@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Principios de Morfometría — MAO Plus</title>
+<style>
+  /* ─── TIPOGRAFÍA BASE ────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    line-height: 1.65;
+    color: #1a202c;
+    background: #e8edf2;
+  }
+  .page-wrapper {
+    max-width: 900px;
+    margin: 0 auto;
+    background: #ffffff;
+    box-shadow: 0 4px 32px rgba(0,0,0,0.12);
+  }
+  h2 { font-size: 18px; font-weight: 700; color: #1a202c; margin-bottom: 12px; }
+  h3 { font-size: 14px; font-weight: 700; color: #2d3748; margin: 20px 0 8px; }
+  h4 { font-size: 13px; font-weight: 700; color: #4a5568; margin: 14px 0 6px; }
+  p  { margin-bottom: 10px; }
+  ul, ol { margin: 8px 0 10px 22px; }
+  li { margin-bottom: 4px; }
+  a  { color: #2b6cb0; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  sub, sup { font-size: 0.78em; }
+
+  /* ─── PORTADA ────────────────────────────────────────────────────── */
+  .cover {
+    background: #f7f9fc;
+    padding: 64px;
+    border-top: 5px solid #1a202c;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .cover-header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 40px;
+  }
+  .cover-icon {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+    border-radius: 12px;
+    background: #2d3748;
+    padding: 8px;
+    flex-shrink: 0;
+  }
+  .cover-wordmark-title {
+    font-size: 28px;
+    font-weight: 800;
+    color: #1a202c;
+    letter-spacing: -0.5px;
+  }
+  .cover-wordmark-title span { color: #3182ce; }
+  .cover-wordmark-sub {
+    font-size: 11px;
+    color: #718096;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-top: 2px;
+  }
+  .cover-super {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #718096;
+    margin-bottom: 12px;
+  }
+  .cover h1 {
+    font-size: 36px;
+    font-weight: 800;
+    color: #1a202c;
+    letter-spacing: -1px;
+    margin-bottom: 10px;
+    line-height: 1.15;
+  }
+  .cover-subtitle {
+    font-size: 15px;
+    color: #4a5568;
+    margin-bottom: 20px;
+    line-height: 1.5;
+  }
+  .cover-badge {
+    display: inline-block;
+    background: #2d3748;
+    color: #e2e8f0;
+    font-size: 11px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    letter-spacing: 0.4px;
+    margin-bottom: 36px;
+  }
+  .cover-meta {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 24px;
+  }
+  .cover-meta-item .label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #718096;
+    margin-bottom: 3px;
+  }
+  .cover-meta-item .value {
+    font-size: 13px;
+    font-weight: 700;
+    color: #2d3748;
+  }
+
+  /* ─── ÍNDICE ─────────────────────────────────────────────────────── */
+  .toc {
+    background: #f0f4f8;
+    padding: 40px 64px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .toc h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #718096;
+    margin-bottom: 20px;
+    font-weight: 600;
+  }
+  .toc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 32px;
+  }
+  .toc-entry {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    color: #2d3748;
+    font-size: 12.5px;
+    padding: 4px 0;
+    border-bottom: none;
+  }
+  .toc-entry:hover { color: #2b6cb0; }
+  .toc-num {
+    font-weight: 800;
+    color: #3182ce;
+    min-width: 28px;
+    font-size: 12px;
+  }
+  .toc-dots {
+    flex: 1;
+    border-bottom: 1px dotted #cbd5e0;
+    margin: 0 4px;
+    position: relative;
+    bottom: 3px;
+  }
+
+  /* ─── CONTENIDO ──────────────────────────────────────────────────── */
+  .content {
+    padding: 48px 64px;
+  }
+
+  /* ─── SECCIONES ──────────────────────────────────────────────────── */
+  .section { margin-bottom: 56px; }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-bottom: 2px solid #e2e8f0;
+    padding-bottom: 12px;
+    margin-bottom: 20px;
+  }
+  .section-num {
+    background: #2d3748;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 800;
+    min-width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    letter-spacing: -0.5px;
+    flex-shrink: 0;
+  }
+  .section-header h2 { margin-bottom: 0; border: none; padding: 0; }
+  .subsection { margin: 20px 0; }
+
+  /* ─── BLOQUES DE FÓRMULA ─────────────────────────────────────────── */
+  .formula-block {
+    background: #f8f9ff;
+    border-left: 4px solid #3182ce;
+    border-radius: 0 8px 8px 0;
+    padding: 16px 20px;
+    margin: 16px 0;
+  }
+  .formula-name {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: #3182ce;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .formula-expr {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 17px;
+    font-style: italic;
+    color: #1a202c;
+    margin-bottom: 10px;
+    line-height: 1.6;
+  }
+  .formula-def {
+    font-size: 12px;
+    color: #4a5568;
+    line-height: 1.9;
+  }
+  .formula-def span {
+    font-family: Georgia, serif;
+    font-style: italic;
+    color: #2d3748;
+    font-weight: 600;
+  }
+  .formula-range {
+    font-size: 11.5px;
+    color: #718096;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed #e2e8f0;
+  }
+
+  /* ─── GRUPOS DE FÓRMULAS ─────────────────────────────────────────── */
+  .formula-group {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 16px 0;
+  }
+  .formula-group-header {
+    background: #edf2f7;
+    padding: 9px 16px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #2d3748;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  .formula-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    border-top: 1px solid #e2e8f0;
+  }
+  .formula-row:first-of-type { border-top: none; }
+  .fr-label {
+    padding: 9px 16px;
+    font-size: 12px;
+    color: #4a5568;
+    border-right: 1px solid #e2e8f0;
+    background: #f7f8fa;
+    display: flex;
+    align-items: center;
+  }
+  .fr-expr {
+    padding: 9px 16px;
+    font-family: Georgia, serif;
+    font-style: italic;
+    font-size: 13px;
+    color: #1a202c;
+    display: flex;
+    align-items: center;
+  }
+
+  /* ─── TABLAS ─────────────────────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin: 12px 0 20px;
+  }
+  thead tr {
+    background: #2d3748;
+    color: #ffffff;
+  }
+  thead th {
+    padding: 9px 14px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11.5px;
+    letter-spacing: 0.3px;
+  }
+  tbody tr:nth-child(even) { background: #f7f8fa; }
+  tbody td {
+    padding: 8px 14px;
+    border-bottom: 1px solid #e8ecf0;
+    vertical-align: top;
+    line-height: 1.55;
+  }
+
+  /* ─── CALLOUTS ───────────────────────────────────────────────────── */
+  .callout {
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 12.5px;
+    line-height: 1.7;
+  }
+  .callout-info  { background: #ebf8ff; border-left: 4px solid #3182ce; color: #2c5282; }
+  .callout-warn  { background: #fffbeb; border-left: 4px solid #d69e2e; color: #744210; }
+  .callout-tip   { background: #f0fff4; border-left: 4px solid #38a169; color: #22543d; }
+  .callout strong { font-weight: 700; }
+
+  /* ─── TABLAS DE UMBRALES ─────────────────────────────────────────── */
+  .threshold-table td:last-child { font-weight: 600; }
+  .t-opt  { background: #c6f6d5; color: #22543d; }
+  .t-ok   { background: #bee3f8; color: #2a4365; }
+  .t-mid  { background: #fefcbf; color: #744210; }
+  .t-bad  { background: #fed7aa; color: #7b341e; }
+  .t-err  { background: #fed7d7; color: #742a2a; }
+
+  /* ─── GRILLAS DE CONTENIDO ───────────────────────────────────────── */
+  .col2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0; }
+  .col3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 12px 0; }
+  .card {
+    background: #f7f8fa;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .card-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #718096;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .card-value {
+    font-size: 20px;
+    font-weight: 800;
+    color: #2d3748;
+  }
+
+  /* ─── CÓDIGO ─────────────────────────────────────────────────────── */
+  code {
+    background: #edf2f7;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: #2b6cb0;
+    font-size: 11.5px;
+    font-family: 'Menlo', 'Consolas', monospace;
+  }
+  pre {
+    background: #edf2f7;
+    padding: 14px 18px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 11.5px;
+    font-family: 'Menlo', 'Consolas', monospace;
+    color: #2b6cb0;
+    margin: 12px 0;
+    line-height: 1.6;
+  }
+
+  /* ─── SEPARADOR ──────────────────────────────────────────────────── */
+  hr {
+    border: none;
+    border-top: 1px solid #e2e8f0;
+    margin: 32px 0;
+  }
+
+  /* ─── PIE DE PÁGINA ──────────────────────────────────────────────── */
+  .footer {
+    background: #2d3748;
+    color: #ffffff;
+    text-align: center;
+    padding: 24px 40px;
+    font-size: 11px;
+    line-height: 1.8;
+  }
+  .footer strong { color: #ffffff; }
+
+  /* ─── IMPRESIÓN ──────────────────────────────────────────────────── */
+  @media print {
+    body { background: #fff; font-size: 11px; }
+    .page-wrapper { max-width: 100%; box-shadow: none; }
+    .cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .section-num { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    thead tr { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .formula-block { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-inside: avoid; }
+    .formula-group { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-inside: avoid; }
+    .threshold-table td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .toc { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .section { page-break-inside: avoid; }
+    h2, h3, h4 { page-break-after: avoid; }
+    .no-print { display: none; }
+  }
+
+  /* ─── BOTÓN IMPRIMIR ─────────────────────────────────────────────── */
+  .print-btn {
+    position: fixed;
+    bottom: 28px; right: 28px;
+    background: #2d3748;
+    color: #fff;
+    border: none;
+    padding: 12px 22px;
+    border-radius: 30px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    z-index: 100;
+    letter-spacing: 0.3px;
+    transition: background 0.2s;
+  }
+  .print-btn:hover { background: #4a5568; }
+</style>
+</head>
+<body>
+
+<button class="print-btn no-print" onclick="window.print()">⬇ Exportar PDF</button>
+
+<div class="page-wrapper">
+
+<!-- ══════════════════════════════════════════════════════════════════
+     PORTADA
+═══════════════════════════════════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-header">
+    <img src="icon.png" alt="MAO Plus" class="cover-icon">
+    <div>
+      <div class="cover-wordmark-title">MAO <span>Plus</span></div>
+      <div class="cover-wordmark-sub">Morphological Analysis &amp; Objects</div>
+    </div>
+  </div>
+  <div class="cover-super">Documentación técnica — Fundamentos metodológicos</div>
+  <h1>Principios de Morfometría</h1>
+  <div class="cover-subtitle">Fundamentos matemáticos, geométricos y estadísticos del análisis morfométrico<br>aplicado a objetos arqueológicos líticos y óseos</div>
+  <div class="cover-badge">Geometría diferencial · Estadística multivariada · Análisis de contornos · Morfometría geométrica</div>
+  <div class="cover-meta">
+    <div class="cover-meta-item">
+      <div class="label">Versión</div>
+      <div class="value">MAO Plus v1.3.0</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="label">Fecha</div>
+      <div class="value">Abril 2026</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="label">Documento</div>
+      <div class="value">PRINCIPIOS_MORFOMETRIA_MAO</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="label">Desarrollo</div>
+      <div class="value">JFRR / PABD</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     ÍNDICE
+═══════════════════════════════════════════════════════════════════ -->
+<div class="toc">
+  <h2>Índice de secciones</h2>
+  <div class="toc-grid">
+    <a class="toc-entry" href="#sec-I"><span class="toc-num">I</span>Epistemología de la morfometría<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-II"><span class="toc-num">II</span>Representación digital del contorno<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-III"><span class="toc-num">III</span>Geometría del convex hull<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-IV"><span class="toc-num">IV</span>Tensor de inercia y ejes principales<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-V"><span class="toc-num">V</span>Índices adimensionales de forma<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-VI"><span class="toc-num">VI</span>Análisis radial desde el centroide<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-VII"><span class="toc-num">VII</span>Curvatura local discreta (Menger)<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-VIII"><span class="toc-num">VIII</span>Rugosidad y complejidad del borde<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-IX"><span class="toc-num">IX</span>Diámetro de Feret (caliper digital)<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-X"><span class="toc-num">X</span>Defectos de convexidad<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-XI"><span class="toc-num">XI</span>Simetría bilateral<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-XII"><span class="toc-num">XII</span>Clasificación morfológica multivariada<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-XIII"><span class="toc-num">XIII</span>Análisis de textura de superficie (GLCM)<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-XIV"><span class="toc-num">XIV</span>Coherencia bifacial (CI y CMS)<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-XV"><span class="toc-num">XV</span>Pipeline MAO IA — integración completa<span class="toc-dots"></span></a>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     CONTENIDO
+═══════════════════════════════════════════════════════════════════ -->
+<div class="content">
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN I — EPISTEMOLOGÍA
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-I">
+  <div class="section-header">
+    <span class="section-num">I</span>
+    <h2>Epistemología de la morfometría arqueológica</h2>
+  </div>
+
+  <p>La <strong>morfometría</strong> es la disciplina que estudia la forma y el tamaño de los objetos mediante procedimientos cuantitativos formalizados matemáticamente. En el contexto de la arqueología lítica, su objeto de análisis es la <em>geometría del contorno y la superficie</em> de artefactos —lascas, núcleos, bifaces, puntas de proyectil— considerados como entidades métricas mensurables de manera objetiva y reproducible.</p>
+
+  <p>La tradición morfométrica se articula en dos grandes paradigmas metodológicos complementarios, con supuestos ontológicos distintos:</p>
+
+  <div class="col2">
+    <div class="card">
+      <div class="card-title">Morfometría tradicional</div>
+      <p style="font-size:12px; margin:0;">Opera con <strong>variables escalares</strong> —longitud máxima, ancho, espesor, peso— medidas directamente sobre el objeto con instrumental métrico (calibrador Vernier, balanza). Los descriptores son independientes entre sí y no preservan la geometría global del contorno. Su ventaja es la estandarización histórica y la compatibilidad interlaboratorio.</p>
+    </div>
+    <div class="card">
+      <div class="card-title">Morfometría geométrica</div>
+      <p style="font-size:12px; margin:0;">Opera con <strong>coordenadas cartesianas</strong> de puntos homólogos (<em>landmarks</em>) o con la totalidad del contorno digitalizado. Preserva la información geométrica completa —posición, orientación, escala— separando forma de tamaño mediante superposición Procrustes. Permite estadísticas multivariadas sobre el espacio de formas (shape space de Kendall).</p>
+    </div>
+  </div>
+
+  <p>MAO Plus implementa un enfoque <strong>híbrido</strong>: extrae la totalidad del contorno digital a píxel (morfometría geométrica) y computa sobre él tanto índices adimensionales clásicos (morfometría tradicional) como descriptores tensoriales, radiales y espectrales. El resultado es un vector de características de alta dimensión que captura forma, regularidad, curvatura, textura y simetría con un único flujo computacional.</p>
+
+  <div class="callout callout-info">
+    <strong>Marco epistemológico:</strong> El objeto arqueológico se modela como un polígono simple orientado (simple closed polygon) cuyos vértices son la discretización del contorno de su máscara binaria. Toda la cadena analítica opera sobre esta representación vectorial precisa, libre de las ambigüedades subjetivas de la descripción tipológica cualitativa.
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN II — REPRESENTACIÓN DIGITAL DEL CONTORNO
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-II">
+  <div class="section-header">
+    <span class="section-num">II</span>
+    <h2>Representación digital del contorno</h2>
+  </div>
+
+  <p>El tránsito del objeto físico al contorno digital implica tres etapas sucesivas de transformación matemática: <strong>binarización</strong>, <strong>extracción vectorial</strong> y <strong>simplificación poligonal</strong>. Cada etapa introduce parámetros que condicionan la fidelidad de la representación.</p>
+
+  <div class="subsection">
+    <h3>1. Binarización adaptativa de la máscara</h3>
+    <p>La segmentación del objeto del fondo se realiza mediante un esquema de umbralización adaptativa que combina el algoritmo de Otsu con un suavizado gaussiano previo:</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Umbral de Otsu (maximización de varianza inter-clase)</div>
+      <div class="formula-expr">σ²<sub>B</sub>(t) = ω₀(t)·ω₁(t)·[μ₀(t) − μ₁(t)]²</div>
+      <div class="formula-def">
+        <span>ω₀(t)</span> = probabilidad acumulada de la clase fondo (niveles 0 … t)<br>
+        <span>ω₁(t)</span> = probabilidad acumulada de la clase objeto (niveles t+1 … 255)<br>
+        <span>μ₀(t), μ₁(t)</span> = medias de intensidad de cada clase<br>
+        El umbral óptimo <em>t*</em> maximiza σ²<sub>B</sub> y equivale a minimizar la varianza intra-clase
+      </div>
+      <div class="formula-range"><strong>Condición de aplicación:</strong> histograma bimodal — curva con dos modas bien separadas. Para objetos de bajo contraste se aplica CLAHE previo (Contrast Limited Adaptive Histogram Equalization).</div>
+    </div>
+
+    <p>El suavizado gaussiano previo de radio σ<sub>g</sub> suprime el ruido de alta frecuencia (granularidad de la superficie lítica, sombras especulares) antes de calcular el umbral. Actúa como un filtro paso-bajo con respuesta impulsional:</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Kernel gaussiano 2D</div>
+      <div class="formula-expr">G(x,y) = (1/2πσ²) · exp[−(x²+y²)/2σ²]</div>
+      <div class="formula-def">
+        <span>σ</span> = desviación estándar del kernel (típicamente 1.0–2.0 px en MAO Plus)<br>
+        La convolución I' = I * G reduce el gradiente espurio de ruido antes del umbralizado
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>2. Extracción del contorno por seguimiento de borde (border tracing)</h3>
+    <p>Sobre la máscara binaria se aplica el algoritmo de Suzuki–Abe (implementado en <code>cv2.findContours</code>) que recorre el borde de la región unitaria (píxeles = 1) recuperando la secuencia ordenada de puntos de contorno en 8-conectividad. El resultado es un polígono de N vértices en coordenadas de imagen (enteros, píxeles).</p>
+
+    <div class="callout callout-tip">
+      <strong>Propiedad topológica:</strong> El algoritmo de Suzuki garantiza que el contorno extraído es un polígono simple (sin auto-intersecciones) orientado en sentido antihorario para contornos externos. Esta orientación es indispensable para que el criterio del signo de la fórmula de Shoelace funcione correctamente.
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>3. Simplificación de Douglas-Peucker</h3>
+    <p>El polígono bruto extraído a resolución de píxel puede contener miles de vértices colineales redundantes. El algoritmo de Douglas-Peucker reduce su cardinalidad preservando la forma geométrica dentro de una tolerancia ε:</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Criterio de simplificación Douglas-Peucker</div>
+      <div class="formula-expr">d(P, seg) = ||(P − A) × (B − A)|| / ||B − A||</div>
+      <div class="formula-def">
+        <span>P</span> = punto intermedio candidato a eliminar<br>
+        <span>A, B</span> = extremos del segmento simplificado<br>
+        <span>d(P, seg)</span> = distancia perpendicular del punto al segmento<br>
+        Si d &lt; ε para todos los puntos intermedios, el segmento AB los reemplaza; si d ≥ ε en algún punto, ese punto se retiene como vértice
+      </div>
+      <div class="formula-range"><strong>Parámetro ε:</strong> MAO Plus utiliza ε = 0.5–2.0 px según resolución. Valores mayores producen contornos más suaves pero menos fieles a la geometría real del borde tallado.</div>
+    </div>
+
+    <p>La longitud del arco del contorno simplificado se aproxima como la suma de las longitudes euclídeas de sus segmentos:</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Longitud de arco discretizada (perímetro)</div>
+      <div class="formula-expr">P = Σᵢ ||Pᵢ₊₁ − Pᵢ|| = Σᵢ √[(xᵢ₊₁−xᵢ)² + (yᵢ₊₁−yᵢ)²]</div>
+      <div class="formula-def">
+        <span>Pᵢ = (xᵢ, yᵢ)</span> = i-ésimo vértice del contorno (índice cíclico: P<sub>N</sub> ≡ P₀)<br>
+        El error de discretización respecto al perímetro continuo es O(ε²) para curvas suaves
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN III — CONVEX HULL
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-III">
+  <div class="section-header">
+    <span class="section-num">III</span>
+    <h2>Geometría del convex hull</h2>
+  </div>
+
+  <p>La <strong>envolvente convexa</strong> (convex hull) de un conjunto finito de puntos S ⊂ ℝ² es el menor conjunto convexo que contiene a S. Formalmente:</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Definición del convex hull</div>
+    <div class="formula-expr">conv(S) = { Σᵢ λᵢpᵢ : pᵢ ∈ S, λᵢ ≥ 0, Σᵢ λᵢ = 1 }</div>
+    <div class="formula-def">
+      Es el conjunto de todas las combinaciones convexas de puntos de S. Por el teorema de Carathéodory, cualquier punto de conv(S) en ℝ² puede expresarse como combinación convexa de a lo sumo 3 puntos de S (i.e., interior a algún triángulo formado por vértices del hull).
+    </div>
+  </div>
+
+  <p>En MAO Plus el hull se computa sobre los vértices del contorno mediante el algoritmo <code>scipy.spatial.ConvexHull</code> (Quickhull, complejidad O(n log n) esperado). Los vértices del hull conforman un polígono convexo H ⊆ P cuyos vértices son un subconjunto de los del contorno.</p>
+
+  <div class="subsection">
+    <h3>Área por la fórmula de Shoelace (Gauss)</h3>
+    <p>El área con signo de un polígono simple de N vértices se obtiene por el teorema de Green aplicado al campo vectorial F = (0, x):</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Fórmula de Gauss / Shoelace</div>
+      <div class="formula-expr">A = ½ |Σᵢ₌₀ᴺ⁻¹ (xᵢ·yᵢ₊₁ − xᵢ₊₁·yᵢ)|</div>
+      <div class="formula-def">
+        Los índices son cíclicos: (x<sub>N</sub>, y<sub>N</sub>) ≡ (x₀, y₀)<br>
+        El signo del área con signo indica la orientación: positivo → antihorario (CCW), negativo → horario (CW)<br>
+        La fórmula es exacta para cualquier polígono simple (no requiere triangulación)
+      </div>
+      <div class="formula-range"><strong>Complejidad:</strong> O(N) — lineal en el número de vértices</div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Centroide área-ponderado del polígono</h3>
+    <p>El centroide geométrico (centro de masa con densidad uniforme) se obtiene integrando las coordenadas ponderadas por el área elemental, también por el teorema de Green:</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Centroide de polígono (fórmula de Green)</div>
+      <div class="formula-expr">C<sub>x</sub> = (1/6A) Σᵢ (xᵢ + xᵢ₊₁)(xᵢ yᵢ₊₁ − xᵢ₊₁ yᵢ)</div>
+      <div class="formula-expr">C<sub>y</sub> = (1/6A) Σᵢ (yᵢ + yᵢ₊₁)(xᵢ yᵢ₊₁ − xᵢ₊₁ yᵢ)</div>
+      <div class="formula-def">
+        A es el área con signo (no absoluta) para preservar el signo correcto en los sumandos<br>
+        A diferencia del centroide de vértices (media aritmética), este centroide es invariante a la densidad de vértices — no desplaza hacia regiones sobre-muestreadas del contorno
+      </div>
+    </div>
+
+    <div class="callout callout-warn">
+      <strong>Distinción crítica en MAO Plus:</strong> El sistema mantiene dos centroides distintos: el centroide del <em>contorno</em> del fragmento (C<sub>frag</sub>) y el centroide del <em>hull</em> (C<sub>hull</sub>). La mayoría de los descriptores radiales y los ejes de inercia operan sobre C<sub>hull</sub>, pues proporciona un centro geométrico más estable frente a bahías y escotaduras del borde fragmentado.
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Solidez y déficit convexo</h3>
+    <div class="formula-group">
+      <div class="formula-group-header">Relaciones área fragmento / hull</div>
+      <div class="formula-row">
+        <div class="fr-label">Solidez (solidity)</div>
+        <div class="fr-expr">Sol = A<sub>frag</sub> / A<sub>hull</sub> ∈ (0, 1]</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Déficit convexo</div>
+        <div class="fr-expr">D<sub>cx</sub> = A<sub>hull</sub> − A<sub>frag</sub> ≥ 0</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Índice de convexidad (Haralick)</div>
+        <div class="fr-expr">IC = P<sub>hull</sub> / P<sub>frag</sub> ∈ (0, 1]</div>
+      </div>
+    </div>
+    <p>La solidez = 1 implica que el fragmento es convexo. Valores bajos indican fuerte presencia de concavidades, que en lítico se asocian a retoques inversos, fracturación irregular o morfología cóncavo-convexa.</p>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN IV — TENSOR DE INERCIA Y EJES PRINCIPALES
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-IV">
+  <div class="section-header">
+    <span class="section-num">IV</span>
+    <h2>Tensor de inercia y ejes principales</h2>
+  </div>
+
+  <p>La orientación preferencial y la anisotropía geométrica de un objeto plano quedan completamente codificadas en su <strong>tensor de momentos de inercia de segundo orden</strong>. Geometricamente, este tensor describe la distribución de área alrededor del centroide — su diagonalización revela los ejes de máxima y mínima elongación.</p>
+
+  <div class="subsection">
+    <h3>Momentos centrales de segundo orden</h3>
+    <p>Los momentos de área de orden 2 referenciados al centroide (C<sub>x</sub>, C<sub>y</sub>) se calculan integrando sobre el dominio del polígono por el teorema de Green. Para un polígono simple de N vértices:</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Momentos centrales de segundo orden vía Green</div>
+      <div class="formula-expr">I<sub>xx</sub> = (1/12) Σᵢ (yᵢ² + yᵢ·yᵢ₊₁ + yᵢ₊₁²) · (xᵢ·yᵢ₊₁ − xᵢ₊₁·yᵢ)</div>
+      <div class="formula-expr">I<sub>yy</sub> = (1/12) Σᵢ (xᵢ² + xᵢ·xᵢ₊₁ + xᵢ₊₁²) · (xᵢ·yᵢ₊₁ − xᵢ₊₁·yᵢ)</div>
+      <div class="formula-expr">I<sub>xy</sub> = (1/24) Σᵢ (xᵢ·yᵢ₊₁ + 2xᵢ·yᵢ + 2xᵢ₊₁·yᵢ₊₁ + xᵢ₊₁·yᵢ) · (xᵢ·yᵢ₊₁ − xᵢ₊₁·yᵢ)</div>
+      <div class="formula-def">
+        Los valores son los momentos de inercia referidos al origen de coordenadas; se trasladan al centroide por el teorema del eje paralelo (Steiner): I<sub>c,xx</sub> = I<sub>xx</sub> − A·C<sub>y</sub>², etc.
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Diagonalización del tensor — ejes principales</h3>
+    <p>El tensor de inercia central es una matriz simétrica 2×2:</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Tensor de inercia central</div>
+      <div class="formula-expr">𝕀 = [ I<sub>c,xx</sub>  −I<sub>c,xy</sub> ; −I<sub>c,xy</sub>  I<sub>c,yy</sub> ]</div>
+      <div class="formula-def">
+        Sus <strong>eigenvalores</strong> λ₁ ≥ λ₂ son las inercias en los ejes principal mayor y menor respectivamente.<br>
+        Sus <strong>eigenvectores</strong> v₁, v₂ son los <em>ejes principales de inercia</em> — ortogonales entre sí (por ser 𝕀 simétrica positivo-semidefinida).
+      </div>
+    </div>
+
+    <div class="formula-block">
+      <div class="formula-name">Ángulo del eje principal mayor</div>
+      <div class="formula-expr">θ = ½ arctan(2I<sub>c,xy</sub> / (I<sub>c,yy</sub> − I<sub>c,xx</sub>))</div>
+      <div class="formula-def">
+        θ ∈ [−90°, +90°] es el ángulo del eje de mínima inercia (máxima elongación) respecto al eje x de imagen.<br>
+        Un valor θ ≈ 0° indica elongación preferentemente horizontal; θ ≈ 90° indica elongación vertical.
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Descriptores derivados del tensor</h3>
+    <div class="formula-group">
+      <div class="formula-group-header">Índices de forma derivados de eigenvalores</div>
+      <div class="formula-row">
+        <div class="fr-label">Elongación por inercia</div>
+        <div class="fr-expr">E<sub>I</sub> = √(λ₁/λ₂)</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Excentricidad elíptica</div>
+        <div class="fr-expr">e = √(1 − λ₂/λ₁) ∈ [0, 1)</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Isotropía (circularidad inercial)</div>
+        <div class="fr-expr">I<sub>iso</sub> = λ₂/λ₁ ∈ (0, 1]</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Radio de giro mayor</div>
+        <div class="fr-expr">k₁ = √(λ₁/A)</div>
+      </div>
+    </div>
+
+    <p>La proyección del contorno sobre el eje principal mayor v₁ proporciona la <strong>longitud efectiva</strong> del objeto (extensión máxima en la dirección de máxima elongación), mientras que la proyección sobre v₂ proporciona el <strong>ancho efectivo</strong>. Estas proyecciones son más robustas que simples bounding-box cuando el objeto está rotado respecto al marco de imagen.</p>
+
+    <div class="callout callout-info">
+      <strong>Aplicación arqueológica:</strong> El eje principal mayor corresponde al <em>eje morfológico</em> del artefacto (eje técnico de la cadena operativa en lítico). Su dirección, junto con la excentricidad, permite la comparación orientada de artefactos sin necesidad de alinearlos físicamente, habilitando estadísticas direccionales (análisis circular o von Mises) entre conjuntos.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN V — ÍNDICES ADIMENSIONALES DE FORMA
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-V">
+  <div class="section-header">
+    <span class="section-num">V</span>
+    <h2>Índices adimensionales de forma</h2>
+  </div>
+
+  <p>Los índices adimensionales codifican la forma como números puros — invariantes a escala, rotación y traslación. Son el estrato clásico de la morfometría y mantienen compatibilidad con la literatura tipológica lítica. Su adimensionalidad permite la comparación directa entre objetos de diferente tamaño.</p>
+
+  <div class="formula-group">
+    <div class="formula-group-header">Índices escalares de forma</div>
+    <div class="formula-row">
+      <div class="fr-label">Circularidad (isoperimétrica)</div>
+      <div class="fr-expr">C = 4π·A / P² ∈ (0, 1]</div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Compacidad (Haralick)</div>
+      <div class="fr-expr">K = P² / A</div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Convexidad de perímetro</div>
+      <div class="fr-expr">C<sub>P</sub> = P<sub>hull</sub> / P<sub>frag</sub> ∈ (0, 1]</div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Solidez (convexidad de área)</div>
+      <div class="fr-expr">Sol = A<sub>frag</sub> / A<sub>hull</sub> ∈ (0, 1]</div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Elongación (aspect ratio)</div>
+      <div class="fr-expr">El = L<sub>max</sub> / L<sub>min</sub> ≥ 1</div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Rectangularidad</div>
+      <div class="fr-expr">R = A<sub>frag</sub> / (L<sub>max</sub>·L<sub>min</sub>) ∈ (0, 1]</div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Regularidad radial</div>
+      <div class="fr-expr">Reg = 100·(1 − CV<sub>r</sub>) ∈ [0, 100]</div>
+    </div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Propiedad isoperimétrica de la circularidad</div>
+    <div class="formula-expr">C = 4πA / P² ≤ 1, con igualdad si y solo si el contorno es un círculo</div>
+    <div class="formula-def">
+      Este resultado es el teorema isoperimétrico plano: el círculo es la figura de máxima área para un perímetro dado (equivalentemente, de mínimo perímetro para un área dada). La circularidad mide cuán lejos está la forma real de este óptimo.
+    </div>
+    <div class="formula-range"><strong>Nota:</strong> La estimación discreta del perímetro tiende a sobreestimar ligeramente el valor continuo, produciendo circularidades &lt; 1 incluso para objetos cuasi-circulares. El bias es O(1/N) con el número de vértices del contorno.</div>
+  </div>
+
+  <div class="subsection">
+    <h3>Índices especializados para morfología lítica</h3>
+    <table>
+      <thead>
+        <tr><th>Índice</th><th>Fórmula</th><th>Interpretación arqueológica</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Ratio de Feret</strong></td>
+          <td><em>F<sub>min</sub> / F<sub>max</sub></em></td>
+          <td>Proporcionalidad entre dimensiones caliper — discrimina láminas de lascas</td>
+        </tr>
+        <tr>
+          <td><strong>Índice de estrellamiento</strong></td>
+          <td><em>R<sub>min</sub> / R<sub>max</sub></em></td>
+          <td>Circularidad radial — distingue puntas proyectil (bajo) de discos (alto)</td>
+        </tr>
+        <tr>
+          <td><strong>Lobularidad</strong></td>
+          <td><em>N<sub>defectos</sub> / P</em></td>
+          <td>Densidad de escotaduras por unidad de perímetro — refleja tipo de retoque</td>
+        </tr>
+        <tr>
+          <td><strong>Índice de elongación PCA</strong></td>
+          <td><em>√(λ₁/λ₂)</em></td>
+          <td>Elongación morfológica independiente de orientación — clasifica láminas vs. lascas cortas</td>
+        </tr>
+        <tr>
+          <td><strong>Índice de asimetría bilateral</strong></td>
+          <td><em>d<sub>H</sub>(F, F')</em></td>
+          <td>Simetría respecto al eje principal — distingue artefactos bifaciales simétricamente tallados</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN VI — ANÁLISIS RADIAL
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-VI">
+  <div class="section-header">
+    <span class="section-num">VI</span>
+    <h2>Análisis radial desde el centroide</h2>
+  </div>
+
+  <p>El análisis radial transforma el problema de descripción del contorno en un análisis unidimensional de la función radio <em>r(θ)</em>. Para que esta función sea unívoca (un solo valor de r por ángulo θ), el centroide debe ser un <strong>punto estrella</strong> del contorno (star-shaped polygon). El centroide del hull cumple esta propiedad con mayor frecuencia que el centroide del fragmento fragmentado.</p>
+
+  <div class="subsection">
+    <h3>Paso a coordenadas polares centradas en C<sub>hull</sub></h3>
+
+    <div class="formula-block">
+      <div class="formula-name">Transformación al sistema polar del centroide</div>
+      <div class="formula-expr">rᵢ = √[(xᵢ − Cx)² + (yᵢ − Cy)²]</div>
+      <div class="formula-expr">θᵢ = arctan2(yᵢ − Cy, xᵢ − Cx) ∈ (−π, π]</div>
+      <div class="formula-def">
+        (xᵢ, yᵢ) = i-ésimo vértice del hull (o del contorno completo)<br>
+        (Cx, Cy) = centroide del hull (área-ponderado)<br>
+        La secuencia {rᵢ, θᵢ} codifica el contorno como señal radial angular
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Estadísticos de la distribución radial</h3>
+
+    <div class="formula-group">
+      <div class="formula-group-header">Descriptores estadísticos de {rᵢ}</div>
+      <div class="formula-row">
+        <div class="fr-label">Radio máximo (R<sub>max</sub>)</div>
+        <div class="fr-expr">R<sub>max</sub> = max{rᵢ}</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Radio mínimo (R<sub>min</sub>)</div>
+        <div class="fr-expr">R<sub>min</sub> = min{rᵢ}</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Radio medio (R̄)</div>
+        <div class="fr-expr">R̄ = (1/N) Σᵢ rᵢ</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Desviación estándar radial</div>
+        <div class="fr-expr">σ<sub>r</sub> = √[(1/N) Σᵢ (rᵢ − R̄)²]</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Coeficiente de variación radial (CV)</div>
+        <div class="fr-expr">CV<sub>r</sub> = σ<sub>r</sub> / R̄ ∈ [0, ∞)</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Ratio de radios</div>
+        <div class="fr-expr">ρ = R<sub>min</sub> / R<sub>max</sub> ∈ (0, 1]</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Regularidad radial (%)</div>
+        <div class="fr-expr">Reg = 100·(1 − CV<sub>r</sub>)</div>
+      </div>
+    </div>
+
+    <p>La regularidad radial mide cuán próximo el contorno está de un círculo perfecto (Reg = 100%). Valores altos indican formas casi circulares o elípticas; valores bajos indican contornos irregulares con entrantes y salientes pronunciados, característicos de lascas con retoque denticulado o fragmentación post-deposicional severa.</p>
+
+    <div class="callout callout-tip">
+      <strong>Ventaja del análisis radial sobre la circularidad isoperimétrica:</strong> La circularidad C = 4πA/P² es sensible a la rugosidad del contorno (P crece con ruido) pero es insensible a la distribución angular de las irregularidades. El análisis radial informa <em>dónde</em> se concentran las deformaciones respecto al centro —información que C descarta.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN VII — CURVATURA LOCAL (MENGER)
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-VII">
+  <div class="section-header">
+    <span class="section-num">VII</span>
+    <h2>Curvatura local discreta — fórmula de Menger</h2>
+  </div>
+
+  <p>Para curvas continuas la curvatura en un punto mide la tasa de cambio de la dirección tangente respecto a la longitud de arco: κ = dθ/ds. Para contornos discretos se utiliza el <strong>estimador de curvatura de Menger</strong>, que aproxima la curvatura de la circunferencia circunscrita a tres puntos consecutivos.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Curvatura de Menger en el vértice i</div>
+    <div class="formula-expr">κᵢ = 2·Area(Pᵢ₋₁, Pᵢ, Pᵢ₊₁) / (|e₁|·|e₂|·|e₃|)</div>
+    <div class="formula-def">
+      <span>Area(Pᵢ₋₁, Pᵢ, Pᵢ₊₁)</span> = área del triángulo formado por tres vértices consecutivos (fórmula de la cruz: ½|det[P₁−P₀, P₂−P₀]|)<br>
+      <span>|e₁| = |Pᵢ − Pᵢ₋₁|</span>, <span>|e₂| = |Pᵢ₊₁ − Pᵢ|</span>, <span>|e₃| = |Pᵢ₊₁ − Pᵢ₋₁|</span><br>
+      El signo de κᵢ es positivo (convexo) o negativo (cóncavo) según la orientación del triángulo
+    </div>
+    <div class="formula-range"><strong>Nota de convergencia:</strong> Cuando los tres puntos son colineales, Area → 0 y κ → 0 (curvatura nula de segmento recto). Cuando Pᵢ es un vértice agudo, κ crece inversamente proporcional a los lados del triángulo → picos altos en ángulos de retoque.</div>
+  </div>
+
+  <div class="subsection">
+    <h3>Descriptores globales de curvatura</h3>
+
+    <div class="formula-group">
+      <div class="formula-group-header">Estadísticos del vector {κᵢ}</div>
+      <div class="formula-row">
+        <div class="fr-label">Energía de curvatura</div>
+        <div class="fr-expr">E<sub>κ</sub> = (1/N) Σᵢ κᵢ²</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Curvatura media</div>
+        <div class="fr-expr">κ̄ = (1/N) Σᵢ |κᵢ|</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Curvatura máxima local</div>
+        <div class="fr-expr">κ<sub>max</sub> = max{|κᵢ|}</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Número de picos de curvatura</div>
+        <div class="fr-expr">N<sub>picos</sub> = |{i : |κᵢ| &gt; κ̄ + 2σ<sub>κ</sub>}|</div>
+      </div>
+    </div>
+
+    <p>La energía de curvatura E<sub>κ</sub> es un descriptor global que resume la "rugosidad angular" del contorno: contornos con muchos ángulos agudos (retoques invasivos, talla bifacial) tienen E<sub>κ</sub> elevado; contornos suaves (pulidos, rodados) tienen E<sub>κ</sub> cercano a cero. El número de picos N<sub>picos</sub> refleja la cantidad de puntos de retoque discernibles.</p>
+
+    <div class="callout callout-info">
+      <strong>Aplicación tipológica:</strong> La distribución de picos de curvatura κᵢ a lo largo del contorno es una <em>firma morfológica</em> del tipo de retoque. Un patrón de picos regularmente espaciados sugiere retoque denticulado; picos concentrados en un extremo indican retoque apical (punta). Esta información es tomada en cuenta por el clasificador morfológico de MAO Plus.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN VIII — RUGOSIDAD DEL BORDE
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-VIII">
+  <div class="section-header">
+    <span class="section-num">VIII</span>
+    <h2>Rugosidad y complejidad del borde</h2>
+  </div>
+
+  <p>La rugosidad del borde cuantifica la irregularidad de la longitud de los segmentos del contorno poligonal. Un contorno formado por segmentos de longitud homogénea es geométricamente regular; uno con alta dispersión en las longitudes posee muescas, entrantes abruptos y proyecciones. Esta propiedad es independiente de la curvatura local y captura variabilidad a escala de segmento.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">CV de longitudes de segmento (rugosidad de borde)</div>
+    <div class="formula-expr">CV<sub>seg</sub> = σ<sub>seg</sub> / l̄<sub>seg</sub></div>
+    <div class="formula-def">
+      <span>lᵢ = |Pᵢ₊₁ − Pᵢ|</span> = longitud del i-ésimo segmento del contorno<br>
+      <span>l̄<sub>seg</sub> = (1/N) Σᵢ lᵢ</span> = longitud media de segmento<br>
+      <span>σ<sub>seg</sub></span> = desviación estándar de las longitudes de segmento
+    </div>
+    <div class="formula-range"><strong>Rango:</strong> CV = 0 → contorno regular isométrico; CV alto → alta heterogeneidad de segmentos — indicativo de retoque abrupto o fragmentación</div>
+  </div>
+
+  <div class="subsection">
+    <h3>Análisis fractal del contorno (índice de irregularidad)</h3>
+    <p>Para contornos naturales y tallados, la longitud aparente del perímetro depende de la escala de medición (paradoja de la costa de Richardson-Mandelbrot). La dimensión fractal D del contorno caracteriza esta dependencia:</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Estimación de dimensión fractal (box-counting)</div>
+      <div class="formula-expr">D = − lim<sub>ε→0</sub> log N(ε) / log ε</div>
+      <div class="formula-def">
+        <span>N(ε)</span> = número de cajas de lado ε necesarias para cubrir el contorno<br>
+        Para una línea suave D = 1; para contornos fractales líticos típicamente D ∈ (1.05, 1.35)<br>
+        En MAO Plus se estima como pendiente de la regresión lineal log N(ε) vs. log(1/ε) sobre un rango de ε
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN IX — DIÁMETRO DE FERET
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-IX">
+  <div class="section-header">
+    <span class="section-num">IX</span>
+    <h2>Diámetro de Feret (caliper digital)</h2>
+  </div>
+
+  <p>El diámetro de Feret simula la medición con un calibrador (vernier) aplicado en distintas direcciones: el <strong>diámetro de Feret en dirección θ</strong> es la anchura del objeto proyectado ortogonalmente sobre el eje con ángulo θ. Equivale a la distancia entre dos tangentes paralelas separando el objeto en dirección perpendicular a θ.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Diámetro de Feret en dirección θ</div>
+    <div class="formula-expr">F(θ) = max_{p∈P} ⟨p, û(θ)⟩ − min_{p∈P} ⟨p, û(θ)⟩</div>
+    <div class="formula-def">
+      <span>û(θ) = (cos θ, sin θ)</span> = vector unitario en dirección θ<br>
+      <span>⟨p, û⟩</span> = proyección escalar (producto interior) del vértice p sobre û<br>
+      F(θ) es la extensión máxima del polígono en dirección perpendicular a θ
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Feret máximo y mínimo</h3>
+    <p>El barrido angular se realiza en θ ∈ [0°, 180°) con paso Δθ (típicamente 1° en MAO Plus):</p>
+
+    <div class="formula-group">
+      <div class="formula-group-header">Métricas de Feret</div>
+      <div class="formula-row">
+        <div class="fr-label">Feret máximo (F<sub>max</sub>)</div>
+        <div class="fr-expr">F<sub>max</sub> = max<sub>θ∈[0°,180°)</sub> F(θ)</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Feret mínimo (F<sub>min</sub>)</div>
+        <div class="fr-expr">F<sub>min</sub> = min<sub>θ∈[0°,180°)</sub> F(θ)</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Ratio de Feret</div>
+        <div class="fr-expr">RF = F<sub>min</sub> / F<sub>max</sub> ∈ (0, 1]</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Ángulo de Feret máximo</div>
+        <div class="fr-expr">θ<sub>Fmax</sub> = argmax F(θ)</div>
+      </div>
+    </div>
+
+    <p>Existe un teorema geométrico que garantiza que F<sub>max</sub> y F<sub>min</sub> son tangentes a aristas del convex hull (teorema de los ejes ortogonales del hull). En la práctica, el barrido angular sobre los ángulos de los lados del hull es suficiente para encontrar el mínimo exacto, del orden O(H) en vez de O(180/Δθ × N).</p>
+
+    <div class="callout callout-info">
+      <strong>Relación con morfometría tradicional:</strong> F<sub>max</sub> aproxima la "longitud máxima" medida con calibrador, y F<sub>min</sub> approxima el "ancho mínimo", ambas métricas estándar en las fichas tipológicas de lítico (Andrefsky 2005). La ventaja digital es la objetividad de la dirección de medición (siempre la óptima) y la repetibilidad exacta.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN X — DEFECTOS DE CONVEXIDAD
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-X">
+  <div class="section-header">
+    <span class="section-num">X</span>
+    <h2>Análisis de defectos de convexidad</h2>
+  </div>
+
+  <p>Los <strong>defectos de convexidad</strong> son las regiones del contorno que forman concavidades respecto al convex hull. Cada defecto se define por un segmento del hull (arista convexa de inicio a fin) y el punto del contorno más alejado de dicho segmento (punto más profundo de la concavidad).</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Profundidad de un defecto de convexidad</div>
+    <div class="formula-expr">d = dist(P<sub>deep</sub>, seg(P<sub>start</sub>, P<sub>end</sub>))</div>
+    <div class="formula-def">
+      <span>P<sub>start</sub>, P<sub>end</sub></span> = extremos del segmento del hull que define el defecto<br>
+      <span>P<sub>deep</sub></span> = punto del contorno con máxima distancia al segmento<br>
+      La distancia perpendicular (profundidad) se calcula como la altura del triángulo (P<sub>start</sub>, P<sub>deep</sub>, P<sub>end</sub>)
+    </div>
+  </div>
+
+  <p>MAO Plus utiliza <code>cv2.convexityDefects</code> que implementa este cálculo eficientemente en O(N). Sólo se consideran defectos con profundidad d &gt; umbral (típicamente 2–5 px, configurable) para filtrar micro-rugosidades del contorno digitalizado.</p>
+
+  <div class="subsection">
+    <h3>Descriptores de defectos</h3>
+    <div class="formula-group">
+      <div class="formula-group-header">Métricas derivadas del análisis de defectos</div>
+      <div class="formula-row">
+        <div class="fr-label">Número de defectos (N<sub>def</sub>)</div>
+        <div class="fr-expr">N<sub>def</sub> = |{defectos : d &gt; d<sub>min</sub>}|</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Profundidad máxima (d<sub>max</sub>)</div>
+        <div class="fr-expr">d<sub>max</sub> = max{dᵢ}</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Profundidad media (d̄)</div>
+        <div class="fr-expr">d̄ = (1/N<sub>def</sub>) Σᵢ dᵢ</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Fracción de arco cóncavo</div>
+        <div class="fr-expr">f<sub>cx</sub> = arco cóncavo total / P<sub>frag</sub></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout callout-warn">
+    <strong>Interpretación arqueológica:</strong> Los defectos de convexidad son la huella geométrica de los retoques cóncavos, muescas deliberadas y escotaduras de uso. N<sub>def</sub> alto con d̄ moderado es característico del retoque denticulado tipo Denticulate Mousterian; un único defecto de d<sub>max</sub> grande indica una muesca deliberada (encoche). La profundidad en mm (convertida desde píxeles con la escala calibrada) permite discriminar retoques superficiales de profundos con criterio cuantitativo.
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN XI — SIMETRÍA BILATERAL
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-XI">
+  <div class="section-header">
+    <span class="section-num">XI</span>
+    <h2>Simetría bilateral</h2>
+  </div>
+
+  <p>La simetría bilateral de un artefacto respecto a un eje es relevante tanto desde el punto de vista tecnológico (indica control preciso de la talla bifacial) como funcional (herramientas simétricas tienen mejor desempeño en corte bilateral). Se mide como la distancia entre el contorno real y su reflexión en torno al eje de simetría candidato.</p>
+
+  <div class="subsection">
+    <h3>Eje de simetría y reflexión</h3>
+    <p>El eje de simetría natural de un artefacto coincide, en primera aproximación, con el eje principal de inercia v₁ calculado en §IV. La reflexión del contorno P respecto a este eje produce el polígono especular P'.</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Reflexión de un punto respecto a una recta orientada</div>
+      <div class="formula-expr">P' = 2(P·n̂)n̂ − P + 2C</div>
+      <div class="formula-def">
+        <span>n̂</span> = vector normal unitario al eje de simetría (= v₂ del tensor de inercia)<br>
+        <span>C</span> = centroide del hull (punto de paso del eje)
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Distancia de Hausdorff entre contorno y su reflexión</h3>
+
+    <div class="formula-block">
+      <div class="formula-name">Distancia de Hausdorff simétrica</div>
+      <div class="formula-expr">d<sub>H</sub>(P, P') = max{ sup<sub>p∈P</sub> inf<sub>q∈P'</sub> d(p,q), sup<sub>q∈P'</sub> inf<sub>p∈P</sub> d(p,q) }</div>
+      <div class="formula-def">
+        Mide cuánto deben "estirarse" los puntos de P para alcanzar P' en el peor caso.<br>
+        d<sub>H</sub> = 0 ↔ P y P' son idénticos (simetría perfecta)<br>
+        Para contornos discretos: se computan los nearest-neighbour distances con k-d tree en O(N log N)
+      </div>
+      <div class="formula-range"><strong>Índice de asimetría bilateral (IAB):</strong> IAB = d<sub>H</sub>(P, P') / R̄ — normalizado por el radio medio para hacerlo adimensional</div>
+    </div>
+
+    <p>El eje óptimo de simetría puede refinarse mediante optimización sobre θ ∈ [0°, 180°): el eje que minimiza d<sub>H</sub>(P, P'(θ)) es el verdadero eje bilateral. En MAO Plus se utiliza el eje principal de inercia como estimación directa (óptima para elipses, buena aproximación para artefactos bifaciales regulares).</p>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN XII — CLASIFICACIÓN MORFOLÓGICA MULTIVARIADA
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-XII">
+  <div class="section-header">
+    <span class="section-num">XII</span>
+    <h2>Clasificación morfológica multivariada</h2>
+  </div>
+
+  <p>La clasificación morfológica en MAO Plus es un sistema de <strong>votación ponderada multiclasificador</strong>. Cada clasificador extrae una proyección diferente del vector de características morfométricas y emite un voto (forma candidata) con un peso proporcional a su capacidad discriminativa para ese aspecto de la forma.</p>
+
+  <div class="subsection">
+    <h3>Arquitectura del sistema de votación</h3>
+    <table>
+      <thead>
+        <tr><th>Clasificador</th><th>Peso</th><th>Descriptores utilizados</th><th>Formas detectadas óptimamente</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Radial-angular</strong></td>
+          <td>3.0</td>
+          <td>Distribución polar {rᵢ, θᵢ}, CV<sub>r</sub>, ratio R<sub>min</sub>/R<sub>max</sub>, simetría angular</td>
+          <td>Circular, elipsoidal, estrellada, lobulada</td>
+        </tr>
+        <tr>
+          <td><strong>Ángulos de vértices</strong></td>
+          <td>2.5</td>
+          <td>Histograma de ángulos internos, N<sub>picos</sub> curvatura, vértices agudos</td>
+          <td>Triangular, cuadrangular, trapezoidal, poligonal</td>
+        </tr>
+        <tr>
+          <td><strong>Tradicional</strong></td>
+          <td>1.5</td>
+          <td>Elongación, rectangularidad, circularidad C, solidez, ratio Feret</td>
+          <td>Rectangular, laminar, irregular</td>
+        </tr>
+        <tr>
+          <td><strong>Convexidad</strong> (validador)</td>
+          <td>0</td>
+          <td>IC, solidez, N<sub>def</sub></td>
+          <td>Valida coherencia entre métodos activos</td>
+        </tr>
+        <tr>
+          <td><strong>Simetría</strong> (validador)</td>
+          <td>0</td>
+          <td>IAB, distancia Hausdorff, excentricidad</td>
+          <td>Condición sobre formas simétricas (bifacial)</td>
+        </tr>
+        <tr>
+          <td><strong>Proporciones</strong> (validador)</td>
+          <td>0</td>
+          <td>Dimensiones absolutas, relación L/A, índice de esbeltez</td>
+          <td>Distingue estrictamente láminas de lascas</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="subsection">
+    <h3>Agregación de votos y confianza</h3>
+    <div class="formula-block">
+      <div class="formula-name">Puntuación ponderada por forma</div>
+      <div class="formula-expr">S(f) = Σ<sub>k∈activos</sub> w<sub>k</sub> · 𝟙[voto<sub>k</sub> = f]</div>
+      <div class="formula-def">
+        <span>w<sub>k</sub></span> = peso del clasificador k<br>
+        <span>𝟙[·]</span> = indicador (1 si el clasificador k votó la forma f, 0 en caso contrario)<br>
+        La forma ganadora es f* = argmax<sub>f</sub> S(f)
+      </div>
+    </div>
+
+    <div class="formula-block">
+      <div class="formula-name">Confianza de clasificación</div>
+      <div class="formula-expr">Conf(%) = 100 · S(f*) / W<sub>total</sub></div>
+      <div class="formula-def">
+        <span>W<sub>total</sub> = 7.0</span> = suma máxima de pesos activos (3.0 + 2.5 + 1.5)<br>
+        Conf = 100% → los 3 clasificadores activos votaron la misma forma (consenso total)<br>
+        Conf &lt; 50% → forma ambigua (multivoto disperso)
+      </div>
+    </div>
+
+    <div class="callout callout-info">
+      <strong>Robustez por diseño:</strong> El sistema de pesos diferenciados refleja la capacidad discriminativa empírica de cada clasificador en el corpus de calibración. El método radial-angular recibe el peso más alto (3.0) porque la distribución angular {rᵢ, θᵢ} es la codificación más informativa de la forma global; los ángulos de vértices (2.5) discriminan bien las formas geométricas regulares; el método tradicional (1.5) actúa como ancla contra variaciones ruidosas de los descriptores continuos.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN XIII — TEXTURA DE SUPERFICIE (GLCM)
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-XIII">
+  <div class="section-header">
+    <span class="section-num">XIII</span>
+    <h2>Análisis de textura de superficie — GLCM</h2>
+  </div>
+
+  <p>La <strong>Matriz de Co-ocurrencia de Niveles de Gris</strong> (Gray-Level Co-occurrence Matrix, GLCM) cuantifica la distribución espacial de los niveles de intensidad en la imagen de superficie del objeto. Mientras el análisis de contorno describe la forma 2D de la silueta, la GLCM describe la <em>textura de la superficie</em> —rugosidad, homogeneidad, patrón de la talla— como observada en la imagen fotogramétrica.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Elemento de la GLCM</div>
+    <div class="formula-expr">G<sub>d,θ</sub>(i, j) = |{(r,c) : I(r,c)=i ∧ I(r+Δr, c+Δc)=j}| / N<sub>pares</sub></div>
+    <div class="formula-def">
+      <span>(Δr, Δc)</span> = desplazamiento definido por distancia d y dirección θ<br>
+      <span>I(r,c)</span> = intensidad del píxel (r,c) dentro de la máscara del objeto<br>
+      <span>N<sub>pares</sub></span> = número total de pares válidos — normaliza a distribución de probabilidad<br>
+      En MAO Plus se computa GLCM para {θ = 0°, 45°, 90°, 135°} y se promedia (GLCM invariante a rotación)
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Descriptores de Haralick extraídos de la GLCM</h3>
+    <div class="formula-group">
+      <div class="formula-group-header">Estadísticos de textura GLCM (Haralick, 1973)</div>
+      <div class="formula-row">
+        <div class="fr-label">Contraste</div>
+        <div class="fr-expr">CON = Σᵢⱼ (i−j)² G(i,j)</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Correlación</div>
+        <div class="fr-expr">COR = Σᵢⱼ [(i−μᵢ)(j−μⱼ)G(i,j)] / (σᵢσⱼ)</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Energía (ASM)</div>
+        <div class="fr-expr">ENE = Σᵢⱼ G(i,j)²</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Homogeneidad (IDM)</div>
+        <div class="fr-expr">HOM = Σᵢⱼ G(i,j) / (1 + |i−j|)</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Entropía</div>
+        <div class="fr-expr">ENT = −Σᵢⱼ G(i,j)·log G(i,j)</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Varianza interna</div>
+        <div class="fr-expr">VAR = Σᵢⱼ (i−μ)² G(i,j)</div>
+      </div>
+    </div>
+
+    <p>Adicionalmente, MAO Plus calcula el <strong>gradiente Sobel</strong> como descriptor de textura de primer orden (no requiere GLCM):</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Magnitud del gradiente Sobel</div>
+      <div class="formula-expr">|∇I| = √(G<sub>x</sub>² + G<sub>y</sub>²)</div>
+      <div class="formula-def">
+        <span>G<sub>x</sub> = S<sub>x</sub> * I</span>, <span>G<sub>y</sub> = S<sub>y</sub> * I</span> = convoluciones con kernels Sobel 3×3 horizontal y vertical<br>
+        La media de |∇I| sobre la máscara del objeto refleja la variación de textura superficial a escala de 3×3 px (resolución del kernel)
+      </div>
+    </div>
+
+    <div class="callout callout-tip">
+      <strong>Aplicación al CMS bifacial:</strong> La Coherencia Morfológica de Superficie (§XIV) utiliza los descriptores GLCM para comparar cuantitativamente las texturas de las dos caras de un artefacto bifacial, independizándose de las diferencias de iluminación mediante normalización por contraste adaptativo (CLAHE).
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN XIV — COHERENCIA BIFACIAL (CI y CMS)
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-XIV">
+  <div class="section-header">
+    <span class="section-num">XIV</span>
+    <h2>Coherencia bifacial — CI y CMS</h2>
+  </div>
+
+  <p>El análisis bifacial extiende el marco morfométrico a pares de objetos denominados Cara A y Cara B del mismo artefacto. Se consideran dos dimensiones de coherencia complementarias: la <strong>Coherencia Identitaria (CI)</strong>, que verifica coincidencia en magnitudes absolutas, y la <strong>Coherencia Morfológica de Superficie (CMS)</strong>, que compara proporciones y textura independientemente de las dimensiones.</p>
+
+  <div class="subsection">
+    <h3>Coherencia Identitaria (CI)</h3>
+    <p>La CI verifica que las dimensiones métricas de ambas caras sean compatibles con el mismo objeto físico — condición mínima necesaria para que el par A+B constituya un objeto único coherente.</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Coherencia Identitaria</div>
+      <div class="formula-expr">CI = 1 − (1/M) Σₖ |δₖ| / max(vₖᴬ, vₖᴮ)</div>
+      <div class="formula-def">
+        <span>vₖᴬ, vₖᴮ</span> = valor de la k-ésima métrica dimensional (longitud, ancho, área, perímetro) en caras A y B<br>
+        <span>δₖ = vₖᴬ − vₖᴮ</span> = diferencia absoluta<br>
+        <span>M</span> = número de métricas dimensionales consideradas<br>
+        CI = 1 → dimensiones idénticas (mismo objeto, mismo plano focal)<br>
+        CI → 0 → diferencias dimensionales incompatibles (objetos distintos o escalas diferentes)
+      </div>
+      <div class="formula-range"><strong>Umbral de coherencia:</strong> CI ≥ 0.85 → par coherente; CI ∈ [0.70, 0.85) → coherencia parcial; CI &lt; 0.70 → incoherencia — posible registro incorrecto del par</div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Coherencia Morfológica de Superficie (CMS)</h3>
+    <p>La CMS compara proporciones adimensionales y descriptores de textura entre las dos caras. Al ser adimensional, es robusta a diferencias de escala de imagen (distintas distancias focales o calibraciones).</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Coherencia Morfológica de Superficie</div>
+      <div class="formula-expr">CMS = α·Δ<sub>forma</sub> + β·Δ<sub>textura</sub></div>
+      <div class="formula-def">
+        <span>Δ<sub>forma</sub></span> = similitud de índices adimensionales (circularidad, elongación, solidez, convexidad) entre A y B: 1 − ||v<sub>forma</sub>ᴬ − v<sub>forma</sub>ᴮ||/(||v<sub>forma</sub>ᴬ|| + ||v<sub>forma</sub>ᴮ||)<br>
+        <span>Δ<sub>textura</sub></span> = similitud de descriptores GLCM entre A y B (correlación de Pearson entre vectores de Haralick)<br>
+        <span>α + β = 1</span> = pesos configurables (por defecto α = 0.6, β = 0.4)
+      </div>
+      <div class="formula-range"><strong>CMS ≥ 0.80:</strong> alta coherencia morfológica; <strong>CMS ∈ [0.60, 0.80):</strong> coherencia aceptable; <strong>CMS &lt; 0.60:</strong> caras morfológicamente disímiles</div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Índice de coherencia bifacial global</h3>
+    <div class="formula-block">
+      <div class="formula-name">Índice de coherencia bifacial (ICB)</div>
+      <div class="formula-expr">ICB = γ·CI + (1−γ)·CMS</div>
+      <div class="formula-def">
+        <span>γ ∈ [0,1]</span> = peso relativo entre identidad dimensional y morfología de superficie (default γ = 0.5)<br>
+        ICB = 1 → par bifacial perfectamente coherente en dimensiones y morfología
+      </div>
+    </div>
+
+    <table class="threshold-table">
+      <thead>
+        <tr><th>Rango ICB</th><th>Interpretación</th><th>Estado</th></tr>
+      </thead>
+      <tbody>
+        <tr class="t-opt"><td>0.90 – 1.00</td><td>Par bifacial de alta calidad morfométrica — talla muy controlada</td><td>Óptimo</td></tr>
+        <tr class="t-ok"><td>0.75 – 0.89</td><td>Par coherente — variación esperada en campo</td><td>Aceptable</td></tr>
+        <tr class="t-mid"><td>0.60 – 0.74</td><td>Coherencia parcial — posible asimetría intencional o talla secuencial</td><td>Marginal</td></tr>
+        <tr class="t-bad"><td>0.40 – 0.59</td><td>Baja coherencia — revisar asociación del par; posible error de registro</td><td>Revision</td></tr>
+        <tr class="t-err"><td>0.00 – 0.39</td><td>Par incoherente — objetos probablemente distintos</td><td>Inválido</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SECCIÓN XV — PIPELINE MAO IA
+═══════════════════════════════════════════════════════════════════ -->
+<div class="section" id="sec-XV">
+  <div class="section-header">
+    <span class="section-num">XV</span>
+    <h2>Pipeline de integración MAO IA</h2>
+  </div>
+
+  <p>El módulo <strong>MAO IA</strong> (Análisis por Inteligencia Artificial) integra los principios descritos en §I–XIV en un flujo computacional unificado activado cuando el usuario selecciona la opción de segmentación asistida por IA. Difiere del flujo estándar en el método de obtención de la máscara binaria inicial.</p>
+
+  <div class="subsection">
+    <h3>Diagrama del flujo de análisis</h3>
+    <div class="col2">
+      <div class="card">
+        <div class="card-title">Flujo estándar (Manual / Semi-auto)</div>
+        <ol style="font-size:12px; margin-top:8px; padding-left:18px; line-height:2;">
+          <li>Captura de imagen fotogramétrica calibrada</li>
+          <li>Umbralización adaptativa Otsu + Gaussian (§II.1)</li>
+          <li><strong>Paso 3: Refinamiento interactivo de máscara</strong> (ROI, ajuste de umbral, herramientas de edición)</li>
+          <li>Extracción del contorno Suzuki-Abe (§II.2)</li>
+          <li>Simplificación Douglas-Peucker (§II.3)</li>
+          <li>Cálculo de métricas §III–XIV</li>
+          <li>Clasificación morfológica (§XII)</li>
+        </ol>
+      </div>
+      <div class="card">
+        <div class="card-title">Flujo MAO IA (AIA)</div>
+        <ol style="font-size:12px; margin-top:8px; padding-left:18px; line-height:2;">
+          <li>Captura de imagen fotogramétrica calibrada</li>
+          <li>Segmentación por modelo SAM/YOLO — máscara de alta precisión</li>
+          <li style="color:#718096;"><em>Paso 3 omitido: la máscara IA no requiere refinamiento manual</em></li>
+          <li>Extracción del contorno Suzuki-Abe (§II.2)</li>
+          <li>Simplificación Douglas-Peucker (§II.3)</li>
+          <li>Cálculo de métricas §III–XIV con recalculo JS-side</li>
+          <li>Clasificación morfológica (§XII)</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Segmentación por SAM (Segment Anything Model)</h3>
+    <p>SAM utiliza una arquitectura Vision Transformer (ViT) pre-entrenada que produce máscaras de segmentación de alta fidelidad a partir de <em>prompts</em> (clic sobre el objeto, bounding box, o segmentación automática). La máscara resultante tiene precisión sub-píxel en los bordes, superior a la umbralización adaptativa para objetos de bajo contraste o fondos texturados.</p>
+
+    <div class="callout callout-tip">
+      <strong>Ventaja morfométrica de SAM:</strong> La máscara SAM captura mejor la geometría del borde tallado (lascados, retoques) que la umbralización por intensidad. Esto se traduce en un vector de curvatura {κᵢ} más fiel y en defectos de convexidad mejor localizados, mejorando la precisión de los descriptores de §VII y §X.
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Recálculo de métricas en el cliente JS</h3>
+    <p>El backend Python calcula las métricas con factor de escala sc = 0 (sin calibración) cuando opera en modo AIA, devolviendo resultados en píxeles. La conversión a unidades métricas reales y el recálculo de los descriptores radiales se realiza en el cliente JavaScript una vez aplicada la escala calibrada del proyecto:</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Conversión pixel → métrica real</div>
+      <div class="formula-expr">d<sub>real</sub> [mm] = d<sub>px</sub> [px] × (L<sub>ref</sub> [mm] / L<sub>ref,px</sub> [px])</div>
+      <div class="formula-def">
+        <span>L<sub>ref</sub></span> = longitud de referencia del patrón calibrador (mm, conocida)<br>
+        <span>L<sub>ref,px</sub></span> = longitud del patrón en la imagen (px, medida)<br>
+        El cociente define el factor de escala en mm/px, constante para todas las imágenes del mismo conjunto de captura
+      </div>
+    </div>
+
+    <p>Los descriptores radiales (R<sub>max</sub>, R<sub>min</sub>, R̄, σ<sub>r</sub>, CV<sub>r</sub>) se recalculan directamente desde los puntos del convex hull y el centroide C<sub>hull</sub> en coordenadas de imagen (px), y luego se convierten. Esto garantiza coherencia con el canvas de visualización (trazado de ejes, radios y centroide sobre la imagen original).</p>
+  </div>
+
+  <div class="subsection">
+    <h3>Corrección de offset de región de interés (ROI)</h3>
+    <p>Cuando el análisis se realiza sobre un recorte ROI de la imagen completa, todos los puntos de contorno y hull son devueltos por Python en coordenadas relativas al ROI. Antes del trazado en el canvas global y del cálculo de métricas posicionales, se aplica la corrección de offset:</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Corrección de offset ROI</div>
+      <div class="formula-expr">P<sub>global</sub> = P<sub>ROI</sub> + (x<sub>ROI</sub>, y<sub>ROI</sub>)</div>
+      <div class="formula-def">
+        <span>(x<sub>ROI</sub>, y<sub>ROI</sub>)</span> = coordenadas de la esquina superior izquierda del recorte ROI en el sistema de imagen global<br>
+        Se aplica a: todos los puntos del contorno, todos los vértices del hull, centroide del hull, puntos de radio máximo y mínimo
+      </div>
+    </div>
+  </div>
+
+  <hr>
+
+  <div class="callout callout-info">
+    <strong>Integración sistémica:</strong> El pipeline MAO IA es la materialización computacional de los principios §I–XIV en un flujo de análisis arqueológico reproducible. Cada métrica del informe PDF integral tiene su fundamento matemático en alguna de las secciones precedentes de este documento. La correspondencia explícita entre principios y fórmulas se detalla en <em>FORMULAS_METRICAS_MAO.html</em>.
+  </div>
+</div>
+
+</div><!-- /content -->
+
+<!-- ══════════════════════════════════════════════════════════════════
+     PIE DE PÁGINA
+═══════════════════════════════════════════════════════════════════ -->
+<div class="footer">
+  <strong>MAO Plus — Principios de Morfometría</strong><br>
+  Fundamentos matemáticos, geométricos y estadísticos del análisis morfométrico arqueológico<br>
+  MAO Plus v1.3.0 · PRINCIPIOS_MORFOMETRIA_MAO · Abril 2026 · JFRR / PABD<br>
+  <small>Complementar con: FORMULAS_METRICAS_MAO.html · GUIA_METRICAS_MAO.html</small>
+</div>
+
+</div><!-- /page-wrapper -->
+</body>
+</html>

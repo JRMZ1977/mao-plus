@@ -1,0 +1,87 @@
+{
+  "name": "mao-plus",
+  "version": "1.2.0",
+  "description": "MAO Plus — Análisis morfométrico de objetos arqueológicos. Aplicación de escritorio para macOS con Electron.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --enable-logging",
+    "package": "electron-builder --mac"
+  },
+  "keywords": [
+    "electron",
+    "desktop",
+    "macOS",
+    "arqueología",
+    "morfometría"
+  ],
+  "author": "Quipus / Juan Francisco Ramírez",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^41.1.1",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.maoplus.desktop",
+    "productName": "MAO Plus",
+    "mac": {
+      "category": "public.app-category.education",
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "MAO Plus",
+      "iconSize": 100,
+      "contents": [
+        {
+          "x": 380,
+          "y": 280,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 110,
+          "y": 280,
+          "type": "file"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 480
+      }
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "build/**/*",
+      "index.html",
+      "css/**/*",
+      "js/**/*",
+      "libs/**/*",
+      "assets/**/*",
+      "python/**/*",
+      "requirements.txt",
+      "start_server.sh",
+      "!.venv/**/*",
+      "!**/*.bak",
+      "!**/*.backup*",
+      "!.pytest_cache/**/*",
+      "!tests/**/*",
+      "!modularize.py"
+    ],
+    "directories": {
+      "output": "dist"
+    }
+  }
+}
