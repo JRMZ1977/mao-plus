@@ -220,7 +220,7 @@ const PythonBridge = (() => {
       });
     },
 
-    async detectYolo(imageDataURL, { confThreshold = 0.20, minArea = 100, maxObjects = 50, useGrabcut = true } = {}) {
+    async detectYolo(imageDataURL, { confThreshold = 0.38, minArea = 100, maxObjects = 20, useGrabcut = true } = {}) {
       if (!_serverAvailable) return null;
       const blob = _dataURLtoBlob(imageDataURL);
       return _fetch('/detect-yolo', {

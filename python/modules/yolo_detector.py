@@ -151,6 +151,9 @@ def _run_yolo_on_image(img_bgr: np.ndarray, conf: float, max_objects: int) -> li
         device="cpu",   # fuerza CPU para compatibilidad macOS ARM sin MPS
     )
 
+    img_h, img_w = img_bgr.shape[:2]
+    img_area = img_h * img_w
+
     detections = []
     if not results:
         return detections
@@ -164,6 +167,13 @@ def _run_yolo_on_image(img_bgr: np.ndarray, conf: float, max_objects: int) -> li
             w_box = x2 - x1
             h_box = y2 - y1
             if w_box < 10 or h_box < 10:
+                continue
+            bbox_area = w_box * h_box
+            # Descartar detecciones que cubran >45% de la imagen (fondo/contenedor)
+            if bbox_area / img_area > 0.45:
+                continue
+            # Descartar detecciones menores al 0.3% del área (ruido)
+            if bbox_area / img_area < 0.003:
                 continue
             detections.append({
                 "bbox":       (x1, y1, w_box, h_box),
@@ -280,9 +290,9 @@ def _extract_object_from_mask(
 
 async def detect_yolo(
     image_bytes: bytes,
-    conf_threshold: float = 0.20,
+    conf_threshold: float = 0.38,
     min_area: int = 100,
-    max_objects: int = 50,
+    max_objects: int = 20,
     use_grabcut: bool = True,
     fallback_classical: bool = True,
 ) -> dict:

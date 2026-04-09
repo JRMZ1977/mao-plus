@@ -32142,14 +32142,21 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         .map((o, i) => ({ o, i }))
         .filter(({ o }) => !o.analisisCached);
       if (_sinCache.length === 0) return;
+      // Guardia: no relanzar si ya hay un ciclo de auto-análisis en curso
+      if (window._autoAnalisisEnCurso) return;
+      window._autoAnalisisEnCurso = true;
       console.log(`[auto-análisis] ${_sinCache.length} objetos sin caché — analizando en background...`);
       for (const { i } of _sinCache) {
         try { await analizarObjetoMorfologicamente(i, true); }
         catch (_e) { console.warn(`[auto-análisis] objeto ${i} falló:`, _e.message); }
       }
+      window._autoAnalisisEnCurso = false;
       console.log(`[auto-análisis] completado — ${_sinCache.length} objetos analizados`);
       // Re-renderizar tarjetas para que muestren el botón verde "Abrir Análisis"
-      individualizarObjetos();
+      // Solo re-renderiza si el grid sigue mostrándose
+      if (individualObjectsContainer.style.display !== 'none') {
+        individualizarObjetos();
+      }
     })();
   }
 
