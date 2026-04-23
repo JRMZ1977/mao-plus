@@ -35,6 +35,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readFile: (filePath, encoding) =>
     ipcRenderer.invoke('fs-read-file', { filePath, encoding }),
 
+  copyFile: (src, dst) =>
+    ipcRenderer.invoke('fs-copy-file', { src, dst }),
+
+
   folderExists: (folderPath) =>
     ipcRenderer.invoke('fs-folder-exists', { folderPath }),
 

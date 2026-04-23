@@ -120,74 +120,262 @@ function renderCollectionTable() {
   }
   
   hideCollectionEmptyState();
-  
-  const rows = filteredObjects.map((obj, index) => {
-    try {
-    const fecha = new Date(obj.timestamp).toLocaleDateString('es-ES', {
-      day: '2-digit',
-      month: '2-digit',
-      year: '2-digit'
-    });
-    
-    const modoBadge = obj.modo === 'bifacial' 
-      ? '<span class="modo-badge bifacial">Bifacial</span>'
-      : '<span class="modo-badge monofacial">Mono</span>';
-    
-    const shapeIcon = getShapeIcon(obj.metricasResumen?.clasificacionForma || 'sin_clasificar');
-    
-    // 🐛 FIX: Construir nombre con indicador de cara para objetos bifaciales
-    let nombreCompleto = obj.nombreObjeto;
-    if (obj.cara && (obj.cara === 'A' || obj.cara === 'B')) {
-      const caraIcono = obj.cara === 'A'? '': '';
-      const caraNombre = obj.cara === 'A' ? 'Cara A' : 'Cara B';
-      nombreCompleto = `${nombreCompleto} <span style="color: ${obj.cara === 'A' ? '#0066cc' : '#28a745'}; font-weight: 600; font-size: 11px;">${caraIcono} ${caraNombre}</span>`;
+
+  // Ruta base para construir thumbnails si thumbnailPath no está en el índice
+  const _projectFolderPath = currentCollection.folderPath ||
+    projectManager.getProject(currentCollection.proyectoId)?.folderPath || '';
+
+  const _thumbSrc = obj => {
+    const p = obj.thumbnailPath || (_projectFolderPath
+      ? `${_projectFolderPath}/${obj.carpeta}/imagenes/objeto_recortado.png`
+      : null);
+    return p ? `file://${p}` : null;
+  };
+
+  const _thumbCell = obj => {
+    const src = _thumbSrc(obj);
+    if (!src) return '<td class="col-thumb"></td>';
+    return `<td class="col-thumb"><img class="coll-thumb-img" src="${src}" onerror="this.closest('td').classList.add('col-thumb--empty'); this.remove();" alt=""></td>`;
+  };
+
+  // Helper: extrae nombre base y cara efectiva
+  const _parseName = obj => {
+    const nombreBase = (obj.nombreObjeto || '').replace(/\s*[\[(]\s*cara\s+[ab]\s*[\])]\s*$/i, '').trim();
+    if ((obj.modo || '').toLowerCase() === 'obj3d') {
+      return { nombreBase: nombreBase || obj.nombreObjeto || 'Sin nombre', caraEf: '3D' };
     }
-    
-    // Validar y formatear métricas numéricas
+    const c = (obj.cara || '').toUpperCase();
+    let caraEf = (c === 'A' || c === 'B') ? c : (() => {
+      const m = /\(\s*cara\s+([ab])\s*\)/i.exec(obj.nombreObjeto || '') ||
+                /\[\s*cara\s+([ab])\s*\]/i.exec(obj.nombreObjeto || '');
+      return m ? m[1].toUpperCase() : 'Mono';
+    })();
+    return { nombreBase, caraEf };
+  };
+
+  // Agrupar por nombre base, ordenar A antes de B
+  const ORDEN_CARA = { A: 0, B: 1 };
+  const grupos = {};
+  for (const obj of filteredObjects) {
+    const { nombreBase, caraEf } = _parseName(obj);
+    const key = nombreBase.toLowerCase();
+    if (!grupos[key]) grupos[key] = { nombreBase, caras: [] };
+    grupos[key].caras.push({ ...obj, _nombreBase: nombreBase, _caraEf: caraEf });
+  }
+  for (const g of Object.values(grupos)) {
+    g.caras.sort((a, b) => (ORDEN_CARA[a._caraEf] ?? 2) - (ORDEN_CARA[b._caraEf] ?? 2));
+  }
+
+  const VIEW_BTN = `<button class="row-action-btn view-analysis-btn" title="Ver detalles del análisis">
+    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+    Ver
+  </button>`;
+
+  const MOVE_COPY_BTN = `<button class="row-action-btn move-copy-analysis-btn" title="Mover o copiar a otro proyecto">
+    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><path d="M5 12h14"/><polyline points="12 5 19 12 12 19"/></svg>
+    Copiar
+  </button>`;
+
+  const _buildChildRow = (obj) => {
+    const fecha = new Date(obj.timestamp).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    const isObj3d = (obj.modo || '').toLowerCase() === 'obj3d';
+    const modoBadge = isObj3d
+      ? '<span class="modo-badge" style="background:#4a3b8f;color:#fff;">3D</span>'
+      : (obj.modo === 'bifacial'
+        ? '<span class="modo-badge bifacial">Bifacial</span>'
+        : '<span class="modo-badge monofacial">Mono</span>');
+    const shapeIcon = getShapeIcon(obj.metricasResumen?.clasificacionForma || 'sin_clasificar');
     const area = parseFloat(obj.metricasResumen?.area) || 0;
-    const circularidad = parseFloat(obj.metricasResumen?.circularidad) || 0;
-    const perforaciones = parseInt(obj.metricasResumen?.numPerforaciones) || 0;
-    const horadaciones = parseInt(obj.metricasResumen?.numHoradaciones) || 0;
-    const phCount = `${perforaciones}/${horadaciones}`;
-    
+    const areaLabel = obj.metricasResumen?.medidaEtiqueta || 'Área';
+    const areaUnit = obj.metricasResumen?.medidaUnidad || 'mm²';
+    const circ = parseFloat(obj.metricasResumen?.circularidad) || 0;
+    const ph = `${parseInt(obj.metricasResumen?.numPerforaciones) || 0}/${parseInt(obj.metricasResumen?.numHoradaciones) || 0}`;
+    const caraBadge = (obj._caraEf === 'A' || obj._caraEf === 'B')
+      ? `<span class="cmo-cara-badge cmo-cara-${obj._caraEf}">${obj._caraEf}</span>`
+      : (obj._caraEf === '3D' ? '<span class="cmo-cara-badge" style="background:#4a3b8f;color:#fff;">3D</span>' : '');
     return `
-      <tr data-analysis-id="${obj.id}" data-carpeta="${obj.carpeta}">
-        <td class="col-number">${index + 1}</td>
-        <td class="col-name">${nombreCompleto}</td>
+      <tr class="coll-child-row" data-analysis-id="${obj.id}" data-carpeta="${obj.carpeta}">
+        <td class="col-number"></td>
+        ${_thumbCell(obj)}
+        <td class="col-name coll-child-name">${caraBadge}${obj._nombreBase}</td>
         <td class="col-date">${fecha}</td>
         <td class="col-modo">${modoBadge}</td>
-        <td class="col-area">${area.toFixed(2)} mm²</td>
-        <td class="col-circularity">${circularidad.toFixed(3)}</td>
+        <td class="col-area" title="${areaLabel}">${area.toFixed(2)} ${areaUnit}</td>
+        <td class="col-circularity">${circ.toFixed(3)}</td>
         <td class="col-shape"><span class="shape-icon" title="${obj.metricasResumen?.clasificacionForma || 'sin_clasificar'}">${shapeIcon}</span></td>
-        <td class="col-perforations">${phCount}</td>
-        <td class="col-actions">
-          <button class="row-action-btn view-analysis-btn" title="Ver detalles del an&#225;lisis">
-            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            Ver
-          </button>
-        </td>
-      </tr>
-    `;
+        <td class="col-perforations">${ph}</td>
+        <td class="col-actions">${VIEW_BTN}${MOVE_COPY_BTN}</td>
+      </tr>`;
+  };
+
+  let html = '';
+  let grupoIdx = 0;
+  for (const g of Object.values(grupos)) {
+    grupoIdx++;
+    try {
+      if (g.caras.length > 1) {
+        // Fila padre del grupo bifacial
+        html += `
+          <tr class="coll-group-row">
+            <td class="col-number">${grupoIdx}</td>
+            <td class="col-thumb"></td>
+            <td class="col-name" colspan="8">
+              <span class="coll-group-name">${g.nombreBase}</span>
+              <span class="cmo-sel-group-badge">${g.caras.length} caras</span>
+            </td>
+          </tr>`;
+        // Filas hijo
+        for (const obj of g.caras) {
+          html += _buildChildRow(obj);
+        }
+      } else {
+        // Fila normal (monofacial)
+        const obj = g.caras[0];
+        const fecha = new Date(obj.timestamp).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' });
+        const isObj3d = (obj.modo || '').toLowerCase() === 'obj3d';
+        const modoBadge = isObj3d
+          ? '<span class="modo-badge" style="background:#4a3b8f;color:#fff;">3D</span>'
+          : (obj.modo === 'bifacial'
+            ? '<span class="modo-badge bifacial">Bifacial</span>'
+            : '<span class="modo-badge monofacial">Mono</span>');
+        const shapeIcon = getShapeIcon(obj.metricasResumen?.clasificacionForma || 'sin_clasificar');
+        const area = parseFloat(obj.metricasResumen?.area) || 0;
+        const areaLabel = obj.metricasResumen?.medidaEtiqueta || 'Área';
+        const areaUnit = obj.metricasResumen?.medidaUnidad || 'mm²';
+        const circ = parseFloat(obj.metricasResumen?.circularidad) || 0;
+        const ph = `${parseInt(obj.metricasResumen?.numPerforaciones) || 0}/${parseInt(obj.metricasResumen?.numHoradaciones) || 0}`;
+        html += `
+          <tr data-analysis-id="${obj.id}" data-carpeta="${obj.carpeta}">
+            <td class="col-number">${grupoIdx}</td>
+            ${_thumbCell(obj)}
+            <td class="col-name">${obj._nombreBase}</td>
+            <td class="col-date">${fecha}</td>
+            <td class="col-modo">${modoBadge}</td>
+            <td class="col-area" title="${areaLabel}">${area.toFixed(2)} ${areaUnit}</td>
+            <td class="col-circularity">${circ.toFixed(3)}</td>
+            <td class="col-shape"><span class="shape-icon" title="${obj.metricasResumen?.clasificacionForma || 'sin_clasificar'}">${shapeIcon}</span></td>
+            <td class="col-perforations">${ph}</td>
+            <td class="col-actions">${VIEW_BTN}${MOVE_COPY_BTN}</td>
+          </tr>`;
+      }
     } catch (rowError) {
-      console.error(`❌ Error renderizando fila ${index}:`, rowError, obj);
-      return `<tr><td colspan="9" style="color: red;">Error en objeto ${index + 1}: ${obj?.nombreObjeto || 'desconocido'}</td></tr>`;
+      console.error(`❌ Error renderizando grupo ${grupoIdx}:`, rowError, g);
+      html += `<tr><td colspan="10" style="color:red;">Error en objeto ${grupoIdx}: ${g.nombreBase || 'desconocido'}</td></tr>`;
     }
-  }).join('');
+  }
+
+  tableBody.innerHTML = html;
   
-  tableBody.innerHTML = rows;
-  
-  // Event listeners para las filas (solo filas válidas con data-carpeta)
+  // Event listeners para las filas con data-carpeta
   tableBody.querySelectorAll('tr[data-carpeta]').forEach(row => {
     const viewBtn = row.querySelector('.view-analysis-btn');
-    if (!viewBtn) return; // omitir filas de error sin botón
-    
-    viewBtn.addEventListener('click', async () => {
+    if (viewBtn) viewBtn.addEventListener('click', async () => {
       await openAnalysisViewer(row.dataset.carpeta);
+    });
+    const moveBtn = row.querySelector('.move-copy-analysis-btn');
+    if (moveBtn) moveBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      _showMoveCopyDialog(row.dataset.carpeta);
     });
   });
   
   // Actualizar stats
   updateCollectionStats();
+}
+
+/**
+ * Modal inline para mover o copiar un análisis a otro proyecto.
+ * @param {string} carpeta - subcarpeta del análisis dentro del proyecto actual
+ */
+function _showMoveCopyDialog(carpeta) {
+  if (!currentCollection) return;
+
+  const currentProjectId = currentCollection.proyectoId;
+  const otherProjects = projectManager.getAllProjects()
+    .filter(p => p.id !== currentProjectId && p.folderPath);
+
+  if (otherProjects.length === 0) {
+    toast.warning('No hay otros proyectos disponibles como destino. Crea o configura al menos un proyecto más.');
+    return;
+  }
+
+  const obj = (currentCollection.objetos || []).find(o => o.carpeta === carpeta);
+  const nombreObj = obj?.nombreObjeto || carpeta;
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.58);z-index:10000;display:flex;align-items:center;justify-content:center;';
+
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#1e1e2e;border:1px solid #3a3a5c;border-radius:12px;padding:28px 32px;max-width:460px;width:90%;color:#e0e0e0;font-family:inherit;box-shadow:0 8px 32px rgba(0,0,0,.6);';
+
+  const projectOptions = otherProjects
+    .map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+
+  box.innerHTML = `
+    <h3 style="margin:0 0 10px;font-size:1.05rem;color:#fff;">Mover / Copiar análisis</h3>
+    <p style="margin:0 0 16px;font-size:.88rem;color:#bbb;">Análisis: <strong style="color:#fff;">${nombreObj}</strong></p>
+
+    <label style="display:block;margin-bottom:6px;font-size:.82rem;color:#aaa;">Proyecto destino</label>
+    <select id="_mao_dst_project" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #555;background:#2d2d3d;color:#e0e0e0;font-size:.88rem;margin-bottom:18px;">
+      ${projectOptions}
+    </select>
+
+    <div style="display:flex;gap:20px;margin-bottom:22px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem;">
+        <input type="radio" name="_mao_op" value="copy" checked style="accent-color:#6c63ff;"> Copiar <span style="font-size:.78rem;color:#888;">(mantiene el original)</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem;">
+        <input type="radio" name="_mao_op" value="move"> Mover <span style="font-size:.78rem;color:#e88;">(elimina del origen)</span>
+      </label>
+    </div>
+
+    <div id="_mao_mc_progress" style="display:none;font-size:.85rem;color:#a0a0c0;text-align:center;padding:8px 0 4px;"></div>
+
+    <div id="_mao_mc_btns" style="display:flex;gap:10px;justify-content:flex-end;">
+      <button id="_mao_mc_cancel" style="padding:8px 18px;border-radius:8px;border:1px solid #555;background:transparent;color:#999;font-size:.88rem;cursor:pointer;">Cancelar</button>
+      <button id="_mao_mc_confirm" style="padding:8px 18px;border-radius:8px;border:none;background:#6c63ff;color:#fff;font-size:.88rem;cursor:pointer;font-weight:600;">Confirmar</button>
+    </div>
+  `;
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  const cerrar = () => document.body.removeChild(overlay);
+  box.querySelector('#_mao_mc_cancel').addEventListener('click', cerrar);
+  overlay.addEventListener('click', (ev) => { if (ev.target === overlay) cerrar(); });
+
+  box.querySelector('#_mao_mc_confirm').addEventListener('click', async () => {
+    const toProjectId = box.querySelector('#_mao_dst_project').value;
+    const move = box.querySelector('input[name="_mao_op"]:checked')?.value === 'move';
+
+    const progressEl = box.querySelector('#_mao_mc_progress');
+    const btnsEl     = box.querySelector('#_mao_mc_btns');
+    progressEl.style.display = 'block';
+    btnsEl.style.display     = 'none';
+    progressEl.textContent   = move ? 'Moviendo análisis...' : 'Copiando análisis...';
+
+    try {
+      await projectManager.copyAnalysisBetweenProjects(carpeta, currentProjectId, toProjectId, move);
+      cerrar();
+      const destName = projectManager.getProject(toProjectId)?.name || 'proyecto destino';
+      if (move) {
+        toast.success(`Análisis movido a "${destName}"`);
+        // Actualizar vista: quitar fila del origen
+        currentCollection.objetos  = (currentCollection.objetos  || []).filter(o => o.carpeta !== carpeta);
+        currentCollection.totalObjetos = currentCollection.objetos.length;
+        filteredObjects = filteredObjects.filter(o => o.carpeta !== carpeta);
+        renderCollectionTable();
+        updateCollectionStats();
+        if (typeof window.renderProjectsList        === 'function') window.renderProjectsList();
+        if (typeof window.updateActiveProjectIndicator === 'function') window.updateActiveProjectIndicator();
+      } else {
+        toast.success(`Análisis copiado a "${destName}"`);
+      }
+    } catch (err) {
+      cerrar();
+      toast.error(`Error: ${err.message}`);
+    }
+  });
 }
 
 /**
@@ -413,8 +601,9 @@ async function loadGeometryData(analysisFolderPath) {
 /**
  * Renderizar geometría en el canvas del visualizador
  */
-function renderGeometryCanvas(geometryData) {
-  const canvas = document.getElementById('geometryCanvas');
+function renderGeometryCanvas(geometryData, options = {}) {
+  const { showGrid = true, targetCanvas = null, exportScale = 1 } = options;
+  const canvas = targetCanvas || document.getElementById('geometryCanvas');
   if (!canvas) {
     console.error('❌ Canvas de geometría no encontrado');
     return;
@@ -453,8 +642,8 @@ function renderGeometryCanvas(geometryData) {
   const objHeight = bbox.height || 600;
   
   // Configurar tamaño del canvas con padding
-  const maxCanvasSize = 700;
-  const padding = 40; // Padding alrededor del objeto
+  const maxCanvasSize = 700 * exportScale;
+  const padding = 40 * exportScale; // Padding alrededor del objeto
   const availableWidth = maxCanvasSize - (padding * 2);
   const availableHeight = maxCanvasSize - (padding * 2);
   
@@ -487,21 +676,23 @@ function renderGeometryCanvas(geometryData) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvasSize, canvasSize);
   
-  // Dibujar grid de fondo sutil (opcional, para referencia visual)
-  ctx.strokeStyle = '#f0f0f0';
-  ctx.lineWidth = 0.5;
-  const gridSpacing = 50;
-  for (let x = 0; x < canvasSize; x += gridSpacing) {
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, canvasSize);
-    ctx.stroke();
-  }
-  for (let y = 0; y < canvasSize; y += gridSpacing) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(canvasSize, y);
-    ctx.stroke();
+  // Dibujar grid de fondo sutil (solo en modo visor, no en exportación)
+  if (showGrid) {
+    ctx.strokeStyle = '#f0f0f0';
+    ctx.lineWidth = 0.5;
+    const gridSpacing = 50;
+    for (let x = 0; x < canvasSize; x += gridSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvasSize);
+      ctx.stroke();
+    }
+    for (let y = 0; y < canvasSize; y += gridSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvasSize, y);
+      ctx.stroke();
+    }
   }
   
   // Estado de visibilidad (se controla con checkboxes)
@@ -805,7 +996,8 @@ function renderGeometryCanvas(geometryData) {
     }
   }
   
-  // 8. DIBUJAR INFORMACIÓN DE ESCALA Y DIMENSIONES
+  // 8. DIBUJAR INFORMACIÓN DE ESCALA Y DIMENSIONES (solo modo visor, no en exportación)
+  if (!targetCanvas) {
   try {
     ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.fillStyle = '#6c757d';
@@ -824,59 +1016,91 @@ function renderGeometryCanvas(geometryData) {
     ctx.lineWidth = 1;
     ctx.strokeRect(infoX - 5, infoY - 5, 160, 75);
     
-    // Texto de información
-    ctx.fillStyle = '#495057';
-    ctx.fillText(`Escala: ${scale.toFixed(4)}x`, infoX, infoY);
-    ctx.fillText(`Dimensiones:`, infoX, infoY + lineHeight);
-    ctx.fillText(`   Original: ${objWidth.toFixed(1)} × ${objHeight.toFixed(1)} px`, infoX, infoY + lineHeight * 2);
-    ctx.fillText(`   Canvas: ${canvasSize} × ${canvasSize} px`, infoX, infoY + lineHeight * 3);
-    
-    if (geometryData.escala) {
-      const escalaFactor = geometryData.escala.factorConversion || geometryData.escala.factor;
-      if (escalaFactor) {
-        ctx.fillText(`${escalaFactor.toFixed(4)} mm/px`, infoX, infoY + lineHeight * 4);
-      }
-    }
-    
-    // Barra de escala visual en la parte inferior
-    const scaleBarWidth = 100;
-    const scaleBarHeight = 3;
-    const scaleBarX = canvasSize - scaleBarWidth - 20;
-    const scaleBarY = canvasSize - 30;
-    
-    // Fondo de la barra
+    // ── Factor mm/px: prioridad a las métricas guardadas (fuente más confiable),
+    //    fallback a geometria.json > escala.factorConversion / .factor
+    //    Rutas posibles del factor: analysis.metricas.* (disco), analysis.objeto.*, raíz
+    const _ad  = window.currentAnalysisData;
+    const _ejeMM = _ad?.metricas?.eje_mayor_real_longitud
+                || _ad?.objeto?.eje_mayor_real_longitud
+                || _ad?.eje_mayor_real_longitud
+                || 0;
+    const _ejePx = _ad?.metricas?.eje_mayor_real_longitud_px
+                || _ad?.objeto?.eje_mayor_real_longitud_px
+                || _ad?.eje_mayor_real_longitud_px
+                || 0;
+    const _factorMetricas = (_ejeMM > 0 && _ejePx > 0) ? _ejeMM / _ejePx : null;
+    const escalaInfo = geometryData.escala;
+    const _factorGeo = escalaInfo?.factorConversion || escalaInfo?.factor || null;
+    const factorMM = _factorMetricas || _factorGeo || null;
+    const unidades = escalaInfo?.unidades || 'mm';
+
+    // Caja de información (esquina superior izquierda)
+    const infoLines = factorMM ? [
+      `${(objWidth * factorMM).toFixed(1)} × ${(objHeight * factorMM).toFixed(1)} ${unidades}`,
+      `${factorMM.toFixed(4)} ${unidades}/px`
+    ] : [
+      `${objWidth.toFixed(0)} × ${objHeight.toFixed(0)} px`,
+      'Sin escala calibrada'
+    ];
     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.fillRect(scaleBarX - 10, scaleBarY - 15, scaleBarWidth + 20, 35);
+    ctx.fillRect(infoX - 5, infoY - 5, 170, lineHeight * infoLines.length + 14);
     ctx.strokeStyle = '#dee2e6';
     ctx.lineWidth = 1;
-    ctx.strokeRect(scaleBarX - 10, scaleBarY - 15, scaleBarWidth + 20, 35);
-    
-    // Barra de escala
+    ctx.strokeRect(infoX - 5, infoY - 5, 170, lineHeight * infoLines.length + 14);
     ctx.fillStyle = '#495057';
-    ctx.fillRect(scaleBarX, scaleBarY, scaleBarWidth, scaleBarHeight);
-    
-    // Marcadores de la barra
+    infoLines.forEach((line, i) => ctx.fillText(line, infoX, infoY + i * lineHeight));
+
+    // Barra de escala inteligente en mm (esquina inferior derecha)
+    // IMPORTANTE: scale = px_canvas / px_orig → barPxCanvas = (barMM / factorMM) * scale
+    const scaleBarThick = 3;
+    const scaleBarY = canvasSize - 30;
+    let barLabel, barPxCanvas;
+    if (factorMM && factorMM > 0) {
+      const candidatas = [0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
+      const objWidthMM  = objWidth * factorMM;
+      const targetMM    = objWidthMM * 0.18;  // ~18% del ancho real del objeto
+      const barMM       = candidatas.reduce((a, b) =>
+        Math.abs(b - targetMM) < Math.abs(a - targetMM) ? b : a
+      );
+      // Convertir mm → px originales → px canvas
+      barPxCanvas = Math.round((barMM / factorMM) * scale);
+      barLabel = `${barMM} ${unidades}`;
+    } else {
+      barPxCanvas = 100;
+      barLabel = '100 px';
+    }
+    const scaleBarX = canvasSize - barPxCanvas - 20;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fillRect(scaleBarX - 10, scaleBarY - 15, barPxCanvas + 20, 35);
+    ctx.strokeStyle = '#dee2e6';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(scaleBarX - 10, scaleBarY - 15, barPxCanvas + 20, 35);
+
+    ctx.fillStyle = '#495057';
+    ctx.fillRect(scaleBarX, scaleBarY, barPxCanvas, scaleBarThick);
+
     ctx.strokeStyle = '#495057';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(scaleBarX, scaleBarY - 5);
-    ctx.lineTo(scaleBarX, scaleBarY + scaleBarHeight + 5);
-    ctx.moveTo(scaleBarX + scaleBarWidth, scaleBarY - 5);
-    ctx.lineTo(scaleBarX + scaleBarWidth, scaleBarY + scaleBarHeight + 5);
+    ctx.lineTo(scaleBarX, scaleBarY + scaleBarThick + 5);
+    ctx.moveTo(scaleBarX + barPxCanvas, scaleBarY - 5);
+    ctx.lineTo(scaleBarX + barPxCanvas, scaleBarY + scaleBarThick + 5);
     ctx.stroke();
-    
-    // Texto de la barra de escala
+
     ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.fillStyle = '#495057';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText('100 px', scaleBarX + scaleBarWidth / 2, scaleBarY + scaleBarHeight + 7);
-    
-    console.log('📊 Información de escala añadida');
+    ctx.fillText(barLabel, scaleBarX + barPxCanvas / 2, scaleBarY + scaleBarThick + 7);
+
+    console.log('📊 Barra de escala canvas:', barLabel, `(${barPxCanvas}px canvas, factor ${factorMM} mm/px, renderScale ${scale.toFixed(3)})`);
   } catch (error) {
     console.error('❌ Error dibujando información:', error);
   }
-  
+  } // fin if (!targetCanvas)
+
   console.log('✅ Geometría renderizada completamente');
 }
 
@@ -1175,22 +1399,40 @@ async function exportGeometryToSVG() {
 \n`;
   // ──────────────────────────────────────────────────────────────────────────
 
+  // ── Nombre del objeto (esquina superior izquierda) ──────────────────────
+  const nameFS    = Math.max(height * 0.03, 10);
+  const namePad   = nameFS * 0.6;
+  const nameLabel = (analysis.nombreObjeto || 'Objeto').replace(/[<>&"']/g,
+    c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
+  svg += `  <!-- Nombre del objeto -->\n`;
+  svg += `  <g id="nombre-objeto">\n`;
+  svg += `    <rect x="${namePad.toFixed(1)}" y="${namePad.toFixed(1)}" width="${(nameLabel.length * nameFS * 0.62 + nameFS).toFixed(1)}" height="${(nameFS * 1.7).toFixed(1)}" fill="white" fill-opacity="0.85" rx="3"/>\n`;
+  svg += `    <text x="${(namePad * 2).toFixed(1)}" y="${(namePad + nameFS * 1.2).toFixed(1)}" font-family="Arial, sans-serif" font-size="${nameFS.toFixed(1)}" font-weight="bold" fill="#1a202c">${nameLabel}</text>\n`;
+  svg += `  </g>\n\n`;
+
   // Cerrar SVG
   svg += `</svg>`;
-  
+
   // Guardar usando el mismo flujo de diálogo nativo que CSV y PDF
   const idArq = analysis.id?.replace(/[^a-zA-Z0-9_-]/g, '_');
   const nombreObjeto = analysis.nombreObjeto?.replace(/[^a-zA-Z0-9_\-]/g, '_') || 'objeto';
   const filename = `${idArq || nombreObjeto}_geometria`;
 
   const svgBlob = new Blob([svg], { type: 'image/svg+xml' });
-  await window.saveFileWithDialog(filename, await svgBlob.text(), 'svg');
+  const svgText = await svgBlob.text();
+  const dialogResult = await window.electronAPI.showSaveDialog(filename, 'svg');
+  if (!dialogResult || dialogResult.canceled || !dialogResult.filePath) return;
+  const saveResult = await window.electronAPI.saveFile(dialogResult.filePath, svgText);
 
-  console.log('✅ SVG exportado exitosamente');
-  if (scalado) {
-    toast.success(`SVG exportado a escala real: ${widthMM} × ${heightMM} ${unidades}`);
+  if (saveResult?.success) {
+    console.log('✅ SVG exportado exitosamente');
+    if (scalado) {
+      toast.success(`SVG exportado a escala real: ${widthMM} × ${heightMM} ${unidades}`);
+    } else {
+      toast.success('Geometría exportada a SVG (sin factor de escala aplicado)');
+    }
   } else {
-    toast.success('Geometría exportada a SVG (sin factor de escala aplicado)');
+    toast.error('Error al guardar SVG: ' + (saveResult?.error || 'desconocido'));
   }
 }
 
@@ -1198,6 +1440,10 @@ async function exportGeometryToSVG() {
  * Cargar imágenes del análisis
  */
 async function loadAnalysisImages(analysisFolderPath) {
+  // Caché global de imágenes del visor — evita embeber data URLs en atributos onclick
+  window._viewerImageCache = {};
+  window._viewerSourcePaths = {};
+
   try {
     const imagesFolder = `${analysisFolderPath}/imagenes`;
     console.log('🖼️ Cargando imágenes desde:', imagesFolder);
@@ -1224,41 +1470,39 @@ async function loadAnalysisImages(analysisFolderPath) {
     
     const metadata = JSON.parse(metaResult.content);
     const imagenes = metadata.imagenes || {};
-    
+
+    // Helper: construye tarjeta de imagen usando clave de caché (nunca embebe data URL en onclick)
+    const makeImageCard = (cacheKey, titulo, filename, fullWidth = false) => `
+      <div style="background: var(--bg-secondary); border-radius: var(--radius-md); padding: 15px; border: 1px solid var(--border-color);${fullWidth ? ' grid-column: 1 / -1;' : ''}">
+        <h4 style="margin: 0 0 12px 0; font-size: 13px; font-weight: 600; color: var(--text-primary);">${titulo}</h4>
+        <div style="background: white; border-radius: 4px; padding: 10px; text-align: center; max-height: 800px; overflow: auto;">
+          <img id="viewer-img-${cacheKey}" src="${window._viewerImageCache[cacheKey]}"
+            style="max-width: 100%; height: auto; border-radius: 4px; cursor: zoom-in;"
+            onclick="this.style.maxWidth = this.style.maxWidth === '100%' ? 'none' : '100%'; this.style.cursor = this.style.cursor === 'zoom-in' ? 'zoom-out' : 'zoom-in';"
+            title="Click para ampliar/reducir">
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 12px;">
+          <button onclick="descargarImagenViewer('${cacheKey}', '${filename}')"
+            style="flex: 1; padding: 9px 12px; background: var(--primary-color); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Descargar PNG
+          </button>
+        </div>
+        <p style="margin: 8px 0 0 0; font-size: 11px; color: #6c757d; text-align: center;">Click en la imagen para ampliar/reducir</p>
+      </div>
+    `;
+
     let imagenesEncontradas = 0;
     let html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; padding: 20px;">';
     
     // 1. OBJETO RECORTADO
     if (imagenes.objetoRecortado) {
-      const imgPath = `${imagesFolder}/${imagenes.objetoRecortado}`;
-      const imgResult = await window.electronAPI.readFile(imgPath);
+      const imgResult = await window.electronAPI.readFile(`${imagesFolder}/${imagenes.objetoRecortado}`);
       if (imgResult.success) {
         imagenesEncontradas++;
-        html += `
-          <div style="background: var(--bg-secondary); border-radius: var(--radius-md); padding: 15px; border: 1px solid var(--border-color); grid-column: 1 / -1;">
-            <h4 style="margin: 0 0 12px 0; font-size: 13px; font-weight: 600; color: var(--text-primary);">
-              Objeto Recortado
-            </h4>
-            <div style="background: white; border-radius: 4px; padding: 10px; text-align: center; max-height: 800px; overflow: auto;">
-              <img src="${imgResult.content}" style="max-width: 100%; height: auto; border-radius: 4px; cursor: zoom-in;" 
-                onclick="this.style.maxWidth = this.style.maxWidth === '100%' ? 'none' : '100%'; this.style.cursor = this.style.cursor === 'zoom-in' ? 'zoom-out' : 'zoom-in';"
-                title="Click para ampliar/reducir">
-            </div>
-            <div style="display: flex; gap: 8px; margin-top: 12px;">
-              <button onclick="downloadImage('${imgResult.content}', 'objeto_recortado.png')" 
-                style="flex: 1; padding: 8px; background: var(--primary-color); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                ⬇ Descargar
-              </button>
-              <button onclick="navigator.clipboard.writeText('${imgResult.content}'); alert('Imagen copiada al portapapeles')" 
-                style="flex: 1; padding: 8px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                Copiar
-              </button>
-            </div>
-            <p style="margin: 8px 0 0 0; font-size: 11px; color: #6c757d; text-align: center;">
-              Click en la imagen para ver en tamaño completo
-            </p>
-          </div>
-        `;
+        window._viewerImageCache['recortado'] = imgResult.content;
+        window._viewerSourcePaths['recortado'] = `${imagesFolder}/${imagenes.objetoRecortado}`;
+        html += makeImageCard('recortado', 'Objeto Recortado', 'objeto_recortado.png', true);
       } else {
         console.warn('⚠️ objeto_recortado.png no se pudo leer:', imgResult.error);
       }
@@ -1266,37 +1510,36 @@ async function loadAnalysisImages(analysisFolderPath) {
     
     // 2. ANÁLISIS MORFOLÓGICO
     if (imagenes.analisisMorfologico) {
-      const imgPath = `${imagesFolder}/${imagenes.analisisMorfologico}`;
-      const imgResult = await window.electronAPI.readFile(imgPath);
+      const imgResult = await window.electronAPI.readFile(`${imagesFolder}/${imagenes.analisisMorfologico}`);
       if (imgResult.success) {
         imagenesEncontradas++;
-        html += `
-          <div style="background: var(--bg-secondary); border-radius: var(--radius-md); padding: 15px; border: 1px solid var(--border-color); grid-column: 1 / -1;">
-            <h4 style="margin: 0 0 12px 0; font-size: 13px; font-weight: 600; color: var(--text-primary);">
-              Análisis Morfológico (Alta Resolución)
-            </h4>
-            <div style="background: white; border-radius: 4px; padding: 10px; text-align: center; max-height: 800px; overflow: auto;">
-              <img src="${imgResult.content}" style="max-width: 100%; height: auto; border-radius: 4px; cursor: zoom-in;" 
-                onclick="this.style.maxWidth = this.style.maxWidth === '100%' ? 'none' : '100%'; this.style.cursor = this.style.cursor === 'zoom-in' ? 'zoom-out' : 'zoom-in';"
-                title="Click para ampliar/reducir">
-            </div>
-            <div style="display: flex; gap: 8px; margin-top: 12px;">
-              <button onclick="downloadImage('${imgResult.content}', 'analisis_morfologico.png')" 
-                style="flex: 1; padding: 8px; background: var(--primary-color); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                ⬇ Descargar Alta Resolución
-              </button>
-              <button onclick="navigator.clipboard.writeText('${imgResult.content}'); alert('Imagen copiada al portapapeles')" 
-                style="flex: 1; padding: 8px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                Copiar
-              </button>
-            </div>
-            <p style="margin: 8px 0 0 0; font-size: 11px; color: #6c757d; text-align: center;">
-              Click en la imagen para ver en tamaño completo
-            </p>
-          </div>
-        `;
+        window._viewerImageCache['morfologico'] = imgResult.content;
+        window._viewerSourcePaths['morfologico'] = `${imagesFolder}/${imagenes.analisisMorfologico}`;
+        html += makeImageCard('morfologico', 'Análisis Morfológico (Alta Resolución)', 'analisis_morfologico.png', true);
       } else {
         console.warn('⚠️ analisis_morfologico.png no se pudo leer:', imgResult.error);
+      }
+    }
+
+    // 3. FORMA IDEALIZADA (si existe)
+    if (imagenes.formaIdealizada) {
+      const imgResult = await window.electronAPI.readFile(`${imagesFolder}/${imagenes.formaIdealizada}`);
+      if (imgResult.success) {
+        imagenesEncontradas++;
+        window._viewerImageCache['idealizada'] = imgResult.content;
+        window._viewerSourcePaths['idealizada'] = `${imagesFolder}/${imagenes.formaIdealizada}`;
+        html += makeImageCard('idealizada', 'Forma Idealizada', 'forma_idealizada.png', true);
+      }
+    }
+
+    // 4. ESQUEMA MORFOMÉTRICO (si existe)
+    if (imagenes.esquemaMorfometrico) {
+      const imgResult = await window.electronAPI.readFile(`${imagesFolder}/${imagenes.esquemaMorfometrico}`);
+      if (imgResult.success) {
+        imagenesEncontradas++;
+        window._viewerImageCache['esquematica'] = imgResult.content;
+        window._viewerSourcePaths['esquematica'] = `${imagesFolder}/${imagenes.esquemaMorfometrico}`;
+        html += makeImageCard('esquematica', 'Esquema Morfométrico', 'esquema_morfometrico.png', true);
       }
     }
     
@@ -1307,12 +1550,12 @@ async function loadAnalysisImages(analysisFolderPath) {
       <div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 12px;">
         <div>Imágenes guardadas el ${new Date(metadata.fecha).toLocaleString('es-ES')}</div>
         <div style="margin-top: 4px;">Guardadas: ${metadata.totalImagenes} | Visualizadas: ${imagenesEncontradas}</div>
-        ${imagenesEncontradas < metadata.totalImagenes ? '<div style="margin-top: 4px; color: #f0ad4e;">Algunas imágenes no se pudieron cargar</div>': ''}
+        ${imagenesEncontradas < metadata.totalImagenes ? '<div style="margin-top: 4px; color: #f0ad4e;">Algunas imágenes no se pudieron cargar</div>' : ''}
       </div>
     `;
     
     gallery.innerHTML = html;
-    console.log(`✅ ${imagenesEncontradas} de ${metadata.totalImagenes} imágenes visualizadas correctamente`);
+    console.log(`✅ ${imagenesEncontradas} imagen(es) cargadas en visor (caché: ${Object.keys(window._viewerImageCache).length} entradas)`);
   } catch (error) {
     console.error('❌ Error cargando imágenes:', error);
     const gallery = document.getElementById('imagesGallery');
@@ -1328,7 +1571,79 @@ async function loadAnalysisImages(analysisFolderPath) {
 }
 
 /**
- * Descargar imagen
+ * Descargar imagen desde el caché del visor usando el diálogo nativo de Electron.
+ * Más fiable que <a href="blob:..."> que puede fallar silenciosamente en Electron.
+ */
+async function descargarImagenViewer(cacheKey, filename) {
+  // Preferir copia directa de archivo (sin pasar data URL enorme por IPC)
+  const sourcePath = window._viewerSourcePaths?.[cacheKey];
+  if (sourcePath) {
+    try {
+      const dialogResult = await window.electronAPI.showSaveDialog(filename, 'png');
+      if (!dialogResult || dialogResult.canceled || !dialogResult.filePath) return;
+      const copyResult = await window.electronAPI.copyFile(sourcePath, dialogResult.filePath);
+      if (copyResult?.success) {
+        toast.success(`PNG guardado: ${dialogResult.filePath.split(/[\\/]/).pop()}`);
+      } else {
+        toast.error('Error al guardar PNG: ' + (copyResult?.error || 'desconocido'));
+      }
+    } catch (err) {
+      console.error('❌ Error en descargarImagenViewer (copy):', err);
+      toast.error('Error al guardar PNG: ' + err.message);
+    }
+    return;
+  }
+  // Fallback: usar data URL si no hay source path
+  const dataURL = window._viewerImageCache?.[cacheKey];
+  if (!dataURL) { toast.error('Imagen no disponible'); return; }
+  await _guardarPNGNativo(dataURL, filename);
+}
+
+/**
+ * Helper: abre el diálogo nativo de guardado (2 pasos) y escribe un PNG dado como data URL.
+ * Usa showSaveDialog (devuelve ruta) + saveFile (escribe bytes). Más robusto que pasar la
+ * data URL completa a través de save-file en un solo IPC call.
+ */
+async function _guardarPNGNativo(dataURL, filename) {
+  try {
+    const dialogResult = await window.electronAPI.showSaveDialog(filename, 'png');
+    if (!dialogResult || dialogResult.canceled || !dialogResult.filePath) return; // usuario canceló
+    const saveResult = await window.electronAPI.saveFile(dialogResult.filePath, dataURL);
+    if (saveResult?.success) {
+      toast.success(`PNG guardado: ${dialogResult.filePath.split(/[\\/]/).pop()}`);
+    } else {
+      toast.error('Error al guardar PNG: ' + (saveResult?.error || 'desconocido'));
+    }
+  } catch (err) {
+    console.error('❌ Error guardando PNG:', err);
+    toast.error('Error al guardar PNG: ' + err.message);
+  }
+}
+
+/**
+ * Copiar imagen al portapapeles desde el caché del visor (copia imagen real, no texto)
+ */
+async function copiarImagenViewer(cacheKey) {
+  const dataURL = window._viewerImageCache?.[cacheKey];
+  if (!dataURL) { toast.error('Imagen no disponible en caché'); return; }
+  try {
+    const res = await fetch(dataURL);
+    const blob = await res.blob();
+    await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+    toast.success('Imagen copiada al portapapeles');
+  } catch (err) {
+    console.error('⚠️ ClipboardItem no disponible, copiando data URL como texto:', err);
+    try {
+      await navigator.clipboard.writeText(dataURL);
+      toast.info('URL de imagen copiada (ClipboardItem no soportado)');
+    } catch (e2) {
+      toast.error('No se pudo copiar la imagen');
+    }
+  }
+}
+
+/**
+ * Descargar imagen (legado — usa data URL directamente; solo para llamadas externas)
  */
 function downloadImage(dataURL, filename) {
   const link = document.createElement('a');
@@ -2353,6 +2668,293 @@ async function exportarSVGMorfologicoActual() {
   } finally {
     window.currentGeometryData = prevGeometry;
     window.currentAnalysisData = prevAnalysis;
+  }
+}
+
+/**
+ * 🖼️  MEJORADO: Exportar a PNG — captura directa del canvas morfológico con barra de escala mm
+ */
+async function exportarPNGMorfologicoActual() {
+  const morphCanvas = document.getElementById('morphologicalCanvas');
+  if (!morphCanvas || morphCanvas.width === 0) {
+    toast.error('No hay análisis morfológico activo para exportar');
+    return;
+  }
+
+  const objData = window.currentAnalyzedObject?.obj;
+  const nombre = objData?.nombre || objData?.id || 'objeto';
+
+  // Factor mm/px: preferir métricas del objeto, fallback a currentScale global
+  const m = objData?.metricas || {};
+  const ejeMayorMM = m.eje_mayor_real_longitud || 0;
+  const ejeMayorPx = m.eje_mayor_real_longitud_px || 0;
+  const factorMM = (ejeMayorMM > 0 && ejeMayorPx > 0)
+    ? ejeMayorMM / ejeMayorPx
+    : (typeof window.currentScale === 'number' && window.currentScale > 0 ? window.currentScale : null);
+  const unidades = 'mm';
+
+  console.log('📸 Exportar PNG morfológico:', nombre, '| factor mm/px:', factorMM);
+
+  try {
+    const W = morphCanvas.width;
+    const H = morphCanvas.height;
+
+    const expCanvas = document.createElement('canvas');
+    expCanvas.width = W;
+    expCanvas.height = H;
+    const ctx = expCanvas.getContext('2d');
+
+    // Copiar canvas morfológico (ya está a resolución original)
+    ctx.drawImage(morphCanvas, 0, 0);
+
+    // Etiqueta con nombre del objeto (esquina superior izquierda)
+    const nameFontSize = Math.max(14, Math.round(W * 0.018));
+    ctx.font = `bold ${nameFontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    const nameMeas = ctx.measureText(nombre);
+    const namePad = 8;
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.fillRect(10, 10, nameMeas.width + namePad * 2, nameFontSize + namePad * 2);
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(10, 10, nameMeas.width + namePad * 2, nameFontSize + namePad * 2);
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillText(nombre, 10 + namePad, 10 + namePad);
+
+    // Barra de escala mm (esquina inferior derecha)
+    if (factorMM && factorMM > 0) {
+      const candidatas = [0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
+      const targetPx = W * 0.18;
+      const barMM = candidatas.reduce((a, b) =>
+        Math.abs(b / factorMM - targetPx) < Math.abs(a / factorMM - targetPx) ? b : a
+      );
+      const barPx = Math.round(barMM / factorMM);
+      const barLabel = `${barMM} ${unidades}`;
+      const barH = Math.max(4, Math.round(H * 0.006));
+      const barY = H - 40;
+      const barX = W - barPx - 20;
+      const fontSize = Math.max(12, Math.round(W * 0.014));
+
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.fillRect(barX - 10, barY - 18, barPx + 20, barH + 36);
+      ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(barX - 10, barY - 18, barPx + 20, barH + 36);
+
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(barX, barY, barPx, barH);
+
+      ctx.strokeStyle = '#1a1a2e';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(barX, barY - 6); ctx.lineTo(barX, barY + barH + 6);
+      ctx.moveTo(barX + barPx, barY - 6); ctx.lineTo(barX + barPx, barY + barH + 6);
+      ctx.stroke();
+
+      ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      ctx.fillStyle = '#1a1a2e';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(barLabel, barX + barPx / 2, barY + barH + 8);
+      console.log('📏 Barra de escala PNG:', barLabel, `(${barPx}px)`);
+    }
+
+    expCanvas.toBlob(async blob => {
+      if (!blob) { toast.error('Error generando PNG'); return; }
+      try {
+        const reader = new FileReader();
+        reader.onload = async () => {
+          await _guardarPNGNativo(reader.result, `${nombre}_morfologia.png`);
+        };
+        reader.readAsDataURL(blob);
+      } catch (err) {
+        console.error('❌ Error guardando PNG morfológico:', err);
+        toast.error('Error al guardar PNG: ' + err.message);
+      }
+    }, 'image/png');
+
+  } catch (err) {
+    console.error('❌ Error exportando PNG morfológico:', err);
+    toast.error('Error exportando PNG: ' + err.message);
+  }
+}
+
+/**
+ * 🖼️  MEJORADO: Exportar a JPEG (comprimido)
+ */
+async function exportarJPEGMorfologicoActual() {
+  if (!window.currentAnalyzedObject || !window.currentAnalyzedObject.obj) {
+    toast.error('No hay análisis morfológico activo para exportar');
+    return;
+  }
+
+  const obj = window.currentAnalyzedObject.obj;
+  console.log('📸 Exportar a JPEG:', obj.nombre);
+
+  try {
+    const resultado = await ExportManager.exportToJPEG(obj, {
+      quality: 0.95
+    });
+    
+    if (resultado) {
+      toast.success(`JPEG exportado: ${obj.nombre}_morfologia.jpg`);
+    } else {
+      toast.error('Error al exportar JPEG');
+    }
+  } catch (err) {
+    console.error('❌ Error:', err);
+    toast.error('Error exportando JPEG: ' + err.message);
+  }
+}
+
+/**
+ * 📦 MEJORADO: Exportar en múltiples formatos simultáneamente
+ */
+async function exportarTodosMorfologicoActual() {
+  if (!window.currentAnalyzedObject || !window.currentAnalyzedObject.obj) {
+    toast.error('No hay análisis morfológico activo para exportar');
+    return;
+  }
+
+  const obj = window.currentAnalyzedObject.obj;
+  console.log('📦 Exportar todos los formatos:', obj.nombre);
+
+  try {
+    const progressToast = toast.loading(`Exportando ${obj.nombre} en múltiples formatos...`);
+    
+    const resultados = await ExportManager.exportAll(obj, ['svg', 'png', 'jpeg']);
+    
+    const formatoExitosos = Object.entries(resultados)
+      .filter(([_, ok]) => ok)
+      .map(([fmt]) => fmt.toUpperCase())
+      .join(', ');
+
+    if (formatoExitosos) {
+      toast.success(`✅ Exportados: ${formatoExitosos}`);
+      console.log('📦 Exportación completa:', resultados);
+    } else {
+      toast.error('❌ Fallo en la exportación');
+    }
+  } catch (err) {
+    console.error('❌ Error:', err);
+    toast.error('Error exportando: ' + err.message);
+  }
+}
+
+/**
+ * Exportar geometría como PNG de alta resolución (3×, sin grid, con barra de escala real y etiqueta)
+ */
+async function exportarCanvasToPNG() {
+  const geometryData = window.currentGeometryData;
+  const nombre = window.currentAnalysisData?.nombreObjeto ||
+                 window.currentAnalyzedObject?.obj?.nombre ||
+                 'objeto';
+
+  if (!geometryData) {
+    toast.error('No hay datos de geometría disponibles para exportar');
+    return;
+  }
+
+  try {
+    const EXPORT_SCALE = 3; // 3× base 700px → ~2100px
+
+    // Canvas temporal de alta resolución, fondo blanco, sin grid
+    const exportCanvas = document.createElement('canvas');
+    renderGeometryCanvas(geometryData, {
+      showGrid:     false,
+      targetCanvas: exportCanvas,
+      exportScale:  EXPORT_SCALE
+    });
+
+    const ctx = exportCanvas.getContext('2d');
+    const W   = exportCanvas.width;
+    const H   = exportCanvas.height;
+
+    // ── Barra de escala en mm ──────────────────────────────────────────────
+    const escala  = geometryData.escala || {};
+    // Prioridad: métricas guardadas (mismo factor que usaron los cálculos) > geometria.json
+    const _adExp = window.currentAnalysisData;
+    const _expEjeMM = _adExp?.metricas?.eje_mayor_real_longitud || _adExp?.objeto?.eje_mayor_real_longitud || 0;
+    const _expEjePx = _adExp?.metricas?.eje_mayor_real_longitud_px || _adExp?.objeto?.eje_mayor_real_longitud_px || 0;
+    const factor  = (_expEjeMM > 0 && _expEjePx > 0)
+                  ? _expEjeMM / _expEjePx
+                  : (escala.factorConversion || escala.factor || null); // mm/orig_px
+    const unidades = escala.unidades || 'mm';
+
+    if (factor && factor > 0) {
+      const objW = geometryData.boundingBox?.width  || 1;
+      const objH = geometryData.boundingBox?.height || 1;
+      // Coincide con el cálculo interno de renderGeometryCanvas
+      const available    = (700 - 80) * EXPORT_SCALE;
+      const renderScale  = Math.min(available / objW, available / objH) * 1.2;
+
+      const candidates = [0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
+      const objWidthMM  = objW * factor;
+      const targetMM    = objWidthMM * 0.18;
+      const barMM       = candidates.reduce((a, b) =>
+        Math.abs(b - targetMM) < Math.abs(a - targetMM) ? b : a);
+      const barPx       = (barMM / factor) * renderScale;
+
+      const barThick = Math.max(H * 0.007, 5);
+      const tickHalf = barThick * 1.2;
+      const marginX  = W * 0.025;
+      const marginY  = H * 0.03;
+      const barX     = W - barPx - marginX;
+      const barY     = H - marginY - barThick;
+      const fontSize = Math.max(H * 0.022, 18);
+
+      // Fondo semitransparente
+      ctx.fillStyle = 'rgba(255,255,255,0.88)';
+      ctx.fillRect(barX - 8, barY - fontSize - 14, barPx + 16, fontSize + barThick + 22);
+
+      // Barra
+      ctx.fillStyle = '#1a202c';
+      ctx.fillRect(barX, barY, barPx, barThick);
+
+      // Ticks laterales
+      ctx.strokeStyle = '#1a202c';
+      ctx.lineWidth = Math.max(EXPORT_SCALE * 0.7, 1.5);
+      ctx.beginPath(); ctx.moveTo(barX, barY - tickHalf); ctx.lineTo(barX, barY + barThick + tickHalf); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(barX + barPx, barY - tickHalf); ctx.lineTo(barX + barPx, barY + barThick + tickHalf); ctx.stroke();
+
+      // Etiqueta de barra
+      ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#1a202c';
+      ctx.fillText(`${barMM} ${unidades}`, barX + barPx / 2, barY - tickHalf - 3);
+    }
+
+    // ── Etiqueta con nombre del objeto ─────────────────────────────────────
+    const labelFS = Math.max(H * 0.022, 18);
+    const labelMX = W * 0.025;
+    const labelMY = H * 0.025;
+    ctx.font = `bold ${labelFS}px Arial, sans-serif`;
+    ctx.textAlign = 'left';
+    const labelW = ctx.measureText(nombre).width + 20;
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.fillRect(labelMX - 6, labelMY - 4, labelW, labelFS + 12);
+    ctx.fillStyle = '#1a202c';
+    ctx.fillText(nombre, labelMX + 4, labelMY + labelFS);
+
+    // ── Descarga via diálogo nativo (2 pasos: showSaveDialog + saveFile) ────
+    exportCanvas.toBlob(async blob => {
+      if (!blob) { toast.error('Error generando PNG'); return; }
+      try {
+        const reader = new FileReader();
+        reader.onload = async () => {
+          await _guardarPNGNativo(reader.result, `${nombre}_morfologia.png`);
+        };
+        reader.readAsDataURL(blob);
+      } catch (err) {
+        console.error('❌ Error guardando PNG canvas:', err);
+        toast.error('Error al guardar PNG: ' + err.message);
+      }
+    }, 'image/png', 1.0);
+
+  } catch (err) {
+    console.error('❌ Error exportando PNG:', err);
+    toast.error('Error exportando PNG: ' + err.message);
   }
 }
 
@@ -3682,6 +4284,10 @@ function initCollectionExplorer() {
     toast.info('Exportación a CSV en desarrollo');
   });
 }
+
+// Exponer API mínima para otros módulos (projects-ui.js)
+window.openCollectionExplorer = openCollectionExplorer;
+window.abrirCarpetaAnalisis = abrirCarpetaAnalisis;
 
 // Inicializar al cargar
 if (document.readyState === 'loading') {

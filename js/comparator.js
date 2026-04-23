@@ -486,6 +486,8 @@ const ComparadorMultiObjeto = (() => {
     if (val === undefined || val === null) return null;
     // Coerce numeric strings → number so statistics work
     if (typeof val === 'string' && val.trim() !== '' && !isNaN(val)) return parseFloat(val);
+    // Normalizar NaN/Infinity almacenados → null para evitar propagación a estadísticas
+    if (typeof val === 'number' && !isFinite(val)) return null;
     return val;
   }
 
@@ -546,11 +548,21 @@ const ComparadorMultiObjeto = (() => {
             const _aNetaDisco = typeof _mBase.area_neta === 'number' ? _mBase.area_neta : -Infinity;
             _phMerge.area_neta = Math.max(_aNetaSoloH, _aNetaDisco);
           }
+          // Normalizar nombre: quitar sufijo (Cara X) y derivar cara si falta
+          let _caraFinal = (a.cara || '').toUpperCase();
+          if (_caraFinal !== 'A' && _caraFinal !== 'B') {
+            const _m = /\(\s*cara\s+([ab])\s*\)/i.exec(a.nombreObjeto || '') ||
+                       /\[\s*cara\s+([ab])\s*\]/i.exec(a.nombreObjeto || '');
+            _caraFinal = _m ? _m[1].toUpperCase() : 'Mono';
+          }
+          const _nombreBase = (a.nombreObjeto || ref.nombreObjeto || ref.id || '')
+            .replace(/\s*[\[(]\s*cara\s+[ab]\s*[\])]\s*$/i, '').trim();
           _objetos.push({
             id:            a.id || ref.id,
-            nombre:        a.nombreObjeto || ref.nombreObjeto || ref.id,
-            cara:          a.cara || 'Mono',
+            nombre:        _nombreBase || ref.id,
+            cara:          _caraFinal,
             fecha:         new Date(a.timestamp).toLocaleDateString('es-ES'),
+            thumbnailPath: `${ruta}/imagenes/objeto_recortado.png`,
             metricas:      { ..._mBase, ..._phMerge },
             perforaciones: _perfs,
             horadaciones:  _horas,
@@ -574,11 +586,11 @@ const ComparadorMultiObjeto = (() => {
   function renderObjetos() {
     _selIds = new Set(_objetos.map(o => o.id));
 
-    // Agrupar por nombre normalizado y ordenar caras A → B → Mono
+    // Agrupar por nombre normalizado (sin sufijo de cara) y ordenar caras A → B → Mono
     const grupos = {};
     for (const obj of _objetos) {
-      const key = obj.nombre.trim().toLowerCase();
-      if (!grupos[key]) grupos[key] = { nombre: obj.nombre, caras: [] };
+      const key = obj.nombre.replace(/\s*[\[(]\s*cara\s+[ab]\s*[\])]\s*$/i, '').trim().toLowerCase();
+      if (!grupos[key]) grupos[key] = { nombre: obj.nombre.replace(/\s*[\[(]\s*cara\s+[ab]\s*[\])]\s*$/i, '').trim(), caras: [] };
       grupos[key].caras.push(obj);
     }
     const ORDEN_CARA = { 'A': 0, 'a': 0, 'B': 1, 'b': 1, 'Mono': 2 };
@@ -600,6 +612,7 @@ const ComparadorMultiObjeto = (() => {
         </div>
         <div class="cmo-sel-col-header">
           <span></span>
+          <span class="cmo-sel-col-thumb"></span>
           <span>Nombre</span>
           <span>Cara</span>
           <span>Fecha</span>
@@ -614,8 +627,11 @@ const ComparadorMultiObjeto = (() => {
           const obj = g.caras[0];
           const caraLbl = obj.cara !== 'Mono' ? obj.cara : 'Mono';
           const sel = _selIds.has(String(obj.id));
+          const thumbSrc = obj.thumbnailPath ? `file://${obj.thumbnailPath}` : '';
+          const thumbHtml = thumbSrc ? `<img class="cmo-thumb-img" src="${thumbSrc}" onerror="this.style.display='none'" alt="">` : '';
           h += `<label class="cmo-sel-row${sel ? ' sel' : ''}">
             <input type="checkbox" class="cmo-chk-obj" data-id="${esc(String(obj.id))}"${sel ? ' checked' : ''}>
+            <span class="cmo-sel-thumb">${thumbHtml}</span>
             <span class="cmo-sel-nombre">${esc(obj.nombre)}</span>
             <span class="cmo-cara-badge cmo-cara-${caraLbl}">${esc(caraLbl)}</span>
             <span class="cmo-sel-fecha">${esc(obj.fecha)}</span>
@@ -636,8 +652,11 @@ const ComparadorMultiObjeto = (() => {
           for (const obj of g.caras) {
             const caraLbl = obj.cara !== 'Mono' ? obj.cara : 'Mono';
             const sel = _selIds.has(String(obj.id));
+            const thumbSrcC = obj.thumbnailPath ? `file://${obj.thumbnailPath}` : '';
+            const thumbHtmlC = thumbSrcC ? `<img class="cmo-thumb-img cmo-thumb-sm" src="${thumbSrcC}" onerror="this.style.display='none'" alt="">` : '';
             h += `<label class="cmo-sel-row cmo-sel-child${sel ? ' sel' : ''}">
               <input type="checkbox" class="cmo-chk-obj" data-id="${esc(String(obj.id))}"${sel ? ' checked' : ''}>
+              <span class="cmo-sel-thumb">${thumbHtmlC}</span>
               <span class="cmo-sel-nombre cmo-sel-child-name">${esc(obj.nombre)}</span>
               <span class="cmo-cara-badge cmo-cara-${caraLbl}">${esc(caraLbl)}</span>
               <span class="cmo-sel-fecha">${esc(obj.fecha)}</span>
@@ -781,18 +800,20 @@ const ComparadorMultiObjeto = (() => {
     }
     let nOutliers = 0;
     for (const k of numKeys) {
-      const vals = objs.map(o=>getValor(o,k)).filter(v=>typeof v==='number'&&isFinite(v));
+      const vals = objs.map(o=>getValor(o,k)).filter(v=>typeof v==='number'&&isFinite(v)).sort((a,b)=>a-b);
       if (vals.length < 2) continue;
-      const med = vals.reduce((a,b)=>a+b,0)/vals.length;
-      const std = Math.sqrt(vals.reduce((a,b)=>a+(b-med)**2,0)/vals.length);
-      nOutliers += objs.filter(o=>{ const v=getValor(o,k); return typeof v==='number'&&isFinite(v)&&Math.abs(v-med)>2*std; }).length;
+      const q1 = vals[Math.floor((vals.length - 1) * 0.25)];
+      const q3 = vals[Math.ceil((vals.length - 1) * 0.75)];
+      const iqr = q3 - q1;
+      const lo = q1 - 1.5 * iqr, hi = q3 + 1.5 * iqr;
+      nOutliers += objs.filter(o=>{ const v=getValor(o,k); return typeof v==='number'&&isFinite(v)&&(v<lo||v>hi); }).length;
     }
     const chips = document.getElementById('cmoResumenChips');
     if (chips) chips.innerHTML = [
       `<div class="cmo-chip accent-blue"><span class="cmo-chip-val">${objs.length}</span><span class="cmo-chip-lbl">Objetos comparados</span></div>`,
       `<div class="cmo-chip accent-green"><span class="cmo-chip-val">${keys.length}</span><span class="cmo-chip-lbl">Métricas seleccionadas</span></div>`,
       `<div class="cmo-chip accent-orange" title="Métrica con mayor CV"><span class="cmo-chip-val">${maxCV.toFixed(0)}%</span><span class="cmo-chip-lbl">CV máx: ${esc(maxCVLabel.split(' ').slice(0,2).join(' '))}</span></div>`,
-      `<div class="cmo-chip accent-red"><span class="cmo-chip-val">${nOutliers}</span><span class="cmo-chip-lbl">Valores atípicos (±2σ)</span></div>`,
+      `<div class="cmo-chip accent-red"><span class="cmo-chip-val">${nOutliers}</span><span class="cmo-chip-lbl">Valores atípicos (IQR)</span></div>`,
     ].join('');
   }
 
@@ -1075,7 +1096,7 @@ const ComparadorMultiObjeto = (() => {
         const v   = getValor(o, k);
         const nv  = (v !== null && typeof v === 'number' && isFinite(v)) ? norm(v, k) : null;
         const col = PALETA[oi % PALETA.length].stroke;
-        const raw = v !== null && typeof v === 'number' ? v.toFixed(3) : '—';
+        const raw = v !== null && typeof v === 'number' && isFinite(v) ? v.toFixed(3) : '—';
         if (nv === null) return `<td class="cmo-rt-val-cell"><span style="color:#cbd5e0;">—</span></td>`;
         const pct   = Math.round(nv * 100);
         const bgGrad = `linear-gradient(to right, ${col}22 ${pct}%, transparent ${pct}%)`;
@@ -1107,7 +1128,8 @@ const ComparadorMultiObjeto = (() => {
         <span style="color:#718096;">· Gradiente de celda = posición normalizada</span>
       </div>`;
 
-    // ── Inyectar estructura HTML ─────────────────────────────────────────────
+    // ── Limpiar zoom anterior + inyectar estructura HTML ──────────────────────
+    if (window.detachCanvasZoom) contenedor.querySelectorAll('canvas').forEach(c => window.detachCanvasZoom(c));
     contenedor.innerHTML = `
       <div class="cmo-radar-legend-bar">${legendHTML}</div>
       <div class="cmo-radar-canvas-wrap">
@@ -1283,6 +1305,23 @@ const ComparadorMultiObjeto = (() => {
       }
     };
     canvas.onmouseleave = () => { _tt.style.display = 'none'; };
+    // Zoom + pan
+    if (window.attachCanvasZoom) window.attachCanvasZoom(canvas);
+    // Botón PNG
+    const _radarWrap = canvas.closest('.cmo-radar-canvas-wrap') || canvas.parentElement;
+    if (_radarWrap && !_radarWrap.querySelector('.cmo-export-png-btn')) {
+      const _btn = document.createElement('button');
+      _btn.className = 'cmo-export-png-btn';
+      _btn.title = 'Guardar radar como imagen PNG';
+      _btn.textContent = '📸 PNG';
+      _btn.addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.href = canvas.toDataURL('image/png');
+        link.download = 'CMO_Radar_' + new Date().toISOString().slice(0,10) + '.png';
+        link.click();
+      });
+      _radarWrap.appendChild(_btn);
+    }
   }
 
   // ──── ESTADÍSTICOS (tabla + mini sparklines inline) ─────────────────────
@@ -1536,6 +1575,22 @@ const ComparadorMultiObjeto = (() => {
       ctx2.fill();
       ctx2.fillStyle = skewClr; ctx2.font = 'bold 8px system-ui,sans-serif'; ctx2.textAlign = 'center';
       ctx2.fillText(skewLabel, W - PAD.r - badgeW / 2, 14);
+
+      // Badge de curtosis (a la izquierda del badge de asimetría)
+      const kurt = sigma > 0 && f.vals.length >= 4
+        ? f.vals.reduce((s, v) => s + ((v - mu) / sigma) ** 4, 0) / f.vals.length
+        : 3;
+      const kurtExc = kurt - 3;
+      const kurtLabel = Math.abs(kurtExc) < 0.5 ? '≈ Mesoc.' : kurtExc > 0 ? '▲ Leptoc.' : '▼ Platik.';
+      const kurtBg  = Math.abs(kurtExc) < 0.5 ? 'rgba(118,169,250,.18)' : Math.abs(kurtExc) < 1.5 ? 'rgba(237,137,54,.18)' : 'rgba(245,101,101,.18)';
+      const kurtClr = Math.abs(kurtExc) < 0.5 ? '#1e40af' : Math.abs(kurtExc) < 1.5 ? '#744210' : '#9b2c2c';
+      ctx2.fillStyle = kurtBg;
+      ctx2.beginPath();
+      if (ctx2.roundRect) ctx2.roundRect(W - PAD.r - badgeW * 2 - 6, 4, badgeW, badgeH, 3);
+      else ctx2.rect(W - PAD.r - badgeW * 2 - 6, 4, badgeW, badgeH);
+      ctx2.fill();
+      ctx2.fillStyle = kurtClr; ctx2.font = 'bold 8px system-ui,sans-serif'; ctx2.textAlign = 'center';
+      ctx2.fillText(kurtLabel, W - PAD.r - badgeW * 2 - 6 + badgeW / 2, 14);
 
       // Título (izquierda)
       const tWords = f.label.split(' ');
@@ -2036,7 +2091,7 @@ const ComparadorMultiObjeto = (() => {
     contenido.innerHTML =
       insightDispHtml +
       legendBarHtml +
-      `<div style="overflow-x:auto;"><canvas id="cmoDispCanvas" width="${W}" height="${H}" style="display:block;margin:0 auto;cursor:crosshair;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.07);"></canvas></div>` +
+      `<div style="overflow-x:auto;"><div class="cmo-canvas-zoom-wrap" style="position:relative;display:inline-block;min-width:min-content;"><canvas id="cmoDispCanvas" width="${W}" height="${H}" style="display:block;margin:0 auto;cursor:crosshair;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.07);"></canvas></div></div>` +
       statsTableHtml +
       splomHtml;
 
@@ -2224,6 +2279,24 @@ const ComparadorMultiObjeto = (() => {
       }
     };
     canvas.onmouseleave = () => { _ttDisp.style.display = 'none'; };
+    // Limpiar zoom anterior si existe, luego adjuntar zoom + pan
+    if (window.detachCanvasZoom) window.detachCanvasZoom(canvas);
+    if (window.attachCanvasZoom) window.attachCanvasZoom(canvas);
+    // Botón PNG
+    const _dispWrap = canvas.closest('.cmo-canvas-zoom-wrap') || canvas.parentElement;
+    if (_dispWrap && !_dispWrap.querySelector('.cmo-export-png-btn')) {
+      const _btn = document.createElement('button');
+      _btn.className = 'cmo-export-png-btn';
+      _btn.title = 'Guardar dispersión como imagen PNG';
+      _btn.textContent = '📸 PNG';
+      _btn.addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.href = canvas.toDataURL('image/png');
+        link.download = 'CMO_Dispersion_' + new Date().toISOString().slice(0,10) + '.png';
+        link.click();
+      });
+      _dispWrap.appendChild(_btn);
+    }
 
     // ── Dibujar SPLOM mini-canvases ──────────────────────────────────────────
     function _drawMiniScat(sp2, pi2) {
@@ -2655,9 +2728,9 @@ const ComparadorMultiObjeto = (() => {
 
     // ── Canvas: heatmap de burbujas (visual) ──────────────────────────────────
     const canvasWrapHtml = `
-      <div style="overflow-x:auto;margin-bottom:4px;">
+      <div style="overflow-x:auto;margin-bottom:4px;"><div class="cmo-canvas-zoom-wrap" style="position:relative;display:inline-block;min-width:min-content;">
         <canvas id="cmoCorrCanvas" width="${CW}" height="${CH}" style="display:block;margin:0 auto;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.07);cursor:crosshair;"></canvas>
-      </div>
+      </div></div>
       <div style="font-size:10px;color:#718096;display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:2px;">
         <span>Tamaño de burbuja ∝ |r|</span>
         <span style="color:#276749;font-weight:600;">● r&gt;0 positivo</span>
@@ -2842,6 +2915,24 @@ const ComparadorMultiObjeto = (() => {
       _ttCorr.style.top  = (e.clientY - 14) + 'px';
     };
     canvas.onmouseleave = () => { _ttCorr.style.display = 'none'; };
+    // Limpiar zoom anterior si existe, luego adjuntar zoom + pan
+    if (window.detachCanvasZoom) window.detachCanvasZoom(canvas);
+    if (window.attachCanvasZoom) window.attachCanvasZoom(canvas);
+    // Botón PNG
+    const _corrWrap = canvas.closest('.cmo-canvas-zoom-wrap') || canvas.parentElement;
+    if (_corrWrap && !_corrWrap.querySelector('.cmo-export-png-btn')) {
+      const _btn = document.createElement('button');
+      _btn.className = 'cmo-export-png-btn';
+      _btn.title = 'Guardar correlación como imagen PNG';
+      _btn.textContent = '📸 PNG';
+      _btn.addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.href = canvas.toDataURL('image/png');
+        link.download = 'CMO_Correlacion_' + new Date().toISOString().slice(0,10) + '.png';
+        link.click();
+      });
+      _corrWrap.appendChild(_btn);
+    }
 
     // ── Scatter: dibujo por par de métricas ──────────────────────────────────
     function _drawPairScatter(xiIdx, yiIdx) {

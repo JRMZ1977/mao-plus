@@ -209,6 +209,7 @@
 
         <!-- Sub-items con conector en árbol -->
         <div class="sidebar-subitems">
+          <button class="mao-nav-subitem" data-target="sectionObj3D">Objeto 3D (OBJ)</button>
           <button class="mao-nav-subitem" data-target="sectionEscala">Escala y Detección</button>
           <button class="mao-nav-subitem" data-target="sectionCanvas">Visualización</button>
         </div>
@@ -368,6 +369,14 @@
           <span>SVG — Trazado vectorial</span>
         </button>
 
+        <button class="sidebar-action-btn sidebar-action-btn--export" id="sidebarExportPNGBtn"
+                title="Exportar trazados geométricos como PNG de alta resolución con escala en mm">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="nav-icon" aria-hidden="true">
+            <rect x="1" y="3" width="14" height="10" rx="1"/><circle cx="5.5" cy="7" r="1"/><polyline points="1 11 5 7 8 10 11 7 15 11"/>
+          </svg>
+          <span>PNG — Morfología con escala</span>
+        </button>
+
         <!-- Exportación bifacial (visible solo en modo bifacial con resultados) -->
         <div id="sidebarExportBifacialGroup" hidden>
           <div class="mao-sidebar-sep" style="margin-top:6px;"></div>
@@ -473,6 +482,29 @@
           Un proyecto agrupa múltiples análisis morfométricos relacionados (misma cultura, sitio, colección, etc.) y guarda automáticamente todos los archivos (JSON, CSV) en una carpeta de tu computadora.
           <br><br>
           <strong style="color: var(--text-secondary);">Abrir Carpeta:</strong> Permite abrir análisis morfológicos desde cualquier carpeta de tu dispositivo, incluso carpetas compartidas o copiadas desde otros equipos.
+        </div>
+
+        <!-- SELECTOR GLOBAL DE TIPO DE OBJETO (2D / 3D) -->
+        <div id="objectDimensionSelector" style="margin-top: 14px; padding: 12px; background: var(--bg-secondary); border: 1.5px solid var(--border-color-dark); border-radius: 6px;">
+          <div style="font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 8px;">
+            Tipo de objeto a analizar (define el flujo de trabajo)
+          </div>
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom: 8px;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--text-primary); cursor:pointer; padding:7px 10px; border:1px solid var(--border-color); border-radius: 5px; background:var(--bg-primary);">
+              <input type="radio" name="objectDimensionMode" id="objectDimension2D" value="2d" checked style="cursor:pointer;" />
+              <span>Objeto 2D (imagen)</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--text-primary); cursor:pointer; padding:7px 10px; border:1px solid var(--border-color); border-radius: 5px; background:var(--bg-primary);">
+              <input type="radio" name="objectDimensionMode" id="objectDimension3D" value="3d" style="cursor:pointer;" />
+              <span>Objeto 3D (.OBJ)</span>
+            </label>
+            <span id="objectDimensionStatus" style="margin-left:auto; font-size:11px; color:var(--text-secondary); font-weight:600;">Modo actual: 2D</span>
+          </div>
+          <div style="font-size:10px; color:var(--gray-500); line-height:1.4;">
+            <strong>2D:</strong> habilita identificación + modo monofacial/bifacial + carga de imágenes + detección morfométrica.
+            <br>
+            <strong>3D:</strong> habilita identificación + flujo de carga OBJ + visualizador 3D + métricas PCA.
+          </div>
         </div>
 
         <!-- ACCESO AL COMPARADOR MULTI-OBJETO eliminado del panel; IDs preservados como elementos ocultos para comparator.js -->
@@ -595,7 +627,7 @@
       <!-- BLOQUE FOTOGRAFÍA (Opción C) - Inicialmente oculto -->
       <div id="bloqueFotografia" style="display: none; margin-bottom: 20px; padding: 15px; background: var(--bg-secondary); border: 1.5px solid var(--border-color-dark); border-radius: 6px;">
         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-          <label style="font-weight: 600; font-size: 13px; color: var(--text-secondary);">Nombre derivado de las fotografías cargadas</label>
+          <label id="fotoIdSourceLabel" style="font-weight: 600; font-size: 13px; color: var(--text-secondary);">Nombre derivado de las fotografías cargadas</label>
         </div>
         <!-- Vista previa monofacial -->
         <div id="fotoIdPreviewMono" style="margin-bottom: 12px;">
@@ -624,9 +656,9 @@
           </div>
         </div>
         <button id="btnAsignarFotografia" class="btn-submit-wide">
-          Usar nombre de fotografía como Identificación
+          Usar nombre de archivo como Identificación
         </button>
-        <small style="display: block; margin-top: 8px; color: #bf360c; font-size: 10px; line-height: 1.4; text-align: center;">
+        <small id="fotoIdActionHint" style="display: block; margin-top: 8px; color: #bf360c; font-size: 10px; line-height: 1.4; text-align: center;">
           El nombre del archivo de imagen se usará en todos los análisis y exportaciones
         </small>
       </div><!-- /bloqueFotografia -->
@@ -748,6 +780,107 @@
         RAW: NEF, CR2/CR3, ARW, ORF, RAF, DNG, RW2, PEF, SRW
       </div>
       <div id="status"></div>
+    </fieldset>
+
+    <!-- ============================================================================ -->
+    <!-- FLUJO OBJ 3D: Carga + Visualización -->
+    <!-- ============================================================================ -->
+    <fieldset id="sectionObj3D" style="display: none;">
+      <legend>Objeto 3D (.OBJ)</legend>
+
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--gray-600);">
+          Archivo OBJ:
+          <input type="file" id="obj3dInput" accept=".obj,model/obj,text/plain" style="font-size:10px;" />
+        </label>
+
+        <button id="obj3dLoadBtn" class="btn-sm btn-muted" disabled>Cargar y visualizar</button>
+
+        <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--gray-600);margin-left:auto;">
+          Muestras PCA:
+          <input type="number" id="obj3dSamplesInput" min="1000" max="200000" step="1000" value="20000" style="width:88px;font-size:10px;padding:3px 5px;" />
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--gray-600);">
+          Normalización:
+          <select id="obj3dNormalizeSelect" style="font-size:10px;padding:3px 5px;">
+            <option value="none" selected>none</option>
+            <option value="bboxdiag">bboxdiag</option>
+            <option value="std">std</option>
+          </select>
+        </label>
+        <button id="obj3dAnalyzeBtn" class="btn-sm btn-muted" disabled>Calcular métricas PCA</button>
+        <button id="obj3dSaveBtn" class="btn-sm btn-muted" disabled title="Guardar análisis 3D en el proyecto activo (requiere identificación asignada)">Guardar análisis 3D</button>
+      </div>
+
+      <div id="obj3dStatus" style="font-size:10px;color:var(--gray-500);margin-bottom:8px;">Seleccione un archivo .obj para iniciar.</div>
+
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:8px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;">
+        <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--gray-600);">
+          <input type="checkbox" id="obj3dShowFaces" checked /> Caras
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--gray-600);">
+          <input type="checkbox" id="obj3dShowWireframe" checked /> Wireframe
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--gray-600);">
+          <input type="checkbox" id="obj3dShowAxes" checked /> Ejes
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--gray-600);">
+          <input type="checkbox" id="obj3dAutoRotate" /> Auto-rotar
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--gray-600);">
+          <input type="checkbox" id="obj3dCullBackfaces" /> Culling
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--gray-600);">
+          Proyección:
+          <select id="obj3dProjectionMode" style="font-size:10px;padding:2px 4px;">
+            <option value="perspective" selected>perspectiva</option>
+            <option value="orthographic">ortográfica</option>
+          </select>
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--gray-600);">
+          Ejes:
+          <select id="obj3dAxesMode" style="font-size:10px;padding:2px 4px;">
+            <option value="model" selected>modelo XYZ</option>
+            <option value="pca">PCA (PC1-PC3)</option>
+          </select>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--gray-600);margin-left:auto;">
+          Luz:
+          <input type="range" id="obj3dLightSlider" min="0" max="100" step="1" value="72" style="width:92px;" />
+        </label>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(420px,1fr) 340px;gap:12px;align-items:start;">
+        <div style="background:#fafafa;border:1px solid var(--border-color);border-radius:6px;padding:8px;">
+          <canvas id="obj3dCanvas" width="920" height="560" style="width:100%;height:auto;display:block;background:#fff;border:1px solid var(--border-color);border-radius:4px;cursor:grab;"></canvas>
+          <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:8px;font-size:10px;color:var(--gray-500);">
+            <span>Arrastrar: rotar · Rueda: zoom · R: reset · Guía canónica: FRONT/BACK = caras de orientación</span>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <!-- Controles de vista predefinida -->
+              <button onclick="window._obj3dApplyView('front')" class="btn-sm btn-muted" style="padding:4px 8px;" title="Vista frontal">Front</button>
+              <button onclick="window._obj3dApplyView('back')" class="btn-sm btn-muted" style="padding:4px 8px;" title="Vista trasera">Back</button>
+              <button onclick="window._obj3dApplyView('left')" class="btn-sm btn-muted" style="padding:4px 8px;" title="Vista lateral izquierda">Left</button>
+              <button onclick="window._obj3dApplyView('right')" class="btn-sm btn-muted" style="padding:4px 8px;" title="Vista lateral derecha">Right</button>
+              <button onclick="window._obj3dApplyView('top')" class="btn-sm btn-muted" style="padding:4px 8px;" title="Vista superior">Top</button>
+              <button onclick="window._obj3dApplyView('bottom')" class="btn-sm btn-muted" style="padding:4px 8px;" title="Vista inferior">Bot</button>
+              <button id="obj3dSetMorphAnchorBtn" class="btn-sm btn-muted" style="padding:4px 8px;" title="Seleccionar punto para orientación morfológica">Ancla morfol.</button>
+              <button id="obj3dSetContourZBtn" class="btn-sm btn-muted" style="padding:4px 8px;" title="Usar Z como normal al plano de mínima varianza del contorno">Z contorno</button>
+              <span style="width:1px;background:var(--border-color);height:20px;"></span>
+              <button id="obj3dExportPngBtn" class="btn-sm btn-muted" style="padding:4px 8px;">Exportar PNG</button>
+              <button id="obj3dFitViewBtn" class="btn-sm btn-muted" style="padding:4px 8px;">Ajustar</button>
+              <button id="obj3dResetViewBtn" class="btn-sm btn-muted" style="padding:4px 8px;">Reset vista</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="obj3d-side-panel">
+          <div class="obj3d-side-panel__title">Resumen 3D</div>
+          <div id="obj3dBasicInfo" class="obj3d-basic-info">Sin datos cargados.</div>
+          <hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;" />
+          <div class="obj3d-side-panel__title">Panel morfológico 3D · estilo MAO Plus</div>
+          <div id="obj3dMetrics" class="obj3d-metrics-panel">No calculadas.</div>
+        </div>
+      </div>
     </fieldset>
 
     <fieldset id="sectionEscala">
@@ -1456,6 +1589,7 @@
               <li><button id="exportarAnalisisCompletoBtn" style="display:none;"></button></li>
               <li><button id="exportarPDFIntegralBtn" style="display:none;"></button></li>
               <li><button id="exportarSVGVectorialBtn" style="display:none;"></button></li>
+              <li><button id="exportarPNGMorfologicoBtn" style="display:none;"></button></li>
             </ul>
           </div>
           <div id="morphologicalMetrics" style="font-size: 11px;"></div>
@@ -2338,8 +2472,10 @@
   <script src="js/file-io.js"></script>
   <script src="js/projects-ui.js"></script>
   <script src="js/collection.js"></script>
+  <script src="js/export-manager.js"></script>
   <script src="js/tooltips.js"></script>
   <script src="js/analysis-core.js"></script>
+  <script src="js/obj3d-viewer.js"></script>
   <script src="js/sidebar-nav.js"></script>
   <script src="js/diagnostics.js"></script>
 
@@ -2610,6 +2746,7 @@
             <thead>
               <tr>
                 <th class="col-number">#</th>
+                <th class="col-thumb"></th>
                 <th class="col-name">Nombre</th>
                 <th class="col-date">Fecha</th>
                 <th class="col-modo">Modo</th>
@@ -2850,14 +2987,24 @@
                       </svg>
                       Trazos Geométricos
                     </h3>
-                    <button onclick="exportGeometryToSVG()" class="av-export-btn">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="7 10 12 15 17 10"></polyline>
-                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                      </svg>
-                      Exportar SVG
-                    </button>
+                    <div style="display:flex;gap:6px;">
+                      <button onclick="exportGeometryToSVG()" class="av-export-btn" title="Exportar trazos vectoriales (escalados a mm reales)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                          <polyline points="7 10 12 15 17 10"></polyline>
+                          <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        SVG
+                      </button>
+                      <button onclick="exportarCanvasToPNG()" class="av-export-btn" style="background:#2d6a4f;color:#fff;border-color:#2d6a4f;" title="Exportar imagen PNG de alta resolución (300 DPI)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                          <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                          <polyline points="21 15 16 10 5 21"></polyline>
+                        </svg>
+                        PNG
+                      </button>
+                    </div>
                   </div>
                   <div class="av-canvas-wrapper">
                     <canvas id="geometryCanvas" width="800" height="600" style="max-width: 100%; height: auto; background: white; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.12);"></canvas>
@@ -2907,6 +3054,8 @@
   </div>
 
 
+  <script src="js/canvas-zoom.js"></script>
+  <script src="js/object-dimension-mode.js"></script>
   <script src="js/comparator.js"></script>
 
 
@@ -3385,6 +3534,7 @@
   <!-- ── MAO IA: controlador JS externo ── -->
   <script src="js/mao-ia.js"></script>
   <script src="js/procrustes.js"></script>
+  <script src="js/aps-save.js"></script>
   <!-- ── Controles de ventana unificados (último, tras todos los módulos) ── -->
   <script src="js/window-controls.js"></script>
 
@@ -3429,7 +3579,7 @@
 
   <!-- ═══ MODAL DE ANÁLISIS PROCRUSTES (PS) ══════════════════════════════ -->
   <div id="psModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.55);align-items:center;justify-content:center;" role="dialog" aria-modal="true" aria-labelledby="psModalTitle">
-    <div style="background:#fff;border-radius:12px;width:min(96vw,960px);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.35);">
+    <div style="background:#fff;border-radius:12px;width:min(96vw,1180px);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.35);">
 
       <!-- Cabecera del modal -->
       <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px 12px;border-bottom:1.5px solid #e2e8f0;background:linear-gradient(135deg,#1a365d 0%,#2b6cb0 100%);border-radius:12px 12px 0 0;">
@@ -3438,7 +3588,10 @@
           <span id="psModalTitle" style="font-size:15px;font-weight:700;color:#fff;">An&#225;lisis Procrustes (PS)</span>
           <span style="font-size:11px;color:#bee3f8;margin-left:4px;">Coleccion de formas &#8212; PS Parcial &amp; GPA</span>
         </div>
-        <button id="psCerrarBtn" style="background:rgba(255,255,255,0.15);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:16px;padding:4px 10px;line-height:1;transition:background 0.2s;" title="Cerrar">&#10005;</button>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button id="psGuardarAPSBtn" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.35);border-radius:6px;color:#fff;cursor:pointer;font-size:12px;font-weight:600;padding:5px 12px;line-height:1.4;transition:background 0.2s;display:none;" title="Guardar análisis Procrustes (PS/GPA) en el proyecto activo">💾 Guardar Procrustes</button>
+          <button id="psCerrarBtn" style="background:rgba(255,255,255,0.15);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:16px;padding:4px 10px;line-height:1;transition:background 0.2s;" title="Cerrar">&#10005;</button>
+        </div>
       </div>
 
       <!-- Stepper -->
@@ -3564,38 +3717,127 @@
     }
     .ps-layout-2col {
       display: grid;
-      grid-template-columns: 480px 1fr;
-      gap: 16px;
+      grid-template-columns: minmax(340px, 1fr) minmax(420px, 560px);
+      gap: 14px;
       align-items: start;
       margin-bottom: 16px;
     }
-    @media (max-width: 760px) {
-      .ps-layout-2col { grid-template-columns: 1fr; }
+    /* Proporciones exactas por tab */
+    .ps-layout-2col.ps-layout-2col--parcial {
+      grid-template-columns: minmax(420px, 1.35fr) minmax(420px, 1fr);
+    }
+    .ps-layout-2col.ps-layout-2col--gpa {
+      grid-template-columns: minmax(430px, 1.2fr) minmax(420px, 1fr);
+    }
+    /* Orden científico: datos/estadística a la izquierda, visualización a la derecha */
+    .ps-layout-2col > .ps-stats-col {
+      grid-column: 1;
+    }
+    .ps-layout-2col > .ps-canvas-wrap {
+      grid-column: 2;
+    }
+    .ps-sequence-col {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    @media (max-width: 980px) {
+      .ps-layout-2col {
+        grid-template-columns: 1fr;
+      }
+      .ps-layout-2col > .ps-stats-col,
+      .ps-layout-2col > .ps-canvas-wrap {
+        grid-column: 1;
+      }
+    }
+    /* Tabla con scroll vertical — evita que la matriz de distancias ocupe demasiado espacio */
+    .ps-table-compact {
+      max-height: 280px;
+      overflow-y: auto;
+    }
+    /* Panel de método colapsable */
+    .ps-method-details {
+      margin-bottom: 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: #f7fafc;
+    }
+    .ps-method-details summary {
+      cursor: pointer;
+      padding: 7px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #4a5568;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+    .ps-method-details summary::-webkit-details-marker { display: none; }
+    .ps-method-details summary::before {
+      content: '▶';
+      font-size: 9px;
+      transition: transform 0.2s;
+      flex-shrink: 0;
+    }
+    .ps-method-details[open] summary::before { transform: rotate(90deg); }
+    .ps-method-details .ps-desc-panel {
+      margin: 0;
+      border-top: 1px solid #e2e8f0;
+      border-radius: 0 0 6px 6px;
     }
     .ps-canvas-wrap {
       display: flex;
       flex-direction: column;
       align-items: center;
+      position: relative;
+      border-radius: 8px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      padding: 10px;
     }
+    /* Viewport aislado para el canvas — evita solapamientos al hacer zoom */
+    .ps-canvas-viewport {
+      width: min(100%, 560px);
+      height: auto;
+      min-height: 340px;
+      aspect-ratio: 1 / 1;
+      overflow: hidden;
+      position: relative;
+      border-radius: 6px;
+      border: 1px solid #cbd5e0;
+      background: #ffffff;
+      flex-shrink: 0;
+      align-self: center;
+    }
+    .ps-canvas-viewport canvas,
     .ps-canvas-wrap canvas {
+      display: block;
       border: 1px solid #e2e8f0;
       border-radius: 6px;
       max-width: 100%;
     }
     .ps-canvas-title {
+      width: 100%;
       font-size: 11px;
-      color: #718096;
-      margin-bottom: 6px;
-      text-align: center;
+      color: #334155;
+      margin-bottom: 8px;
+      text-align: left;
+      font-weight: 600;
+      letter-spacing: .01em;
     }
     .ps-canvas-legend {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
-      justify-content: center;
+      justify-content: flex-start;
       margin-top: 8px;
       font-size: 11px;
-      color: #4a5568;
+      color: #475569;
+      width: 100%;
+      padding-top: 8px;
+      border-top: 1px dashed #cbd5e0;
     }
     .ps-ley-item {
       display: flex;
@@ -3615,23 +3857,33 @@
       gap: 10px;
     }
     .ps-chip {
-      padding: 10px 14px;
+      padding: 10px 12px;
       border-radius: 8px;
-      border: 1px solid;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
     }
-    .ps-chip-green  { background: #f0fff4; border-color: #c6f6d5; }
-    .ps-chip-red    { background: #fff5f5; border-color: #fed7d7; }
-    .ps-chip-gray   { background: #f7fafc; border-color: #e2e8f0; }
-    .ps-chip-label  { display: block; font-size: 10px; color: #718096; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 3px; }
-    .ps-chip-val    { display: block; font-size: 13px; font-weight: 700; color: #2d3748; }
-    .ps-chip-sub    { display: block; font-size: 11px; color: #718096; margin-top: 2px; }
+    .ps-chip-green  { background: #f8fafc; border-color: #cbd5e1; }
+    .ps-chip-red    { background: #f8fafc; border-color: #cbd5e1; }
+    .ps-chip-gray   { background: #f8fafc; border-color: #cbd5e1; }
+    .ps-chip-label  { display: block; font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px; }
+    .ps-chip-val    { display: block; font-size: 13px; font-weight: 700; color: #1e293b; }
+    .ps-chip-sub    { display: block; font-size: 11px; color: #64748b; margin-top: 2px; }
     .ps-matrix-title {
       font-size: 12px;
       font-weight: 700;
-      color: #2d3748;
-      margin: 6px 0 8px;
+      color: #1e293b;
+      margin: 8px 0 8px;
+      letter-spacing: .01em;
     }
-    .ps-table-scroll { overflow-x: auto; margin-bottom: 16px; }
+    .ps-table-scroll {
+      overflow: auto;
+      margin-bottom: 16px;
+      max-height: 360px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #ffffff;
+    }
     .ps-dist-table {
       border-collapse: collapse;
       font-size: 11px;
@@ -3644,14 +3896,19 @@
       white-space: nowrap;
     }
     .ps-dist-table th {
-      background: #edf2f7;
+      background: #f1f5f9;
       font-weight: 600;
-      color: #2d3748;
+      color: #334155;
+      position: sticky;
+      top: 0;
+      z-index: 1;
     }
     .ps-th-corner { background: #f7fafc; }
-    .ps-th-row    { font-weight: 600; background: #edf2f7; text-align: left !important; color: #2d3748; }
+    .ps-th-row    { font-weight: 600; background: #f8fafc; text-align: left !important; color: #334155; position: sticky; left: 0; z-index: 1; }
     .ps-cell-diag { background: #4a5568; color: #fff; font-weight: 700; }
     .ps-cell-val  { font-variant-numeric: tabular-nums; cursor: default; }
+    .ps-cell-clickable { cursor: pointer !important; transition: filter .1s; }
+    .ps-cell-clickable:hover { filter: brightness(0.88); }
     .ps-obj-dot {
       display: inline-block;
       width: 8px; height: 8px;
@@ -3680,16 +3937,54 @@
       border-collapse: collapse;
       font-size: 11px;
       width: 100%;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      overflow: hidden;
     }
     .ps-ranking-table th, .ps-ranking-table td {
       border: 1px solid #e2e8f0;
       padding: 4px 8px;
       text-align: left;
     }
-    .ps-ranking-table th { background: #edf2f7; font-weight: 600; color: #2d3748; }
+    .ps-ranking-table th { background: #f1f5f9; font-weight: 700; color: #334155; position: sticky; top: 0; z-index: 1; }
     .ps-rank-num  { text-align: center; font-weight: 700; color: #4a5568; width: 24px; }
     .ps-rank-dist { font-variant-numeric: tabular-nums; font-weight: 600; color: #2b6cb0; }
     .ps-rank-cs   { font-variant-numeric: tabular-nums; color: #718096; }
+    .ps-rank-be   { font-variant-numeric: tabular-nums; color: #744210; }
+    /* GMM stats panel */
+    .ps-gmm-stats-panel {
+      margin-top: 16px;
+      padding: 14px 16px;
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+    }
+    .ps-gmm-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+      gap: 10px;
+    }
+    .ps-stat-card {
+      background: #fff;
+      border: 1px solid #dbe3ec;
+      border-radius: 6px;
+      padding: 8px 12px;
+      box-shadow: 0 1px 2px rgba(15,23,42,.05);
+    }
+    .ps-stat-val {
+      font-size: 15px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: #1a202c;
+      line-height: 1.2;
+    }
+    .ps-stat-lbl {
+      font-size: 10px;
+      color: #718096;
+      margin-top: 3px;
+      line-height: 1.3;
+    }
   </style>
 
 </body>

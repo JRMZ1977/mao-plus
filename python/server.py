@@ -14,18 +14,46 @@ O desde Electron (main.js):
 import logging
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse as StarletteJSONResponse, Response
+from starlette.formparsers import MultiPartParser
 import uvicorn
 
+# Aumentar el límite por campo de python-multipart (default 1 MB).
+# Los endpoints que envían JSON grande como Form() (classify, bifacial, pca, etc.)
+# pueden superar el límite cuando las métricas incluyen puntos de contorno.
+MultiPartParser.max_part_size = _MAX_FORM_FIELD_BYTES = 10 * 1024 * 1024  # 10 MB
+
 from python.config import (
-    SERVER_HOST, SERVER_PORT, API_VERSION, API_PREFIX, ALLOWED_ORIGINS
+    SERVER_HOST, SERVER_PORT, API_VERSION, API_PREFIX, ALLOWED_ORIGINS,
+    MAX_IMAGE_SIZE_MB,
 )
 from python import modules
 from python.modules import sam_segmenter
 
 _log = logging.getLogger("mao.server")
+
+# Límite de payload en bytes (derivado de config)
+_MAX_UPLOAD_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024
+
+
+# ── Helper: leer UploadFile con validación de tamaño ────────────────────────
+async def _read_image(upload: UploadFile) -> bytes:
+    """Lee el archivo subido y rechaza si supera MAX_IMAGE_SIZE_MB."""
+    data = await upload.read()
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Imagen demasiado grande ({len(data)//1024//1024} MB). "
+                   f"Máximo permitido: {MAX_IMAGE_SIZE_MB} MB.",
+        )
+    return data
+
 
 # ── Aplicación ───────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -36,6 +64,20 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+
+# ── Middleware: rechazar requests con Content-Length excesivo ────────────────
+class MaxUploadSizeMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > _MAX_UPLOAD_BYTES:
+            return Response(
+                content=f"Payload demasiado grande. Máximo: {MAX_IMAGE_SIZE_MB} MB.",
+                status_code=413,
+            )
+        return await call_next(request)
+
+app.add_middleware(MaxUploadSizeMiddleware)
+
 # ── CORS (solo localhost + Electron) ─────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
@@ -44,6 +86,26 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )
+
+# ── Exception handler para validación de Pydantic ──────────────────────────
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc: RequestValidationError):
+    """Mejora los mensajes de error de validación con información clara."""
+    errors = exc.errors()
+    detail = {
+        "error": "Error de validación en los parámetros",
+        "validation_errors": []
+    }
+    
+    for error in errors:
+        loc = '.'.join(str(x) for x in error['loc'][1:])  # Omitir 'body'
+        detail["validation_errors"].append({
+            "field": loc,
+            "type": error['type'],
+            "message": error['msg']
+        })
+    
+    return StarletteJSONResponse(status_code=422, content=detail)
 
 # ============================================================================
 # RAÍZ / SALUD
@@ -96,7 +158,7 @@ async def detect_objects(
 
     Estado: PENDIENTE — stub listo para implementación.
     """
-    data = await image.read()
+    data = await _read_image(image)
     result = await modules.detection.detect(
         image_bytes=data,
         threshold=threshold,
@@ -137,7 +199,9 @@ async def mao_ia_detect(
     convexity_defects) para cada objeto detectado.
     """
     from python.modules.mao_ia_analyzer import detect_with_mao_ia
-    data = await image.read()
+    data = await _read_image(image)
+    if threshold_method not in ("otsu", "adaptive", "manual"):
+        raise HTTPException(status_code=422, detail=f"threshold_method inválido: '{threshold_method}'. Valores permitidos: otsu, adaptive, manual")
     result = await detect_with_mao_ia(
         image_bytes=data,
         threshold_method=threshold_method,
@@ -186,7 +250,7 @@ async def extract_contour(
 
     Estado: PENDIENTE — stub listo para implementación.
     """
-    data = await image.read()
+    data = await _read_image(image)
     result = await modules.contour.extract(
         image_bytes=data,
         bbox=(bbox_x, bbox_y, bbox_w, bbox_h),
@@ -235,7 +299,7 @@ async def calculate_metrics(
     if not modules.metrics.IMPLEMENTED:
         return {"status": "not_implemented",
                 "message": "Módulo de métricas no implementado; usar motor JS"}
-    data   = await image.read()
+    data   = await _read_image(image)
     points = json.loads(contour_json)
     result = await modules.metrics.calculate(
         image_bytes=data,
@@ -243,6 +307,63 @@ async def calculate_metrics(
         scale_px_mm=scale_px_mm,
     )
     return result
+
+
+# ============================================================================
+# MÓDULO: MORFOMETRÍA 3D (OBJ) + PCA
+# ============================================================================
+
+@app.post(f"{API_PREFIX}/obj3d/metrics")
+async def calculate_obj3d_metrics(
+    obj_file: UploadFile = File(...),
+    n_samples: int = Form(default=20000),
+    normalize_mode: str = Form(default="none"),
+    analysis_level: str = Form(default="pca"),
+    orientation_mode: str = Form(default="auto"),
+    user_anchor_x: Optional[float] = Form(default=None),
+    user_anchor_y: Optional[float] = Form(default=None),
+    user_anchor_z: Optional[float] = Form(default=None),
+):
+    """
+        Analiza una malla 3D en formato OBJ y calcula métricas morfométricas.
+
+    Retorna:
+            analysis_level='pca' (default):
+                - eigenvalues / explained_variance_ratio
+                - linearity / planarity / sphericity / elongation
+                - extents en ejes PCA
+                - área superficial y volumen (si watertight)
+
+            analysis_level='hybrid_v1':
+                - orientación canónica reproducible (PCA + reglas de signo)
+                - variables de forma 3D
+                - decisión inicial monofacial/bifacial
+                - calidad del análisis (quality_flags)
+    """
+    if not getattr(modules, "obj3d", None):
+        return {
+            "status": "not_implemented",
+            "message": "Módulo obj3d no disponible en este servidor.",
+        }
+
+    data = await obj_file.read()
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Archivo demasiado grande ({len(data)//1024//1024} MB). "
+                f"Máximo permitido: {MAX_IMAGE_SIZE_MB} MB."
+            ),
+        )
+
+    return await modules.obj3d.analyze(
+        obj_bytes=data,
+        n_samples=n_samples,
+        normalize_mode=normalize_mode,
+        analysis_level=analysis_level,
+        orientation_mode=orientation_mode,
+        user_anchor=(user_anchor_x, user_anchor_y, user_anchor_z),
+    )
 
 
 # ============================================================================
@@ -279,7 +400,7 @@ async def morphological_op(
     """
     if operation not in ("dilate", "erode", "open", "close", "smooth"):
         raise HTTPException(status_code=400, detail=f"Operación desconocida: {operation}")
-    data = await image.read()
+    data = await _read_image(image)
     result = await modules.morphology.apply(
         image_bytes=data,
         operation=operation,
@@ -320,7 +441,9 @@ async def detect_edges(
 
     Estado: PENDIENTE — stub listo para implementación.
     """
-    data = await image.read()
+    data = await _read_image(image)
+    if method not in ("canny", "sobel", "laplacian"):
+        raise HTTPException(status_code=422, detail=f"method inválido: '{method}'. Valores permitidos: canny, sobel, laplacian")
     result = await modules.detection.edges(
         image_bytes=data,
         method=method,
@@ -393,7 +516,7 @@ async def sam_contour(
     """
     from python.modules.detection import _bytes_to_cv
 
-    data = await image.read()
+    data = await _read_image(image)
 
     # 1. Segmentación: GrabCut AI (siempre) o MobileSAM (si modelos disponibles)
     img_bgr = _bytes_to_cv(data)
@@ -548,7 +671,7 @@ async def analyze_texture(
 
     Estado: IMPLEMENTADO (IMPLEMENTED=True).
     """
-    img_data  = await image.read()
+    img_data  = await _read_image(image)
     mask_data = await mask.read() if mask else None
     dist_list  = [int(d.strip()) for d in distances.split(",")]
     angle_list = [float(a.strip()) for a in angles.split(",")]
@@ -592,7 +715,7 @@ async def analyze_color(
 
     Estado: PENDIENTE — stub listo para implementación.
     """
-    img_data  = await image.read()
+    img_data  = await _read_image(image)
     mask_data = await mask.read() if mask else None
     result = await modules.detection.color(
         image_bytes=img_data,
@@ -708,7 +831,7 @@ async def calculate_scale(
 
     Estado: IMPLEMENTADO (IMPLEMENTED=True).
     """
-    image_bytes = await image.read() if image else None
+    image_bytes = await _read_image(image) if image else None
     return modules.scale.calculate(
         focal_mm=focal_mm,
         distancia_mm=distancia_mm,
@@ -741,7 +864,7 @@ async def full_analysis(
 
     Estado: IMPLEMENTADO (IMPLEMENTED=True en analysis.py).
     """
-    data = await image.read()
+    data = await _read_image(image)
     result = await modules.analysis.full_pipeline(
         image_bytes=data,
         scale_px_mm=scale_px_mm,
@@ -859,6 +982,7 @@ async def bifacial_comparison(
 
 
 # ============================================================================
+# ============================================================================
 # FASE 2 IA — CLASIFICACIÓN TIPOLÓGICA ARQUEOLÓGICA
 # Módulo: classifier.py
 # Clasifica objetos en tipos funcionales mediante reglas morfométricas.
@@ -866,9 +990,7 @@ async def bifacial_comparison(
 # ============================================================================
 
 @app.post(f"{API_PREFIX}/classify")
-async def classify_object(
-    metrics_json: str = Form(...),   # JSON: dict de métricas (salida de /api/metrics)
-):
+async def classify_object(request: Request):
     """
     Clasificación tipológica arqueológica a partir de métricas morfométricas.
 
@@ -885,26 +1007,34 @@ async def classify_object(
       Microlítico       (Indiferenciado)
       Indeterminado
 
-    Entrada:
-      metrics_json — JSON string del dict retornado por /api/metrics
-                     o cualquier dict con circularity, solidity,
-                     aspect_ratio_tight, elongation, rectangularity,
-                     equivalent_diameter, forma_detectada.
-
-    Respuesta:
-      {
-        "tipo":        str,    # tipo principal
-        "subtipo":     str,    # subtipo específico
-        "confianza":   float,  # 0–1
-        "descripcion": str,    # descripción interpretativa
-        "metodo":      str,    # "morfometrico_reglas"
-        "color":       dict,   # {bg, border, text} para badge UI
-        "icono":       str,    # carácter unicode representativo
-        "indicadores": dict,   # descriptores usados en la decisión
-      }
+    Acepta cuerpo JSON `{"metrics_json": "..."}` (objeto ya serializado)
+    o alternativamente un objeto de métricas directamente `{...}`.
     """
-    import json
-    m = json.loads(metrics_json)
+    import json as _json
+
+    # Intentar JSON body — acepta tanto {"metrics_json": "{...}"} como {metrics dict plano}
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Cuerpo JSON inválido o ausente.")
+
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Se esperaba un objeto JSON.")
+
+    # Desempaquetar si viene con wrapper metrics_json
+    raw = body.get("metrics_json")
+    if raw is not None:
+        try:
+            m = _json.loads(raw) if isinstance(raw, str) else raw
+        except _json.JSONDecodeError:
+            raise HTTPException(status_code=422, detail="metrics_json no es JSON válido.")
+    else:
+        m = body
+
+    if not isinstance(m, dict):
+        raise HTTPException(status_code=422, detail="métricas deben ser un objeto JSON.")
+
     # Soportar tanto {"metricas": {...}} como el dict plano directamente
     if "metricas" in m:
         m = m["metricas"]
@@ -987,7 +1117,7 @@ async def detect_objects_yolo(
     Reemplaza/extiende: detectObjectsAutomatically() — analysis-core.js ~L55406
     """
     from python.modules.yolo_detector import detect_yolo
-    data = await image.read()
+    data = await _read_image(image)
     return await detect_yolo(
         image_bytes=data,
         conf_threshold=conf_threshold,
@@ -1152,7 +1282,7 @@ async def ph_detect_at_point(
     import numpy as np
     import cv2 as _cv2
 
-    data = await image.read()
+    data = await _read_image(image)
     img_arr = np.frombuffer(data, np.uint8)
     img = _cv2.imdecode(img_arr, _cv2.IMREAD_COLOR)
 

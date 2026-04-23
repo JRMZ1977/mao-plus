@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path   = require('path');
+const os     = require('os');
 const { spawn } = require('child_process');
 const http   = require('http');
 const fs     = require('fs');
@@ -9,12 +10,31 @@ let mainWindow;
 let comparadorWindow = null;
 let pyServer = null;          // proceso hijo uvicorn
 let pyServerReady = false;    // true cuando /api/health responde OK
+let pyServerManaged = false;  // true si Electron lanzó este proceso y debe apagarlo
 
 // Última carpeta de exportación usada (para recordar entre exportaciones)
 let lastExportDir = null;
 
-// Configuración para permitir recursos externos (CDN)
-app.commandLine.appendSwitch('disable-features', 'OutOfBlinkCors');
+// Modo desarrollo: true cuando la app NO está empaquetada (electron-builder).
+// Usar este flag para habilitar herramientas de depuración y bypass de seguridad
+// que NO deben estar activos en producción.
+const isDev = !app.isPackaged;
+
+// ── Seguridad: webSecurity ────────────────────────────────────────────────
+// ESTADO: webSecurity: false es requerido mientras el renderer carga desde
+// file:// y hace fetch a http://127.0.0.1:8765 (distinto origen → bloqueo CORS).
+//
+// TODO producción: registrar esquema custom `app://` con protocol.handle() y
+// cambiar mainWindow.loadFile() → loadURL('app://mao/index.html').
+// Con app:// (standard + corsEnabled: false) webSecurity puede ser true.
+// Ver: https://www.electronjs.org/docs/latest/api/protocol#protocolhandlescheme-handler
+//
+// Mientras tanto: el bypass de CORS de Chromium solo se aplica en DEV.
+if (isDev) {
+  // En desarrollo: deshabilitar OutOfBlinkCors para requests file:// → http://.
+  // Eliminar esta línea una vez migrado a esquema app://.
+  app.commandLine.appendSwitch('disable-features', 'OutOfBlinkCors');
+}
 
 // ============================================================================
 // SERVIDOR PYTHON — arranque y apagado
@@ -27,12 +47,36 @@ const SERVER_HOST = '127.0.0.1';
 const SERVER_PORT = 8765;
 const HEALTH_URL  = `http://${SERVER_HOST}:${SERVER_PORT}/api/health`;
 
+function checkServerHealthOnce(timeoutMs = 400) {
+  return new Promise((resolve) => {
+    const req = http.get(HEALTH_URL, (res) => {
+      const ok = res.statusCode === 200;
+      if (ok) pyServerReady = true;
+      res.resume();
+      resolve(ok);
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
 /**
  * Lanza uvicorn como proceso hijo.
  * Si el .venv no existe (distribución sin Python bundleado),
  * el frontend continúa solo con el motor JS.
  */
-function startPythonServer() {
+async function startPythonServer() {
+  if (await checkServerHealthOnce()) {
+    console.log('[MAO Python] Backend ya activo en 127.0.0.1:8765 — reutilizando instancia existente');
+    pyServer = null;
+    pyServerManaged = false;
+    pyServerReady = true;
+    return;
+  }
+
   if (!fs.existsSync(PYTHON_BIN)) {
     console.log('[MAO Python] .venv no encontrado — modo solo-JS activo');
     return;
@@ -55,6 +99,7 @@ function startPythonServer() {
       detached: false,
     }
   );
+  pyServerManaged = true;
 
   pyServer.stdout.on('data', (d) => console.log('[uvicorn]', d.toString().trim()));
   pyServer.stderr.on('data', (d) => {
@@ -66,10 +111,16 @@ function startPythonServer() {
   });
 
   pyServer.on('error', (err) => console.error('[MAO Python] No se pudo iniciar uvicorn:', err.message));
-  pyServer.on('exit',  (code, sig) => {
+  pyServer.on('exit', async (code, sig) => {
     console.log(`[MAO Python] Proceso terminó (código ${code}, señal ${sig})`);
     pyServer = null;
-    pyServerReady = false;
+    pyServerManaged = false;
+
+    const backendStillAlive = await checkServerHealthOnce();
+    pyServerReady = backendStillAlive;
+    if (backendStillAlive) {
+      console.log('[MAO Python] Backend externo sigue disponible tras la salida del proceso hijo');
+    }
   });
 }
 
@@ -79,7 +130,7 @@ function startPythonServer() {
  */
 function stopPythonServer(maxWait = 3000) {
   return new Promise((resolve) => {
-    if (!pyServer) return resolve();
+    if (!pyServer || !pyServerManaged) return resolve();
     const timer = setTimeout(() => { pyServer && pyServer.kill('SIGKILL'); resolve(); }, maxWait);
     pyServer.once('exit', () => { clearTimeout(timer); resolve(); });
     pyServer.kill('SIGTERM');
@@ -133,7 +184,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false, // false mientras CORS con file:// → http://127.0.0.1:8765 se valida
+      webSecurity: false, // TODO: true tras migrar a esquema app:// (ver comentario al inicio)
       sandbox: false       // false hasta confirmar compatibilidad completa en sandbox
     },
     title: 'MAO Plus - Morfometría Arqueológica de Objetos',
@@ -167,7 +218,7 @@ function createWindow() {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
             contextIsolation: true,
-            webSecurity: false,
+            webSecurity: false, // TODO: true tras migrar a esquema app://
             sandbox: false
           }
         }
@@ -334,14 +385,17 @@ ipcMain.handle('select-folder', async () => {
 // ============================================================================
 ipcMain.handle('show-save-dialog', async (event, { filename, format = 'csv' }) => {
   try {
-    const ext = format === 'pdf' ? '.pdf' : format === 'svg' ? '.svg' : format === 'html' ? '.html' : '.csv';
-    const filters = format === 'pdf'
-      ? [{ name: 'PDF Files', extensions: ['pdf'] }]
-      : format === 'svg'
-        ? [{ name: 'SVG Vectorial', extensions: ['svg'] }]
-        : format === 'html'
-          ? [{ name: 'HTML Files', extensions: ['html'] }]
-          : [{ name: 'CSV Files', extensions: ['csv'] }];
+    const ext = format === 'pdf'  ? '.pdf'
+               : format === 'svg' ? '.svg'
+               : format === 'png' ? '.png'
+               : format === 'html' ? '.html'
+               : '.csv';
+
+    const filters = format === 'pdf'  ? [{ name: 'PDF Files',     extensions: ['pdf'] }]
+                  : format === 'svg'  ? [{ name: 'SVG Vectorial', extensions: ['svg'] }]
+                  : format === 'png'  ? [{ name: 'PNG Images',     extensions: ['png'] }]
+                  : format === 'html' ? [{ name: 'HTML Files',     extensions: ['html'] }]
+                  :                    [{ name: 'CSV Files',       extensions: ['csv'] }];
 
     let nombreFinal = filename;
     if (!nombreFinal.endsWith(ext)) nombreFinal = filename + ext;
@@ -383,6 +437,9 @@ ipcMain.handle('save-file', async (event, { filename, content, format = 'csv' })
     } else if (format === 'html') {
       extension = '.html';
       filters = [{ name: 'HTML Files', extensions: ['html'] }];
+    } else if (format === 'png') {
+      extension = '.png';
+      filters = [{ name: 'PNG Images', extensions: ['png'] }];
     }
     
     let nombreFinal = filename;
@@ -405,7 +462,11 @@ ipcMain.handle('save-file', async (event, { filename, content, format = 'csv' })
     const filepath = result.filePath;
     lastExportDir = path.dirname(filepath);
     
-    if (typeof content === 'string' && content.startsWith('__b64_pdf__')) {
+    // Data URL base64 (ej: "data:image/png;base64,..." o "data:application/pdf;base64,...")
+    if (typeof content === 'string' && /^data:[^;]+;base64,/.test(content)) {
+      const b64 = content.split(',')[1];
+      await fsl.writeFile(filepath, Buffer.from(b64, 'base64'));
+    } else if (typeof content === 'string' && content.startsWith('__b64_pdf__')) {
       await fsl.writeFile(filepath, Buffer.from(content.slice(11), 'base64'));
     } else if (Buffer.isBuffer(content)) {
       await fsl.writeFile(filepath, content);
@@ -445,8 +506,22 @@ ipcMain.handle('open-comparador-window', async () => {
 // FS OPS via IPC — capa segura que reemplaza Node.js directo en el renderer
 // ============================================================================
 
+/**
+ * Valida que la ruta resuelta esté dentro del directorio de usuario (os.homedir()).
+ * Lanza Error si la ruta está fuera, es vacía, o no es string.
+ */
+function _assertSafePath(p) {
+  if (!p || typeof p !== 'string') throw new Error('Ruta inválida');
+  const resolved = path.resolve(p);
+  const home     = os.homedir();
+  if (resolved !== home && !resolved.startsWith(home + path.sep)) {
+    throw new Error(`Ruta no permitida fuera del directorio de usuario: ${resolved}`);
+  }
+}
+
 ipcMain.handle('fs-save-file', async (_, { filePath, content }) => {
   try {
+    _assertSafePath(filePath);
     if (typeof content === 'string' && content.startsWith('data:')) {
       const m = content.match(/^data:[^;]+;base64,(.+)$/);
       if (m) {
@@ -462,8 +537,21 @@ ipcMain.handle('fs-save-file', async (_, { filePath, content }) => {
   }
 });
 
+ipcMain.handle('fs-copy-file', async (_, { src, dst }) => {
+  try {
+    _assertSafePath(src);
+    _assertSafePath(dst);
+    await fsP.copyFile(src, dst);
+    return { success: true, dst };
+  } catch (error) {
+    console.error('fs-copy-file:', error.message);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('fs-read-file', async (_, { filePath, encoding = 'utf8' }) => {
   try {
+    _assertSafePath(filePath);
     if (/\.(png|jpe?g)$/i.test(filePath)) {
       const buf  = await fsP.readFile(filePath);
       const ext  = path.extname(filePath).toLowerCase();
@@ -480,6 +568,7 @@ ipcMain.handle('fs-read-file', async (_, { filePath, encoding = 'utf8' }) => {
 
 ipcMain.handle('fs-folder-exists', async (_, { folderPath }) => {
   try {
+    _assertSafePath(folderPath);
     const stats = await fsP.stat(folderPath);
     return stats.isDirectory();
   } catch {
@@ -489,6 +578,7 @@ ipcMain.handle('fs-folder-exists', async (_, { folderPath }) => {
 
 ipcMain.handle('fs-ensure-folder', async (_, { folderPath }) => {
   try {
+    _assertSafePath(folderPath);
     await fsP.mkdir(folderPath, { recursive: true });
     return { success: true };
   } catch (error) {
@@ -498,6 +588,7 @@ ipcMain.handle('fs-ensure-folder', async (_, { folderPath }) => {
 
 ipcMain.handle('fs-list-directory', async (_, { dirPath }) => {
   try {
+    _assertSafePath(dirPath);
     const entries = await fsP.readdir(dirPath, { withFileTypes: true });
     return {
       success: true,
@@ -515,6 +606,7 @@ ipcMain.handle('fs-list-directory', async (_, { dirPath }) => {
 
 ipcMain.handle('fs-file-exists', async (_, { filePath }) => {
   try {
+    _assertSafePath(filePath);
     const stats = await fsP.stat(filePath);
     return stats.isFile();
   } catch {
@@ -524,6 +616,7 @@ ipcMain.handle('fs-file-exists', async (_, { filePath }) => {
 
 ipcMain.handle('fs-get-stats', async (_, { itemPath }) => {
   try {
+    _assertSafePath(itemPath);
     const stats = await fsP.stat(itemPath);
     return {
       success: true,
@@ -578,6 +671,7 @@ ipcMain.handle('fs-scan-for-analysis', async (_, { rootPath, maxDepth = 5 }) => 
   }
 
   try {
+    _assertSafePath(rootPath);
     await scanDirectory(rootPath);
     return { success: true, analyses: foundAnalyses, totalFound: foundAnalyses.length };
   } catch (error) {
@@ -586,6 +680,7 @@ ipcMain.handle('fs-scan-for-analysis', async (_, { rootPath, maxDepth = 5 }) => 
 });
 
 ipcMain.handle('fs-validate-analysis', async (_, { analysisPath }) => {
+  _assertSafePath(analysisPath);
   const requiredFiles  = ['metadata.json', 'metricas.json', 'geometria.json'];
   const requiredImages = [
     'imagenes/original.png', 'imagenes/objeto_recortado.png', 'imagenes/contorno_real.png',
@@ -629,10 +724,10 @@ ipcMain.handle('fs-validate-analysis', async (_, { analysisPath }) => {
 
 app.whenReady().then(async () => {
   // 1. Arrancar servidor Python (no bloquea si falla)
-  startPythonServer();
+  await startPythonServer();
 
   // 2. Esperar a que responda (máx ~6 s) antes de mostrar la ventana
-  if (pyServer) {
+  if (pyServer && pyServerManaged) {
     await waitForServer(20, 300);
   }
 
@@ -650,7 +745,7 @@ app.on('window-all-closed', function () {
 
 // Apagar Python antes de que Electron cierre el proceso
 app.on('before-quit', async (event) => {
-  if (pyServer) {
+  if (pyServer && pyServerManaged) {
     event.preventDefault();
     await stopPythonServer();
     app.exit(0);
@@ -661,7 +756,7 @@ app.on('before-quit', async (event) => {
 // IPC: estado del servidor Python
 // ============================================================================
 ipcMain.handle('python-server-status', () => ({
-  running: pyServer !== null,
+  running: pyServerReady || pyServer !== null,
   ready:   pyServerReady,
   url:     `http://${SERVER_HOST}:${SERVER_PORT}`,
 }));

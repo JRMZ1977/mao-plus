@@ -37,6 +37,45 @@ function _getFsAdapter() {
   return null;
 }
 
+function _normalizeAnalysisMode(analysisData = {}) {
+  const modo = String(analysisData?.modo || 'monofacial').toLowerCase();
+  if (modo === 'obj3d') return 'obj3d';
+  if (modo === 'bifacial') return 'bifacial';
+  return 'monofacial';
+}
+
+function _normalizeAnalysisCara(analysisData = {}) {
+  const modo = _normalizeAnalysisMode(analysisData);
+  if (modo === 'obj3d') return '3D';
+  const raw = String(analysisData?.cara || analysisData?.identificacion?.cara || '').toUpperCase();
+  if (raw === 'A' || raw === 'B') return raw;
+  return 'Mono';
+}
+
+function _extractAnalysisSummary(analysisData = {}) {
+  const metricas = analysisData?.metricas || {};
+  const modo = _normalizeAnalysisMode(analysisData);
+  const volumen3d = Number(metricas?.bbox_volume);
+  const area2d = Number(metricas?.area);
+  const medidaPrincipal = modo === 'obj3d' && Number.isFinite(volumen3d)
+    ? volumen3d
+    : (Number.isFinite(area2d) ? area2d : 0);
+
+  return {
+    area: medidaPrincipal,
+    perimetro: Number(metricas?.perimeter) || 0,
+    circularidad: Number(metricas?.circularity) || 0,
+    elongacion: Number(metricas?.elongation) || 0,
+    aspectRatio: Number(metricas?.aspect_ratio) || 0,
+    clasificacionForma: analysisData?.clasificacionForma || metricas?.forma_detectada || (modo === 'obj3d' ? 'obj3d_pca' : 'sin_clasificar'),
+    numPerforaciones: (analysisData?.perforaciones || []).length,
+    numHoradaciones: (analysisData?.horadaciones || []).length,
+    porosidad: Number(metricas?.porosidad) || 0,
+    medidaEtiqueta: modo === 'obj3d' ? 'Volumen BBox' : 'Área',
+    medidaUnidad: modo === 'obj3d' ? (analysisData?.unidades || 'u3d') + '³' : 'mm²'
+  };
+}
+
 class ProjectManager {
   constructor() {
     this.projects = [];
@@ -77,7 +116,8 @@ class ProjectManager {
       // Serializar sin campo 'data' por si alguna referencia lo tiene (defensa extra)
       const projectsLite = this.projects.map(p => ({
         ...p,
-        analyses: (p.analyses || []).map(({ data, ...ref }) => ref)
+        analyses: (p.analyses || []).map(({ data, ...ref }) => ref),
+        apsAnalyses: (p.apsAnalyses || [])
       }));
       localStorage.setItem(this.storageKey, JSON.stringify(projectsLite));
       if (this.activeProject) {
@@ -92,7 +132,8 @@ class ProjectManager {
         try {
           const projectsMin = this.projects.map(p => ({
             ...p,
-            analyses: (p.analyses || []).map(({ data, ...ref }) => ref)
+            analyses: (p.analyses || []).map(({ data, ...ref }) => ref),
+            apsAnalyses: (p.apsAnalyses || [])
           }));
           localStorage.setItem(this.storageKey, JSON.stringify(projectsMin));
           console.warn('⚠️ Guardado con datos mínimos por falta de espacio en localStorage');
@@ -235,8 +276,9 @@ class ProjectManager {
       id: analysis.id,
       timestamp: analysis.timestamp,
       nombreObjeto: analysisData?.nombreObjeto || analysisData?.identificacion?.nombre || 'SinNombre',
-      cara: analysisData?.cara || analysisData?.identificacion?.cara || null,
-      modo: analysisData?.modo || 'monofacial',
+      cara: _normalizeAnalysisCara(analysisData),
+      modo: _normalizeAnalysisMode(analysisData),
+      metricasResumen: _extractAnalysisSummary(analysisData),
       carpeta: null,
       rutaCompleta: null
     };
@@ -482,6 +524,18 @@ class ProjectManager {
       
       // 5. GEOMETRIA.JSON (coordenadas crudas para reanálisis)
       console.log('📝 Preparando geometria.json...');
+      
+      // 🔧 DEBUG: Verificar que contorno tiene datos antes de guardar
+      const contornoParaGuardar = analysis.data?.elementosGeometricos?.contorno;
+      if (contornoParaGuardar && (!contornoParaGuardar.puntos || contornoParaGuardar.puntos.length === 0)) {
+        console.warn('⚠️ ALERTA: Contorno vacío detectado. Intentando usar _contour_data como fallback...');
+        // Si el contorno guardado está vacío, intentar recuperar de _contour_data
+        if (analysis.data?.metricas?._contour_data?.points) {
+          console.log(`  ✅ Fallback: usando _contour_data (${analysis.data.metricas._contour_data.points.length} puntos)`);
+          contornoParaGuardar.puntos = analysis.data.metricas._contour_data.points;
+        }
+      }
+      
       const geometria = {
         contornoReal: analysis.data?.elementosGeometricos?.contorno || {},
         convexHull: analysis.data?.elementosGeometricos?.convexHull || {},
@@ -822,10 +876,14 @@ class ProjectManager {
         'ID',
         'Nombre',
         'Fecha',
-        'Area',
+        'Modo',
+        'Cara',
+        'MedidaPrincipal',
+        'Unidad',
         'Perimetro',
         'Circularidad',
         'Elongacion',
+        'Forma',
         'TotalPH',
         'Porosidad',
         'Carpeta'
@@ -836,16 +894,21 @@ class ProjectManager {
       for (const analysis of this.activeProject.analyses) {
         const data = analysis.data || {};
         const metricas = data.metricas || {};
+        const resumen = analysis.metricasResumen || _extractAnalysisSummary(data);
         const row = [
           analysis.id,
-          data.nombreObjeto || 'SinNombre',
+          data.nombreObjeto || analysis.nombreObjeto || 'SinNombre',
           new Date(analysis.timestamp).toLocaleDateString('es-ES'),
-          metricas.area || 0,
-          metricas.perimeter || 0,
-          metricas.circularity || 0,
-          metricas.elongation || 0,
-          (data.perforaciones?.length || 0) + (data.horadaciones?.length || 0),
-          metricas.porosidad || 0,
+          analysis.modo || _normalizeAnalysisMode(data),
+          analysis.cara || _normalizeAnalysisCara(data),
+          resumen.area || 0,
+          resumen.medidaUnidad || 'mm²',
+          resumen.perimetro || metricas.perimeter || 0,
+          resumen.circularidad || metricas.circularity || 0,
+          resumen.elongacion || metricas.elongation || 0,
+          resumen.clasificacionForma || 'sin_clasificar',
+          (resumen.numPerforaciones || 0) + (resumen.numHoradaciones || 0),
+          resumen.porosidad || metricas.porosidad || 0,
           analysis.carpeta || 'N/A'
         ];
         rows.push(row.join(','));
@@ -1393,10 +1456,11 @@ class ProjectManager {
         throw new Error(`Error leyendo geometria.json: ${geometriaResult.error}`);
       }
       
-      const metadata = JSON.parse(metadataResult.content);
-      const metricas = JSON.parse(metricasResult.content);
-      const geometria = JSON.parse(geometriaResult.content);
-      
+      let metadata, metricas, geometria;
+      try { metadata = JSON.parse(metadataResult.content); } catch { throw new Error('metadata.json corrupto o inválido'); }
+      try { metricas  = JSON.parse(metricasResult.content);  } catch { throw new Error('metricas.json corrupto o inválido');  }
+      try { geometria = JSON.parse(geometriaResult.content); } catch { throw new Error('geometria.json corrupto o inválido'); }
+
       // 📊 DIAGNÓSTICO: Verificar métricas cargadas desde disco
       console.log('📊 DIAGNÓSTICO - Métricas cargadas desde disco:', {
         totalPropiedades: Object.keys(metricas.objeto || {}).length,
@@ -1465,6 +1529,16 @@ class ProjectManager {
         versionMAO: metadata.procesamiento?.versionMAO || '1.2.0',
         carpetaOrigen: analysisFolderPath
       };
+      
+      // 🔧 VALIDACIÓN: Verificar que contorno tenga puntos, si no usar convex hull
+      if ((!analysis.geometria.contornoReal?.puntos || analysis.geometria.contornoReal.puntos.length === 0) &&
+          analysis.geometria.convexHull?.puntos && analysis.geometria.convexHull.puntos.length >= 3) {
+        console.warn(`⚠️ [${analysis.nombreObjeto}] Contorno vacío, usando Convex Hull como fallback para Procrustes`);
+        // No modificar contornoReal directamente, Procrustes ya tiene fallback en getPuntos()
+        // Pero registramos la situación para diagnosticar
+        analysis.geometria._contornoVacio = true;
+        analysis.geometria._usandoHullEnProcrustes = true;
+      }
       
       console.log(`✅ Análisis cargado exitosamente: ${analysis.nombreObjeto}`);
       return analysis;
@@ -1648,8 +1722,9 @@ class ProjectManager {
             continue;
           }
           
-          const metadata = JSON.parse(metadataResult.content);
-          const metricas = JSON.parse(metricasResult.content); // CORREGIDO: era metadataResult antes
+          let metadata, metricas;
+          try { metadata = JSON.parse(metadataResult.content); } catch { console.warn(`    ⚠️ metadata.json corrupto en ${folderPath}, omitiendo.`); continue; }
+          try { metricas  = JSON.parse(metricasResult.content);  } catch { console.warn(`    ⚠️ metricas.json corrupto en ${folderPath}, omitiendo.`);  continue; }
           
           console.log(`    📊 Métricas cargadas:`, {
             area: metricas.objeto?.area,
@@ -1658,27 +1733,41 @@ class ProjectManager {
           });
           
           // 4. Extraer métricas clave para el índice
+          // Normalizar sufijo (Cara X) del nombre y derivar cara si es nula
+          const _rawNombre = metadata.nombreObjeto || 'Sin Nombre';
+          const _caraMeta = (metadata.identificacion?.cara || '').toUpperCase();
+          const _modoAnalisis = metadata.configuracion?.modo || 'monofacial';
+          const _caraFinal = _modoAnalisis === 'obj3d' ? '3D' : ((_caraMeta === 'A' || _caraMeta === 'B') ? _caraMeta : (() => {
+            const _m = /\(\s*cara\s+([ab])\s*\)/i.exec(_rawNombre) ||
+                       /\[\s*cara\s+([ab])\s*\]/i.exec(_rawNombre);
+            return _m ? _m[1].toUpperCase() : 'Mono';
+          })());
+          const _nombreBase = _rawNombre.replace(/\s*[\[(]\s*cara\s+[ab]\s*[\])]\s*$/i, '').trim() || 'Sin Nombre';
           objetos.push({
             id: metadata.id,
-            nombreObjeto: metadata.nombreObjeto || 'Sin Nombre',
+            nombreObjeto: _nombreBase,
             carpeta: folderName,
             timestamp: metadata.timestamp,
-            modo: metadata.configuracion?.modo || 'monofacial',
-            cara: metadata.identificacion?.cara || 'Mono',
+            modo: _modoAnalisis,
+            cara: _caraFinal,
             
             // Métricas RESUMEN (solo las más importantes, no todas las 150+)
             metricasResumen: {
-              area: metricas.objeto?.area || 0,
+              area: _modoAnalisis === 'obj3d' ? (metricas.objeto?.bbox_volume || metricas.objeto?.area || 0) : (metricas.objeto?.area || 0),
               perimetro: metricas.objeto?.perimeter || 0,
               circularidad: metricas.objeto?.circularity || 0,
               elongacion: metricas.objeto?.elongation || 0,
               aspectRatio: metricas.objeto?.aspect_ratio || 0,
-              clasificacionForma: metricas.objeto?.forma_detectada || 'sin_clasificar',
+              clasificacionForma: metricas.objeto?.forma_detectada || (_modoAnalisis === 'obj3d' ? 'obj3d_pca' : 'sin_clasificar'),
               numPerforaciones: metricas.estadisticas?.totalPerforaciones || 0,
-              numHoradaciones: metricas.estadisticas?.totalHoradaciones || 0
+              numHoradaciones: metricas.estadisticas?.totalHoradaciones || 0,
+              porosidad: metricas.estadisticas?.porosidad || 0,
+              medidaEtiqueta: _modoAnalisis === 'obj3d' ? 'Volumen BBox' : 'Área',
+              medidaUnidad: _modoAnalisis === 'obj3d' ? ((metadata.configuracion?.unidades || 'u3d') + '³') : 'mm²'
             },
             
             thumbnail: `${folderName}/imagenes/thumbnail.png`,
+            thumbnailPath: `${folderPath}/imagenes/objeto_recortado.png`,
             completado: true
           });
           
@@ -1781,18 +1870,9 @@ class ProjectManager {
         nombreObjeto: newAnalysis.data?.nombreObjeto || 'Sin Nombre',
         carpeta: analysisFolderName,
         timestamp: newAnalysis.timestamp,
-        modo: newAnalysis.data?.modo || 'monofacial',
-        cara: newAnalysis.data?.cara || 'Mono',
-        metricasResumen: {
-          area: newAnalysis.data?.metricas?.area || 0,
-          perimetro: newAnalysis.data?.metricas?.perimeter || 0,
-          circularidad: newAnalysis.data?.metricas?.circularity || 0,
-          elongacion: newAnalysis.data?.metricas?.elongation || 0,
-          aspectRatio: newAnalysis.data?.metricas?.aspect_ratio || 0,
-          clasificacionForma: newAnalysis.data?.clasificacionForma || 'sin_clasificar',
-          numPerforaciones: newAnalysis.data?.perforaciones?.length || 0,
-          numHoradaciones: newAnalysis.data?.horadaciones?.length || 0
-        },
+        modo: _normalizeAnalysisMode(newAnalysis.data),
+        cara: _normalizeAnalysisCara(newAnalysis.data),
+        metricasResumen: _extractAnalysisSummary(newAnalysis.data),
         thumbnail: `${analysisFolderName}/imagenes/thumbnail.png`,
         completado: true
       };
@@ -2046,6 +2126,157 @@ class ProjectManager {
       
       return true;
     });
+  }
+
+  /**
+   * Copia (o mueve) un análisis de un proyecto a otro.
+   *
+   * @param {string}  carpeta       Subcarpeta del análisis dentro del proyecto origen
+   * @param {string}  fromProjectId ID del proyecto origen
+   * @param {string}  toProjectId   ID del proyecto destino
+   * @param {boolean} move          Si true, elimina el origen después de copiar (mover)
+   * @returns {Promise<true>}       Lanza Error ante cualquier fallo irrecuperable
+   */
+  async copyAnalysisBetweenProjects(carpeta, fromProjectId, toProjectId, move = false) {
+    if (fromProjectId === toProjectId) throw new Error('El proyecto origen y destino son el mismo');
+
+    const fromProject = this.getProject(fromProjectId);
+    const toProject   = this.getProject(toProjectId);
+    if (!fromProject?.folderPath) throw new Error('El proyecto origen no tiene carpeta configurada');
+    if (!toProject?.folderPath)   throw new Error('El proyecto destino no tiene carpeta configurada');
+
+    const _fs = _getFsAdapter();
+    if (!_fs) throw new Error('Sin adaptador de sistema de archivos disponible');
+
+    const srcBase = `${fromProject.folderPath}/${carpeta}`;
+    const dstBase = `${toProject.folderPath}/${carpeta}`;
+
+    // 1. Crear carpetas destino
+    const mkRoot = await _fs.ensureFolder(dstBase);
+    if (!mkRoot.success) throw new Error(`No se pudo crear carpeta destino: ${mkRoot.error}`);
+    await _fs.ensureFolder(`${dstBase}/imagenes`);
+
+    // 2. Helper: leer un archivo y escribirlo en destino
+    const _copyFile = async (src, dst) => {
+      const r = await _fs.readFile(src);
+      if (!r.success) throw new Error(`Error leyendo ${src}: ${r.error}`);
+      const w = await _fs.saveFile(dst, r.content);
+      if (w && !w.success) throw new Error(`Error escribiendo ${dst}: ${w.error}`);
+    };
+
+    // 3. Archivos raíz del análisis
+    for (const f of ['metadata.json', 'metricas.json', 'geometria.json', 'metricas.csv', 'trazados.json']) {
+      try { await _copyFile(`${srcBase}/${f}`, `${dstBase}/${f}`); } catch { /* archivo opcional */ }
+    }
+
+    // 4. Archivos de imágenes (nombres conocidos + listado dinámico si está disponible)
+    const KNOWN_IMGS = [
+      'original.png', 'objeto_recortado.png', 'thumbnail.png',
+      'analisis_morfologico.png', 'analisis_completo.png',
+      'forma_idealizada.png', 'esquema_morfometrico.png',
+      'contorno_real.png', 'convex_hull.png', 'ejes_principales.png', 'radios.png',
+      'metadata.json', 'imagenes.json'
+    ];
+    for (const f of KNOWN_IMGS) {
+      try { await _copyFile(`${srcBase}/imagenes/${f}`, `${dstBase}/imagenes/${f}`); } catch { /* no-op */ }
+    }
+    if (window.electronAPI?.listDirectory) {
+      const ls = await window.electronAPI.listDirectory(`${srcBase}/imagenes`);
+      if (ls.success) {
+        for (const item of ls.items) {
+          if (item.isFile && !KNOWN_IMGS.includes(item.name)) {
+            try { await _copyFile(`${srcBase}/imagenes/${item.name}`, `${dstBase}/imagenes/${item.name}`); } catch { /* no-op */ }
+          }
+        }
+      }
+    }
+
+    // 5. Obtener metadatos del objeto (índice origen → fallback metadata.json)
+    let objetoEntry = null;
+    const srcIndexPath = `${fromProject.folderPath}/collection_index.json`;
+    const srcIdxRes = await _fs.readFile(srcIndexPath);
+    if (srcIdxRes.success) {
+      try {
+        const srcIdx = JSON.parse(srcIdxRes.content);
+        objetoEntry = (srcIdx.objetos || []).find(o => o.carpeta === carpeta) || null;
+      } catch { /* no-op */ }
+    }
+    if (!objetoEntry) {
+      const metaRes = await _fs.readFile(`${srcBase}/metadata.json`);
+      if (metaRes.success) {
+        try {
+          const meta = JSON.parse(metaRes.content);
+          objetoEntry = {
+            id: meta.id,
+            nombreObjeto: meta.nombreObjeto || meta.identificacion?.nombre || carpeta,
+            carpeta,
+            timestamp: meta.timestamp || new Date().toISOString(),
+            modo: meta.configuracion?.modo || 'monofacial',
+            cara: meta.identificacion?.cara || null,
+            metricasResumen: {},
+            completado: true
+          };
+        } catch { /* no-op */ }
+      }
+    }
+
+    // 6. Actualizar collection_index.json del destino
+    if (objetoEntry) {
+      const dstIndexPath = `${toProject.folderPath}/collection_index.json`;
+      const dstIdxRes = await _fs.readFile(dstIndexPath);
+      let dstIndex = null;
+      if (dstIdxRes.success) {
+        try { dstIndex = JSON.parse(dstIdxRes.content); } catch { /* no-op */ }
+      }
+      if (!dstIndex) {
+        dstIndex = {
+          proyectoId: toProjectId, nombre: toProject.name,
+          descripcion: toProject.description || '', rasgoComun: toProject.commonTrait || '',
+          totalObjetos: 0, ultimaActualizacion: new Date().toISOString(), objetos: []
+        };
+      }
+      if (!(dstIndex.objetos || []).some(o => o.carpeta === carpeta)) {
+        dstIndex.objetos = [...(dstIndex.objetos || []), { ...objetoEntry, carpeta }];
+        dstIndex.totalObjetos = dstIndex.objetos.length;
+        dstIndex.ultimaActualizacion = new Date().toISOString();
+        await _fs.saveFile(dstIndexPath, JSON.stringify(dstIndex, null, 2));
+      }
+      // Sincronizar con localStorage del destino
+      if (!toProject.analyses.some(a => a.carpeta === carpeta)) {
+        toProject.analyses.push({
+          id: objetoEntry.id,
+          timestamp: objetoEntry.timestamp,
+          nombreObjeto: objetoEntry.nombreObjeto,
+          cara: objetoEntry.cara,
+          modo: objetoEntry.modo,
+          carpeta
+        });
+        toProject.updatedAt = new Date().toISOString();
+        this.save();
+      }
+    }
+
+    // 7. Si es mover: limpiar origen
+    if (move) {
+      const srcIdxRes2 = await _fs.readFile(srcIndexPath);
+      if (srcIdxRes2.success) {
+        try {
+          const srcIdx = JSON.parse(srcIdxRes2.content);
+          srcIdx.objetos = (srcIdx.objetos || []).filter(o => o.carpeta !== carpeta);
+          srcIdx.totalObjetos = srcIdx.objetos.length;
+          srcIdx.ultimaActualizacion = new Date().toISOString();
+          await _fs.saveFile(srcIndexPath, JSON.stringify(srcIdx, null, 2));
+        } catch { /* no-op */ }
+      }
+      fromProject.analyses = fromProject.analyses.filter(a => a.carpeta !== carpeta);
+      fromProject.updatedAt = new Date().toISOString();
+      this.save();
+      if (window.electronAPI?.trashItem) {
+        await window.electronAPI.trashItem(srcBase);
+      }
+    }
+
+    return true;
   }
 }
 

@@ -306,6 +306,45 @@ const PythonBridge = (() => {
   };
 
   /**
+   * Módulo de morfometría 3D (.obj) orientada por PCA.
+   * Retorna null si no está implementado → fallback local/JS.
+   */
+  const obj3d = {
+    async metrics(
+      objFile,
+      {
+        nSamples = 20000,
+        normalizeMode = 'none',
+        analysisLevel = 'hybrid_v1',
+        orientationMode = 'auto',
+        userMorphAnchor = null,
+      } = {}
+    ) {
+      if (!_serverAvailable || !isModuleActive('obj3d')) return null;
+      if (!(objFile instanceof Blob || objFile instanceof File)) return null;
+      const fields = {
+        obj_file: objFile,
+        n_samples: nSamples,
+        normalize_mode: normalizeMode,
+        analysis_level: analysisLevel,
+        orientation_mode: orientationMode,
+      };
+
+      if (userMorphAnchor && Number.isFinite(Number(userMorphAnchor.x)) && Number.isFinite(Number(userMorphAnchor.y)) && Number.isFinite(Number(userMorphAnchor.z))) {
+        fields.user_anchor_x = Number(userMorphAnchor.x);
+        fields.user_anchor_y = Number(userMorphAnchor.y);
+        fields.user_anchor_z = Number(userMorphAnchor.z);
+      }
+
+      return _fetch('/obj3d/metrics', {
+        method: 'POST',
+        _timeout: TIMEOUT_MS_LONG,
+        body: _formData(fields),
+      });
+    },
+  };
+
+  /**
    * Módulo de operaciones morfológicas.
    * Retorna null si no está implementado → usar dilatarMascara(), etc. JS.
    */
@@ -340,14 +379,27 @@ const PythonBridge = (() => {
     async calculate(params = {}, imageDataURL = null) {
       if (!_serverAvailable || !isModuleActive('scale')) return null;
       const fields = {};
-      if (params.focalMm    != null && !isNaN(params.focalMm))    fields.focal_mm        = params.focalMm;
-      if (params.distanciaMm != null && !isNaN(params.distanciaMm)) fields.distancia_mm  = params.distanciaMm;
-      if (params.sensorWMm  != null && !isNaN(params.sensorWMm))  fields.sensor_w_mm     = params.sensorWMm;
-      if (params.sensorHMm  != null && !isNaN(params.sensorHMm))  fields.sensor_h_mm     = params.sensorHMm;
-      if (params.imgWPx     != null && !isNaN(params.imgWPx))     fields.img_w_px        = params.imgWPx;
-      if (params.imgHPx     != null && !isNaN(params.imgHPx))     fields.img_h_px        = params.imgHPx;
-      if (params.objCentroideX != null && !isNaN(params.objCentroideX)) fields.obj_centroide_x = params.objCentroideX;
-      if (params.objCentroideY != null && !isNaN(params.objCentroideY)) fields.obj_centroide_y = params.objCentroideY;
+      
+      // Convertir y validar cada parámetro
+      const focalMm = params.focalMm != null ? parseFloat(params.focalMm) : null;
+      const distanciaMm = params.distanciaMm != null ? parseFloat(params.distanciaMm) : null;
+      const sensorWMm = params.sensorWMm != null ? parseFloat(params.sensorWMm) : null;
+      const sensorHMm = params.sensorHMm != null ? parseFloat(params.sensorHMm) : null;
+      const imgWPx = params.imgWPx != null ? parseInt(params.imgWPx, 10) : null;
+      const imgHPx = params.imgHPx != null ? parseInt(params.imgHPx, 10) : null;
+      const objCentroideX = params.objCentroideX != null ? parseFloat(params.objCentroideX) : null;
+      const objCentroideY = params.objCentroideY != null ? parseFloat(params.objCentroideY) : null;
+      
+      if (focalMm != null && !isNaN(focalMm))       fields.focal_mm        = focalMm;
+      if (distanciaMm != null && !isNaN(distanciaMm)) fields.distancia_mm = distanciaMm;
+      if (focalMm != null && !isNaN(focalMm))       fields.focal_mm        = focalMm;
+      if (distanciaMm != null && !isNaN(distanciaMm)) fields.distancia_mm = distanciaMm;
+      if (sensorWMm != null && !isNaN(sensorWMm))   fields.sensor_w_mm     = sensorWMm;
+      if (sensorHMm != null && !isNaN(sensorHMm))   fields.sensor_h_mm     = sensorHMm;
+      if (imgWPx != null && !isNaN(imgWPx))         fields.img_w_px        = imgWPx;
+      if (imgHPx != null && !isNaN(imgHPx))         fields.img_h_px        = imgHPx;
+      if (objCentroideX != null && !isNaN(objCentroideX)) fields.obj_centroide_x = objCentroideX;
+      if (objCentroideY != null && !isNaN(objCentroideY)) fields.obj_centroide_y = objCentroideY;
       if (imageDataURL)               fields.image          = _dataURLtoBlob(imageDataURL);
 
       // Verificar que hay parámetros suficientes antes de enviar.
@@ -356,7 +408,26 @@ const PythonBridge = (() => {
       const hasImage  = !!imageDataURL;
       const hasBasic  = fields.focal_mm != null && fields.distancia_mm != null
                      && fields.sensor_w_mm != null && fields.img_w_px != null;
-      if (!hasImage && !hasBasic) return null;
+      
+      console.log('🔍 [PythonBridge.scale] Parámetros procesados:');
+      console.log('  hasImage:', hasImage, '(imagen adjunta)');
+      console.log('  hasBasic:', hasBasic, '(mín. focal_mm + distancia_mm + sensor_w_mm + img_w_px)');
+      console.log('  —— Valores individuales ——');
+      console.log('  focal_mm:', fields.focal_mm, '(tipo:', typeof fields.focal_mm + ')');
+      console.log('  distancia_mm:', fields.distancia_mm, '(tipo:', typeof fields.distancia_mm + ')');
+      console.log('  sensor_w_mm:', fields.sensor_w_mm, '(tipo:', typeof fields.sensor_w_mm + ')');
+      console.log('  img_w_px:', fields.img_w_px, '(tipo:', typeof fields.img_w_px + ')');
+      console.log('  img_h_px:', fields.img_h_px, '(tipo:', typeof fields.img_h_px + ')');
+      console.log('  sensor_h_mm:', fields.sensor_h_mm, '(tipo:', typeof fields.sensor_h_mm + ')');
+      console.log('  obj_centroide_x:', fields.obj_centroide_x);
+      console.log('  obj_centroide_y:', fields.obj_centroide_y);
+      console.log('  image:', fields.image ? '✓ Blob presente' : '✗ Sin imagen');
+      
+      if (!hasImage && !hasBasic) {
+        console.warn('❌ [PythonBridge.scale] Parámetros insuficientes, fallback a JS');
+        console.warn('   ↳ Necesita imagen O mínimo: focal_mm, distancia_mm, sensor_w_mm, img_w_px');
+        return null;
+      }
 
       return _fetch('/scale', { method: 'POST', body: _formData(fields) });
     },
@@ -465,10 +536,28 @@ const PythonBridge = (() => {
      */
     async classify(metricsDict) {
       if (!_serverAvailable) return null;
+      if (!metricsDict || typeof metricsDict !== 'object') return null;
+
+      // Filtrar campos pesados que no son necesarios para la clasificación:
+      // arrays densos de puntos (puntos_contorno, radios, etc.), base64 y strings largos.
+      const _slim = {};
+      for (const [k, v] of Object.entries(metricsDict)) {
+        if (Array.isArray(v) && v.length > 50) continue;        // arrays densos
+        if (typeof v === 'string' && v.startsWith('data:')) continue; // base64
+        if (typeof v === 'string' && v.length > 2000) continue;       // strings grandes
+        if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+          // sub-objetos: incluir solo si tienen propiedades numéricas (ej: tipologia previa)
+          const subKeys = Object.keys(v);
+          if (subKeys.length > 20) continue;
+        }
+        _slim[k] = v;
+      }
+
       return _fetch('/classify', {
         method: 'POST',
         _timeout: 10_000,
-        body: _formData({ metrics_json: JSON.stringify(metricsDict) }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ metrics_json: JSON.stringify(_slim) }),
       });
     },
   };
@@ -612,6 +701,7 @@ const PythonBridge = (() => {
     detection,
     contour,
     metrics,
+    obj3d,
     morphology,
     scale,
     comparator,

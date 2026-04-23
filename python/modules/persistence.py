@@ -21,19 +21,23 @@ import pathlib
 
 IMPLEMENTED = True
 
+# Directorio base permitido: sólo rutas dentro del home del usuario
+_BASE_DIR = pathlib.Path.home()
 
-# ── Utilidades internas ──────────────────────────────────────────────────────
+
+# ── Utilidades internas ─────────────────────────────────────────────────
 
 def _safe_path(path: str) -> pathlib.Path:
     """
     Resuelve la ruta y la devuelve como pathlib.Path absoluto.
-    No restringe a ningún directorio base (la app desktop opera en rutas del
-    sistema local; la restricción la da el sistema operativo y el usuario).
-    Lanza ValueError si la ruta está vacía o es relativa implícita peligrosa.
+    Restringe al directorio de usuario (_BASE_DIR) para evitar path traversal.
+    Lanza ValueError si la ruta está vacía o fuera del home del usuario.
     """
     if not path or not path.strip():
         raise ValueError("Ruta vacía")
     p = pathlib.Path(path).resolve()
+    if str(p) != str(_BASE_DIR) and not str(p).startswith(str(_BASE_DIR) + os.sep):
+        raise ValueError(f"Ruta '{p}' fuera del directorio de usuario permitido.")
     return p
 
 

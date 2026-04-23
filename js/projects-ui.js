@@ -93,7 +93,13 @@ function initProjectsUI() {
   const btnAbrirCarpetaAnalisis = document.getElementById('btnAbrirCarpetaAnalisis');
   if (btnAbrirCarpetaAnalisis) {
     btnAbrirCarpetaAnalisis.addEventListener('click', async () => {
-      await abrirCarpetaAnalisis();
+      const abrirFn = window.abrirCarpetaAnalisis;
+      if (typeof abrirFn === 'function') {
+        await abrirFn();
+      } else {
+        console.error('❌ abrirCarpetaAnalisis no está disponible en window');
+        toast.error('La función para abrir carpeta no está disponible todavía. Recarga la aplicación.');
+      }
     });
   }
 
@@ -272,6 +278,7 @@ function initProjectsUI() {
     const projectsHTML = projects.map(project => {
       const isActive = projectManager.activeProject && projectManager.activeProject.id === project.id;
       const analysesCount = project.analyses ? project.analyses.length : 0;
+      const apsCount = project.apsAnalyses ? project.apsAnalyses.length : 0;
       const date = new Date(project.createdAt).toLocaleDateString('es-ES', {
         year: 'numeric',
         month: 'short',
@@ -307,6 +314,12 @@ function initProjectsUI() {
               <span class="project-stat-value" data-project-count="${project.id}">${analysesCount}</span>
               <span>análisis</span>
             </div>
+            ${apsCount > 0 ? `
+            <div class="project-stat" title="Análisis Procrustes (PS/GPA) guardados">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5" cy="10" r="2.5"/><circle cx="15" cy="5" r="2.5"/><circle cx="15" cy="15" r="2.5"/><path d="M7.3 9.2L12.7 6.3M7.3 10.8L12.7 13.7"/></svg>
+              <span class="project-stat-value">${apsCount}</span>
+              <span>Procrustes</span>
+            </div>` : ''}
             <div class="project-stat">
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
               <span>${project.commonTrait}</span>
@@ -389,7 +402,13 @@ function initProjectsUI() {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const projectId = btn.dataset.projectId;
-        await openCollectionExplorer(projectId);
+        const openExplorerFn = window.openCollectionExplorer;
+        if (typeof openExplorerFn === 'function') {
+          await openExplorerFn(projectId);
+        } else {
+          console.error('❌ openCollectionExplorer no está disponible en window');
+          toast.error('El explorador de colección no está disponible todavía. Recarga la aplicación.');
+        }
       });
     });
     

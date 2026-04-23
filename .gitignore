@@ -39,3 +39,17 @@ temp/
 # Variables de entorno
 .env
 .env.local
+
+# Archivos de sesión / debugging temporales (no pertenecen al artefacto)
+test_cmo_aps.js
+verificar_cmo_aps.js
+verificar_mejora1.js
+mejoras_ps_codigo.js
+_test_metrics_verify.mjs
+MEJORAS_ANALISIS_PS.md
+RESUMEN_MEJORAS_PS.txt
+SESION_COMPLETADA_*.txt
+TEST_MEJORA*.md
+VALIDACION_*.md
+VALIDACION_*.txt
+VERIFICACION_*.txt

@@ -15,6 +15,7 @@ imageio==2.37.2                     # soporte de formatos adicionales
 
 # ── Geometría y métricas ──────────────────────────────────────────────────────
 shapely==2.0.7                      # Polygon: área, perímetro, validación
+trimesh==4.5.3                      # mallas 3D: lectura OBJ + muestreo de superficie
 
 # ── Estadística y ML ─────────────────────────────────────────────────────────
 scipy==1.13.1                       # ConvexHull, ndimage, stats, signal

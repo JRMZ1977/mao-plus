@@ -20862,17 +20862,31 @@
    * 9. CONVEX HULL
    */
   function generarSeccionConvexHull(metricas, estiloTabla, estiloTh, estiloTd) {
-    const areaHull = parseFloat(metricas.hull_area_px) || parseFloat(metricas.convex_hull_area) || 0;
-    const perimetroHull = parseFloat(metricas.hull_perimeter_px) || parseFloat(metricas.convex_hull_perimeter) || 0;
-    const anchoHull = parseFloat(metricas.hull_width_px) || 0;
-    const altoHull = parseFloat(metricas.hull_height_px) || 0;
+    // Factor mm/px derivado de los campos ya convertidos (misma fuente que usó el cálculo)
+    const _ejeMM = parseFloat(metricas.eje_mayor_real_longitud)    || 0;
+    const _ejePx = parseFloat(metricas.eje_mayor_real_longitud_px) || 0;
+    const factorMM = (_ejeMM > 0 && _ejePx > 0) ? _ejeMM / _ejePx : 0;
+
+    // Área y perímetro del hull: preferir campos ya convertidos a mm
+    const areaHullMm  = parseFloat(metricas.area)      || 0;   // mm²  (= area_px × factor²)
+    const perimHullMm = parseFloat(metricas.perimeter)  || 0;   // mm   (= perimeter_px × factor)
+    const areaHullPx  = parseFloat(metricas.area_px)   || parseFloat(metricas.convex_hull_area)      || 0;
+    const perimHullPx = parseFloat(metricas.perimeter_px) || parseFloat(metricas.convex_hull_perimeter) || 0;
+
+    // Width/height del hull en mm (si hay factor disponible)
+    const anchoHullPx = parseFloat(metricas.hull_width_px)  || 0;
+    const altoHullPx  = parseFloat(metricas.hull_height_px) || 0;
+    const anchoHull = factorMM > 0 ? anchoHullPx * factorMM : anchoHullPx;
+    const altoHull  = factorMM > 0 ? altoHullPx  * factorMM : altoHullPx;
+    const unidadDim = factorMM > 0 ? 'mm' : 'px';
+
     const circularidadHull = parseFloat(metricas.hull_circularity) || 0;
-    const aspectRatioHull = parseFloat(metricas.hull_aspect_ratio) || 0;
-    const convexidad = parseFloat(metricas.convexity) || parseFloat(metricas.convexidad) || 0;
+    const aspectRatioHull  = parseFloat(metricas.hull_aspect_ratio) || 0;
+    const convexidad      = parseFloat(metricas.convexity) || parseFloat(metricas.convexidad) || 0;
     const claseConvexidad = metricas.convexity_class || metricas.convexidad_class || 'No clasificada';
-    const difArea = parseFloat(metricas.hull_area_difference_percent) || 0;
-    const difPerimetro = parseFloat(metricas.hull_perimeter_difference_percent) || 0;
-    const puntosHull = parseInt(metricas.hull_points || metricas.convex_hull_points) || 0;
+    const difArea         = parseFloat(metricas.hull_area_difference_percent) || 0;
+    const difPerimetro    = parseFloat(metricas.hull_perimeter_difference_percent) || 0;
+    const puntosHull      = parseInt(metricas.hull_points || metricas.convex_hull_points) || 0;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #20c997;">
@@ -20889,24 +20903,25 @@
         <tbody>
           <tr style="background: #d1ecf1;">
             <td style="${estiloTd}; font-weight: 600;">Área del Hull</td>
-            <td style="${estiloTd}; font-weight: 600;">${areaHull.toFixed(2)} px²</td>
-            <td style="${estiloTd}; font-size: 12px;">Área de forma completa estimada</td>
+            <td style="${estiloTd}; font-weight: 600;">${areaHullMm > 0 ? areaHullMm.toFixed(2) + ' mm²' : areaHullPx.toFixed(2) + ' px²'}</td>
+            <td style="${estiloTd}; font-size: 12px;">Área de forma completa estimada${areaHullPx > 0 ? ` (${areaHullPx.toFixed(0)} px²)` : ''}</td>
           </tr>
           <tr>
             <td style="${estiloTd}">Perímetro del Hull</td>
-            <td style="${estiloTd}">${perimetroHull.toFixed(2)} px</td>
-            <td style="${estiloTd}; font-size: 12px;">Perímetro envolvente</td>
+            <td style="${estiloTd}">${perimHullMm > 0 ? perimHullMm.toFixed(2) + ' mm' : perimHullPx.toFixed(2) + ' px'}</td>
+            <td style="${estiloTd}; font-size: 12px;">Perímetro envolvente${perimHullPx > 0 ? ` (${perimHullPx.toFixed(1)} px)` : ''}</td>
           </tr>
+          ${anchoHullPx > 0 ? `
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}">Ancho del Hull</td>
-            <td style="${estiloTd}">${anchoHull.toFixed(2)} px</td>
+            <td style="${estiloTd}">${anchoHull.toFixed(2)} ${unidadDim}</td>
             <td style="${estiloTd}; font-size: 12px;">Ancho mínimo envolvente</td>
           </tr>
           <tr>
             <td style="${estiloTd}">Alto del Hull</td>
-            <td style="${estiloTd}">${altoHull.toFixed(2)} px</td>
+            <td style="${estiloTd}">${altoHull.toFixed(2)} ${unidadDim}</td>
             <td style="${estiloTd}; font-size: 12px;">Alto mínimo envolvente</td>
-          </tr>
+          </tr>` : ''}
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}">Circularidad del Hull</td>
             <td style="${estiloTd}">${circularidadHull.toFixed(4)}</td>
@@ -21317,7 +21332,19 @@
     const centroideY = parseFloat(metricas.centroide_y) || 0;
     const centroideHullX = parseFloat(metricas.centroide_hull_x) || centroideX;
     const centroideHullY = parseFloat(metricas.centroide_hull_y) || centroideY;
-    
+
+    // Factor mm/px para expresar coordenadas en mm (misma fuente que el resto del informe)
+    const _ejeMM = parseFloat(metricas.eje_mayor_real_longitud)    || 0;
+    const _ejePx = parseFloat(metricas.eje_mayor_real_longitud_px) || 0;
+    const factorMM = (_ejeMM > 0 && _ejePx > 0) ? _ejeMM / _ejePx : 0;
+
+    const fmtCoord = (px) => factorMM > 0
+      ? `${(px * factorMM).toFixed(2)} mm <span style="color:#999;font-size:11px;">(${px.toFixed(0)} px)</span>`
+      : `${px.toFixed(2)} px`;
+    const fmtPar = (x, y) => factorMM > 0
+      ? `${(x * factorMM).toFixed(2)}, ${(y * factorMM).toFixed(2)} mm`
+      : `${x.toFixed(2)}, ${y.toFixed(2)} px`;
+
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #9e9e9e;">
         VI-c. Centroide y Posición Espacial
@@ -21332,25 +21359,26 @@
         <tbody>
           <tr style="background: #f5f5f5;">
             <td style="${estiloTd}; font-weight: 600;">Centroide Real (X, Y)</td>
-            <td style="${estiloTd}; font-weight: 600;" colspan="2">${centroideX.toFixed(2)}, ${centroideY.toFixed(2)} px</td>
+            <td style="${estiloTd}; font-weight: 600;" colspan="2">${fmtPar(centroideX, centroideY)}</td>
           </tr>
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}">Centroide X</td>
-            <td style="${estiloTd}" colspan="2">${centroideX.toFixed(2)} px</td>
+            <td style="${estiloTd}" colspan="2">${fmtCoord(centroideX)}</td>
           </tr>
           <tr>
             <td style="${estiloTd}">Centroide Y</td>
-            <td style="${estiloTd}" colspan="2">${centroideY.toFixed(2)} px</td>
+            <td style="${estiloTd}" colspan="2">${fmtCoord(centroideY)}</td>
           </tr>
           <tr style="background: #e0e0e0;">
             <td style="${estiloTd}; font-weight: 600;">Centroide Hull (X, Y)</td>
-            <td style="${estiloTd}; font-weight: 600;" colspan="2">${centroideHullX.toFixed(2)}, ${centroideHullY.toFixed(2)} px</td>
+            <td style="${estiloTd}; font-weight: 600;" colspan="2">${fmtPar(centroideHullX, centroideHullY)}</td>
           </tr>
         </tbody>
       </table>
       <div style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px; font-size: 12px; color: #666;">
-        <strong>Nota:</strong> El centroide real es el centro de masa del contorno fragmentado. 
+        <strong>Nota:</strong> El centroide real es el centro de masa del contorno fragmentado.
         El centroide hull es el centro de la envolvente convexa (forma completa estimada).
+        ${factorMM > 0 ? 'Coordenadas en mm desde la esquina superior-izquierda de la imagen.' : 'Coordenadas en píxeles de la imagen original.'}
       </div>
     `;
   }
@@ -22000,7 +22028,18 @@
     // Actualizar indicador de escala
     const scaleInfoElement = document.getElementById('morphologicalScaleInfo');
     if (scaleInfoElement) {
-      scaleInfoElement.textContent = `${obj.width}×${obj.height}px • Escala: ${scale.toFixed(2)}x`;
+      // Mostrar dimensiones en mm si hay factor de conversión disponible
+      const m = obj.metricas || {};
+      const ejeMM = m.eje_mayor_real_longitud || 0;
+      const ejePx = m.eje_mayor_real_longitud_px || 0;
+      const factorMM = (ejeMM > 0 && ejePx > 0) ? ejeMM / ejePx : null;
+      if (factorMM) {
+        const wMM = (obj.width * factorMM).toFixed(1);
+        const hMM = (obj.height * factorMM).toFixed(1);
+        scaleInfoElement.textContent = `${wMM}×${hMM} mm`;
+      } else {
+        scaleInfoElement.textContent = `${obj.width}×${obj.height}px • Escala: ${scale.toFixed(2)}x`;
+      }
     }
     
     // Actualizar título con ID del objeto
@@ -28853,7 +28892,11 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     
   // 6. CONVEX HULL (ENVOLVENTE)
   tableHTML += generarCategoria('CONVEX HULL (ENVOLVENTE CONVEXA)', '⬡');
-  tableHTML += generarFila('Área Convex Hull', getVal(caraA, 'hull_area_px'), getVal(caraB, 'hull_area_px'), 'px²', true, 2);
+  // Usar campo 'area' (mm², ya convertido). Fallback a hull_area_px si no existe
+  const _hullAreaA28 = getVal(caraA, 'area') || getVal(caraA, 'hull_area_px');
+  const _hullAreaB28 = getVal(caraB, 'area') || getVal(caraB, 'hull_area_px');
+  const _hullAreaUnit28 = (getVal(caraA, 'area') > 0 || getVal(caraB, 'area') > 0) ? 'mm²' : 'px²';
+  tableHTML += generarFila('Área Convex Hull', _hullAreaA28, _hullAreaB28, _hullAreaUnit28, true, 2);
   tableHTML += generarFila('Clasificación Convexidad', formatClasif(getTexto(caraA, 'convexity_class')), formatClasif(getTexto(caraB, 'convexity_class')), '', false);
     
   // 7. SIMETRÍA
@@ -29798,7 +29841,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         { titulo: 'III. Proporciones y Forma Global  [adimensional 0–1]', claves: [['Circularidad  [0–1]','circularity'],['Compacidad  [0–1]','compactness'],['Solidez  [0–1]','solidity'],['Rectangularidad  [0–1]','rectangularity'],['Elongación  [0–1]','elongation'],['Factor de Forma  [0–1]','shape_factor'],['Excentricidad  [0–1]','excentricidad'],['Relación de Aspecto Tight (L/A)','aspect_ratio_tight'],['Relación de Aspecto Original (L/A)','aspect_ratio_original'],['Ratio Feret (Máx./Mín.)','feret_ratio'],['Anisotropía del Eje Principal  [0–1]','eje_principal_anisotropia'],['Eficiencia Bounding Box  [0–1]','bounding_box_efficiency']] },
         { titulo: 'IV. Regularidad del Contorno — Evidencia de Manufactura', claves: [['Regularidad Radial  [0–1]','regularidad_radial'],['Coef. Variación Radial (%)','coeficiente_variacion_radial'],['Desviación Radial (mm)','desviacion_radial'],['Ratio Radios (Máx./Mín.)','ratio_radios'],['Índice de Estrellamiento  [0–1]','indice_estrellamiento'],['Clasificación Estrellamiento','estrellamiento_clasificacion'],['Índice de Lobularidad  [0–1]','indice_lobularidad'],['Clasificación Lobularidad','lobularidad_clasificacion'],['N° de Vértices Aproximados','vertices_aproximados'],['N° de Puntos de Contorno','contour_points']] },
         { titulo: 'V. Rugosidad y Complejidad del Borde — Técnica de Manufactura', claves: [['Rugosidad del Contorno  [0–1]','rugosidad_contorno'],['Índice de Complejidad del Contorno','contour_complexity_index'],['Long. Media de Segmento de Contorno (mm)','rugosidad_longitud_segmento_media'],['Desviación de Rugosidad (mm)','rugosidad_desviacion'],['Clasificación Rugosidad','rugosidad_clasificacion'],['Curvatura Media (rad/px)','curvatura_media'],['Curvatura Máxima (rad/px)','curvatura_maxima'],['Desviación de Curvatura (rad/px)','curvatura_desviacion'],['Energía de Curvatura','energia_curvatura'],['Clasificación Energía de Curvatura','energia_clasificacion'],['N° de Puntos de Inflexión','curvatura_puntos_inflexion'],['N° de Puntos de Esquina','curvatura_puntos_esquina'],['Clasificación Curvatura','curvatura_clasificacion']] },
-        { titulo: 'VI. Orientación y Posición Espacial', claves: [['Ángulo del Eje Principal (°)','eje_principal_angulo'],['Ángulo Feret Máximo (°)','feret_angulo_max'],['Ángulo Feret Mínimo (°)','feret_angulo_min'],['Clasificación Orientación Feret','feret_clasificacion'],['Centroide del Contorno X (px)','centroide_x'],['Centroide del Contorno Y (px)','centroide_y'],['Centroide Convex Hull X (px)','centroide_hull_x'],['Centroide Convex Hull Y (px)','centroide_hull_y']] },
+        { titulo: 'VI. Orientación y Posición Espacial', claves: [['Ángulo del Eje Principal (°)','eje_principal_angulo'],['Ángulo Feret Máximo (°)','feret_angulo_max'],['Ángulo Feret Mínimo (°)','feret_angulo_min'],['Clasificación Orientación Feret','feret_clasificacion'],['Centroide del Contorno X (mm)','centroide_x'],['Centroide del Contorno Y (mm)','centroide_y'],['Centroide Convex Hull X (mm)','centroide_hull_x'],['Centroide Convex Hull Y (mm)','centroide_hull_y']] },
         { titulo: 'VII. Geometría de Vértices — Tecnología de Retoque', claves: [['Ángulo Medio en Vértices (°)','angulo_medio_vertices'],['Ángulo Predominante (°)','angulo_predominante'],['Desviación de Ángulos (°)','desviacion_angulos'],['N° de Ángulos Rectos (~90°)','num_angulos_rectos'],['N° de Ángulos Agudos (<90°)','num_angulos_agudos'],['N° de Ángulos Obtusos (>90°)','num_angulos_obtusos'],['Clasificación Geometría de Vértices','geometria_vertices']] },
         { titulo: 'VIII. Estado de Conservación y Fragmentación', claves: [['Pérdida de Área por Fragmentación (%)','perdida_area_fragmentacion_percent'],['Pérdida de Perímetro por Fragmentación (%)','perdida_perimetro_fragmentacion_percent'],['Área Fragmentada (mm²)','area_fragmentada'],['Perímetro Fragmentado (mm)','perimeter_fragmentado'],['Clase de Solidez del Contorno Real','solidity_class'],['Circularidad s/fragmentación  [0–1]','circularity_fragmentada'],['Compacidad s/fragmentación  [0–1]','compactness_fragmentada'],['Rectangularidad s/fragmentación  [0–1]','rectangularity_fragmentada'],['Factor de Forma s/fragmentación  [0–1]','shape_factor_fragmentado']] },
       ];
@@ -30227,11 +30270,21 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         }
         return '—';
       };
+      // Conversión px→mm para claves de centroide
+      const _bifCentKeys = new Set(['centroide_x', 'centroide_y', 'centroide_hull_x', 'centroide_hull_y']);
+      const _bifEjeMM = mA.eje_mayor_real_longitud || 0;
+      const _bifEjePx = mA.eje_mayor_real_longitud_px || 0;
+      const _bifFactor = (_bifEjeMM > 0 && _bifEjePx > 0) ? _bifEjeMM / _bifEjePx : 0;
       // Una tabla por sección (I–VIII) con columna Δ relativa
       _seccionesMetricas.forEach(sec => {
         const filasSec = sec.claves.map(([nombre, key]) => {
-          const vA = _fmtCmp(mA[key]);
-          const vB = _fmtCmp(mB[key]);
+          let rawA = mA[key], rawB = mB[key];
+          if (_bifFactor > 0 && _bifCentKeys.has(key)) {
+            rawA = typeof rawA === 'number' ? rawA * _bifFactor : rawA;
+            rawB = typeof rawB === 'number' ? rawB * _bifFactor : rawB;
+          }
+          const vA = _fmtCmp(rawA);
+          const vB = _fmtCmp(rawB);
           if (vA === 'N/A' && vB === 'N/A') return null;
           return [nombre, vA, vB, _calcDelta(vA, vB)];
         }).filter(Boolean);
@@ -32772,12 +32825,15 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       addRow('〰 ANÁLISIS DE CURVATURA', 'Clasificación Curvatura', clasCurvA, clasCurvB, '-');
       
       // ⬡ CONVEX HULL
-      const areaHullA = getVal(caraA, 'hull_area_px');
-      const areaHullB = getVal(caraB, 'hull_area_px');
+      // Usar campo 'area' (mm², ya convertido) en lugar de hull_area_px (px²)
+      const areaHullA = getVal(caraA, 'area') || getVal(caraA, 'hull_area_px');
+      const areaHullB = getVal(caraB, 'area') || getVal(caraB, 'hull_area_px');
+      const areaHullUnitA = getVal(caraA, 'area') > 0 ? 'mm²' : 'px²';
+      const areaHullUnitB = getVal(caraB, 'area') > 0 ? 'mm²' : 'px²';
       const clasConvA = getTexto(caraA, 'convexity_class');
       const clasConvB = getTexto(caraB, 'convexity_class');
       
-      addRow('⬡ CONVEX HULL (ENVOLVENTE CONVEXA)', 'Área Convex Hull', `${areaHullA.toFixed(2)} px²`, `${areaHullB.toFixed(2)} px²`, calcDif(areaHullA, areaHullB));
+      addRow('⬡ CONVEX HULL (ENVOLVENTE CONVEXA)', 'Área Convex Hull', `${areaHullA.toFixed(2)} ${areaHullUnitA}`, `${areaHullB.toFixed(2)} ${areaHullUnitB}`, calcDif(areaHullA, areaHullB));
       addRow('⬡ CONVEX HULL (ENVOLVENTE CONVEXA)', 'Clasificación Convexidad', clasConvA, clasConvB, '-');
       
       // ⚖️ SIMETRÍA
@@ -32846,11 +32902,19 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       const centXHB = getVal(caraB, 'centroide_hull_x');
       const centYHA = getVal(caraA, 'centroide_hull_y');
       const centYHB = getVal(caraB, 'centroide_hull_y');
-      
-      addRow('CENTROIDE Y POSICIÓN', 'Centroide X (Real)', `${centXA.toFixed(2)} px`, `${centXB.toFixed(2)} px`, calcDif(centXA, centXB));
-      addRow('CENTROIDE Y POSICIÓN', 'Centroide Y (Real)', `${centYA.toFixed(2)} px`, `${centYB.toFixed(2)} px`, calcDif(centYA, centYB));
-      addRow('CENTROIDE Y POSICIÓN', 'Centroide X (Hull)', `${centXHA.toFixed(2)} px`, `${centXHB.toFixed(2)} px`, calcDif(centXHA, centXHB));
-      addRow('CENTROIDE Y POSICIÓN', 'Centroide Y (Hull)', `${centYHA.toFixed(2)} px`, `${centYHB.toFixed(2)} px`, calcDif(centYHA, centYHB));
+
+      // Factor mm/px para cada cara (para expresar centroides en mm si es posible)
+      const _ejeA_mm = getVal(caraA, 'eje_mayor_real_longitud'), _ejeA_px = getVal(caraA, 'eje_mayor_real_longitud_px');
+      const _ejeB_mm = getVal(caraB, 'eje_mayor_real_longitud'), _ejeB_px = getVal(caraB, 'eje_mayor_real_longitud_px');
+      const factorCentA = (_ejeA_mm > 0 && _ejeA_px > 0) ? _ejeA_mm / _ejeA_px : 0;
+      const factorCentB = (_ejeB_mm > 0 && _ejeB_px > 0) ? _ejeB_mm / _ejeB_px : 0;
+      const fmtCentA = (px) => factorCentA > 0 ? `${(px * factorCentA).toFixed(2)} mm` : `${px.toFixed(2)} px`;
+      const fmtCentB = (px) => factorCentB > 0 ? `${(px * factorCentB).toFixed(2)} mm` : `${px.toFixed(2)} px`;
+
+      addRow('CENTROIDE Y POSICIÓN', 'Centroide X (Real)', fmtCentA(centXA), fmtCentB(centXB), calcDif(centXA, centXB));
+      addRow('CENTROIDE Y POSICIÓN', 'Centroide Y (Real)', fmtCentA(centYA), fmtCentB(centYB), calcDif(centYA, centYB));
+      addRow('CENTROIDE Y POSICIÓN', 'Centroide X (Hull)', fmtCentA(centXHA), fmtCentB(centXHB), calcDif(centXHA, centXHB));
+      addRow('CENTROIDE Y POSICIÓN', 'Centroide Y (Hull)', fmtCentA(centYHA), fmtCentB(centYHB), calcDif(centYHA, centYHB));
       
       // 🏷️ CLASIFICACIONES
       const formaA = getTexto(caraA, 'forma_detectada');
@@ -34278,7 +34342,11 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     // ==========================================================================
     // CATEGORÍA: Convex Hull
     // ==========================================================================
-    csvLines += `${nombreCara},Convex Hull,Área,${fmt(m.hull_area_px, 2)},px²\n`;
+    // Usar 'area' (mm², ya convertido). Fallback a hull_area_px con unidad px²
+    const _csvHullAreaVal  = parseFloat(m.area)      || 0;
+    const _csvHullAreaUnit = _csvHullAreaVal > 0 ? 'mm²' : 'px²';
+    const _csvHullAreaOut  = _csvHullAreaVal > 0 ? _csvHullAreaVal : (parseFloat(m.hull_area_px) || 0);
+    csvLines += `${nombreCara},Convex Hull,Área,${fmt(_csvHullAreaOut, 2)},${_csvHullAreaUnit}\n`;
     csvLines += `${nombreCara},Convex Hull,Convexidad,${fmt(m.convexity, 4)},-\n`;
     csvLines += `${nombreCara},Convex Hull,Clasificación,${m.convexity_class || 'N/A'},-\n`;
     
@@ -34824,10 +34892,19 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     // ==========================================================================
     // CATEGORÍA: Convex Hull
     // ==========================================================================
-    csvLines += `Convex Hull,Área,${fmt(m.hull_area_px, 2)},px²\n`;
-    csvLines += `Convex Hull,Perímetro,${fmt(m.hull_perimeter_px, 2)},px\n`;
-    csvLines += `Convex Hull,Ancho,${fmt(m.hull_width_px, 2)},px\n`;
-    csvLines += `Convex Hull,Alto,${fmt(m.hull_height_px, 2)},px\n`;
+    // Factor mm/px para convertir dimensiones del hull a mm
+    const _csvFMM = (() => { const em = parseFloat(m.eje_mayor_real_longitud)||0, ep = parseFloat(m.eje_mayor_real_longitud_px)||0; return (em > 0 && ep > 0) ? em/ep : 0; })();
+    const _csvHullA  = parseFloat(m.area)      || 0;  // mm² (ya convertido)
+    const _csvHullP  = parseFloat(m.perimeter) || 0;  // mm  (ya convertido)
+    const _csvHullW  = _csvFMM > 0 ? (parseFloat(m.hull_width_px)||0)  * _csvFMM : (parseFloat(m.hull_width_px)||0);
+    const _csvHullH  = _csvFMM > 0 ? (parseFloat(m.hull_height_px)||0) * _csvFMM : (parseFloat(m.hull_height_px)||0);
+    const _csvHullAUnit = _csvHullA  > 0 ? 'mm²' : 'px²';
+    const _csvHullPUnit = _csvHullP  > 0 ? 'mm'  : 'px';
+    const _csvHullDUnit = _csvFMM    > 0 ? 'mm'  : 'px';
+    csvLines += `Convex Hull,Área,${fmt(_csvHullA  || parseFloat(m.hull_area_px)||0, 2)},${_csvHullAUnit}\n`;
+    csvLines += `Convex Hull,Perímetro,${fmt(_csvHullP || parseFloat(m.hull_perimeter_px)||0, 2)},${_csvHullPUnit}\n`;
+    csvLines += `Convex Hull,Ancho,${fmt(_csvHullW, 2)},${_csvHullDUnit}\n`;
+    csvLines += `Convex Hull,Alto,${fmt(_csvHullH, 2)},${_csvHullDUnit}\n`;
     csvLines += `Convex Hull,Circularidad,${fmt(m.hull_circularity, 4)},-\n`;
     csvLines += `Convex Hull,Relación Aspecto,${fmt(m.hull_aspect_ratio, 4)},-\n`;
     csvLines += `Convex Hull,Convexidad,${fmt(m.convexity, 4)},-\n`;
@@ -38820,7 +38897,27 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       const y = typeof coords[1] === 'number' ? coords[1].toFixed(1) : '0.0';
       return `(${x}, ${y})`;
     };
-    
+
+    // Conversión px→mm para coordenadas de centroide
+    const _gtEjeMM = caraA.metricas?.eje_mayor_real_longitud || caraA.objeto?.eje_mayor_real_longitud || caraA.eje_mayor_real_longitud || 0;
+    const _gtEjePx = caraA.metricas?.eje_mayor_real_longitud_px || caraA.objeto?.eje_mayor_real_longitud_px || caraA.eje_mayor_real_longitud_px || 0;
+    const _gtFactor = (_gtEjeMM > 0 && _gtEjePx > 0) ? _gtEjeMM / _gtEjePx : 0;
+    const fmtCoordsGT = (coords) => {
+      if (!Array.isArray(coords) || coords.length < 2) return '(0.00, 0.00)';
+      if (_gtFactor > 0) {
+        const x = typeof coords[0] === 'number' ? (coords[0] * _gtFactor).toFixed(2) : '0.00';
+        const y = typeof coords[1] === 'number' ? (coords[1] * _gtFactor).toFixed(2) : '0.00';
+        return `(${x}, ${y}) mm`;
+      }
+      const x = typeof coords[0] === 'number' ? coords[0].toFixed(1) : '0.0';
+      const y = typeof coords[1] === 'number' ? coords[1].toFixed(1) : '0.0';
+      return `(${x}, ${y}) px`;
+    };
+    const fmtDistGT = (px, dec = 2) => {
+      if (_gtFactor > 0) return `${(parseFloat(px) * _gtFactor).toFixed(dec)} mm`;
+      return `${safeNum(px, dec)} px`;
+    };
+
     const metricas = [
       { nombre: 'Área (mm²)', keyA: 'area', keyB: 'area', precision: 2 },
       { nombre: 'Perímetro (mm)', keyA: 'perimetro', keyB: 'perimetro', precision: 2 },
@@ -38921,7 +39018,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           <tr>
             <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Centroide Cara A</td>
             <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #0066cc; font-weight: 600;">
-              ${safeCoordsStr(comp.centroideA)} px
+              ${fmtCoordsGT(comp.centroideA)}
             </td>
             <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
               Punto ancla de referencia
@@ -38930,7 +39027,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           <tr style="background: #f8f9fa;">
             <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Centroide Cara B</td>
             <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #28a745; font-weight: 600;">
-              ${safeCoordsStr(comp.centroideB)} px
+              ${fmtCoordsGT(comp.centroideB)}
             </td>
             <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
               Punto ancla de referencia
@@ -38939,7 +39036,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           <tr>
             <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Desplazamiento Absoluto</td>
             <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; color: #6366f1;">
-              ${safeNum(comp.desplazamientoCentroides, 2)} px
+              ${fmtDistGT(comp.desplazamientoCentroides, 2)}
             </td>
             <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
               Distancia euclidiana entre centroides
@@ -39220,7 +39317,27 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       const y = typeof coords[1] === 'number' ? coords[1].toFixed(1) : '0.0';
       return `(${x}, ${y})`;
     };
-    
+
+    // Conversión px→mm para coordenadas de centroide
+    const _gaEjeMM = caraA.metricas?.eje_mayor_real_longitud || caraA.objeto?.eje_mayor_real_longitud || caraA.eje_mayor_real_longitud || 0;
+    const _gaEjePx = caraA.metricas?.eje_mayor_real_longitud_px || caraA.objeto?.eje_mayor_real_longitud_px || caraA.eje_mayor_real_longitud_px || 0;
+    const _gaFactor = (_gaEjeMM > 0 && _gaEjePx > 0) ? _gaEjeMM / _gaEjePx : 0;
+    const fmtCoordsGA = (coords) => {
+      if (!Array.isArray(coords) || coords.length < 2) return '(0.00, 0.00)';
+      if (_gaFactor > 0) {
+        const x = typeof coords[0] === 'number' ? (coords[0] * _gaFactor).toFixed(2) : '0.00';
+        const y = typeof coords[1] === 'number' ? (coords[1] * _gaFactor).toFixed(2) : '0.00';
+        return `(${x}, ${y}) mm`;
+      }
+      const x = typeof coords[0] === 'number' ? coords[0].toFixed(1) : '0.0';
+      const y = typeof coords[1] === 'number' ? coords[1].toFixed(1) : '0.0';
+      return `(${x}, ${y}) px`;
+    };
+    const fmtDistGA = (px, dec = 2) => {
+      if (_gaFactor > 0) return `${(parseFloat(px) * _gaFactor).toFixed(dec)} mm`;
+      return `${safeNum(px, dec)} px`;
+    };
+
     // Determinar nivel de simetría
     let nivelSimetria = '';
     let colorSimetria = '';
@@ -39275,20 +39392,20 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
               <div style="padding: 12px; background: #f8f9fa; border-radius: 6px; border: 1px solid #dee2e6;">
                 <div style="font-size: 11px; color: #6c757d; margin-bottom: 5px;">CENTROIDE CARA A</div>
                 <div style="font-size: 14px; font-weight: 600; color: #0066cc;">
-                  ${safeCoordsStr(comp.centroideA)} px
+                  ${fmtCoordsGA(comp.centroideA)}
                 </div>
               </div>
               <div style="padding: 12px; background: #f8f9fa; border-radius: 6px; border: 1px solid #dee2e6;">
                 <div style="font-size: 11px; color: #6c757d; margin-bottom: 5px;">CENTROIDE CARA B</div>
                 <div style="font-size: 14px; font-weight: 600; color: #28a745;">
-                  ${safeCoordsStr(comp.centroideB)} px
+                  ${fmtCoordsGA(comp.centroideB)}
                 </div>
               </div>
             </div>
             
             <div style="padding: 15px; background: ${comp.alineacionEspacial === 'Excelente' ? '#d4edda' : (comp.alineacionEspacial === 'Buena' ? '#fff3cd' : '#f8d7da')}; border-radius: 6px; margin-bottom: 12px;">
               <p style="margin: 0 0 8px 0;">
-                <strong>Desplazamiento entre Centroides:</strong> ${safeNum(comp.desplazamientoCentroides, 2)} px
+                <strong>Desplazamiento entre Centroides:</strong> ${fmtDistGA(comp.desplazamientoCentroides, 2)}
               </p>
               <p style="margin: 0 0 8px 0;">
                 <strong>Desplazamiento Normalizado:</strong> ${safeNum(comp.desplazamientoNormalizado, 3)}
@@ -40051,11 +40168,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     // ========================================================================
     filasHTML += generarEncabezadoCategoria('⬡', 'CONVEX HULL (ENVOLVENTE CONVEXA)', '#f59e0b');
     
-    // Área del convex hull
-    const hullAreaA = getVal(caraA.metricas, 'hull_area_px');
-    const hullAreaB = getVal(caraB.metricas, 'hull_area_px');
+    // Área del convex hull — usar campo 'area' (mm², ya convertido)
+    const hullAreaA = getVal(caraA.metricas, 'area') || getVal(caraA.metricas, 'hull_area_px');
+    const hullAreaB = getVal(caraB.metricas, 'area') || getVal(caraB.metricas, 'hull_area_px');
+    const hullAreaUnit = (getVal(caraA.metricas, 'area') > 0 || getVal(caraB.metricas, 'area') > 0) ? 'mm²' : 'px²';
     if (hullAreaA > 0 || hullAreaB > 0) {
-      filasHTML += generarFila('Área Convex Hull', hullAreaA, hullAreaB, 'px²', true, 2);
+      filasHTML += generarFila('Área Convex Hull', hullAreaA, hullAreaB, hullAreaUnit, true, 2);
     }
     
     // Convexidad
@@ -41670,6 +41788,28 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     } else {
       console.warn('   ⚠️  Botón exportarSVGVectorialBtn no encontrado en el DOM');
     }
+
+    // Botón PNG morfológico (oculto, disparado desde sidebar o menú)
+    const exportarPNGMorfologicoBtn = document.getElementById('exportarPNGMorfologicoBtn');
+    if (exportarPNGMorfologicoBtn) {
+      exportarPNGMorfologicoBtn.addEventListener('click', async () => {
+        console.log('🖱️ Click en botón Exportar PNG Morfológico');
+        await exportarPNGMorfologicoActual();
+      });
+      console.log('   ✅ Event listener Exportar PNG Morfológico conectado');
+    }
+
+    // Botón PNG en sidebar
+    const sidebarExportPNGBtn = document.getElementById('sidebarExportPNGBtn');
+    if (sidebarExportPNGBtn) {
+      sidebarExportPNGBtn.addEventListener('click', async () => {
+        console.log('🖱️ Click en sidebar PNG');
+        await exportarPNGMorfologicoActual();
+      });
+      console.log('   ✅ Event listener Sidebar PNG conectado');
+    } else {
+      console.warn('   ⚠️  Botón sidebarExportPNGBtn no encontrado en el DOM');
+    }
     
     // Botón de exportación CSV del modal de tabla completa (mantener para modal)
     const exportarMetricasModalBtn = document.getElementById('exportarMetricasModalBtn');
@@ -42872,6 +43012,67 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         throw new Error('Faltan parámetros requeridos para cálculo de escala');
       }
       
+      console.log('📏 === Valores en INPUTS DE ESCALA ===');
+      
+      // Obtener referencias a inputs (con fallback)
+      const _focalInput = focalInput || document.getElementById('focalInput');
+      const _distanciaInput = distanciaInput || document.getElementById('distanciaInput');
+      const _sensorWidthInput = sensorWidthInput || document.getElementById('sensorWidthInput');
+      const _sensorHeightInput = sensorHeightInput || document.getElementById('sensorHeightInput');
+      
+      // IMPORTANTE: Intentar recuperar la imagen actual del canvas si es bifacial
+      let _currentImage = image;
+      let _currentImageWidth = imageWidth;
+      let _currentImageHeight = imageHeight;
+      
+      // Si estamos en modo bifacial y el image global es null, intentar obtenerlo del canvas
+      if (!_currentImage && imageCaraA) {
+        console.log('📏 [BIFACIAL] Image global es null, intentando cargar desde canvas CaraA');
+        _currentImage = imageCaraA;
+        _currentImageWidth = imageWidthCaraA;
+        _currentImageHeight = imageHeightCaraA;
+      } else if (!_currentImage && imageCaraB) {
+        console.log('📏 [BIFACIAL] Image global es null, intentando cargar desde canvas CaraB');
+        _currentImage = imageCaraB;
+        _currentImageWidth = imageWidthCaraB;
+        _currentImageHeight = imageHeightCaraB;
+      }
+      
+      // Último fallback: obtener del canvas del DOM si existe
+      if (!_currentImage) {
+        const canvasElement = document.querySelector('#canvasContenido canvas') || 
+                            document.querySelector('canvas[id*="canvas"]');
+        if (canvasElement && canvasElement.toDataURL) {
+          console.log('📏 [FALLBACK] Usando canvas del DOM');
+          _currentImageWidth = canvasElement.width;
+          _currentImageHeight = canvasElement.height;
+        }
+      }
+      
+      console.log('📏 Elementos encontrados:');
+      console.log('  _focalInput:', !!_focalInput);
+      console.log('  _distanciaInput:', !!_distanciaInput);
+      console.log('  _sensorWidthInput:', !!_sensorWidthInput);
+      console.log('  _sensorHeightInput:', !!_sensorHeightInput);
+      
+      if (!_focalInput || !_distanciaInput || !_sensorWidthInput) {
+        console.error('❌ No se encontraron inputs de escala en el DOM');
+        throw new Error('Elementos de parámetros de escala no encontrados');
+      }
+      
+      console.log('📏 Valores en INPUTS:');
+      console.log('  focalInput.value:', _focalInput?.value, '→ parseFloat:', parseFloat(_focalInput?.value));
+      console.log('  distanciaInput.value:', _distanciaInput?.value, '→ parseFloat:', parseFloat(_distanciaInput?.value));
+      console.log('  sensorWidthInput.value:', _sensorWidthInput?.value, '→ parseFloat:', parseFloat(_sensorWidthInput?.value));
+      console.log('  sensorHeightInput.value:', _sensorHeightInput?.value, '→ parseFloat:', parseFloat(_sensorHeightInput?.value));
+      console.log('  imageWidth (global):', imageWidth);
+      console.log('  imageHeight (global):', imageHeight);
+      console.log('  _currentImageWidth:', _currentImageWidth);
+      console.log('  _currentImageHeight:', _currentImageHeight);
+      console.log('  image element:', _currentImage?.src?.substring(0, 80) || 'NULL');
+      console.log('  image.naturalWidth:', _currentImage?.naturalWidth);
+      console.log('  image.naturalHeight:', _currentImage?.naturalHeight);
+      
       // Cálculo de escala (híbrido o estándar)
       actualizarProgreso(progressContainer, 60, 'Calculando escala de medición...');
       await new Promise(resolve => setTimeout(resolve, 400));
@@ -42889,25 +43090,65 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       let _pyScaleUsed = false;
       if (window.PythonBridge && PythonBridge.isModuleActive('scale')) {
         try {
+          // Validar que las dimensiones de imagen sean válidas
+          let _imgWPx = _currentImageWidth;
+          let _imgHPx = _currentImageHeight;
+          
+          console.log('📏 ANTES de fallback - _currentImageWidth:', _currentImageWidth, '_currentImageHeight:', _currentImageHeight);
+          console.log('📏 ANTES de fallback - _currentImage:', !!_currentImage, '_currentImage.src:', _currentImage?.src?.substring(0, 50));
+          console.log('📏 ANTES de fallback - _currentImage.naturalWidth:', _currentImage?.naturalWidth, '_currentImage.naturalHeight:', _currentImage?.naturalHeight);
+          console.log('📏 ANTES de fallback - _currentImage.width:', _currentImage?.width, '_currentImage.height:', _currentImage?.height);
+          
+          // Fallback a dimensiones del image element
+          if (!_imgWPx && _currentImage) {
+            _imgWPx = _currentImage.naturalWidth || _currentImage.width || 0;
+            console.log('📏 Fallback a naturalWidth: _imgWPx =', _imgWPx);
+          }
+          if (!_imgHPx && _currentImage) {
+            _imgHPx = _currentImage.naturalHeight || _currentImage.height || 0;
+            console.log('📏 Fallback a naturalHeight: _imgHPx =', _imgHPx);
+          }
+          
+          console.log('📏 DESPUÉS de fallback - _imgWPx:', _imgWPx, '_imgHPx:', _imgHPx);
+          
           const _scaleImageURL = (image && image.src && image.src.startsWith('data:'))
             ? image.src
             : (image instanceof HTMLCanvasElement ? image.toDataURL('image/jpeg', 0.85) : null);
           const pyScale = await PythonBridge.scale.calculate({
-            focalMm:     parseFloat(focalInput.value),
-            distanciaMm: parseFloat(distanciaInput.value),
-            sensorWMm:   parseFloat(sensorWidthInput.value),
-            sensorHMm:   parseFloat(sensorHeightInput.value),
-            imgWPx:      imageWidth,
-            imgHPx:      imageHeight,
+            focalMm:     parseFloat(_focalInput.value),
+            distanciaMm: parseFloat(_distanciaInput.value),
+            sensorWMm:   parseFloat(_sensorWidthInput.value),
+            sensorHMm:   parseFloat(_sensorHeightInput.value),
+            imgWPx:      _imgWPx > 0 ? _imgWPx : null,
+            imgHPx:      _imgHPx > 0 ? _imgHPx : null,
           }, _scaleImageURL);
           if (pyScale && pyScale.scale_px_mm > 0) {
             scale = pyScale.scale_px_mm;
             _pyScaleUsed = true;
-            console.log(`[Python] scale.calculate ✓ → ${scale.toFixed(6)} mm/px` +
-              (pyScale.error_optico ? ` | error_óptico=${pyScale.error_optico.toFixed(4)} mm` : ''));
+            let errorMsg = '';
+            if (pyScale.error_optico) {
+              // error_optico es un diccionario con múltiples campos
+              if (typeof pyScale.error_optico === 'object' && pyScale.error_optico.error_lineal_percent) {
+                errorMsg = ` | error_óptico_lineal=${pyScale.error_optico.error_lineal_percent?.toFixed(2)}%`;
+              } else if (typeof pyScale.error_optico === 'number') {
+                errorMsg = ` | error_óptico=${pyScale.error_optico.toFixed(4)} mm`;
+              }
+            }
+            console.log(`✅ [Python] scale.calculate ✓ → ${scale.toFixed(6)} mm/px${errorMsg}`);
+            console.log('   Resultado completo:', pyScale);
           }
         } catch (_e) {
-          console.warn('[Python] scale.calculate falló, usando JS:', _e.message);
+          console.error('❌ [Python] scale.calculate error:', {
+            status: _e.status,
+            message: _e.message,
+            detail: _e.detail,
+            stack: _e.stack
+          });
+          if (_e.detail && typeof _e.detail === 'object' && _e.detail.faltantes) {
+            console.warn('⚠️ Parámetros faltantes para Python scale:', _e.detail.faltantes);
+            console.warn('💡 Sugerencia:', _e.detail.sugerencia);
+          }
+          console.warn('⚠️ [Python] scale.calculate falló, usando fallback JS:', _e.message);
         }
       }
       // ── Fallback JS ───────────────────────────────────────────────────────
@@ -42951,6 +43192,13 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       • Resolución: ${(1/scale).toFixed(2)} píxeles/mm
       • Campo de visión: ${(imageWidth * scale).toFixed(1)} × ${(imageHeight * scale).toFixed(1)} mm
       =====================================`);
+      
+      // Actualizar elemento de la UI que muestra la escala
+      if (scaleDisplay) {
+        scaleDisplay.textContent = scale.toFixed(6);
+        scaleDisplay.style.color = '#28a745';
+        scaleDisplay.style.fontWeight = 'bold';
+      }
       
     } catch (error) {
       actualizarProgreso(progressContainer, 0, `Error: ${error.message}`, true);
@@ -52194,12 +52442,23 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
    */
   function derivarNombresDesdeFotografias() {
     const sinExt = n => n ? n.replace(/\.[^/.]+$/, '') : '';
+    const dimensionMode = typeof window._maoGetObjectDimension === 'function'
+      ? window._maoGetObjectDimension()
+      : '2d';
     function prefixComun(a, b) {
       let i = 0;
       while (i < a.length && i < b.length && a[i] === b[i]) i++;
       const p = a.substring(0, i).replace(/[_\-\s.]+$/, '');
       return p.length >= 3 ? p : `${a}_${b}`.substring(0, 60);
     }
+
+    if (dimensionMode === '3d') {
+      const objName = sinExt(typeof window._maoGetObj3dFileBaseName === 'function'
+        ? window._maoGetObj3dFileBaseName()
+        : '');
+      return { mono: objName, caraA: '', caraB: '', comun: objName };
+    }
+
     const mono  = sinExt(archivoJPGActual?.name || nombreFotografiaOriginal);
     const caraA = sinExt(archivosComplementariosCaraA?.jpg?.name || '');
     const caraB = sinExt(archivosComplementariosCaraB?.jpg?.name || '');
@@ -52214,15 +52473,28 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
   function actualizarPreviewFotografia() {
     const bloqueFoto = document.getElementById('bloqueFotografia');
     if (!bloqueFoto || bloqueFoto.style.display === 'none') return;
+    const dimensionMode = typeof window._maoGetObjectDimension === 'function'
+      ? window._maoGetObjectDimension()
+      : '2d';
+    const esObj3d = dimensionMode === '3d';
     const esBifacial = (modoAnalisis === 'bifacial');
     const n = derivarNombresDesdeFotografias();
     const previewMono = document.getElementById('fotoIdPreviewMono');
     const previewBifacial = document.getElementById('fotoIdPreviewBifacial');
-    if (previewMono) previewMono.style.display = esBifacial ? 'none' : 'block';
-    if (previewBifacial) previewBifacial.style.display = esBifacial ? 'block' : 'none';
-    if (!esBifacial) {
+    const label = document.getElementById('fotoIdSourceLabel');
+    const actionHint = document.getElementById('fotoIdActionHint');
+    if (label) label.textContent = esObj3d
+      ? 'Nombre derivado del archivo 3D (.OBJ) cargado'
+      : 'Nombre derivado de las fotografías cargadas';
+    if (actionHint) actionHint.textContent = esObj3d
+      ? 'El nombre del archivo .OBJ se usará en todos los análisis y exportaciones'
+      : 'El nombre del archivo de imagen se usará en todos los análisis y exportaciones';
+
+    if (previewMono) previewMono.style.display = (esBifacial && !esObj3d) ? 'none' : 'block';
+    if (previewBifacial) previewBifacial.style.display = (!esObj3d && esBifacial) ? 'block' : 'none';
+    if (esObj3d || !esBifacial) {
       const span = document.getElementById('fotoIdNombreMono');
-      if (span) span.textContent = n.mono || '\u2014 carga una fotograf\u00eda \u2014';
+      if (span) span.textContent = n.mono || (esObj3d ? '\u2014 carga un archivo OBJ \u2014' : '\u2014 carga una fotograf\u00eda \u2014');
     } else {
       const spanA = document.getElementById('fotoIdNombreA');
       const spanB = document.getElementById('fotoIdNombreB');
@@ -52336,12 +52608,15 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
     if (btnAsignarFotografia) {
       btnAsignarFotografia.addEventListener('click', function() {
         const esBifacial = (modoAnalisis === 'bifacial');
+        const esObj3d = (typeof window._maoGetObjectDimension === 'function' ? window._maoGetObjectDimension() : '2d') === '3d';
         const nombres = derivarNombresDesdeFotografias();
         const valor = esBifacial
           ? (nombres.comun || nombres.caraA || nombres.caraB)
           : nombres.mono;
         if (!valor) {
-          toast.warning('Carga primero la imagen del objeto y luego asigna la identificación.');
+          toast.warning(esObj3d
+            ? 'Carga primero el archivo OBJ y luego asigna la identificación.'
+            : 'Carga primero la imagen del objeto y luego asigna la identificación.');
           return;
         }
         identificacionActual = {
@@ -52356,6 +52631,14 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
         console.log('\u2705 Identificación asignada (Fotografía):', identificacionActual);
       });
     }
+
+    window.addEventListener('mao:obj3d-file-changed', () => {
+      if (!identificacionActual.bloqueada) actualizarPreviewFotografia();
+    });
+
+    window.addEventListener('mao:object-dimension-changed', () => {
+      if (!identificacionActual.bloqueada) actualizarPreviewFotografia();
+    });
 
     // Event listener para cambiar identificación
     if (btnCambiar) {
