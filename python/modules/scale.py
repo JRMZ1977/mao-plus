@@ -335,7 +335,9 @@ def _estimar_error_optico(
 
     Retorna dict con todos los campos de Sección IX del repertorio.
     """
-    sh = sensor_h_mm if sensor_h_mm else sensor_w_mm
+    # Si sensor_h no se conoce, derivarlo por aspect ratio (píxeles cuadrados),
+    # igual que JS: sensorH || sensorW * imgH / imgW  (analysis-core.js ~L12194)
+    sh = sensor_h_mm if sensor_h_mm else sensor_w_mm * (img_h / img_w)
 
     # --- 1. FOV diagonal y coeficiente k1 (tabla empírica) ----------------
     diag_sensor = math.sqrt(sensor_w_mm ** 2 + sh ** 2)

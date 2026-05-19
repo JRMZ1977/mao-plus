@@ -502,6 +502,108 @@ const ComparadorMultiObjeto = (() => {
     return String(val);
   }
 
+  function _sanitizeFilenamePart(value, fallback = 'recurso') {
+    const txt = String(value ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toLowerCase();
+    return txt || fallback;
+  }
+
+  function _getCMOCollectionId() {
+    const p = (typeof projectManager !== 'undefined' && projectManager?.activeProject) || null;
+    return _sanitizeFilenamePart(
+      p?.id || p?.collectionId || p?.name || p?.nombre || 'coleccion',
+      'coleccion'
+    );
+  }
+
+  function _buildCMOExportFilename(tipoAnalisis, nombreRecurso, extension) {
+    const collectionId = _getCMOCollectionId();
+    const tipo = _sanitizeFilenamePart(tipoAnalisis, 'analisis');
+    const recurso = _sanitizeFilenamePart(nombreRecurso, 'recurso');
+    const ext = String(extension || 'dat').replace(/^\./, '').toLowerCase();
+    return `${collectionId}_CMO_${tipo}_${recurso}.${ext}`;
+  }
+
+  function _csvEscape(value, sep = ',') {
+    const s = String(value ?? '');
+    return s.includes(sep) || s.includes('"') || s.includes('\n')
+      ? `"${s.replace(/"/g, '""')}"`
+      : s;
+  }
+
+  function _tableElementToCSV(tableEl, sep = ',') {
+    if (!tableEl) return null;
+    const rows = [...tableEl.querySelectorAll('tr')].map(tr => {
+      const cells = [...tr.querySelectorAll('th, td')].map(cell => {
+        const colspan = Math.max(1, parseInt(cell.getAttribute('colspan') || '1', 10) || 1);
+        const text = cell.textContent.replace(/\s+/g, ' ').trim();
+        return Array.from({ length: colspan }, () => _csvEscape(text, sep));
+      });
+      return cells.flat().join(sep);
+    }).filter(Boolean);
+    return rows.length ? '\uFEFF' + rows.join('\n') : null;
+  }
+
+  async function _guardarArchivo(filename, content, format = 'csv', mimeType = 'text/plain;charset=utf-8;') {
+    if (window.electronAPI?.saveFileWithDialog) {
+      const r = await window.electronAPI.saveFileWithDialog(filename, content, format);
+      if (r && !r.success && !r.canceled && typeof toast !== 'undefined') {
+        toast.error(`No se pudo guardar ${filename}.`);
+      }
+      return r;
+    }
+
+    const a = document.createElement('a');
+    a.download = filename;
+
+    if (typeof content === 'string' && content.startsWith('data:')) {
+      a.href = content;
+    } else {
+      const blob = new Blob([content], { type: mimeType });
+      a.href = URL.createObjectURL(blob);
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }
+
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    return { success: true, fallback: true };
+  }
+
+  async function _guardarPNGDesdeCanvas(canvas, tipoAnalisis, nombreRecurso) {
+    if (!canvas) {
+      if (typeof toast !== 'undefined') toast.warning('No hay gráfico disponible para exportar.');
+      return { success: false };
+    }
+    const filename = _buildCMOExportFilename(tipoAnalisis, nombreRecurso, 'png');
+    return _guardarArchivo(filename, canvas.toDataURL('image/png'), 'png', 'image/png');
+  }
+
+  async function _guardarSVGMarkup(svgMarkup, tipoAnalisis, nombreRecurso) {
+    const filename = _buildCMOExportFilename(tipoAnalisis, nombreRecurso, 'svg');
+    if (window.electronAPI?.showSaveDialog && window.electronAPI?.saveFile) {
+      const dialog = await window.electronAPI.showSaveDialog(filename, 'svg');
+      if (!dialog || dialog.canceled || !dialog.filePath) return { canceled: true };
+      return window.electronAPI.saveFile(dialog.filePath, svgMarkup);
+    }
+    const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgMarkup);
+    return _guardarArchivo(filename, dataUrl, 'svg', 'image/svg+xml');
+  }
+
+  async function _exportTableElementToCSV(tableEl, tipoAnalisis, nombreRecurso) {
+    const csv = _tableElementToCSV(tableEl);
+    if (!csv) {
+      if (typeof toast !== 'undefined') toast.warning('No hay tabla disponible para exportar.');
+      return { success: false };
+    }
+    const filename = _buildCMOExportFilename(tipoAnalisis, nombreRecurso, 'csv');
+    return _guardarArchivo(filename, csv, 'csv', 'text/csv;charset=utf-8;');
+  }
+
   // ──── CARGA ──────────────────────────────────────────────────────────────
   async function cargar() {
     const pm = typeof projectManager !== 'undefined' ? projectManager : null;
@@ -857,7 +959,7 @@ const ComparadorMultiObjeto = (() => {
     if (!objs.length || !_metrSel.length) return;
     const keys = _metrSel;
     const sep = ',';
-    const csvQ = v => { const s = String(v); return s.includes(sep) || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s; };
+    const csvQ = v => _csvEscape(v, sep);
     const secs = [];
 
     secs.push('=== TABLA COMPARATIVA ===');
@@ -901,7 +1003,7 @@ const ComparadorMultiObjeto = (() => {
     }
 
     const csv = '\uFEFF' + secs.join('\n');
-    _guardarCSV(`MAO_informe_${new Date().toISOString().slice(0,10)}.csv`, csv)
+    _guardarCSV(_buildCMOExportFilename('tabla', 'informe_completo', 'csv'), csv)
       .then(() => { if (typeof toast !== 'undefined') toast.success('Informe completo exportado.'); });
   }
 
@@ -1138,6 +1240,9 @@ const ComparadorMultiObjeto = (() => {
       <div>
         <div class="cmo-radar-side-title" style="margin:0 0 6px;">Valores por objeto y métrica</div>
         ${tableHTML}
+      </div>
+      <div class="cmo-btn-row" style="margin-top:12px;">
+        <button class="cmo-btn cmo-btn-success" id="cmoExportarRadarCSV">Exportar tabla radar CSV</button>
       </div>`;
 
     // ── Dibujar el radar ─────────────────────────────────────────────────────
@@ -1315,12 +1420,17 @@ const ComparadorMultiObjeto = (() => {
       _btn.title = 'Guardar radar como imagen PNG';
       _btn.textContent = '📸 PNG';
       _btn.addEventListener('click', () => {
-        const link = document.createElement('a');
-        link.href = canvas.toDataURL('image/png');
-        link.download = 'CMO_Radar_' + new Date().toISOString().slice(0,10) + '.png';
-        link.click();
+        _guardarPNGDesdeCanvas(canvas, 'radar', 'grafico_radar');
       });
       _radarWrap.appendChild(_btn);
+    }
+    const _radarCSVBtn = document.getElementById('cmoExportarRadarCSV');
+    if (_radarCSVBtn) {
+      _radarCSVBtn.onclick = () => _exportTableElementToCSV(
+        contenedor.querySelector('.cmo-radar-table'),
+        'radar',
+        'tabla_valores_radar'
+      );
     }
   }
 
@@ -1854,7 +1964,7 @@ const ComparadorMultiObjeto = (() => {
           f.q1.toFixed(4), f.q3.toFixed(4), f.n
         ].join(','));
       }
-      _guardarCSV(`MAO_estadisticos_${new Date().toISOString().slice(0,10)}.csv`, rows.join('\n'));
+      _guardarCSV(_buildCMOExportFilename('estadisticos', 'tabla_estadisticos', 'csv'), rows.join('\n'));
     };
   }
 
@@ -2093,7 +2203,10 @@ const ComparadorMultiObjeto = (() => {
       legendBarHtml +
       `<div style="overflow-x:auto;"><div class="cmo-canvas-zoom-wrap" style="position:relative;display:inline-block;min-width:min-content;"><canvas id="cmoDispCanvas" width="${W}" height="${H}" style="display:block;margin:0 auto;cursor:crosshair;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.07);"></canvas></div></div>` +
       statsTableHtml +
-      splomHtml;
+      splomHtml +
+      `<div class="cmo-btn-row" style="margin-top:12px;">
+        <button class="cmo-btn cmo-btn-success" id="cmoExportarDispersionCSV">Exportar resumen dispersión CSV</button>
+      </div>`;
 
     // ── Dibujar el canvas ────────────────────────────────────────────────────
     const canvas = document.getElementById('cmoDispCanvas');
@@ -2290,12 +2403,17 @@ const ComparadorMultiObjeto = (() => {
       _btn.title = 'Guardar dispersión como imagen PNG';
       _btn.textContent = '📸 PNG';
       _btn.addEventListener('click', () => {
-        const link = document.createElement('a');
-        link.href = canvas.toDataURL('image/png');
-        link.download = 'CMO_Dispersion_' + new Date().toISOString().slice(0,10) + '.png';
-        link.click();
+        _guardarPNGDesdeCanvas(canvas, 'dispersion', 'grafico_dispersion');
       });
       _dispWrap.appendChild(_btn);
+    }
+    const _dispCSVBtn = document.getElementById('cmoExportarDispersionCSV');
+    if (_dispCSVBtn) {
+      _dispCSVBtn.onclick = () => _exportTableElementToCSV(
+        contenido.querySelector('.cmo-radar-table'),
+        'dispersion',
+        'tabla_resumen_dispersion'
+      );
     }
 
     // ── Dibujar SPLOM mini-canvases ──────────────────────────────────────────
@@ -2764,7 +2882,10 @@ const ComparadorMultiObjeto = (() => {
 
     // ── Inyectar TODO de una vez (evita innerHTML+= que destruiría el canvas) ──
     const contenido = document.getElementById('cmoCorrelacionContenido');
-    contenido.innerHTML = pairSelectorHtml + canvasWrapHtml + correlTableHtml + topHtml;
+    contenido.innerHTML = pairSelectorHtml + canvasWrapHtml + correlTableHtml + topHtml + `
+      <div class="cmo-btn-row" style="margin-top:12px;">
+        <button class="cmo-btn cmo-btn-success" id="cmoExportarCorrelacionCSV">Exportar matriz correlaciones CSV</button>
+      </div>`;
 
     // ── Dibujar en el canvas YA en el DOM ────────────────────────────────────
     const canvas = document.getElementById('cmoCorrCanvas');
@@ -2926,12 +3047,17 @@ const ComparadorMultiObjeto = (() => {
       _btn.title = 'Guardar correlación como imagen PNG';
       _btn.textContent = '📸 PNG';
       _btn.addEventListener('click', () => {
-        const link = document.createElement('a');
-        link.href = canvas.toDataURL('image/png');
-        link.download = 'CMO_Correlacion_' + new Date().toISOString().slice(0,10) + '.png';
-        link.click();
+        _guardarPNGDesdeCanvas(canvas, 'correlacion', 'heatmap_correlaciones');
       });
       _corrWrap.appendChild(_btn);
+    }
+    const _corrCSVBtn = document.getElementById('cmoExportarCorrelacionCSV');
+    if (_corrCSVBtn) {
+      _corrCSVBtn.onclick = () => _exportTableElementToCSV(
+        contenido.querySelector('.cmo-radar-table'),
+        'correlacion',
+        'tabla_correlaciones'
+      );
     }
 
     // ── Scatter: dibujo por par de métricas ──────────────────────────────────
@@ -2983,7 +3109,10 @@ const ComparadorMultiObjeto = (() => {
           <div style="font-size:11px;color:#718096;font-weight:600;">${rInterp} ${rSign}</div>
           <div style="font-size:10px;color:#a0aec0;margin-left:auto;font-style:italic;">ŷ = ${slope.toFixed(4)}x ${signStr}</div>
         </div>
-        <canvas id="cmoCorrScat" width="660" height="400" style="display:block;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.07);cursor:crosshair;max-width:100%;"></canvas>`;
+        <canvas id="cmoCorrScat" width="660" height="400" style="display:block;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.07);cursor:crosshair;max-width:100%;"></canvas>
+        <div class="cmo-btn-row" style="margin-top:10px;">
+          <button class="cmo-btn cmo-btn-primary" id="cmoExportarCorrScatterPNG">Exportar scatter PNG</button>
+        </div>`;
 
       wrap2.style.display  = 'block';
       wrap2.style.opacity  = '0';
@@ -3105,6 +3234,10 @@ const ComparadorMultiObjeto = (() => {
         _ttScat.style.top  = (e.clientY - 14) + 'px';
       };
       sc2.onmouseleave = () => { _ttScat.style.display = 'none'; };
+      const _corrScatterBtn = document.getElementById('cmoExportarCorrScatterPNG');
+      if (_corrScatterBtn) {
+        _corrScatterBtn.onclick = () => _guardarPNGDesdeCanvas(sc2, 'correlacion', `scatter_${la}_${lb}`);
+      }
     }
 
     // ── Conectar controles del panel selector ─────────────────────────────────
@@ -3368,6 +3501,9 @@ const ComparadorMultiObjeto = (() => {
           <!-- ───────────────────────────────────────────────────────────── -->
           <canvas id="cmoHullOverlayCanvas" width="520" height="520"
             style="display:block;border-radius:6px;cursor:crosshair;max-width:100%;height:auto;"></canvas>
+          <div class="cmo-btn-row" style="margin-top:10px;">
+            <button class="cmo-btn cmo-btn-primary" id="cmoExportarMorfologiaPNG">Exportar imagen CGeo PNG</button>
+          </div>
           <div class="cmo-hull-legend-caption">
             Círculos: 25·50·75·100% del radio hull del objeto mayor. Escala relativa real preservada.
           </div>
@@ -3376,8 +3512,14 @@ const ComparadorMultiObjeto = (() => {
         <div class="cmo-morf-table-col">
           <div class="cmo-morf-section-title">Métricas radiales desde centroide Hull</div>
           <div class="cmo-morf-scroll" id="cmoMorfRadialTable"></div>
+          <div class="cmo-btn-row" style="margin-top:10px;">
+            <button class="cmo-btn cmo-btn-success" id="cmoExportarMorfRadialCSV">Exportar métricas radiales CSV</button>
+          </div>
           <div class="cmo-morf-section-title" style="margin-top:16px;">Distancia morfológica entre objetos <span style="font-weight:400;color:#a0aec0;font-size:10px;">(perfil radial Δr̄ normalizado)</span></div>
           <div class="cmo-morf-scroll" id="cmoMorfDistMatrix"></div>
+          <div class="cmo-btn-row" style="margin-top:10px;">
+            <button class="cmo-btn cmo-btn-success" id="cmoExportarMorfDistCSV">Exportar distancia morfológica CSV</button>
+          </div>
         </div>
       </div>
       <div id="cmoHullTooltip" style="display:none;position:fixed;background:rgba(45,55,72,0.95);color:#fff;font-size:11px;padding:6px 10px;border-radius:6px;pointer-events:none;z-index:9999;line-height:1.7;white-space:nowrap;"></div>`;
@@ -3720,6 +3862,29 @@ const ComparadorMultiObjeto = (() => {
     // Dibujo inicial
     const layers = { hull: true, contorno: true, perf: true, hora: true, orient: false };
     drawCanvas(layers);
+
+    const _morfPngBtn = document.getElementById('cmoExportarMorfologiaPNG');
+    if (_morfPngBtn) {
+      _morfPngBtn.onclick = () => _guardarPNGDesdeCanvas(canvas, 'morfologia', 'imagen_superposicion_hull');
+    }
+
+    const _morfRadialBtn = document.getElementById('cmoExportarMorfRadialCSV');
+    if (_morfRadialBtn) {
+      _morfRadialBtn.onclick = () => _exportTableElementToCSV(
+        document.querySelector('#cmoMorfRadialTable table'),
+        'morfologia',
+        'tabla_metricas_radiales'
+      );
+    }
+
+    const _morfDistBtn = document.getElementById('cmoExportarMorfDistCSV');
+    if (_morfDistBtn) {
+      _morfDistBtn.onclick = () => _exportTableElementToCSV(
+        document.querySelector('#cmoMorfDistMatrix table'),
+        'morfologia',
+        'tabla_distancia_morfologica'
+      );
+    }
 
     // Layer toggles
     [['mlHull','hull'], ['mlContorno','contorno'], ['mlPerf','perf'], ['mlHora','hora'], ['mlOrient','orient']].forEach(([id, key]) => {
@@ -4165,14 +4330,40 @@ const ComparadorMultiObjeto = (() => {
     }).join('');
 
     const expl0 = (explained[0] * 100).toFixed(1), expl1 = (explained[1] * 100).toFixed(1);
-    contenedor.innerHTML = `<div style="text-align:center;font-size:11px;color:#64748b;margin-bottom:4px">`
-      + `<b>PCA — scikit-learn</b> &nbsp;|&nbsp; PC1: ${expl0}% varianza &nbsp; PC2: ${expl1}% varianza</div>`
-      + `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc">`
+    const svgMarkup = `<svg id="cmoPCAPythonSvg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:${W}px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc">`
       + `<line x1="${P}" y1="${H/2}" x2="${W-P}" y2="${H/2}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4"/>`
       + `<line x1="${W/2}" y1="${P}" x2="${W/2}" y2="${H-P}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4"/>`
       + `<text x="${W/2}" y="${H-10}" text-anchor="middle" font-size="11" fill="#64748b">PC1 (${expl0}%)</text>`
       + `<text x="14" y="${H/2}" text-anchor="middle" font-size="11" fill="#64748b" transform="rotate(-90,14,${H/2})">PC2 (${expl1}%)</text>`
       + dots + `</svg>`;
+    contenedor.innerHTML = `<div style="text-align:center;font-size:11px;color:#64748b;margin-bottom:4px">`
+      + `<b>PCA — scikit-learn</b> &nbsp;|&nbsp; PC1: ${expl0}% varianza &nbsp; PC2: ${expl1}% varianza</div>`
+      + `<div class="cmo-pca-ctrl-row" style="margin-bottom:12px;">
+          <button class="cmo-pca-export-btn" id="cmoPCApyExportCSV">Exportar CSV</button>
+          <button class="cmo-pca-export-btn" id="cmoPCApyExportSVG">Exportar SVG</button>
+        </div>`
+      + svgMarkup;
+
+    const pyCsvBtn = document.getElementById('cmoPCApyExportCSV');
+    if (pyCsvBtn) {
+      pyCsvBtn.onclick = () => {
+        const header = ['Objeto', 'Cara', 'PC1', 'PC2', 'Cluster'];
+        const rows = coords.map((c, i) => [
+          _csvEscape(objs[i]?.nombre || `Obj ${i+1}`),
+          _csvEscape(objs[i]?.cara || ''),
+          Number(c[0] || 0).toFixed(6),
+          Number(c[1] || 0).toFixed(6),
+          clusters[i] != null ? clusters[i] + 1 : ''
+        ].join(','));
+        const csv = '\uFEFF' + [header.join(','), ...rows].join('\n');
+        _guardarCSV(_buildCMOExportFilename('pca', 'scores_componentes_principales_python', 'csv'), csv);
+      };
+    }
+
+    const pySvgBtn = document.getElementById('cmoPCApyExportSVG');
+    if (pySvgBtn) {
+      pySvgBtn.onclick = () => _guardarSVGMarkup(svgMarkup, 'pca', 'grafico_pca_python');
+    }
   }
 
   // ──── RENDERIZADO PYTHON: ESTADÍSTICOS ───────────────────────────────────
@@ -4660,6 +4851,7 @@ const ComparadorMultiObjeto = (() => {
           <input type="checkbox" id="cmoPCALabels"${showLabels?' checked':''}> Etiquetas
         </label>
         <button class="cmo-pca-export-btn" id="cmoPCAexportBtn">Exportar CSV</button>
+        <button class="cmo-pca-export-btn" id="cmoPCAexportPngBtn">Exportar PNG</button>
       </div>`;
 
     // Chips de varianza explicada (PC1..PC4)
@@ -4983,28 +5175,19 @@ const ComparadorMultiObjeto = (() => {
           ].join(',');
         });
         const csv  = '\uFEFF' + [header.join(','), ...rows].join('\n');
-        _guardarCSV(`MAO_PCA_${new Date().toISOString().slice(0,10)}.csv`, csv)
+        _guardarCSV(_buildCMOExportFilename('pca', 'scores_componentes_principales', 'csv'), csv)
           .then(() => { if (typeof toast !== 'undefined') toast.success('CSV PCA exportado.'); });
       };
+    }
+    const expPngBtn = document.getElementById('cmoPCAexportPngBtn');
+    if (expPngBtn) {
+      expPngBtn.onclick = () => _guardarPNGDesdeCanvas(canvas, 'pca', 'grafico_pca');
     }
   }
 
   // ──── Helper descarga CSV (Electron + fallback navegador) ────────────────
   async function _guardarCSV(filename, csvContent) {
-    if (window.electronAPI?.saveFileWithDialog) {
-      const r = await window.electronAPI.saveFileWithDialog(filename, csvContent, 'csv');
-      if (r && !r.success && !r.canceled && typeof toast !== 'undefined')
-        toast.error('No se pudo guardar el archivo.');
-      return;
-    }
-    // Fallback navegador: el <a> debe estar en el DOM para que Electron lo acepte
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url  = URL.createObjectURL(blob);
-    const a    = Object.assign(document.createElement('a'), { download: filename, href: url });
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return _guardarArchivo(filename, csvContent, 'csv', 'text/csv;charset=utf-8;');
   }
 
   // ──── EXPORTAR CSV ───────────────────────────────────────────────────────
@@ -5024,7 +5207,7 @@ const ComparadorMultiObjeto = (() => {
       filas.push([`"${label}"`, key, ...valores].join(','));
     }
     const csv  = '\uFEFF' + filas.join('\n'); // BOM para Excel
-    _guardarCSV(`MAO_comparacion_${new Date().toISOString().slice(0,10)}.csv`, csv)
+    _guardarCSV(_buildCMOExportFilename('tabla', 'tabla_comparativa', 'csv'), csv)
       .then(() => { if (typeof toast !== 'undefined') toast.success('CSV de comparación exportado.'); });
   }
 

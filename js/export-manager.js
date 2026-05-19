@@ -9,6 +9,15 @@
  */
 
 const ExportManager = (() => {
+
+  function _escapeXml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
   
   const config = {
     pngQuality: 1.0,  // 0-1
@@ -319,14 +328,14 @@ const ExportManager = (() => {
 
     // Metadatos
     svg += `<metadata>\n`;
-    svg += `  <objeto aprox>\n`;
-    svg += `    <nombre>${obj.nombre || 'Objeto'}</nombre>\n`;
-    svg += `    <tipo>${obj.tipo || 'monofacial'}</tipo>\n`;
-    svg += `    <cara>${obj.cara || '-'}</cara>\n`;
+    svg += `  <objeto_aprox>\n`;
+    svg += `    <nombre>${_escapeXml(obj.nombre || 'Objeto')}</nombre>\n`;
+    svg += `    <tipo>${_escapeXml(obj.tipo || 'monofacial')}</tipo>\n`;
+    svg += `    <cara>${_escapeXml(obj.cara || '-')}</cara>\n`;
     svg += `    <fecha>${new Date().toISOString()}</fecha>\n`;
     svg += `    <escala factor="${factor}">${factor} mm/px</escala>\n`;
     svg += `    <dimensiones ancho="${width}px" alto="${height}px" ancho_real="${widthMM}mm" alto_real="${heightMM}mm" />\n`;
-    svg += `  </objeto>\n`;
+    svg += `  </objeto_aprox>\n`;
     svg += `</metadata>\n`;
 
     // Grupo de geometría

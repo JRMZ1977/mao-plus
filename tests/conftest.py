@@ -32,7 +32,7 @@ def _make_png(w: int = 400, h: int = 300, bg: int = 200,
     x0 = w // 4; x1 = 3 * w // 4
     arr[y0:y1, x0:x1] = obj_color
     buf = io.BytesIO()
-    PilImage.fromarray(arr, "RGB").save(buf, format="PNG")
+    PilImage.fromarray(arr).save(buf, format="PNG")
     return buf.getvalue()
 
 
@@ -45,6 +45,28 @@ def png_bytes():
 def png_bytes_dark():
     """Imagen de alto contraste (fondo claro, objeto muy oscuro) para detección y contorno."""
     return _make_png(bg=240, obj_color=(20, 20, 20))
+
+
+@pytest.fixture(scope="session")
+def png_bytes_white_bg():
+    """Fondo casi blanco (brillo_min ≥ 230) con objeto oscuro — dispara modo white_absolute."""
+    return _make_png(bg=245, obj_color=(30, 30, 30))
+
+
+@pytest.fixture(scope="session")
+def png_bytes_chromatic_bg():
+    """Fondo verde cromático con objeto marrón — dispara modo Z-scan."""
+    arr = np.full((300, 400, 3), (50, 180, 50), dtype=np.uint8)   # verde
+    arr[75:225, 100:300] = (120, 70, 30)                            # marrón
+    buf = io.BytesIO()
+    PilImage.fromarray(arr).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+@pytest.fixture(scope="session")
+def png_bytes_low_contrast():
+    """Bajo contraste (fondo gris 150, objeto gris 120) — dispara CLAHE."""
+    return _make_png(bg=150, obj_color=(120, 120, 120))
 
 
 # ─── Contorno elipse sintético ─────────────────────────────────────────────

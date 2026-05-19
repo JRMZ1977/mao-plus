@@ -11,6 +11,16 @@ let comparadorWindow = null;
 let pyServer = null;          // proceso hijo uvicorn
 let pyServerReady = false;    // true cuando /api/health responde OK
 let pyServerManaged = false;  // true si Electron lanzó este proceso y debe apagarlo
+let pyRestartCount  = 0;      // número de reinicios automáticos en esta sesión
+let pyLastError     = null;   // último mensaje de error del backend
+let pyIsQuitting    = false;  // true cuando el usuario está cerrando la app
+let pyWatchdogTimer = null;   // interval del watchdog activo
+let pyHealthFailCount = 0;    // fallos consecutivos del watchdog
+
+const PY_MAX_RESTARTS       = 3;
+const PY_RESTART_DELAYS_MS  = [2000, 5000, 10000];
+const PY_WATCHDOG_INTERVAL  = 15_000;
+const PY_WATCHDOG_FAIL_LIMIT = 2;
 
 // Última carpeta de exportación usada (para recordar entre exportaciones)
 let lastExportDir = null;
@@ -47,6 +57,30 @@ const SERVER_HOST = '127.0.0.1';
 const SERVER_PORT = 8765;
 const HEALTH_URL  = `http://${SERVER_HOST}:${SERVER_PORT}/api/health`;
 
+/**
+ * Emite el estado actual del backend a todas las ventanas suscritas.
+ * Estados: 'starting' | 'ready' | 'down' | 'restarting'
+ */
+function emitBackendStatus(state, extra = {}) {
+  const payload = {
+    state,
+    ready:    pyServerReady,
+    managed:  pyServerManaged,
+    pid:      pyServer ? pyServer.pid : null,
+    restarts: pyRestartCount,
+    lastError: pyLastError,
+    url:      `http://${SERVER_HOST}:${SERVER_PORT}`,
+    ...extra,
+  };
+  try {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win && !win.isDestroyed() && win.webContents) {
+        win.webContents.send('mao:backend-status', payload);
+      }
+    }
+  } catch { /* renderer no listo aún */ }
+}
+
 function checkServerHealthOnce(timeoutMs = 400) {
   return new Promise((resolve) => {
     const req = http.get(HEALTH_URL, (res) => {
@@ -68,58 +102,150 @@ function checkServerHealthOnce(timeoutMs = 400) {
  * Si el .venv no existe (distribución sin Python bundleado),
  * el frontend continúa solo con el motor JS.
  */
+async function checkServerBelongsToMAOPlus() {
+  return new Promise((resolve) => {
+    const req = http.get(HEALTH_URL, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          // MAO PLUS usa versión 2.0.x y tiene módulo 'obj3d'
+          const mods = json.modules || [];
+          resolve(mods.includes('obj3d') || (json.version || '').startsWith('2.0'));
+        } catch { resolve(false); }
+      });
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(600, () => { req.destroy(); resolve(false); });
+  });
+}
+
 async function startPythonServer() {
   if (await checkServerHealthOnce()) {
-    console.log('[MAO Python] Backend ya activo en 127.0.0.1:8765 — reutilizando instancia existente');
-    pyServer = null;
-    pyServerManaged = false;
-    pyServerReady = true;
-    return;
+    if (await checkServerBelongsToMAOPlus()) {
+      console.log('[MAO Python] Backend MAO PLUS ya activo en 127.0.0.1:8765 — reutilizando');
+      pyServer = null;
+      pyServerManaged = false;
+      pyServerReady = true;
+      return;
+    }
+    console.log('[MAO Python] Puerto 8765 ocupado por otro proceso (no MAO PLUS) — matando y relanzando');
+    require('child_process').execSync('pkill -f "uvicorn.*8765" 2>/dev/null || true');
+    await new Promise(r => setTimeout(r, 1500));
   }
 
   if (!fs.existsSync(PYTHON_BIN)) {
-    console.log('[MAO Python] .venv no encontrado — modo solo-JS activo');
-    return;
+    console.log('[MAO Python] .venv no encontrado en:', PYTHON_BIN);
+    console.log('[MAO Python] Intentando con "python" del PATH...');
+    
+    // Fallback: usar python del PATH si .venv no existe
+    pyServer = spawn(
+      'python',
+      [
+        '-m', 'uvicorn', 'python.server:app',
+        '--host', SERVER_HOST,
+        '--port', String(SERVER_PORT),
+        '--log-level', 'warning',
+      ],
+      {
+        cwd: APP_DIR,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: false,
+      }
+    );
+    
+    if (!pyServer) {
+      console.log('[MAO Python] Python del PATH tampoco disponible — modo solo-JS');
+      return;
+    }
+    
+    pyServerManaged = true;
+  } else {
+    console.log(`[MAO Python] Iniciando uvicorn en ${SERVER_HOST}:${SERVER_PORT} con ${PYTHON_BIN}...`);
+
+    pyServer = spawn(
+      PYTHON_BIN,
+      [
+        '-m', 'uvicorn', 'python.server:app',
+        '--host', SERVER_HOST,
+        '--port', String(SERVER_PORT),
+        '--log-level', 'warning',
+      ],
+      {
+        cwd: APP_DIR,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: false,
+      }
+    );
+    pyServerManaged = true;
   }
 
-  console.log(`[MAO Python] Iniciando uvicorn en ${SERVER_HOST}:${SERVER_PORT}...`);
+  if (!pyServer) return;
 
-  pyServer = spawn(
-    PYTHON_BIN,
-    [
-      '-m', 'uvicorn', 'python.server:app',
-      '--host', SERVER_HOST,
-      '--port', String(SERVER_PORT),
-      '--log-level', 'warning',
-    ],
-    {
-      cwd: APP_DIR,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      // Evitar que el proceso hijo herede la terminal de Electron
-      detached: false,
-    }
-  );
-  pyServerManaged = true;
-
-  pyServer.stdout.on('data', (d) => console.log('[uvicorn]', d.toString().trim()));
+  pyServer.stdout.on('data', (d) => {
+    const msg = d.toString().trim();
+    if (msg) console.log('[uvicorn stdout]', msg);
+  });
+  
   pyServer.stderr.on('data', (d) => {
     const msg = d.toString().trim();
-    // uvicorn escribe INFO en stderr — filtrar spam
-    if (!msg.includes('INFO:') || msg.includes('ERROR:')) {
-      console.warn('[uvicorn]', msg);
+    if (msg) {
+      if (msg.includes('ERROR:') || msg.includes('CRITICAL:')) {
+        console.error('[uvicorn ERROR]', msg);
+      } else if (!msg.includes('INFO:')) {
+        console.warn('[uvicorn]', msg);
+      }
     }
   });
 
-  pyServer.on('error', (err) => console.error('[MAO Python] No se pudo iniciar uvicorn:', err.message));
-  pyServer.on('exit', async (code, sig) => {
-    console.log(`[MAO Python] Proceso terminó (código ${code}, señal ${sig})`);
+  pyServer.on('error', (err) => {
+    console.error('[MAO Python] Error al iniciar uvicorn:', err.message, err.code);
+    pyLastError = `${err.code || 'ERR'}: ${err.message}`;
     pyServer = null;
     pyServerManaged = false;
+    emitBackendStatus('down', { reason: 'spawn_error' });
+  });
+  
+  pyServer.on('exit', async (code, sig) => {
+    console.log(`[MAO Python] Proceso uvicorn terminó (código ${code}, señal ${sig})`);
+    const wasManaged = pyServerManaged;
+    pyServer = null;
+    pyServerManaged = false;
+    pyServerReady = false;
 
     const backendStillAlive = await checkServerHealthOnce();
     pyServerReady = backendStillAlive;
     if (backendStillAlive) {
       console.log('[MAO Python] Backend externo sigue disponible tras la salida del proceso hijo');
+      emitBackendStatus('ready', { reason: 'external_backend' });
+      return;
+    }
+
+    emitBackendStatus('down', { exitCode: code, signal: sig });
+
+    // Auto-restart si la app NO se está cerrando y el exit no fue limpio
+    if (!pyIsQuitting && wasManaged && code !== 0 && code !== null) {
+      if (pyRestartCount < PY_MAX_RESTARTS) {
+        const delay = PY_RESTART_DELAYS_MS[pyRestartCount] || 10_000;
+        pyRestartCount++;
+        pyLastError = `Exit code ${code} (signal ${sig})`;
+        console.warn(`[MAO Python] ⚠️ Auto-restart ${pyRestartCount}/${PY_MAX_RESTARTS} en ${delay} ms...`);
+        emitBackendStatus('restarting', { delayMs: delay, attempt: pyRestartCount });
+        setTimeout(() => {
+          if (!pyIsQuitting) {
+            startPythonServer().then(() => waitForServer(20, 300)).then((ok) => {
+              if (ok) emitBackendStatus('ready', { reason: 'restart_ok' });
+            }).catch((e) => {
+              pyLastError = String(e && e.message || e);
+              emitBackendStatus('down', { reason: 'restart_failed' });
+            });
+          }
+        }, delay);
+      } else {
+        console.error(`[MAO Python] ❌ Límite de auto-restarts alcanzado (${PY_MAX_RESTARTS}). Backend en modo solo-JS.`);
+        emitBackendStatus('down', { reason: 'restart_limit_reached' });
+      }
     }
   });
 }
@@ -129,6 +255,8 @@ async function startPythonServer() {
  * Espera hasta maxWait ms antes de SIGKILL.
  */
 function stopPythonServer(maxWait = 3000) {
+  pyIsQuitting = true;
+  if (pyWatchdogTimer) { clearInterval(pyWatchdogTimer); pyWatchdogTimer = null; }
   return new Promise((resolve) => {
     if (!pyServer || !pyServerManaged) return resolve();
     const timer = setTimeout(() => { pyServer && pyServer.kill('SIGKILL'); resolve(); }, maxWait);
@@ -138,32 +266,84 @@ function stopPythonServer(maxWait = 3000) {
 }
 
 /**
- * Sondea /api/health cada 300 ms hasta maxRetries veces.
- * Resuelve con true si el servidor respondió, false si agotó reintentos.
+ * Watchdog activo: cada PY_WATCHDOG_INTERVAL verifica el health del backend
+ * gestionado. Si falla PY_WATCHDOG_FAIL_LIMIT veces consecutivas, mata y
+ * relanza el proceso. Si el backend no es gestionado (externo) no actúa.
  */
-function waitForServer(maxRetries = 20, intervalMs = 300) {
+function startWatchdog() {
+  if (pyWatchdogTimer) return;
+  pyWatchdogTimer = setInterval(async () => {
+    if (pyIsQuitting) return;
+    if (!pyServerManaged && !pyServer) return; // no gestionamos este backend
+    const alive = await checkServerHealthOnce(800);
+    if (alive) {
+      if (pyHealthFailCount > 0) {
+        pyHealthFailCount = 0;
+        emitBackendStatus('ready', { reason: 'watchdog_recovered' });
+      }
+      return;
+    }
+    pyHealthFailCount++;
+    console.warn(`[MAO Watchdog] health KO (${pyHealthFailCount}/${PY_WATCHDOG_FAIL_LIMIT})`);
+    if (pyHealthFailCount >= PY_WATCHDOG_FAIL_LIMIT) {
+      pyHealthFailCount = 0;
+      if (pyServer && pyServerManaged) {
+        console.warn('[MAO Watchdog] ⚠️ Backend no responde — forzando restart');
+        pyLastError = 'watchdog: health-check timeout';
+        emitBackendStatus('restarting', { reason: 'watchdog' });
+        try { pyServer.kill('SIGTERM'); } catch {}
+        // El handler 'exit' encadenará el auto-restart.
+      }
+    }
+  }, PY_WATCHDOG_INTERVAL);
+}
+
+/**
+ * Sondea /api/health cada N ms hasta maxRetries veces.
+ * Resuelve con true si el servidor respondió, false si agotó reintentos.
+ * MEJORADO: Manejo robusto de errors y timeouts.
+ */
+function waitForServer(maxRetries = 30, intervalMs = 300) {
   return new Promise((resolve) => {
     let tries = 0;
+    const MAX_WAIT_TOTAL_MS = maxRetries * intervalMs; // mostrar al usuario
+    
+    console.log(`[MAO Python] Esperando servidor... (máx ${MAX_WAIT_TOTAL_MS}ms, ${maxRetries} reintentos)`);
 
     const check = () => {
       const req = http.get(HEALTH_URL, (res) => {
         if (res.statusCode === 200) {
           pyServerReady = true;
-          console.log('[MAO Python] Servidor listo ✓');
+          console.log('[MAO Python] Servidor listo ✓ (respondió en', tries * intervalMs, 'ms)');
           resolve(true);
         } else {
+          console.log(`[MAO Python] Intento ${tries + 1}: HTTP ${res.statusCode} — reintentando...`);
           retry();
         }
-        res.resume(); // consumir respuesta para liberar socket
+        res.resume();
       });
-      req.on('error', retry);
-      req.setTimeout(200, () => { req.destroy(); retry(); });
+      
+      req.on('error', (err) => {
+        if (tries < 3) {
+          // Los primeros intentos son silenciosos (el servidor está arrancando)
+          console.log(`[MAO Python] Intento ${tries + 1}: sin respuesta — reintentando...`);
+        } else if (tries % 5 === 0) {
+          // Cada 5 intentos mostrar detalles
+          console.log(`[MAO Python] Intento ${tries + 1}: ${err.code} — reintentando...`);
+        }
+        retry();
+      });
+      
+      req.setTimeout(200, () => {
+        req.destroy();
+        retry();
+      });
     };
 
     const retry = () => {
       tries++;
       if (tries >= maxRetries) {
-        console.warn('[MAO Python] Servidor no respondió — modo solo-JS');
+        console.warn(`[MAO Python] Servidor no respondió después de ${MAX_WAIT_TOTAL_MS}ms — modo solo-JS`);
         resolve(false);
       } else {
         setTimeout(check, intervalMs);
@@ -171,6 +351,19 @@ function waitForServer(maxRetries = 20, intervalMs = 300) {
     };
 
     check();
+  });
+}
+
+function attachRendererMonitor(win, label = 'main') {
+  if (!win || !win.webContents) return;
+  win.webContents.on('console-message', (_event, level, message) => {
+    if (typeof message !== 'string' || !message.startsWith('[MONITOR_ANALISIS]')) return;
+    const prefix = `[Renderer:${label}]`;
+    if (level >= 2) {
+      console.warn(prefix, message);
+    } else {
+      console.log(prefix, message);
+    }
   });
 }
 
@@ -194,6 +387,7 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  attachRendererMonitor(mainWindow, 'main');
 
   // Manejar apertura de ventana del Comparador (window.open desde el renderer)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -229,6 +423,7 @@ function createWindow() {
 
   // Guardar referencia a la ventana del Comparador cuando se crea
   mainWindow.webContents.on('did-create-window', (win) => {
+    attachRendererMonitor(win, 'child');
     if (win.webContents.getURL().includes('cmo=1') ||
         win.getTitle().includes('Comparador')) {
       comparadorWindow = win;
@@ -365,17 +560,25 @@ function createApplicationMenu() {
 }
 
 // Handler para seleccionar carpeta
-ipcMain.handle('select-folder', async () => {
+ipcMain.handle('select-folder', async (_, options = {}) => {
+  const preferredPath = (options && typeof options.defaultPath === 'string' && options.defaultPath.trim())
+    ? options.defaultPath
+    : null;
+  const baseDir = preferredPath || lastExportDir || path.join(require('os').homedir(), 'Downloads');
+
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory', 'createDirectory'],
     title: 'Seleccionar carpeta del proyecto',
     buttonLabel: 'Seleccionar',
-    message: 'Elige la carpeta donde se guardarán los archivos del proyecto'
+    message: 'Elige la carpeta donde se guardarán los archivos del proyecto',
+    defaultPath: baseDir,
   });
   
   if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
     return null;
   }
+
+  lastExportDir = result.filePaths[0];
   
   return result.filePaths[0];
 });
@@ -723,16 +926,29 @@ ipcMain.handle('fs-validate-analysis', async (_, { analysisPath }) => {
 });
 
 app.whenReady().then(async () => {
-  // 1. Arrancar servidor Python (no bloquea si falla)
+  // 1. Arrancar servidor Python
+  console.log('[MAO Boot] ▶ Iniciando booteo de aplicación...');
+  emitBackendStatus('starting');
   await startPythonServer();
 
-  // 2. Esperar a que responda (máx ~6 s) antes de mostrar la ventana
-  if (pyServer && pyServerManaged) {
-    await waitForServer(20, 300);
+  // 2. Esperar a que responda (máx ~15 s = 50 × 300ms) antes de mostrar la ventana
+  console.log('[MAO Boot] ⏳ Esperando servidor Python...');
+  const serverReady = await waitForServer(50, 300);
+  if (serverReady) {
+    console.log('[MAO Boot] ✓ Backend Python operativo — iniciando interfaz');
+    emitBackendStatus('ready', { reason: 'boot_ok' });
+  } else {
+    console.warn('[MAO Boot] ⚠️ Backend Python no disponible — interfaz en modo solo-JS');
+    console.log('[MAO Boot] 💡 Tip: Los reintentos continuarán automáticamente en el modal de IA');
+    emitBackendStatus('down', { reason: 'boot_timeout' });
   }
 
   // 3. Crear la ventana principal
   createWindow();
+
+  // 4. Lanzar watchdog activo (independiente del estado de boot: detectar
+  //    recuperaciones automáticas si el backend se levanta tarde).
+  startWatchdog();
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -745,6 +961,7 @@ app.on('window-all-closed', function () {
 
 // Apagar Python antes de que Electron cierre el proceso
 app.on('before-quit', async (event) => {
+  pyIsQuitting = true;
   if (pyServer && pyServerManaged) {
     event.preventDefault();
     await stopPythonServer();
@@ -756,9 +973,24 @@ app.on('before-quit', async (event) => {
 // IPC: estado del servidor Python
 // ============================================================================
 ipcMain.handle('python-server-status', () => ({
-  running: pyServerReady || pyServer !== null,
-  ready:   pyServerReady,
-  url:     `http://${SERVER_HOST}:${SERVER_PORT}`,
+  running:  pyServerReady || pyServer !== null,
+  ready:    pyServerReady,
+  managed:  pyServerManaged,
+  pid:      pyServer ? pyServer.pid : null,
+  restarts: pyRestartCount,
+  lastError: pyLastError,
+  url:      `http://${SERVER_HOST}:${SERVER_PORT}`,
+}));
+
+// Snapshot de estado para el badge UI (canal sincrónico ligero vía invoke).
+ipcMain.handle('mao:backend-status:get', () => ({
+  state:    pyServerReady ? 'ready' : (pyServer ? 'starting' : 'down'),
+  ready:    pyServerReady,
+  managed:  pyServerManaged,
+  pid:      pyServer ? pyServer.pid : null,
+  restarts: pyRestartCount,
+  lastError: pyLastError,
+  url:      `http://${SERVER_HOST}:${SERVER_PORT}`,
 }));
 
 // ============================================================================

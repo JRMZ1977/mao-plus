@@ -10,7 +10,7 @@
   =====================================================================================
   
   Aplicación desarrollada por:
-  Quipus / Juan Francisco Ramírez, 2025
+  Quipus / Juan Francisco Ramírez, Pamela Burgos Diaz. 2025
   
   Versión: 1.1.0
   Plataforma: Electron (macOS)
@@ -35,6 +35,11 @@
     <div class="mao-header-right">
 
       <span class="mao-header-credit">JFRR/PABD &middot; Quipus 2025</span>
+      <span id="backendStatusBadge" class="backend-badge backend-badge--unknown"
+            title="Estado del backend Python" role="status" aria-live="polite">
+        <span class="backend-badge-dot"></span>
+        <span class="backend-badge-label">Backend…</span>
+      </span>
     </div>
   </header>
 
@@ -213,6 +218,24 @@
           <button class="mao-nav-subitem" data-target="sectionEscala">Escala y Detección</button>
           <button class="mao-nav-subitem" data-target="sectionCanvas">Visualización</button>
         </div>
+
+        <!-- Ítem Análisis 3D — visible solo en modo 3D -->
+        <button class="mao-nav-item mao-nav-parent" data-target="sectionAnalisis3D"
+                id="navAnalisis3DBtn" style="display:none;">
+          <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 11 L5 5 L8 9 L11 6 L14 11"/>
+            <rect x="1" y="2" width="14" height="12" rx="1" fill="none"/>
+          </svg>
+          <span>Análisis 3D</span>
+          <svg class="nav-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <path d="M6 4l4 4-4 4"/>
+          </svg>
+        </button>
+        <div class="sidebar-subitems" id="navAnalisis3DSubitems" style="display:none;">
+          <button class="mao-nav-subitem" data-target="sectionAnalisis3D" data-scroll-to="obj3dContour2dPanel">Contornos Canónicos</button>
+          <button class="mao-nav-subitem" data-target="sectionAnalisis3D" data-scroll-to="obj3dMao3dPanel">Índices Seccionales</button>
+          <button class="mao-nav-subitem" data-target="sectionAnalisis3D" data-scroll-to="obj3dEfaPanel">EFA Seccional</button>
+        </div>
       </div>
 
       <div class="mao-sidebar-sep"></div>
@@ -236,8 +259,8 @@
         <!-- Sub-ítems: activan el panel maestro y el tab correspondiente -->
         <div class="sidebar-subitems">
           <button class="mao-nav-subitem" data-target="morphologicalAnalysisContainer" data-morph-group="morphGroupA"><span class="morph-group-tag" style="width:14px;height:14px;font-size:9px;">a</span> Métricas</button>
-          <button class="mao-nav-subitem" data-target="morphologicalAnalysisContainer" data-morph-group="morphGroupB"><span class="morph-group-tag" style="width:14px;height:14px;font-size:9px;">b</span> Contorno Dep.</button>
-          <button class="mao-nav-subitem" data-target="morphologicalAnalysisContainer" data-morph-group="morphGroupC"><span class="morph-group-tag" style="width:14px;height:14px;font-size:9px;">c</span> Vista Esquem.</button>
+          <button class="mao-nav-subitem" data-target="morphologicalAnalysisContainer" data-morph-group="morphGroupB"><span class="morph-group-tag" style="width:14px;height:14px;font-size:9px;">b</span> Contorno depurado</button>
+          <button class="mao-nav-subitem" data-target="morphologicalAnalysisContainer" data-morph-group="morphGroupC"><span class="morph-group-tag" style="width:14px;height:14px;font-size:9px;">c</span> Vista esquemática</button>
         </div>
 
         <button class="mao-nav-item mao-nav-parent" data-target="comparadorMultiObjetoSection">
@@ -339,7 +362,7 @@
             <circle cx="8" cy="8" r="3"/><circle cx="8" cy="8" r="6"/>
             <path d="M8 2v2M8 12v2M2 8h2M12 8h2"/>
           </svg>
-          <span>Perforaciones / Horadaciones</span>
+          <span>Perforaciones</span>
         </button>
 
         <div class="mao-sidebar-sep" style="margin-top:6px;"></div>
@@ -536,7 +559,7 @@
           </label>
           <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--text-secondary); padding: 9px 12px; background: var(--bg-primary); border-radius: 5px; border: 1.5px solid var(--border-color); transition: all 0.2s;">
             <input type="radio" name="modoIdentificacion" value="fotografia" id="modoIdFotografia" style="cursor: pointer; width: 16px; height: 16px;"/>
-            <span>Opción C: Por Fotografía</span>
+            <span>Opción C: Por archivo</span>
           </label>
         </div>
         <div style="padding: 8px; background: rgba(255,255,255,0.6); border-radius: 4px; font-size: 11px; color: var(--gray-500); line-height: 1.4;">
@@ -788,32 +811,83 @@
     <fieldset id="sectionObj3D" style="display: none;">
       <legend>Objeto 3D (.OBJ)</legend>
 
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
-        <label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--gray-600);">
-          Archivo OBJ:
-          <input type="file" id="obj3dInput" accept=".obj,model/obj,text/plain" style="font-size:10px;" />
-        </label>
+      <!-- Bloque 1: Análisis — carga, parámetros y orientación morfológica -->
+      <div style="padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;margin-bottom:8px;">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--gray-600);">
+            Archivo OBJ:
+            <input type="file" id="obj3dInput" accept=".obj,model/obj,text/plain" style="font-size:10px;" />
+          </label>
 
-        <button id="obj3dLoadBtn" class="btn-sm btn-muted" disabled>Cargar y visualizar</button>
+          <button id="obj3dLoadBtn" class="btn-sm btn-muted" disabled>Cargar y visualizar</button>
 
-        <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--gray-600);margin-left:auto;">
-          Muestras PCA:
-          <input type="number" id="obj3dSamplesInput" min="1000" max="200000" step="1000" value="20000" style="width:88px;font-size:10px;padding:3px 5px;" />
-        </label>
-        <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--gray-600);">
-          Normalización:
-          <select id="obj3dNormalizeSelect" style="font-size:10px;padding:3px 5px;">
-            <option value="none" selected>none</option>
-            <option value="bboxdiag">bboxdiag</option>
-            <option value="std">std</option>
-          </select>
-        </label>
-        <button id="obj3dAnalyzeBtn" class="btn-sm btn-muted" disabled>Calcular métricas PCA</button>
-        <button id="obj3dSaveBtn" class="btn-sm btn-muted" disabled title="Guardar análisis 3D en el proyecto activo (requiere identificación asignada)">Guardar análisis 3D</button>
+          <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--gray-600);margin-left:auto;">
+            Muestras PCA:
+            <input type="number" id="obj3dSamplesInput" min="1000" max="200000" step="1000" value="20000" style="width:88px;font-size:10px;padding:3px 5px;" />
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--gray-600);" title="Número de secciones por eje (impar, 9–33). Aplica a los cortes transversal, coronal y frontal del análisis morfológico 3D.">
+            Secciones por eje:
+            <input type="number" id="obj3dSectionsInput" min="9" max="33" step="2" value="9" style="width:52px;font-size:10px;padding:3px 5px;" />
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--gray-600);">
+            Normalización:
+            <select id="obj3dNormalizeSelect" style="font-size:10px;padding:3px 5px;">
+              <option value="none" selected>none</option>
+              <option value="bboxdiag">bboxdiag</option>
+              <option value="std">std</option>
+            </select>
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--gray-600);" title="Unidad del archivo OBJ. Convierte las dimensiones a milímetros en el resultado.">
+            Unidad OBJ:
+            <select id="obj3dUnitSelect" style="font-size:10px;padding:3px 5px;">
+              <option value="0" selected>u3d (sin conversión)</option>
+              <option value="1">mm</option>
+              <option value="10">cm → mm</option>
+              <option value="1000">m → mm</option>
+              <option value="25.4">in → mm</option>
+            </select>
+          </label>
+          <button id="obj3dAnalyzeBtn" class="btn-sm btn-muted" disabled>CALCULAR ANÁLISIS 3D</button>
+          <button id="obj3dSaveBtn" class="btn-sm btn-muted" disabled title="Guardar análisis 3D en el proyecto activo (requiere identificación asignada)">GUARDAR ANÁLISIS 3D</button>
+          <button id="obj3dSaveJsonBtn" class="btn-sm btn-muted" disabled title="Guardar paquete JSON del análisis 3D en una carpeta elegida">EXPORTAR JSON 3D</button>
+          <button id="obj3dMorphBtn" class="btn-sm btn-muted" disabled title="Genera tarjetas de análisis morfológico de contorno (anverso + reverso) en el flujo 2D. Disponible tras calcular análisis 3D con datos bifaciales.">TARJETAS MORFOLÓGICAS</button>
+
+          <!-- Exportar 3D — dropdown -->
+          <div id="obj3dExportWrap" style="position:relative;display:inline-block;">
+            <button id="obj3dExportDropBtn" class="btn-sm btn-muted" disabled
+                    title="Exportar resultados del análisis 3D en distintos formatos"
+                    style="padding-right:6px;">
+              EXPORTAR 3D ▾
+            </button>
+            <div id="obj3dExportMenu"
+                 style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:9000;
+                        background:var(--bg-primary,#fff);border:1px solid var(--border-color);
+                        border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.18);
+                        min-width:200px;padding:4px 0;">
+              <div style="padding:5px 12px 3px;font-size:9px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.06em;">Exportar</div>
+              <button class="obj3d-export-item" data-fmt="csv"  title="CSV con todas las métricas numéricas del análisis 3D">📊 CSV — Métricas completas</button>
+              <button class="obj3d-export-item" data-fmt="png"  title="PNG del canvas 3D (visor actual)">🖼️ PNG — Canvas visor 3D</button>
+              <button class="obj3d-export-item" data-fmt="svg"  title="SVG con contornos canónicos (secciones planas)">📐 SVG — Contornos canónicos</button>
+              <button class="obj3d-export-item" data-fmt="pdf"  title="PDF integral con canvas + métricas + paneles">📄 PDF — Reporte integral</button>
+              <div style="margin:4px 0;border-top:1px solid var(--border-color);"></div>
+              <div style="padding:3px 12px 2px;font-size:9px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.06em;">Panel activo</div>
+              <button class="obj3d-export-item" data-fmt="panel-png" title="PNG de la pestaña de Datos 3D actualmente visible">🗂️ PNG — Panel activo</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Orientación morfológica: disponible tras calcular métricas -->
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:7px;border-top:1px solid var(--border-color);">
+          <span style="font-size:10px;font-weight:600;color:var(--gray-600);white-space:nowrap;">Orientación morfológica:</span>
+          <button id="obj3dSetMorphAnchorBtn" class="btn-sm btn-muted" title="Seleccionar punto para orientación morfológica">ANCLA MORFOL.</button>
+          <button id="obj3dSetContourZBtn" class="btn-sm btn-muted" title="Usar Z como normal al plano de mínima varianza del contorno">ORIENTACIÓN C</button>
+          <span style="font-size:10px;color:var(--gray-500);font-style:italic;">Disponible tras calcular análisis 3D — override visual opcional de la orientación automática.</span>
+        </div>
       </div>
 
       <div id="obj3dStatus" style="font-size:10px;color:var(--gray-500);margin-bottom:8px;">Seleccione un archivo .obj para iniciar.</div>
 
+      <!-- Bloque 2: Visualización -->
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:8px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;">
         <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--gray-600);">
           <input type="checkbox" id="obj3dShowFaces" checked /> Caras
@@ -824,12 +898,51 @@
         <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--gray-600);">
           <input type="checkbox" id="obj3dShowAxes" checked /> Ejes
         </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--gray-600);" title="Mostrar / ocultar vectores PCA (PC1, PC2, PC3)">
+          <input type="checkbox" id="obj3dShowPcaAxes" checked /> Ejes PC
+        </label>
         <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--gray-600);">
           <input type="checkbox" id="obj3dAutoRotate" /> Auto-rotar
         </label>
         <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--gray-600);">
           <input type="checkbox" id="obj3dCullBackfaces" /> Culling
         </label>
+        <label id="obj3dTextureLoadLabel" class="btn-sm btn-muted"
+               style="cursor:pointer;"
+               title="Cargar imagen de textura (.jpg, .png…)">
+          TEXTURA…
+          <input type="file" id="obj3dTextureInput"
+                 accept=".jpg,.jpeg,.png,.webp,.bmp,.tga"
+                 style="display:none;">
+        </label>
+        <button id="obj3dTextureBtn" class="btn-sm btn-muted" disabled
+                title="Sin textura cargada">MOSTRAR</button>
+        <button id="obj3dDepthColorBtn" class="btn-sm btn-muted"
+                title="Colorear la superficie por distancia al centro de masa: azul=cerca · rojo=lejos">PROFUNDIDAD</button>
+        <button id="obj3dRoughnessBtn" class="btn-sm btn-muted"
+                title="Colorear superficie por rugosidad geométrica: varianza de normales locales. Amarillo=liso · Violeta=rugoso/arista">RUGOSIDAD</button>
+        <select id="obj3dRoughnessGamma"
+                style="display:none; font-size:11px; padding:2px 5px;
+                       background:#1e2530; color:#ccc; border:1px solid #445;
+                       border-radius:3px; cursor:pointer;"
+                title="Factor γ: < 1 realza variaciones sutiles · > 1 resalta solo las áreas más rugosas">
+          <option value="0.33">γ 0.33</option>
+          <option value="0.5">γ 0.5</option>
+          <option value="0.75">γ 0.75</option>
+          <option value="1.0" selected>γ 1.0</option>
+          <option value="1.5">γ 1.5</option>
+          <option value="2.0">γ 2.0</option>
+          <option value="3.0">γ 3.0</option>
+        </select>
+        <button id="obj3dContourBtn" class="btn-sm btn-muted" disabled
+                title="Requiere análisis 3D para mostrar contornos canónicos">CONTORNOS</button>
+        <!-- Chips de tipo de corte — visibles solo cuando Contornos está activo -->
+        <span id="obj3dSectionChips" style="display:none;gap:3px;align-items:center;">
+          <button id="obj3dSecTransBtn" class="btn-sm btn-success" style="padding:2px 7px;font-size:9px;" title="Secciones transversales YZ (paralelas al eje de anchura)">Transv.</button>
+          <button id="obj3dSecCorBtn"   class="btn-sm btn-success" style="padding:2px 7px;font-size:9px;" title="Secciones coronales XZ (paralelas al eje de altura)">Cor.</button>
+          <button id="obj3dSecFrBtn"    class="btn-sm btn-success" style="padding:2px 7px;font-size:9px;" title="Secciones frontales XY (paralelas a las caras canónicas)">Front.</button>
+        </span>
+
         <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--gray-600);">
           Proyección:
           <select id="obj3dProjectionMode" style="font-size:10px;padding:2px 4px;">
@@ -850,36 +963,167 @@
         </label>
       </div>
 
-      <div style="display:grid;grid-template-columns:minmax(420px,1fr) 340px;gap:12px;align-items:start;">
-        <div style="background:#fafafa;border:1px solid var(--border-color);border-radius:6px;padding:8px;">
-          <canvas id="obj3dCanvas" width="920" height="560" style="width:100%;height:auto;display:block;background:#fff;border:1px solid var(--border-color);border-radius:4px;cursor:grab;"></canvas>
-          <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:8px;font-size:10px;color:var(--gray-500);">
-            <span>Arrastrar: rotar · Rueda: zoom · R: reset · Guía canónica: FRONT/BACK = caras de orientación</span>
-            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-              <!-- Controles de vista predefinida -->
-              <button onclick="window._obj3dApplyView('front')" class="btn-sm btn-muted" style="padding:4px 8px;" title="Vista frontal">Front</button>
-              <button onclick="window._obj3dApplyView('back')" class="btn-sm btn-muted" style="padding:4px 8px;" title="Vista trasera">Back</button>
-              <button onclick="window._obj3dApplyView('left')" class="btn-sm btn-muted" style="padding:4px 8px;" title="Vista lateral izquierda">Left</button>
-              <button onclick="window._obj3dApplyView('right')" class="btn-sm btn-muted" style="padding:4px 8px;" title="Vista lateral derecha">Right</button>
-              <button onclick="window._obj3dApplyView('top')" class="btn-sm btn-muted" style="padding:4px 8px;" title="Vista superior">Top</button>
-              <button onclick="window._obj3dApplyView('bottom')" class="btn-sm btn-muted" style="padding:4px 8px;" title="Vista inferior">Bot</button>
-              <button id="obj3dSetMorphAnchorBtn" class="btn-sm btn-muted" style="padding:4px 8px;" title="Seleccionar punto para orientación morfológica">Ancla morfol.</button>
-              <button id="obj3dSetContourZBtn" class="btn-sm btn-muted" style="padding:4px 8px;" title="Usar Z como normal al plano de mínima varianza del contorno">Z contorno</button>
-              <span style="width:1px;background:var(--border-color);height:20px;"></span>
-              <button id="obj3dExportPngBtn" class="btn-sm btn-muted" style="padding:4px 8px;">Exportar PNG</button>
-              <button id="obj3dFitViewBtn" class="btn-sm btn-muted" style="padding:4px 8px;">Ajustar</button>
-              <button id="obj3dResetViewBtn" class="btn-sm btn-muted" style="padding:4px 8px;">Reset vista</button>
+      <!-- ── Visor 3D full-width + panel de datos colapsable ─────────────── -->
+      <div id="obj3dViewerWrap">
+
+        <!-- Canvas container -->
+        <div style="background:#fafafa;border:1px solid var(--border-color);border-radius:6px 6px 0 0;padding:8px;border-bottom:none;">
+          <canvas id="obj3dCanvas" width="1280" height="660" style="width:100%;height:auto;display:block;background:#fff;border:1px solid var(--border-color);border-radius:4px;cursor:grab;"></canvas>
+          <!-- Fila 1: vistas predefinidas agrupadas por tipo -->
+          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+
+            <!-- Grupo CARAS: mirando ±Z — muestra la longitud × anchura de cada cara -->
+            <span style="font-size:9px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;">Caras</span>
+            <button onclick="window._obj3dApplyView('front')"   class="btn-sm btn-muted obj3d-view-btn" data-view="front"
+                    title="Anverso — cara A / dorsal (+Z canónico): visión de la cara principal, longitud × anchura">ANVERSO</button>
+            <button onclick="window._obj3dApplyView('back')"    class="btn-sm btn-muted obj3d-view-btn" data-view="back"
+                    title="Reverso — cara B / ventral (−Z canónico): visión de la cara opuesta">REVERSO</button>
+
+            <span style="width:1px;height:18px;background:var(--border-color);"></span>
+
+            <!-- Grupo PERFILES: mirando ±Y — muestra la longitud × espesor sin corte -->
+            <span style="font-size:9px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;">Perfiles</span>
+            <button onclick="window._obj3dApplyView('top')"     class="btn-sm btn-muted obj3d-view-btn" data-view="top"
+                    title="Perfil lateral izquierdo (+Y→−Y) — longitud × espesor: forma completa del borde y curvatura, sin corte">PERF. I</button>
+            <button onclick="window._obj3dApplyView('bottom')"  class="btn-sm btn-muted obj3d-view-btn" data-view="bottom"
+                    title="Perfil lateral derecho (−Y→+Y) — mismo plano XZ desde el lado opuesto, sin corte">PERF. D</button>
+
+            <span style="width:1px;height:18px;background:var(--border-color);"></span>
+
+            <!-- Grupo SECCIONES: mirando ±X — corte transversal desde los extremos -->
+            <span style="font-size:9px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;">Secciones</span>
+            <button onclick="window._obj3dApplyView('left')"    class="btn-sm btn-muted obj3d-view-btn" data-view="left"
+                    title="Sección transversal distal — corte desde el extremo +X (punta / filo): anchura × espesor">DISTAL</button>
+            <button onclick="window._obj3dApplyView('right')"   class="btn-sm btn-muted obj3d-view-btn" data-view="right"
+                    title="Sección transversal proximal — corte desde el extremo −X (talón / base): anchura × espesor">PROXIMAL</button>
+
+            <span style="width:1px;height:18px;background:var(--border-color);"></span>
+
+            <!-- Vista libre -->
+            <button onclick="window._obj3dApplyView('iso')"     class="btn-sm btn-muted obj3d-view-btn" data-view="isometric"
+                    title="Vista isométrica — exploración libre: arrastre para orbitar, rueda para zoom">ISO</button>
+          </div>
+
+          <!-- Fila 2: utilidades + ayuda -->
+          <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:5px;font-size:10px;color:var(--gray-500);">
+            <span>Arrastrar: rotar · Rueda: zoom · R: reset</span>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <!-- Controles de zoom -->
+              <div style="display:flex;gap:2px;align-items:center;" title="Zoom del visor 3D">
+                <button id="obj3dZoomOutBtn" class="btn-sm btn-muted"
+                        title="Reducir zoom (−15%)"
+                        style="font-size:14px;line-height:1;padding:0 6px;">−</button>
+                <input  id="obj3dZoomPct" type="number" min="10" max="800" step="10"
+                        value="140"
+                        title="Zoom (%) — Enter para aplicar"
+                        style="width:46px;text-align:center;font-size:10px;padding:1px 3px;
+                               border:1px solid var(--border-color);border-radius:3px;
+                               background:var(--bg-primary,#fff);color:var(--gray-700);
+                               -moz-appearance:textfield;appearance:textfield;" />
+                <span style="font-size:9px;color:var(--gray-500);">%</span>
+                <button id="obj3dZoomInBtn" class="btn-sm btn-muted"
+                        title="Aumentar zoom (+15%)"
+                        style="font-size:14px;line-height:1;padding:0 6px;">+</button>
+              </div>
+              <span style="width:1px;height:14px;background:var(--border-color);display:inline-block;"></span>
+              <button id="obj3dExportPngBtn" class="btn-sm btn-muted">EXPORTAR PNG</button>
+              <button id="obj3dFitViewBtn"   class="btn-sm btn-muted">AJUSTAR</button>
+              <button id="obj3dResetViewBtn" class="btn-sm btn-muted">RESET VISTA</button>
             </div>
           </div>
         </div>
 
-        <div class="obj3d-side-panel">
-          <div class="obj3d-side-panel__title">Resumen 3D</div>
-          <div id="obj3dBasicInfo" class="obj3d-basic-info">Sin datos cargados.</div>
-          <hr style="border:none;border-top:1px solid var(--border-color);margin:10px 0;" />
-          <div class="obj3d-side-panel__title">Panel morfológico 3D · estilo MAO Plus</div>
-          <div id="obj3dMetrics" class="obj3d-metrics-panel">No calculadas.</div>
+        <!-- ── Panel de datos 3D — pestañas + colapsable ─────────────────── -->
+        <div id="obj3dDataPanel" style="border:1px solid var(--border-color);border-radius:0 0 6px 6px;background:var(--bg-secondary,#f5f7f9);">
+          <!-- Barra: etiqueta + pestañas (scrollable) + toggle -->
+          <div id="obj3dDataBar" style="display:flex;align-items:center;height:34px;padding:0 10px;gap:3px;border-bottom:1px solid var(--border-color);">
+            <span style="font-size:9px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.06em;margin-right:6px;white-space:nowrap;">Datos 3D</span>
+            <!-- Área de pestañas — scrollable horizontal si no caben todas -->
+            <div style="flex:1;min-width:0;overflow-x:auto;overflow-y:hidden;display:flex;align-items:center;gap:2px;scrollbar-width:none;" id="obj3dTabsScroll">
+              <button class="obj3d-dp-tab obj3d-dp-tab--active" data-pane="resumen">Resumen 3D</button>
+              <button class="obj3d-dp-tab" data-pane="metricas">Métricas</button>
+              <button class="obj3d-dp-tab" data-pane="pipeline">Pipeline</button>
+              <button class="obj3d-dp-tab" data-pane="orientacion">Orientación canónica</button>
+              <button class="obj3d-dp-tab" data-pane="morfometria">Morfometría base</button>
+              <button class="obj3d-dp-tab" data-pane="hom2d3d">Hom. 2D↔3D</button>
+              <button class="obj3d-dp-tab" data-pane="maoplus">MAO Plus</button>
+              <button class="obj3d-dp-tab" data-pane="pcaprocrustes">PCA · Procrustes</button>
+              <button class="obj3d-dp-tab" data-pane="hom3d">Hom. 3D</button>
+            </div>
+            <button id="obj3dDataToggle" class="obj3d-dp-toggle" title="Mostrar / ocultar panel de datos">▼ Contraer</button>
+          </div>
+          <!-- Contenido colapsable -->
+          <div id="obj3dDataContent" style="padding:10px;max-height:280px;overflow-y:auto;transition:max-height .22s ease,padding .22s ease;">
+            <!-- Pestaña: Resumen 3D -->
+            <div id="obj3dPane-resumen" class="obj3d-dp-pane">
+              <div id="obj3dBasicInfo" class="obj3d-basic-info">Sin datos cargados.</div>
+            </div>
+            <!-- Pestaña: Métricas (hero card / KPIs resumen) -->
+            <div id="obj3dPane-metricas" class="obj3d-dp-pane" style="display:none;">
+              <div id="obj3dMetrics" class="obj3d-metrics-panel" style="max-height:none;overflow:visible;">No calculadas.</div>
+            </div>
+            <!-- Pestaña: Pipeline morfológico -->
+            <div id="obj3dPane-pipeline" class="obj3d-dp-pane" style="display:none;">
+              <div id="obj3dMetrics-pipeline" class="obj3d-metrics-panel" style="max-height:none;overflow:visible;"></div>
+            </div>
+            <!-- Pestaña: Orientación canónica -->
+            <div id="obj3dPane-orientacion" class="obj3d-dp-pane" style="display:none;">
+              <div id="obj3dMetrics-orientacion" class="obj3d-metrics-panel" style="max-height:none;overflow:visible;"></div>
+            </div>
+            <!-- Pestaña: Morfometría base -->
+            <div id="obj3dPane-morfometria" class="obj3d-dp-pane" style="display:none;">
+              <div id="obj3dMetrics-morfometria" class="obj3d-metrics-panel" style="max-height:none;overflow:visible;"></div>
+            </div>
+            <!-- Pestaña: Homologación 2D↔3D -->
+            <div id="obj3dPane-hom2d3d" class="obj3d-dp-pane" style="display:none;">
+              <div id="obj3dMetrics-hom2d3d" class="obj3d-metrics-panel" style="max-height:none;overflow:visible;"></div>
+            </div>
+            <!-- Pestaña: MAO Plus -->
+            <div id="obj3dPane-maoplus" class="obj3d-dp-pane" style="display:none;">
+              <div id="obj3dMetrics-maoplus" class="obj3d-metrics-panel" style="max-height:none;overflow:visible;"></div>
+            </div>
+            <!-- Pestaña: PCA · Procrustes -->
+            <div id="obj3dPane-pcaprocrustes" class="obj3d-dp-pane" style="display:none;">
+              <div id="obj3dMetrics-pcaprocrustes" class="obj3d-metrics-panel" style="max-height:none;overflow:visible;"></div>
+            </div>
+            <!-- Pestaña: Homologación 3D -->
+            <div id="obj3dPane-hom3d" class="obj3d-dp-pane" style="display:none;">
+              <div id="obj3dMetrics-hom3d" class="obj3d-metrics-panel" style="max-height:none;overflow:visible;"></div>
+            </div>
+          </div>
         </div>
+
+      </div>
+    </fieldset>
+
+    <!-- ── Análisis 3D: Descriptores morfológicos seccionales ── -->
+    <!-- Visible solo en modo 3D tras calcular el análisis. -->
+    <fieldset id="sectionAnalisis3D" class="mao-panel--hidden">
+      <legend>Análisis 3D — Descriptores Morfológicos Seccionales</legend>
+
+      <div style="display:flex;flex-direction:column;gap:12px;">
+
+        <div class="obj3d-side-panel">
+          <div class="obj3d-side-panel__title" id="obj3dContour2dPanel-anchor">Contornos Canónicos</div>
+          <div id="obj3dContour2dPanel" style="font-size:10px;color:var(--gray-600);">
+            Ejecuta el análisis 3D para explorar los contornos canónicos.
+          </div>
+        </div>
+
+        <div class="obj3d-side-panel">
+          <div class="obj3d-side-panel__title" id="obj3dMao3dPanel-anchor">Índices MAO-3D Seccionales</div>
+          <div id="obj3dMao3dPanel" class="obj3d-metrics-panel obj3d-metrics-panel--fit" style="font-size:10px;color:var(--gray-600);">
+            Ejecuta el análisis 3D para ver los índices seccionales.
+          </div>
+        </div>
+
+        <div class="obj3d-side-panel">
+          <div class="obj3d-side-panel__title" id="obj3dEfaPanel-anchor">EFA Seccional</div>
+          <div id="obj3dEfaPanel" class="obj3d-metrics-panel obj3d-metrics-panel--fit" style="font-size:10px;color:var(--gray-600);">
+            Ejecuta el análisis 3D para ver los descriptores de Fourier elípticos.
+          </div>
+        </div>
+
       </div>
     </fieldset>
 
@@ -1148,7 +1392,7 @@
     </fieldset>
 
     <div id="sectionCanvas" style="height:0;margin:0;padding:0;overflow:hidden;" aria-hidden="true"></div>
-    <div style="margin: 8px 0; font-size: 11px;">
+    <div id="canvas2dScaleLine" style="margin: 8px 0; font-size: 11px;">
       <strong>Escala:</strong> <span id="scaleDisplay">-</span> mm/píxel
       <span id="scaleCorrectedIndicator"style="display: none; margin-left: 8px; padding: 2px 6px; background: #CFD8DC; color: #37474F; border-radius: 3px; font-size: 9px; font-weight: 600;">CORREGIDA</span>
       <span id="objectCount" style="margin-left: 15px; font-weight: 600;"></span>
@@ -1593,6 +1837,7 @@
             </ul>
           </div>
           <div id="morphologicalMetrics" style="font-size: 11px;"></div>
+          <div id="efaMetricsPanel" style="display:none; margin-top: 10px;"></div>
         </div>
       </div><!-- /#morphologicalAnalysisGrid -->
 
@@ -1895,7 +2140,26 @@
                   style="flex:1; padding:7px 10px; background:transparent; color:#e65100; border:2px solid #e65100; border-radius:var(--radius-sm); font-size:12px; font-weight:600; cursor:pointer; transition:all 0.2s;">
             ◎ Detección por punto
           </button>
+          <button id="phDetectarAutoBtn"
+                  title="Detección IA automática por múltiples semillas dentro del objeto (requiere servidor Python)"
+                  style="flex:1; padding:7px 10px; background:transparent; color:#6f42c1; border:2px solid #6f42c1; border-radius:var(--radius-sm); font-size:12px; font-weight:600; cursor:pointer; transition:all 0.2s;">
+            ✦ Detección IA Auto
+          </button>
           <span style="font-size:10px; color:var(--text-tertiary); flex-shrink:0;">Se clasifica automáticamente al cerrar</span>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:10px; margin:-2px 0 12px; padding: 8px 12px; background: var(--bg-secondary); border-radius: var(--radius-md); border: 1px dashed var(--border-color);">
+          <label for="phAutoProfileSelect" style="font-size:11px; font-weight:600; color:var(--text-secondary);">Perfil IA:</label>
+          <select id="phAutoProfileSelect" style="padding:5px 8px; border:1px solid var(--border-color); border-radius: var(--radius-sm); background:white; color:var(--text-primary); font-size:12px;">
+            <option value="auto" selected>Auto</option>
+            <option value="micro">Micro</option>
+            <option value="mediano">Mediano</option>
+            <option value="grande">Grande</option>
+          </select>
+          <label for="phAutoSensitivityRange" style="font-size:11px; font-weight:600; color:var(--text-secondary);">Sensibilidad:</label>
+          <input id="phAutoSensitivityRange" type="range" min="0.7" max="1.6" step="0.05" value="1.00" style="width:120px; accent-color:#6f42c1;">
+          <span id="phAutoSensitivityValue" style="font-size:11px; font-weight:700; color:#6f42c1; min-width:44px; text-align:right;">1.00x</span>
+          <span style="font-size:10px; color:var(--text-tertiary);">Ajusta densidad de semillas y filtros</span>
         </div>
 
         <!-- Diálogo de clasificación manual (fallback si el toolbar está desactivado) -->
@@ -2467,6 +2731,7 @@
        ================================================================ -->
   <script src="js/toast.js"></script>
   <script src="js/python-bridge.js"></script>
+  <script src="js/backend-status-badge.js"></script>
   <script src="js/progress.js"></script>
   <script src="js/project-manager.js"></script>
   <script src="js/file-io.js"></script>
@@ -2475,6 +2740,9 @@
   <script src="js/export-manager.js"></script>
   <script src="js/tooltips.js"></script>
   <script src="js/analysis-core.js"></script>
+  <script src="js/obj3d-canonical-raster.js"></script>
+  <script src="js/obj3d-export.js"></script>
+  <script src="js/obj3d-morph-canvas.js"></script>
   <script src="js/obj3d-viewer.js"></script>
   <script src="js/sidebar-nav.js"></script>
   <script src="js/diagnostics.js"></script>
@@ -2690,6 +2958,7 @@
           <div class="collection-title-info">
             <h2 id="collectionPanelTitle">Colección</h2>
             <p id="collectionPanelSubtitle">0 objetos</p>
+            <div id="collectionTraceabilitySummary" style="display:none; margin-top:6px; padding:6px 10px; border-radius:6px; background: rgba(96,125,139,0.12); border:1px solid rgba(96,125,139,0.35); font-size:11px; color: var(--text-secondary);"></div>
           </div>
         </div>
         <button class="collection-panel-close"id="closeCollectionPanel">&#x2715;</button>
@@ -3986,6 +4255,207 @@
       line-height: 1.3;
     }
   </style>
+
+  <!-- ══ Modal: Análisis Morfológico 2D de Contorno Canónico 3D ══════════ -->
+  <div id="obj3dMorphAnalysisModal"
+       style="display:none;position:fixed;inset:0;z-index:9200;
+              background:rgba(0,0,0,.62);
+              align-items:flex-start;justify-content:center;
+              overflow-y:auto;padding:30px 10px;">
+    <div style="background:var(--bg-primary,#fff);border-radius:10px;
+                width:min(980px,96vw);
+                box-shadow:0 8px 40px rgba(0,0,0,.35);overflow:hidden;
+                display:flex;flex-direction:column;">
+
+      <!-- Cabecera -->
+      <div style="display:flex;align-items:center;justify-content:space-between;
+                  padding:13px 20px;
+                  background:linear-gradient(135deg,#1565c0 0%,#0d47a1 100%);
+                  color:#fff;gap:12px;flex-shrink:0;">
+        <div style="min-width:0;">
+          <div style="font-size:12px;font-weight:700;letter-spacing:.05em;">
+            🔬 ANÁLISIS MORFOLÓGICO 2D — CONTORNO CANÓNICO
+          </div>
+          <div id="obj3dMorphAnalysisSubtitle"
+               style="font-size:9.5px;opacity:.85;margin-top:2px;
+                      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+          <span style="font-size:8.5px;background:rgba(255,255,255,.2);
+                       padding:2px 9px;border-radius:10px;white-space:nowrap;">
+            Contorno 3D → Pipeline 2D
+          </span>
+          <button id="obj3dMorphAnalysisClose"
+                  style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);
+                         color:#fff;border-radius:5px;padding:2px 10px;cursor:pointer;
+                         font-size:14px;line-height:1.2;">✕</button>
+        </div>
+      </div>
+
+      <!-- Cuerpo -->
+      <div id="obj3dMorphAnalysisBody"
+           style="padding:20px;overflow-y:auto;max-height:calc(90vh - 58px);">
+        <div style="text-align:center;color:var(--gray-400);padding:60px 0;font-size:13px;">
+          Cargando análisis…
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ Modal zoom de contorno canónico ══════════════════════════════════ -->
+  <div id="obj3dZoomModal"
+       style="display:none;position:fixed;inset:0;z-index:9100;
+              background:rgba(0,0,0,.72);
+              align-items:center;justify-content:center;">
+    <div style="background:var(--bg-primary,#fff);border-radius:10px;
+                padding:14px 16px 12px;
+                width:min(940px,94vw);
+                display:flex;flex-direction:column;gap:8px;
+                box-shadow:0 8px 32px rgba(0,0,0,.38);">
+
+      <!-- Cabecera -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <span id="obj3dZoomTitle"
+              style="font-size:12px;font-weight:700;color:var(--gray-800);
+                     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;"></span>
+        <span id="obj3dZoomLevel"
+              style="font-size:11px;font-weight:700;min-width:38px;text-align:right;
+                     color:var(--blue-600,#1565c0);font-variant-numeric:tabular-nums;"></span>
+        <button id="obj3dZoomClose"
+                style="padding:2px 9px;border:1px solid var(--border-color);
+                       border-radius:4px;background:transparent;cursor:pointer;
+                       font-size:12px;color:var(--gray-600);">✕</button>
+      </div>
+
+      <!-- Barra de zoom preset -->
+      <div id="obj3dZoomToolbar"
+           style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;
+                  padding:4px 2px 4px;border-bottom:1px solid var(--border-color,#eee);">
+        <span style="font-size:8.5px;color:var(--gray-500);margin-right:2px;">Zoom:</span>
+        <button class="obj3d-zp" data-zf="1">1&times;</button>
+        <button class="obj3d-zp" data-zf="2">2&times;</button>
+        <button class="obj3d-zp" data-zf="5">5&times;</button>
+        <button class="obj3d-zp" data-zf="10">10&times;</button>
+        <button class="obj3d-zp" data-zf="20">20&times;</button>
+        <button class="obj3d-zp" data-zf="40">40&times;</button>
+        <span style="margin-left:auto;font-size:8px;color:var(--gray-400);white-space:nowrap;">
+          Rueda: zoom fino &nbsp;&middot;&nbsp; Arrastrar: desplazar &nbsp;&middot;&nbsp; Doble clic: ajustar
+        </span>
+      </div>
+
+      <!-- Canvas -->
+      <canvas id="obj3dZoomCanvas"
+              style="display:block;width:100%;border-radius:6px;
+                     border:1px solid var(--border-color,#ddd);
+                     cursor:crosshair;background:var(--bg-secondary,#f8f9fa);"></canvas>
+
+    </div>
+  </div>
+
+  <style>
+    /* Panel de datos 3D: pestañas + colapsable */
+    .obj3d-dp-tab {
+      padding: 3px 10px;
+      font-size: 10px;
+      font-weight: 600;
+      border: 1px solid transparent;
+      border-bottom: none;
+      border-radius: 4px 4px 0 0;
+      background: transparent;
+      cursor: pointer;
+      color: var(--gray-600, #555);
+      transition: background .12s, color .12s;
+      line-height: 1.4;
+    }
+    .obj3d-dp-tab:hover { background: rgba(0,0,0,.06); }
+    .obj3d-dp-tab--active {
+      background: var(--bg-primary, #fff);
+      color: var(--blue-700, #1565c0);
+      border-color: var(--border-color, #ccc);
+      border-bottom-color: var(--bg-primary, #fff);
+    }
+    /* Dropdown de exportación 3D */
+    .obj3d-export-item {
+      display: block;
+      width: 100%;
+      padding: 6px 14px;
+      font-size: 11px;
+      text-align: left;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--gray-700, #333);
+      white-space: nowrap;
+      transition: background .1s;
+    }
+    .obj3d-export-item:hover { background: var(--bg-secondary, #f0f4f8); }
+    .obj3d-export-item:disabled { opacity: .45; cursor: not-allowed; }
+    .obj3d-dp-toggle {
+      font-size: 9px;
+      padding: 2px 8px;
+      border: 1px solid var(--border-color, #ccc);
+      border-radius: 4px;
+      background: transparent;
+      cursor: pointer;
+      color: var(--gray-500, #777);
+      line-height: 1.3;
+      transition: background .1s;
+    }
+    .obj3d-dp-toggle:hover { background: rgba(0,0,0,.05); }
+    #obj3dDataContent.obj3d-dp--collapsed {
+      max-height: 0 !important;
+      padding-top: 0 !important;
+      padding-bottom: 0 !important;
+      overflow: hidden;
+    }
+    #obj3dDataPanel:has(#obj3dDataContent.obj3d-dp--collapsed) #obj3dDataBar {
+      border-bottom: none;
+      border-radius: 0 0 6px 6px;
+    }
+
+    /* Botones preset de zoom en modal */
+    .obj3d-zp {
+      padding: 2px 10px;
+      font-size: 10px;
+      font-weight: 600;
+      border: 1px solid var(--border-color, #ccc);
+      border-radius: 4px;
+      background: transparent;
+      cursor: pointer;
+      color: var(--gray-700, #444);
+      transition: background .1s, color .1s;
+      font-variant-numeric: tabular-nums;
+    }
+    .obj3d-zp:hover   { background: var(--gray-100, #f0f0f0); }
+    .obj3d-zp.active  { background: var(--blue-600, #1565c0); color: #fff;
+                        border-color: var(--blue-600, #1565c0); }
+  </style>
+  <script>
+    /* Panel de datos 3D: pestañas + toggle */
+    (function () {
+      // Pestañas
+      document.addEventListener('click', function (e) {
+        const tab = e.target.closest('.obj3d-dp-tab');
+        if (!tab || !tab.dataset.pane) return;
+        document.querySelectorAll('.obj3d-dp-tab').forEach(b => b.classList.remove('obj3d-dp-tab--active'));
+        tab.classList.add('obj3d-dp-tab--active');
+        document.querySelectorAll('.obj3d-dp-pane').forEach(p => { p.style.display = 'none'; });
+        const pane = document.getElementById('obj3dPane-' + tab.dataset.pane);
+        if (pane) pane.style.display = '';
+      });
+
+      // Toggle colapsar / expandir
+      const toggleBtn = document.getElementById('obj3dDataToggle');
+      const content   = document.getElementById('obj3dDataContent');
+      if (toggleBtn && content) {
+        toggleBtn.addEventListener('click', function () {
+          const collapsed = content.classList.toggle('obj3d-dp--collapsed');
+          toggleBtn.textContent = collapsed ? '▶ Expandir' : '▼ Contraer';
+        });
+      }
+    })();
+  </script>
 
 </body>
 </html>

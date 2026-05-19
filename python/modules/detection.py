@@ -62,11 +62,13 @@ def _detectar_color_fondo(img_bgr: np.ndarray, border_width: int = 10) -> dict:
     right  = img_bgr[:, w - bw:].reshape(-1, 3)
 
     border_pixels = np.vstack([top, bottom, left, right]).astype(np.float32)
-    mean = border_pixels.mean(axis=0)   # BGR
-    std  = border_pixels.std(axis=0)
+    # JS detectarColorFondoAutomatico usa median (más robusto ante viñeteo y sombras
+    # de marco que outliers rebajarían con mean).  std con base median para consistencia.
+    med = np.median(border_pixels, axis=0)   # BGR
+    std = border_pixels.std(axis=0)
 
     # Convertir a RGB para compatibilidad con JS
-    r, g, b = float(mean[2]), float(mean[1]), float(mean[0])
+    r, g, b = float(med[2]), float(med[1]), float(med[0])
     sr, sg, sb = float(std[2]), float(std[1]), float(std[0])
     brillo_min = min(r, g, b)
 

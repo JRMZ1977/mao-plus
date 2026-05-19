@@ -21,6 +21,14 @@ from typing import Any
 import numpy as np
 from fastapi import HTTPException
 
+# EFA seccional — import diferido para tolerar entornos sin el módulo hermano
+try:
+    from python.modules import efa as _efa_mod
+    _EFA_AVAILABLE = True
+except Exception:
+    _efa_mod = None           # type: ignore[assignment]
+    _EFA_AVAILABLE = False
+
 IMPLEMENTED = True
 
 
@@ -638,6 +646,162 @@ def _pca_contextual(
     }
 
 
+def _compute_paridad_2d_metrics(mesh: Any) -> dict[str, Any]:
+    """
+    Calcula descriptores 3D equivalentes a familias clásicas de morfometría 2D
+    (solidez, convexidad, circularidad/esfericidad, compacidad, Feret,
+    diámetro equivalente, aspect ratio y dimensión fractal box-counting).
+
+    Diseñado como puente de paridad MAO 2D ↔ 3D. Robusto a mallas no
+    watertight: las métricas que requieren volumen devuelven ``None`` si
+    el volumen no es válido.
+    """
+    out: dict[str, Any] = {
+        "convex_hull_area": None,
+        "convex_hull_volume": None,
+        "solidity_3d": None,
+        "convexity_3d": None,
+        "sphericity_wadell": None,
+        "compactness_3d": None,
+        "equivalent_diameter_3d": None,
+        "feret_3d_max": None,
+        "feret_3d_min": None,
+        "feret_3d_ratio": None,
+        "aspect_ratio_3d_max_min": None,
+        "aspect_ratio_3d_max_mid": None,
+        "fractal_dimension_3d": None,
+        "fractal_method": None,
+        "is_watertight": bool(getattr(mesh, "is_watertight", False)),
+    }
+    eps = 1e-12
+    try:
+        area = float(mesh.area) if mesh.area is not None else None
+    except Exception:
+        area = None
+    try:
+        volume = float(mesh.volume) if mesh.is_watertight else None
+    except Exception:
+        volume = None
+
+    # --- Convex hull (área y volumen) ---
+    hull = None
+    hull_area = None
+    hull_volume = None
+    try:
+        hull = mesh.convex_hull
+        hull_area = float(hull.area)
+        hull_volume = float(hull.volume)
+        out["convex_hull_area"] = hull_area
+        out["convex_hull_volume"] = hull_volume
+    except Exception:
+        pass
+
+    # Solidez 3D = V_real / V_hull (análogo a solidity 2D = A/A_hull)
+    if volume is not None and hull_volume and hull_volume > eps:
+        out["solidity_3d"] = float(max(0.0, min(1.0, volume / hull_volume)))
+
+    # Convexidad 3D = A_hull / A_real (análogo a convexity 2D = P_hull/P_real)
+    if area is not None and area > eps and hull_area is not None:
+        out["convexity_3d"] = float(max(0.0, min(1.0, hull_area / area)))
+
+    # Esfericidad de Wadell = π^(1/3) · (6V)^(2/3) / A
+    if volume is not None and volume > eps and area is not None and area > eps:
+        try:
+            sph = (math.pi ** (1.0 / 3.0)) * ((6.0 * volume) ** (2.0 / 3.0)) / area
+            out["sphericity_wadell"] = float(max(0.0, min(1.0, sph)))
+        except Exception:
+            pass
+
+    # Compacidad 3D adimensional = 36π·V² / A³
+    if volume is not None and area is not None and area > eps:
+        try:
+            out["compactness_3d"] = float(36.0 * math.pi * (volume ** 2) / (area ** 3))
+        except Exception:
+            pass
+
+    # Diámetro equivalente (esfera de igual volumen) = (6V/π)^(1/3)
+    if volume is not None and volume > eps:
+        try:
+            out["equivalent_diameter_3d"] = float((6.0 * volume / math.pi) ** (1.0 / 3.0))
+        except Exception:
+            pass
+
+    # --- Feret 3D (sobre vértices del convex hull) ---
+    try:
+        if hull is not None:
+            V = np.asarray(hull.vertices, dtype=np.float64)
+            # Submuestrear para evitar O(n²) explosivo
+            if V.shape[0] > 600:
+                idx = np.random.default_rng(0).choice(V.shape[0], 600, replace=False)
+                V = V[idx]
+            # Feret máximo: máxima distancia entre cualquier par de vértices
+            diff = V[:, None, :] - V[None, :, :]
+            dists = np.sqrt(np.einsum("ijk,ijk->ij", diff, diff))
+            feret_max = float(dists.max()) if dists.size else None
+            # Feret mínimo: mínima anchura proyectando sobre normales de caras del hull
+            feret_min = None
+            try:
+                normals = np.asarray(hull.face_normals, dtype=np.float64)
+                Vfull = np.asarray(hull.vertices, dtype=np.float64)
+                proj = Vfull @ normals.T  # (n_vert, n_faces)
+                widths = proj.max(axis=0) - proj.min(axis=0)
+                widths = widths[np.isfinite(widths)]
+                if widths.size:
+                    feret_min = float(widths.min())
+            except Exception:
+                pass
+            out["feret_3d_max"] = feret_max
+            out["feret_3d_min"] = feret_min
+            if feret_max and feret_min and feret_max > eps:
+                out["feret_3d_ratio"] = float(feret_min / feret_max)
+    except Exception:
+        pass
+
+    # --- Aspect ratios (extents canónicos) ---
+    try:
+        ext = np.asarray(mesh.extents, dtype=np.float64)
+        if ext.size == 3 and np.all(ext > eps):
+            srt = np.sort(ext)[::-1]  # [max, mid, min]
+            out["aspect_ratio_3d_max_min"] = float(srt[0] / srt[2])
+            out["aspect_ratio_3d_max_mid"] = float(srt[0] / srt[1])
+    except Exception:
+        pass
+
+    # --- Dimensión fractal 3D (box-counting via voxelización) ---
+    try:
+        ext = np.asarray(mesh.extents, dtype=np.float64)
+        if ext.size == 3 and np.all(ext > eps):
+            L = float(ext.max())
+            # 3 escalas geométricamente espaciadas
+            scales = [L / 8.0, L / 16.0, L / 32.0]
+            ns: list[float] = []
+            inv: list[float] = []
+            for p in scales:
+                if p <= 0:
+                    continue
+                try:
+                    vox = mesh.voxelized(pitch=p)
+                    n_filled = int(vox.filled_count) if vox is not None else 0
+                except Exception:
+                    n_filled = 0
+                if n_filled > 0:
+                    ns.append(math.log(n_filled))
+                    inv.append(math.log(1.0 / p))
+            if len(ns) >= 2:
+                # pendiente de log(N) vs log(1/p)
+                xs = np.asarray(inv, dtype=np.float64)
+                ys = np.asarray(ns, dtype=np.float64)
+                slope, _intercept = np.polyfit(xs, ys, 1)
+                # Clamp a rango físico [1, 3]
+                fd = float(max(1.0, min(3.0, slope)))
+                out["fractal_dimension_3d"] = fd
+                out["fractal_method"] = "voxel_box_counting_3scales"
+    except Exception:
+        pass
+
+    return out
+
+
 def _make_morphometric_metrics(
     pca: dict[str, Any],
     shape: dict[str, Any],
@@ -751,9 +915,17 @@ def _compute_oriented_mao2d_homologation(
             "reference_plane": "frontal_xy",
         }
 
-    frontal_xy = _projected_hull_metrics_2d(X[:, [0, 1]])
-    lateral_xz = _projected_hull_metrics_2d(X[:, [0, 2]])
-    transversal_yz = _projected_hull_metrics_2d(X[:, [1, 2]])
+    frontal_pts   = X[:, [0, 1]]
+    lateral_pts   = X[:, [0, 2]]
+    transversal_pts = X[:, [1, 2]]
+
+    frontal_xy    = _projected_hull_metrics_2d(frontal_pts)
+    lateral_xz    = _projected_hull_metrics_2d(lateral_pts)
+    transversal_yz = _projected_hull_metrics_2d(transversal_pts)
+
+    frontal_contour    = _contour_points_from_projection(frontal_pts,    max_points=120)
+    lateral_contour    = _contour_points_from_projection(lateral_pts,    max_points=120)
+    transversal_contour = _contour_points_from_projection(transversal_pts, max_points=120)
 
     dims = semantic_orientation.get("dimensions", {}) if isinstance(semantic_orientation, dict) else {}
     ancho = float(dims.get("ancho", 0.0) or 0.0)
@@ -767,14 +939,17 @@ def _compute_oriented_mao2d_homologation(
         "planes": {
             "frontal_xy": {
                 "view_pair": "front_back",
+                "contour": frontal_contour,    # [[x, y], ...] – proyección XY
                 **frontal_xy,
             },
             "lateral_xz": {
-                "view_pair": "left_right",
+                "view_pair": "top_bottom",
+                "contour": lateral_contour,    # [[x, z], ...] – proyección XZ (perfil)
                 **lateral_xz,
             },
             "transversal_yz": {
-                "view_pair": "top_bottom",
+                "view_pair": "left_right",
+                "contour": transversal_contour, # [[y, z], ...] – proyección YZ (sección global)
                 **transversal_yz,
             },
         },
@@ -818,10 +993,602 @@ def _contour_points_from_projection(points2d: np.ndarray, max_points: int = 120)
     return [[float(p[0]), float(p[1])] for p in contour]
 
 
+def _loop_quick_metrics(pts: np.ndarray) -> "dict[str, Any]":
+    """Métricas morfométricas básicas para un loop 2D cerrado (array Nx2)."""
+    pts = np.asarray(pts, dtype=np.float64)
+    if pts.shape[0] < 3 or pts.shape[1] != 2:
+        return {}
+    u, v = pts[:, 0], pts[:, 1]
+    # Área (shoelace)
+    area = float(0.5 * abs(np.dot(u, np.roll(v, 1)) - np.dot(v, np.roll(u, 1))))
+    # Perímetro
+    closed = np.vstack([pts, pts[:1]])
+    perimeter = float(np.sum(np.sqrt(np.sum(np.diff(closed, axis=0) ** 2, axis=1))))
+    circularity = float(4.0 * np.pi * area / (perimeter ** 2 + 1e-12)) if perimeter > 0 else 0.0
+    # Bounding box
+    u_min, u_max = float(u.min()), float(u.max())
+    v_min, v_max = float(v.min()), float(v.max())
+    bb_u = u_max - u_min
+    bb_v = v_max - v_min
+    feret_max = float(max(bb_u, bb_v))
+    feret_min = float(min(bb_u, bb_v))
+    aspect_ratio = float(feret_max / (feret_min + 1e-12)) if feret_min > 0 else 0.0
+    return {
+        "area":         round(area, 6),
+        "perimeter":    round(perimeter, 6),
+        "circularity":  round(min(circularity, 1.0), 4),
+        "aspect_ratio": round(aspect_ratio, 4),
+        "feret_max":    round(feret_max, 4),
+        "feret_min":    round(feret_min, 4),
+        "centroid_u":   round(float(u.mean()), 4),
+        "centroid_v":   round(float(v.mean()), 4),
+    }
+
+
+def _extract_patch_boundary_contour(
+    mesh: Any,
+    patch_verts: np.ndarray,
+    max_points: int = 200,
+) -> list[list[float]]:
+    """
+    Extrae el contorno 2D real del parche de cara proyectado en el plano XY canónico.
+
+    Traza las aristas límite del submesh (aristas que pertenecen a un solo triángulo)
+    y las ordena en un polígono cerrado. Devuelve puntos [[x, y], ...].
+
+    Si el trazado falla, devuelve lista vacía (el llamador usará fallback hull).
+    """
+    try:
+        verts_idx = np.asarray(patch_verts, dtype=np.int64)
+        if verts_idx.ndim != 1 or len(verts_idx) < 3:
+            return []
+
+        faces = np.asarray(mesh.faces, dtype=np.int64)  # (F, 3)
+
+        # Máscara de triángulos donde los 3 vértices pertenecen al parche
+        in_patch = np.zeros(len(mesh.vertices), dtype=bool)
+        in_patch[verts_idx] = True
+        patch_face_mask = np.all(in_patch[faces], axis=1)
+        patch_faces = faces[patch_face_mask]
+
+        if len(patch_faces) == 0:
+            return []
+
+        # Aristas límite: aparecen en exactamente 1 triángulo del parche
+        edge_count: dict[tuple[int, int], int] = {}
+        for tri in patch_faces:
+            for i in range(3):
+                edge = (int(min(tri[i], tri[(i + 1) % 3])),
+                        int(max(tri[i], tri[(i + 1) % 3])))
+                edge_count[edge] = edge_count.get(edge, 0) + 1
+
+        boundary_edges = [(a, b) for (a, b), c in edge_count.items() if c == 1]
+        if not boundary_edges:
+            return []
+
+        # Construir grafo de adyacencia de aristas límite
+        adj: dict[int, list[int]] = {}
+        for a, b in boundary_edges:
+            adj.setdefault(a, []).append(b)
+            adj.setdefault(b, []).append(a)
+
+        # Trazar polígono ordenado desde el primer vértice
+        start = boundary_edges[0][0]
+        ordered: list[int] = [start]
+        prev: int | None = None
+        current = start
+        max_iter = len(boundary_edges) * 2
+        for _ in range(max_iter):
+            neighbors = [n for n in adj.get(current, []) if n != prev]
+            if not neighbors:
+                break
+            nxt = neighbors[0]
+            if nxt == start and len(ordered) > 2:
+                break
+            ordered.append(nxt)
+            prev = current
+            current = nxt
+
+        if len(ordered) < 3:
+            return []
+
+        # Proyección XY del polígono (espacio canónico: z es eje dorsoventral)
+        pts = mesh.vertices[ordered][:, [0, 1]]
+
+        # Submuestreo uniforme si hay demasiados puntos
+        if len(pts) > max_points:
+            idx = np.linspace(0, len(pts) - 1, max_points).astype(int)
+            pts = pts[idx]
+
+        return [[float(p[0]), float(p[1])] for p in pts]
+    except Exception:
+        return []
+
+
+def _section_morphometric_metrics_2d(pts_arr: "Any") -> "dict[str, Any]":
+    """
+    Métricas morfométricas completas para un contorno 2D de sección.
+
+    Extiende _loop_quick_metrics() con métricas análogas a metrics.py (sin textura):
+      - solidity           = área_real / área_hull
+    - elongation         = 1 - (eje_menor / eje_mayor) [0,1] (tensor de inercia)
+    - aspect_ratio       = eje_mayor / eje_menor
+      - eccentricity       = √(1 − (eje_menor/eje_mayor)²)
+      - rugosidad          = CV de longitudes de segmentos
+      - feret_max/min      = caliper rotante 90 ángulos  (idéntico a metrics.py)
+      - convexity_deficit  = 1 − solidity  (pérdida por retoque/cóncavos)
+
+    Parámetro:
+      pts_arr  — lista [[u,v],...] o ndarray Nx2
+    """
+    eps = 1e-12
+    pts = np.asarray(pts_arr, dtype=np.float64)
+    if pts.ndim != 2 or pts.shape[1] != 2 or pts.shape[0] < 3:
+        return {}
+
+    u, v = pts[:, 0], pts[:, 1]
+
+    # ── 1. Área y perímetro (contorno REAL — base para solidez/fragmentación) ─
+    area_real = float(0.5 * abs(float(np.dot(u, np.roll(v, 1)) - np.dot(v, np.roll(u, 1)))))
+    closed = np.vstack([pts, pts[:1]])
+    segs   = np.sqrt(np.sum(np.diff(closed, axis=0) ** 2, axis=1))
+    perim  = float(segs.sum())
+
+    # ── 2. Convex hull → área/perímetro canónicos + solidez ───────────────
+    hull_area    = area_real
+    hull_perim_s = perim       # fallback = perímetro real
+    try:
+        from scipy.spatial import ConvexHull as _CH
+        _h = _CH(pts)
+        hull_area = float(_h.volume)          # En 2D: .volume = área
+        _hv = pts[_h.vertices]
+        _hc = np.vstack([_hv, _hv[:1]])
+        hull_perim_s = float(np.sum(np.sqrt(np.sum(np.diff(_hc, axis=0) ** 2, axis=1))))
+    except Exception:
+        pass
+    # PRINCIPIO MAO: circularidad sobre hull (forma canónica completa)
+    circularity = float(min(4.0 * math.pi * hull_area / (hull_perim_s ** 2 + eps), 1.0)) if hull_perim_s > 0 else 0.0
+    solidity = float(min(area_real / (hull_area + eps), 1.0))
+    convexity_deficit = float(max(0.0, 1.0 - solidity))
+    # Convexidad perimetral P_hull/P_real — idéntica a metrics.py §28 (Guía §III)
+    convexity_perim = float(min(hull_perim_s / (perim + eps), 1.0))
+
+    # ── 3. Bounding box ───────────────────────────────────────────────────
+    u_min, u_max = float(u.min()), float(u.max())
+    v_min, v_max = float(v.min()), float(v.max())
+    bb_u = u_max - u_min; bb_v = v_max - v_min
+    rectangularity = float(area_real / (bb_u * bb_v + eps))
+    aspect_ratio_bbox = float(max(bb_u, bb_v) / (min(bb_u, bb_v) + eps))
+
+    # ── 4. Tensor de inercia de área (Green's theorem — idéntico a metrics.py) ─
+    cu = float(u.mean()); cv_ = float(v.mean())
+    n = len(pts)
+    sxx = syy = sxy = sa = 0.0
+    for i in range(n):
+        j = (i + 1) % n
+        xi = pts[i, 0] - cu; yi = pts[i, 1] - cv_
+        xj = pts[j, 0] - cu; yj = pts[j, 1] - cv_
+        cross = xi * yj - xj * yi
+        sa   += cross
+        sxx  += (xi*xi + xi*xj + xj*xj) * cross
+        syy  += (yi*yi + yi*yj + yj*yj) * cross
+        sxy  += (2*xi*yi + 2*xj*yj + xi*yj + xj*yi) * cross
+    if abs(sa) > 1e-10:
+        sxx /= (6 * sa); syy /= (6 * sa); sxy /= (12 * sa)
+    trace = sxx + syy
+    disc  = max(0.0, trace * trace - 4 * (sxx * syy - sxy * sxy))
+    lam1  = (trace + math.sqrt(disc)) / 2
+    ang   = math.atan2(lam1 - sxx, sxy) if abs(sxy) > 1e-10 else (0.0 if sxx > syy else math.pi / 2)
+    cos_a = math.cos(ang); sin_a = math.sin(ang)
+    dx = pts[:, 0] - cu; dy = pts[:, 1] - cv_
+    _proj_maj = dx * cos_a + dy * sin_a
+    _proj_min = -dx * sin_a + dy * cos_a
+    eje_mayor = float(_proj_maj.max() - _proj_maj.min())
+    eje_menor = float(_proj_min.max() - _proj_min.min())
+    # Mantener paridad semántica con metrics.py:
+    # elongation = 1 - eje_menor/eje_mayor  (rango [0,1]).
+    # El ratio mayor/menor se conserva en aspect_ratio.
+    elongation_ratio = float(eje_mayor / (eje_menor + eps)) if eje_mayor > 0 else 1.0
+    elongation = float(abs(1.0 - (eje_menor / (eje_mayor + eps)))) if eje_mayor > 0 else 0.0
+    eccentricity  = float(math.sqrt(max(0.0, 1.0 - (eje_menor / (eje_mayor + eps)) ** 2)))
+
+    # ── 5. Diámetro de Feret — caliper rotante 90 ángulos ─────────────────
+    feret_max = 0.0; feret_min = math.inf
+    for k in range(90):
+        ang_f = k * math.pi / 90
+        proy  = pts[:, 0] * math.cos(ang_f) + pts[:, 1] * math.sin(ang_f)
+        diam  = float(proy.max() - proy.min())
+        if diam > feret_max: feret_max = diam
+        if diam < feret_min: feret_min = diam
+    feret_min   = feret_min if feret_min < math.inf else 0.0
+    feret_ratio = float(feret_min / (feret_max + eps)) if feret_max > 0 else 0.0
+
+    # ── 6. Rugosidad — CV de longitudes de segmentos ──────────────────────
+    segs_pos = segs[segs > 0]
+    seg_mean = float(segs_pos.mean()) if len(segs_pos) > 0 else 0.0
+    seg_std  = float(segs_pos.std())  if len(segs_pos) > 0 else 0.0
+    rugosidad = float(seg_std / (seg_mean + eps)) if seg_mean > 0 else 0.0
+
+    return {
+        # PRINCIPIO MAO: area/perimeter = convex hull (forma canónica completa)
+        "area":               round(hull_area,         6),
+        "perimeter":          round(hull_perim_s,      6),
+        "area_real":          round(area_real,         6),   # Shoelace contorno real
+        "perimeter_real":     round(perim,             6),   # perímetro contorno real
+        "circularity":        round(circularity,       4),
+        "solidity":           round(solidity,          4),
+        "elongation":         round(elongation,        4),
+        "elongation_ratio":   round(elongation_ratio,  4),
+        "eccentricity":       round(eccentricity,      4),
+        "aspect_ratio":       round(elongation_ratio,  4),   # alias: eje_mayor/eje_menor
+        "aspect_ratio_bbox":  round(aspect_ratio_bbox, 4),
+        "rectangularity":     round(rectangularity,    4),
+        "rugosidad":          round(rugosidad,         4),
+        "feret_max":          round(feret_max,         4),
+        "feret_min":          round(feret_min,         4),
+        "feret_ratio":        round(feret_ratio,       4),
+        "hull_area":          round(hull_area,         6),
+        "hull_perimeter":     round(hull_perim_s,       6),
+        "convexity_deficit":  round(convexity_deficit, 4),
+        "convexity_perim":    round(convexity_perim,   4),   # P_hull/P_real (Guía §III)
+        "centroid_u":         round(cu,                4),
+        "centroid_v":         round(cv_,               4),
+    }
+
+
+# ── EFA seccional (helper sincrónico) ────────────────────────────────────────
+
+_EFA_N_HARMONICS = 20   # 20 armónicos: detalle morfológico fino (asimetría, protuberancias)
+
+
+def _section_efa(pts_arr: "Any", n_harmonics: int = _EFA_N_HARMONICS) -> "dict | None":
+    """
+    Calcula descriptores de Fourier elípticos (EFD) para un contorno 2D de sección.
+
+    Llama directamente a las funciones internas de efa.py (sincrónico, sin await).
+    Retorna None si EFA no está disponible o el contorno tiene <8 puntos.
+
+    Salida:
+      {
+        "coefficients":       [[an,bn,cn,dn]×n_harmonics]  # normalizados
+        "power_spectrum":     [float×n_harmonics]
+        "variance_explained": [float×n_harmonics]          # % acumulado
+        "harmonics_for_95pct": int
+        "n_harmonics":        int
+        "n_points_input":     int
+      }
+    """
+    if not _EFA_AVAILABLE:
+        return None
+    try:
+        pts = np.array(pts_arr, dtype=np.float64)
+        if pts.ndim != 2 or pts.shape[1] != 2:
+            return None
+        n = len(pts)
+        if n < 8:
+            return None
+        max_h = n // 2
+        nh = max(1, min(n_harmonics, max_h))
+        raw  = _efa_mod._efd_raw(pts, nh)                      # type: ignore[union-attr]
+        norm, _ = _efa_mod._normalize_coeffs(raw)              # type: ignore[union-attr]
+        ps  = _efa_mod._power_spectrum(norm)                   # type: ignore[union-attr]
+        var = _efa_mod._variance_explained(norm)               # type: ignore[union-attr]
+        h95 = nh
+        for i, v in enumerate(var):
+            if v >= 95.0:
+                h95 = i + 1
+                break
+        return {
+            "coefficients":        [[round(float(v), 6) for v in row] for row in norm],
+            "power_spectrum":      ps,
+            "variance_explained":  var,
+            "harmonics_for_95pct": h95,
+            "n_harmonics":         nh,
+            "n_points_input":      n,
+        }
+    except Exception:
+        return None
+
+
+def _pt_in_poly_2d(pt: "list[float]", poly: "np.ndarray") -> bool:
+    """Ray-casting point-in-polygon para clasificar loops 2D (numpy Nx2)."""
+    px, py = pt
+    inside = False
+    n = len(poly)
+    j = n - 1
+    for i in range(n):
+        xi, yi = float(poly[i, 0]), float(poly[i, 1])
+        xj, yj = float(poly[j, 0]), float(poly[j, 1])
+        if (yi > py) != (yj > py) and px < (xj - xi) * (py - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def _composite_section_metrics(loops: "list[np.ndarray]") -> "dict":
+    """
+    Métricas morfométricas compuestas para una sección formada por múltiples
+    piezas exteriores separadas (no perforaciones):
+      - área/perímetro: suma de piezas individuales
+      - circularity: 4π·área_total / perímetro_total²
+      - solidity: área_total / hull_convexo_combinado
+      - feret / elongation: calculados sobre todos los puntos combinados
+    """
+    eps = 1e-12
+    total_area = 0.0
+    total_perim = 0.0
+    for pts in loops:
+        u, v = pts[:, 0], pts[:, 1]
+        total_area += float(0.5 * abs(np.dot(u, np.roll(v, 1)) - np.dot(v, np.roll(u, 1))))
+        closed = np.vstack([pts, pts[:1]])
+        total_perim += float(np.sqrt(np.sum(np.diff(closed, axis=0) ** 2, axis=1)).sum())
+    circularity = float(min(4.0 * math.pi * total_area / (total_perim ** 2 + eps), 1.0)) if total_perim > 0 else 0.0
+
+    all_pts = np.vstack(loops)
+
+    hull_area    = total_area
+    hull_perim_c = total_perim       # fallback = perímetro real
+    try:
+        from scipy.spatial import ConvexHull as _CH
+        _h = _CH(all_pts)
+        hull_area = float(_h.volume)
+        _hv = all_pts[_h.vertices]
+        _hc = np.vstack([_hv, _hv[:1]])
+        hull_perim_c = float(np.sum(np.sqrt(np.sum(np.diff(_hc, axis=0) ** 2, axis=1))))
+    except Exception:
+        pass
+    solidity = float(min(total_area / (hull_area + eps), 1.0))
+    # Convexidad perimetral P_hull/P_real (idéntica a metrics.py §28) ────────
+    convexity_perim_c = float(min(hull_perim_c / (total_perim + eps), 1.0))
+
+    # Rugosidad = CV de segmentos sobre todo el perímetro exterior ───────────
+    _all_segs_c: list[float] = []
+    for _lp in loops:
+        _cl = np.vstack([_lp, _lp[:1]])
+        _ss = np.sqrt(np.sum(np.diff(_cl, axis=0) ** 2, axis=1))
+        _all_segs_c.extend(_ss[_ss > 0].tolist())
+    _seg_arr_c = np.array(_all_segs_c) if _all_segs_c else np.array([1.0])
+    _seg_mean_c = float(_seg_arr_c.mean())
+    _seg_std_c  = float(_seg_arr_c.std())
+    rugosidad_c = float(_seg_std_c / (_seg_mean_c + 1e-12)) if _seg_mean_c > 0 else 0.0
+
+    feret_max = 0.0
+    feret_min = math.inf
+    for k in range(90):
+        ang_f = k * math.pi / 90
+        proy = all_pts[:, 0] * math.cos(ang_f) + all_pts[:, 1] * math.sin(ang_f)
+        diam = float(proy.max() - proy.min())
+        if diam > feret_max: feret_max = diam
+        if diam < feret_min: feret_min = diam
+    feret_min = feret_min if feret_min < math.inf else 0.0
+
+    # Tensor de inercia sobre todos los loops combinados
+    cu = float(all_pts[:, 0].mean())
+    cv_ = float(all_pts[:, 1].mean())
+    sxx = syy = sxy = sa = 0.0
+    for pts in loops:
+        n = len(pts)
+        for i in range(n):
+            j = (i + 1) % n
+            xi = pts[i, 0] - cu; yi = pts[i, 1] - cv_
+            xj = pts[j, 0] - cu; yj = pts[j, 1] - cv_
+            cross = xi * yj - xj * yi
+            sa += cross
+            sxx += (xi*xi + xi*xj + xj*xj) * cross
+            syy += (yi*yi + yi*yj + yj*yj) * cross
+            sxy += (2*xi*yi + 2*xj*yj + xi*yj + xj*yi) * cross
+    if abs(sa) > 1e-10:
+        sxx /= (6 * sa); syy /= (6 * sa); sxy /= (12 * sa)
+    trace = sxx + syy
+    disc  = max(0.0, trace * trace - 4 * (sxx * syy - sxy * sxy))
+    lam1  = (trace + math.sqrt(disc)) / 2
+    ang   = math.atan2(lam1 - sxx, sxy) if abs(sxy) > 1e-10 else (0.0 if sxx > syy else math.pi / 2)
+    cos_a = math.cos(ang); sin_a = math.sin(ang)
+    dx = all_pts[:, 0] - cu; dy = all_pts[:, 1] - cv_
+    eje_mayor = float((dx * cos_a + dy * sin_a).max() - (dx * cos_a + dy * sin_a).min())
+    eje_menor = float((-dx * sin_a + dy * cos_a).max() - (-dx * sin_a + dy * cos_a).min())
+    elongation_ratio = float(eje_mayor / (eje_menor + eps)) if eje_mayor > 0 else 1.0
+    elongation = float(abs(1.0 - (eje_menor / (eje_mayor + eps)))) if eje_mayor > 0 else 0.0
+
+    bb_u = float(all_pts[:, 0].max() - all_pts[:, 0].min())
+    bb_v = float(all_pts[:, 1].max() - all_pts[:, 1].min())
+    aspect_ratio_bbox = float(max(bb_u, bb_v) / (min(bb_u, bb_v) + eps))
+
+    return {
+        "area":              round(total_area,        6),
+        "perimeter":         round(total_perim,       6),
+        "circularity":       round(circularity,       4),
+        "solidity":          round(solidity,          4),
+        "elongation":        round(elongation,        4),
+        "elongation_ratio":  round(elongation_ratio,  4),
+        "aspect_ratio":      round(elongation_ratio,  4),
+        "aspect_ratio_bbox": round(aspect_ratio_bbox, 4),
+        "feret_max":         round(feret_max,         4),
+        "feret_min":         round(feret_min,         4),
+        "feret_ratio":        round(feret_min / (feret_max + eps), 4),
+        "hull_area":          round(hull_area,          6),
+        "hull_perimeter":     round(hull_perim_c,       6),
+        "convexity_deficit":  round(max(0.0, 1.0 - solidity), 4),
+        "convexity_perim":    round(convexity_perim_c,  4),   # P_hull/P_real (Guía §III)
+        "rugosidad":          round(rugosidad_c,        4),   # CV segmentos (idéntico a _section_morphometric_metrics_2d)
+        "n_pieces":           len(loops),
+        "_composite":         True,
+    }
+
+
+def _enrich_with_void_metrics(base_metrics: dict, holes_metrics: "list[dict]") -> dict:
+    """
+    Enriquece las métricas de una sección con ratios lleno/vacío cuando existen
+    perforaciones reales.  Reutiliza las áreas ya calculadas en holes_metrics.
+
+    Añade:
+      area_solid         área real de material (outer − perforaciones)
+      area_void          área total de perforaciones
+      void_ratio         fracción de área que es vacío  [0-1]
+      fill_ratio         fracción de área que es sólido [0-1]
+      circularity_solid  circularidad sobre área sólida / perímetro outer
+      n_perforations     número de perforaciones reales
+    """
+    if not holes_metrics:
+        return base_metrics
+    eps = 1e-12
+    area_outer = float(base_metrics.get("area") or 0.0)
+    area_void  = sum(float(m.get("area") or 0.0) for m in holes_metrics)
+    area_solid = max(0.0, area_outer - area_void)
+    void_ratio = float(area_void  / (area_outer + eps))
+    fill_ratio = float(area_solid / (area_outer + eps))
+    perim      = float(base_metrics.get("perimeter") or 0.0)
+    circ_solid = float(min(4.0 * math.pi * area_solid / (perim ** 2 + eps), 1.0)) if perim > 0 else 0.0
+    return {
+        **base_metrics,
+        "area_solid":        round(area_solid, 6),
+        "area_void":         round(area_void,  6),
+        "void_ratio":        round(void_ratio, 4),
+        "fill_ratio":        round(fill_ratio, 4),
+        "circularity_solid": round(circ_solid, 4),
+        "n_perforations":    len(holes_metrics),
+    }
+
+
+def _mesh_section_loops(
+    mesh_canonical: Any,
+    plane_origin: "list[float]",
+    plane_normal: "list[float]",
+    cols_2d: "list[int] | None" = None,
+    max_outer: int = 300,
+    max_hole: int = 100,
+    u_axis: "np.ndarray | None" = None,
+    v_axis: "np.ndarray | None" = None,
+) -> "dict[str, Any] | None":
+    """
+    Intersecta mesh_canonical con un plano y devuelve outer + holes como listas [u, v].
+
+    cols_2d: índices de columna 3D a proyectar como ejes U, V
+             (ej. [1, 2] para plano YZ, [0, 2] para XZ, [0, 1] para XY).
+    u_axis, v_axis: vectores 3D unitarios que definen la base 2D del plano de corte.
+             Si se proporcionan, tienen prioridad sobre cols_2d. Permiten cortes
+             en orientación PCA arbitraria en lugar de ejes de mundo (XYZ).
+    Retorna {"outer": [[u,v],...], "holes": [[[u,v],...], ...]} o None si falla.
+    """
+    try:
+        section = mesh_canonical.section(
+            plane_origin=np.asarray(plane_origin, dtype=np.float64),
+            plane_normal=np.asarray(plane_normal, dtype=np.float64),
+        )
+        if section is None or len(section.entities) == 0:
+            return None
+
+        verts3d = np.asarray(section.vertices, dtype=np.float64)
+        _origin = np.asarray(plane_origin, dtype=np.float64)
+        _use_axes = (u_axis is not None and v_axis is not None)
+        _u = np.asarray(u_axis, dtype=np.float64) if _use_axes else None
+        _v = np.asarray(v_axis, dtype=np.float64) if _use_axes else None
+
+        loops: list[tuple[np.ndarray, float]] = []
+        for entity in section.entities:
+            idx = np.asarray(entity.points, dtype=np.int64)
+            if _use_axes:
+                # Proyectar sobre la base 2D del plano de corte (ejes PCA)
+                rel = verts3d[idx] - _origin   # desplazamiento desde el origen del plano
+                pts = np.column_stack([rel @ _u, rel @ _v])  # Nx2
+            elif cols_2d is not None:
+                pts = verts3d[idx][:, cols_2d]  # Nx2
+            else:
+                pts = verts3d[idx][:, [1, 2]]   # fallback YZ
+            if len(pts) < 3:
+                continue
+            # Área con fórmula shoelace
+            u, v = pts[:, 0], pts[:, 1]
+            area = float(0.5 * abs(np.dot(u, np.roll(v, 1)) - np.dot(v, np.roll(u, 1))))
+            if area > 0:
+                loops.append((pts, area))
+
+        if not loops:
+            return None
+
+        loops.sort(key=lambda t: t[1], reverse=True)
+        outer_pts, outer_area = loops[0]
+
+        # Clasificar loops restantes:
+        #   - centroide DENTRO del outer  → perforación real
+        #   - centroide FUERA del outer   → pieza exterior (fragmento de la misma sección)
+        true_holes: list[np.ndarray] = []
+        ext_pieces: list[np.ndarray] = []
+        for pts, area in loops[1:]:
+            if area < 0.005 * outer_area or len(pts) < 3:
+                continue
+            centroid = [float(pts[:, 0].mean()), float(pts[:, 1].mean())]
+            if _pt_in_poly_2d(centroid, outer_pts):
+                true_holes.append(pts)
+            else:
+                ext_pieces.append(pts)
+
+        # Intentar fusionar piezas exteriores desconectadas mediante cierre morfológico 2D.
+        # Causa habitual: malla fotogramétrica con huecos → el plano corta en bucles separados.
+        if ext_pieces:
+            try:
+                from shapely.geometry import Polygon as _Poly
+                from shapely.ops import unary_union as _union
+                _all_for_buf = np.vstack([outer_pts] + ext_pieces)
+                _bb_diag = float(np.linalg.norm(_all_for_buf.max(axis=0) - _all_for_buf.min(axis=0)))
+                _buf = max(1e-10, 0.03 * _bb_diag)
+                _polys = []
+                for _lp in [outer_pts] + ext_pieces:
+                    try:
+                        _p = _Poly(_lp)
+                        if _p.is_valid and _p.area > 0:
+                            _polys.append(_p)
+                    except Exception:
+                        pass
+                if len(_polys) > 1:
+                    _merged = _union([_p.buffer(_buf) for _p in _polys]).buffer(-_buf)
+                    if hasattr(_merged, 'exterior'):  # único Polygon → hueco cerrado
+                        _new_outer = np.array(_merged.exterior.coords[:-1])
+                        if len(_new_outer) >= 3:
+                            outer_pts = _new_outer
+                            outer_area = float(0.5 * abs(
+                                np.dot(outer_pts[:, 0], np.roll(outer_pts[:, 1], 1)) -
+                                np.dot(outer_pts[:, 1], np.roll(outer_pts[:, 0], 1))
+                            ))
+                            true_holes = [
+                                np.array(i.coords[:-1])
+                                for i in _merged.interiors
+                                if len(i.coords) >= 4
+                            ]
+                            ext_pieces = []
+            except Exception:
+                pass  # fallback: mantener comportamiento actual
+
+        # Métricas compuestas cuando hay piezas exteriores; si no, solo outer
+        all_exterior = [outer_pts] + ext_pieces
+        composite_metrics = _composite_section_metrics(all_exterior) if ext_pieces else None
+
+        def _thin(pts: np.ndarray, n: int) -> "list[list[float]]":
+            if len(pts) <= n:
+                return [[float(p[0]), float(p[1])] for p in pts]
+            idx = np.round(np.linspace(0, len(pts) - 1, n)).astype(int)
+            return [[float(pts[i][0]), float(pts[i][1])] for i in idx]
+
+        return {
+            "outer": _thin(outer_pts, max_outer),
+            "outer_metrics": _loop_quick_metrics(outer_pts),
+            "holes": [_thin(h, max_hole) for h in true_holes],
+            "holes_metrics": [_loop_quick_metrics(h) for h in true_holes],
+            "exterior_pieces": [_thin(p, max_outer) for p in ext_pieces],
+            "exterior_pieces_metrics": [_loop_quick_metrics(p) for p in ext_pieces],
+            "composite_metrics": composite_metrics,
+        }
+    except Exception:
+        return None
+
+
 def _compute_canonical_morphological_analysis(
     canonical_points: np.ndarray,
     semantic_orientation: dict[str, Any],
     n_sections: int = 9,
+    mesh_canonical: Any = None,
+    front_patch_verts: "np.ndarray | None" = None,
+    back_patch_verts: "np.ndarray | None" = None,
 ) -> dict[str, Any]:
     """
     Análisis morfométrico MAO_PLUS sobre objeto 3D ya orientado canónicamente.
@@ -829,7 +1596,12 @@ def _compute_canonical_morphological_analysis(
     Premisa:
       - FRONT/BACK son homólogos a Cara A/B de lectura bifacial.
       - Se generan contornos 2D (proyección XY) para FRONT/BACK.
-      - Se generan cortes transversales en eje longitudinal X y contornos YZ.
+      - Cuando se proveen front_patch_verts / back_patch_verts (índices de
+        vértices del parche de cara identificado en la orientación canónica),
+        el contorno se extrae de las aristas límite del submesh real en lugar
+        del semiplano z≥0, obteniendo el perímetro y área de la cara canónica.
+      - Los planos de sección se orientan perpendiculares a los ejes PCA
+        del objeto (PC1/PC2/PC3), garantizando ortogonalidad para toda forma.
     """
     eps = 1e-12
     X = np.asarray(canonical_points, dtype=np.float64)
@@ -841,22 +1613,102 @@ def _compute_canonical_morphological_analysis(
             "transverse_sections": [],
         }
 
+    # ── PCA local para orientar los planos de sección ─────────────────────────
+    # Se calcula SIEMPRE sobre la nube canónica de entrada, independientemente
+    # de la orientación semántica. Esto garantiza que las secciones transversal,
+    # coronal y frontal sean perpendiculares a los ejes PC1, PC2, PC3
+    # estadísticos del objeto — válido para cualquier tipo morfológico.
+    _μ = X.mean(axis=0)                          # centroide en espacio canónico
+    _Xc = X - _μ
+    try:
+        _cov_s = np.cov(_Xc.T)
+        _evals_s, _E = np.linalg.eigh(_cov_s)   # ascendente por defecto
+        _ord_s = np.argsort(_evals_s)[::-1]      # reordenar: PC1 primero (máx varianza)
+        _E = _E[:, _ord_s]                        # columnas: [PC1, PC2, PC3]
+    except Exception:
+        _E = np.eye(3, dtype=np.float64)          # fallback: identidad (ejes canónicos)
+
+    # Coordenadas de cada punto a lo largo de cada eje PCA
+    _X_pca = _Xc @ _E    # shape (N, 3)
+    _pc1   = _X_pca[:, 0]
+    _pc2   = _X_pca[:, 1]
+    _pc3   = _X_pca[:, 2]
+
+    def _canonical_3d_contour(
+        contour_2d: "list[list[float]]",
+        axis_pos: float,
+        axis_idx: int,
+    ) -> "list[list[float]]":
+        """
+        Transforma puntos 2D (en el plano de corte PCA) a coordenadas 3D canónicas.
+        axis_pos  : posición del plano a lo largo del eje PCA 'axis_idx'.
+        axis_idx  : 0 = PC1 (transversal), 1 = PC2 (coronal), 2 = PC3 (frontal).
+        El plano de corte usa los otros dos ejes PCA como base U/V:
+          eje 0 → U=PC2, V=PC3;  eje 1 → U=PC1, V=PC3;  eje 2 → U=PC1, V=PC2.
+        """
+        _uv_map = {0: (1, 2), 1: (0, 2), 2: (0, 1)}
+        _ui, _vi = _uv_map[axis_idx]
+        out = []
+        for p_u, p_v in contour_2d:
+            _pca_pt = np.zeros(3, dtype=np.float64)
+            _pca_pt[axis_idx] = axis_pos
+            _pca_pt[_ui] = p_u
+            _pca_pt[_vi] = p_v
+            _can = _μ + _pca_pt @ _E.T          # volver al espacio canónico
+            out.append([float(_can[0]), float(_can[1]), float(_can[2])])
+        return out
+
+    # FRONT/BACK: mantener en espacio canónico original (Z = cara dorsoventral)
     x = X[:, 0]
     y = X[:, 1]
     z = X[:, 2]
 
-    # FRONT/BACK homólogos a Cara A/B (según convención canónica por Z)
-    front_mask = z >= 0.0
-    back_mask = ~front_mask
+    # FRONT/BACK homólogos a Cara A/B
+    # Prioridad: usar vértices del parche de cara identificado en la orientación.
+    # Fallback: semiplano z≥0 / z<0 (toda la nube canónica).
+    if front_patch_verts is not None and len(front_patch_verts) >= 3:
+        front_xy = X[front_patch_verts][:, [0, 1]]
+        front_point_count = len(front_patch_verts)
+    else:
+        front_mask = z >= 0.0
+        front_xy = X[front_mask][:, [0, 1]] if np.any(front_mask) else np.empty((0, 2), dtype=np.float64)
+        front_point_count = int(np.sum(front_mask))
 
-    front_xy = X[front_mask][:, [0, 1]] if np.any(front_mask) else np.empty((0, 2), dtype=np.float64)
-    back_xy = X[back_mask][:, [0, 1]] if np.any(back_mask) else np.empty((0, 2), dtype=np.float64)
+    if back_patch_verts is not None and len(back_patch_verts) >= 3:
+        back_xy = X[back_patch_verts][:, [0, 1]]
+        back_point_count = len(back_patch_verts)
+    else:
+        back_mask = z < 0.0
+        back_xy = X[back_mask][:, [0, 1]] if np.any(z < 0.0) else np.empty((0, 2), dtype=np.float64)
+        back_point_count = int(np.sum(z < 0.0))
 
-    front_metrics = _projected_hull_metrics_2d(front_xy) if front_xy.shape[0] >= 3 else _projected_hull_metrics_2d(np.empty((0, 2)))
-    back_metrics = _projected_hull_metrics_2d(back_xy) if back_xy.shape[0] >= 3 else _projected_hull_metrics_2d(np.empty((0, 2)))
+    # Contornos: aristas límite del submesh cuando tenemos datos de parche,
+    # ConvexHull como fallback (igual que secciones sin mesh_canonical).
+    def _face_contour_and_metrics(
+        patch_verts: "np.ndarray | None",
+        xy_pts: np.ndarray,
+    ) -> "tuple[list[list[float]], dict]":
+        """Retorna (contour_xy, metrics_xy) para una cara canónica."""
+        contour: list[list[float]] = []
+        if mesh_canonical is not None and patch_verts is not None and len(patch_verts) >= 3:
+            contour = _extract_patch_boundary_contour(mesh_canonical, patch_verts, max_points=200)
+        if not contour:
+            # Fallback: hull de los puntos proyectados
+            contour = _contour_points_from_projection(xy_pts)
+        # Métricas sobre el contorno real (Shoelace + perímetro real)
+        if contour:
+            metrics = _loop_quick_metrics(np.asarray(contour, dtype=np.float64))
+            # Asegurar keys que espera el JS (metrics_xy compatible con _projected_hull_metrics_2d)
+            if "aspect_ratio" not in metrics:
+                metrics["aspect_ratio"] = None
+            if "rectangularity" not in metrics:
+                metrics["rectangularity"] = None
+        else:
+            metrics = _projected_hull_metrics_2d(xy_pts) if xy_pts.shape[0] >= 3 else _projected_hull_metrics_2d(np.empty((0, 2)))
+        return contour, metrics
 
-    front_contour = _contour_points_from_projection(front_xy)
-    back_contour = _contour_points_from_projection(back_xy)
+    front_contour, front_metrics = _face_contour_and_metrics(front_patch_verts, front_xy)
+    back_contour, back_metrics = _face_contour_and_metrics(back_patch_verts, back_xy)
 
     area_front = float(front_metrics.get("area") or 0.0)
     area_back = float(back_metrics.get("area") or 0.0)
@@ -866,31 +1718,62 @@ def _compute_canonical_morphological_analysis(
     front_back_balance = float(min(area_front, area_back) / (max(area_front, area_back) + eps)) if (area_front > 0 and area_back > 0) else 0.0
     front_back_perimeter_balance = float(min(per_front, per_back) / (max(per_front, per_back) + eps)) if (per_front > 0 and per_back > 0) else 0.0
 
-    # Cortes transversales sobre eje longitudinal X
-    x_min = float(np.min(x))
-    x_max = float(np.max(x))
-    x_extent = x_max - x_min
-    section_half = max(0.03 * x_extent, eps)
+    # Cortes transversales — perpendiculares a PC1 (máxima varianza)
+    pc1_min = float(np.min(_pc1))
+    pc1_max = float(np.max(_pc1))
+    pc1_extent = pc1_max - pc1_min
+    section_half = max(0.03 * pc1_extent, eps)
 
-    section_centers = np.linspace(x_min + 0.10 * x_extent, x_max - 0.10 * x_extent, max(3, int(n_sections)))
+    section_centers = np.linspace(pc1_min + 0.10 * pc1_extent, pc1_max - 0.10 * pc1_extent, max(3, int(n_sections)))
     sections: list[dict[str, Any]] = []
 
-    for i, xc in enumerate(section_centers.tolist(), start=1):
-        mask = np.abs(x - xc) <= section_half
+    for i, xc_pca in enumerate(section_centers.tolist(), start=1):
+        mask = np.abs(_pc1 - xc_pca) <= section_half
         if int(np.sum(mask)) < 25:
             continue
 
-        yz = X[mask][:, [1, 2]]
-        sec_metrics = _projected_hull_metrics_2d(yz)
-        sec_contour = _contour_points_from_projection(yz, max_points=80)
+        # Coordenadas 2D en el plano PC2-PC3 de los puntos del slab
+        pc23 = _X_pca[mask][:, [1, 2]]
 
-        y_span = float(np.max(yz[:, 0]) - np.min(yz[:, 0])) if yz.shape[0] else 0.0
-        z_span = float(np.max(yz[:, 1]) - np.min(yz[:, 1])) if yz.shape[0] else 0.0
+        # Origen e intersección del plano PC1 = xc_pca en espacio canónico
+        _plane_origin_t = (_μ + xc_pca * _E[:, 0]).tolist()
+        _plane_normal_t = _E[:, 0].tolist()
+
+        _sec_loops = _mesh_section_loops(
+            mesh_canonical,
+            _plane_origin_t,
+            _plane_normal_t,
+            u_axis=_E[:, 1],   # PC2 como eje U
+            v_axis=_E[:, 2],   # PC3 como eje V
+        ) if mesh_canonical is not None else None
+
+        sec_contour = _sec_loops["outer"] if _sec_loops else _contour_points_from_projection(pc23, max_points=300)
+        sec_holes_yz = _sec_loops["holes"] if _sec_loops else []
+        _sec_pts    = np.array(sec_contour, dtype=np.float64) if sec_contour else pc23
+        # Usar métricas compuestas si la sección tiene piezas exteriores separadas
+        sec_metrics = (_sec_loops["composite_metrics"]
+                       if (_sec_loops and _sec_loops.get("composite_metrics"))
+                       else _section_morphometric_metrics_2d(_sec_pts))
+        # Enriquecer con métricas lleno/vacío cuando hay perforaciones reales
+        if _sec_loops and _sec_loops.get("holes_metrics"):
+            sec_metrics = _enrich_with_void_metrics(sec_metrics, _sec_loops["holes_metrics"])
+
+        # Dimensiones en plano PC2-PC3
+        _pc23_arr = _X_pca[mask][:, [1, 2]]
+        y_span = float(np.max(_pc23_arr[:, 0]) - np.min(_pc23_arr[:, 0])) if _pc23_arr.shape[0] else 0.0
+        z_span = float(np.max(_pc23_arr[:, 1]) - np.min(_pc23_arr[:, 1])) if _pc23_arr.shape[0] else 0.0
+
+        # Coordenadas 3D en espacio canónico (PC2-PC3 + posición PC1)
+        contour_3d_t = _canonical_3d_contour(sec_contour, xc_pca, 0) if sec_contour else []
+
+        # x_center en espacio semántico canónico (proyección del plano sobre eje X canónico)
+        _xc_canonical = float((_μ + xc_pca * _E[:, 0])[0])
 
         sections.append({
             "index": i,
-            "x_center": float(xc),
-            "x_relative": float((xc - x_min) / (x_extent + eps)),
+            "x_center": _xc_canonical,          # compat: posición X canónica aproximada
+            "pca_axis_position": float(xc_pca), # posición exacta a lo largo de PC1
+            "x_relative": float((xc_pca - pc1_min) / (pc1_extent + eps)),
             "slice_half_width": float(section_half),
             "point_count": int(np.sum(mask)),
             "metrics": sec_metrics,
@@ -898,24 +1781,188 @@ def _compute_canonical_morphological_analysis(
                 "width_y": y_span,
                 "thickness_z": z_span,
             },
-            "contour_yz": sec_contour,
+            "contour_yz": sec_contour,      # 2D en plano PC2-PC3 (compat)
+            "contour_3d": contour_3d_t,     # 3D en espacio canónico (visor)
+            "holes_yz": sec_holes_yz,
+            "holes_yz_metrics": _sec_loops["holes_metrics"] if _sec_loops else [],
+            "exterior_pieces_yz": _sec_loops["exterior_pieces"] if _sec_loops else [],
+            "exterior_pieces_yz_metrics": _sec_loops["exterior_pieces_metrics"] if _sec_loops else [],
+            "outer_metrics_yz": _sec_loops["outer_metrics"] if _sec_loops else {},
+            "efa": _section_efa(sec_contour) if sec_contour else None,
         })
 
-    section_areas = [float(s.get("metrics", {}).get("area") or 0.0) for s in sections]
-    section_thickness = [float(s.get("section_dims", {}).get("thickness_z") or 0.0) for s in sections]
-    section_x_rel = [float(s.get("x_relative") or 0.0) for s in sections]
+    # Cortes coronales — perpendiculares a PC2
+    pc2_min = float(np.min(_pc2))
+    pc2_max = float(np.max(_pc2))
+    pc2_extent = pc2_max - pc2_min
+    coronal_half = max(0.03 * pc2_extent, eps)
 
-    mean_section_area = float(np.mean(section_areas)) if sections else 0.0
-    mean_section_thickness = float(np.mean(section_thickness)) if sections else 0.0
+    coronal_centers = np.linspace(
+        pc2_min + 0.10 * pc2_extent, pc2_max - 0.10 * pc2_extent, max(3, int(n_sections))
+    )
+    coronal_sections: list[dict[str, Any]] = []
+
+    for ci, yc_pca in enumerate(coronal_centers.tolist(), start=1):
+        cmask = np.abs(_pc2 - yc_pca) <= coronal_half
+        if int(np.sum(cmask)) < 25:
+            continue
+
+        # Coordenadas 2D en plano PC1-PC3
+        pc13 = _X_pca[cmask][:, [0, 2]]
+
+        _plane_origin_c = (_μ + yc_pca * _E[:, 1]).tolist()
+        _plane_normal_c = _E[:, 1].tolist()
+        _csec_loops = _mesh_section_loops(
+            mesh_canonical,
+            _plane_origin_c,
+            _plane_normal_c,
+            u_axis=_E[:, 0],   # PC1 como eje U
+            v_axis=_E[:, 2],   # PC3 como eje V
+        ) if mesh_canonical is not None else None
+
+        csec_contour = _csec_loops["outer"] if _csec_loops else _contour_points_from_projection(pc13, max_points=300)
+        csec_holes_xz = _csec_loops["holes"] if _csec_loops else []
+        _csec_pts    = np.array(csec_contour, dtype=np.float64) if csec_contour else pc13
+        csec_metrics = (_csec_loops["composite_metrics"]
+                        if (_csec_loops and _csec_loops.get("composite_metrics"))
+                        else _section_morphometric_metrics_2d(_csec_pts))
+        # Enriquecer con métricas lleno/vacío cuando hay perforaciones reales
+        if _csec_loops and _csec_loops.get("holes_metrics"):
+            csec_metrics = _enrich_with_void_metrics(csec_metrics, _csec_loops["holes_metrics"])
+
+        _pc13_arr = _X_pca[cmask][:, [0, 2]]
+        cx_span = float(np.max(_pc13_arr[:, 0]) - np.min(_pc13_arr[:, 0])) if _pc13_arr.shape[0] else 0.0
+        cz_span = float(np.max(_pc13_arr[:, 1]) - np.min(_pc13_arr[:, 1])) if _pc13_arr.shape[0] else 0.0
+
+        contour_3d_c = _canonical_3d_contour(csec_contour, yc_pca, 1) if csec_contour else []
+        _yc_canonical = float((_μ + yc_pca * _E[:, 1])[1])
+
+        coronal_sections.append({
+            "index": ci,
+            "y_center": _yc_canonical,
+            "pca_axis_position": float(yc_pca),
+            "y_relative": float((yc_pca - pc2_min) / (pc2_extent + eps)),
+            "slice_half_width": float(coronal_half),
+            "point_count": int(np.sum(cmask)),
+            "metrics": csec_metrics,
+            "section_dims": {
+                "length_x": cx_span,
+                "thickness_z": cz_span,
+            },
+            "contour_xz": csec_contour,     # 2D en plano PC1-PC3 (compat)
+            "contour_3d": contour_3d_c,     # 3D en espacio canónico (visor)
+            "holes_xz": csec_holes_xz,
+            "holes_xz_metrics": _csec_loops["holes_metrics"] if _csec_loops else [],
+            "exterior_pieces_xz": _csec_loops["exterior_pieces"] if _csec_loops else [],
+            "exterior_pieces_xz_metrics": _csec_loops["exterior_pieces_metrics"] if _csec_loops else [],
+            "outer_metrics_xz": _csec_loops["outer_metrics"] if _csec_loops else {},
+            "efa": _section_efa(csec_contour) if csec_contour else None,
+        })
+
+    coronal_areas = [float(s.get("metrics", {}).get("area") or 0.0) for s in coronal_sections]
+    mean_coronal_area = float(np.mean(coronal_areas)) if coronal_sections else 0.0
+
+    # Cortes frontales — perpendiculares a PC3 (mínima varianza = eje dorsoventral)
+    pc3_min = float(np.min(_pc3))
+    pc3_max = float(np.max(_pc3))
+    pc3_extent = pc3_max - pc3_min
+    frontal_half = max(0.03 * pc3_extent, eps)
+
+    frontal_centers = np.linspace(
+        pc3_min + 0.10 * pc3_extent, pc3_max - 0.10 * pc3_extent, max(3, int(n_sections))
+    )
+    frontal_sections: list[dict[str, Any]] = []
+
+    for fi, zc_pca in enumerate(frontal_centers.tolist(), start=1):
+        fmask = np.abs(_pc3 - zc_pca) <= frontal_half
+        if int(np.sum(fmask)) < 25:
+            continue
+
+        # Coordenadas 2D en plano PC1-PC2
+        pc12 = _X_pca[fmask][:, [0, 1]]
+
+        _plane_origin_f = (_μ + zc_pca * _E[:, 2]).tolist()
+        _plane_normal_f = _E[:, 2].tolist()
+        _fsec_loops = _mesh_section_loops(
+            mesh_canonical,
+            _plane_origin_f,
+            _plane_normal_f,
+            u_axis=_E[:, 0],   # PC1 como eje U
+            v_axis=_E[:, 1],   # PC2 como eje V
+        ) if mesh_canonical is not None else None
+
+        fsec_contour  = _fsec_loops["outer"] if _fsec_loops else _contour_points_from_projection(pc12, max_points=300)
+        fsec_holes_xy = _fsec_loops["holes"] if _fsec_loops else []
+        _fsec_pts    = np.array(fsec_contour, dtype=np.float64) if fsec_contour else pc12
+        fsec_metrics  = (_fsec_loops["composite_metrics"]
+                         if (_fsec_loops and _fsec_loops.get("composite_metrics"))
+                         else _section_morphometric_metrics_2d(_fsec_pts))
+        # Enriquecer con métricas lleno/vacío cuando hay perforaciones reales
+        if _fsec_loops and _fsec_loops.get("holes_metrics"):
+            fsec_metrics = _enrich_with_void_metrics(fsec_metrics, _fsec_loops["holes_metrics"])
+
+        _pc12_arr = _X_pca[fmask][:, [0, 1]]
+        fx_span = float(np.max(_pc12_arr[:, 0]) - np.min(_pc12_arr[:, 0])) if _pc12_arr.shape[0] else 0.0
+        fy_span = float(np.max(_pc12_arr[:, 1]) - np.min(_pc12_arr[:, 1])) if _pc12_arr.shape[0] else 0.0
+
+        contour_3d_f = _canonical_3d_contour(fsec_contour, zc_pca, 2) if fsec_contour else []
+        _zc_canonical = float((_μ + zc_pca * _E[:, 2])[2])
+
+        frontal_sections.append({
+            "index": fi,
+            "z_center": _zc_canonical,
+            "pca_axis_position": float(zc_pca),
+            "z_relative": float((zc_pca - pc3_min) / (pc3_extent + eps)),
+            "slice_half_width": float(frontal_half),
+            "point_count": int(np.sum(fmask)),
+            "metrics": fsec_metrics,
+            "section_dims": {
+                "length_x": fx_span,
+                "width_y":  fy_span,
+            },
+            "contour_xy": fsec_contour,     # 2D en plano PC1-PC2 (compat)
+            "contour_3d": contour_3d_f,     # 3D en espacio canónico (visor)
+            "holes_xy": fsec_holes_xy,
+            "holes_xy_metrics": _fsec_loops["holes_metrics"] if _fsec_loops else [],
+            "exterior_pieces_xy": _fsec_loops["exterior_pieces"] if _fsec_loops else [],
+            "exterior_pieces_xy_metrics": _fsec_loops["exterior_pieces_metrics"] if _fsec_loops else [],
+            "outer_metrics_xy": _fsec_loops["outer_metrics"] if _fsec_loops else {},
+            "efa": _section_efa(fsec_contour) if fsec_contour else None,
+        })
+
+    frontal_areas = [float(s.get("metrics", {}).get("area") or 0.0) for s in frontal_sections]
+    mean_frontal_area = float(np.mean(frontal_areas)) if frontal_sections else 0.0
+
+    # ── Perfiles seccionales transversales ───────────────────────────────
+    def _get(secs: "list[dict]", field: str, sub: str = "metrics") -> "list[float]":
+        """Extrae una lista de valores de métricas de secciones."""
+        return [float(s.get(sub, {}).get(field) or 0.0) for s in secs]
+
+    section_x_rel        = [float(s.get("x_relative")   or 0.0) for s in sections]
+    section_areas        = _get(sections, "area")
+    section_thickness    = _get(sections, "thickness_z", "section_dims")
+    section_width        = _get(sections, "width_y",     "section_dims")
+    section_circularity  = _get(sections, "circularity")
+    section_solidity     = _get(sections, "solidity")
+    # IFE usa ratio eje_mayor/eje_menor (aspect_ratio), no elongación normalizada.
+    section_elongation   = _get(sections, "aspect_ratio")
+    section_rugosidad    = _get(sections, "rugosidad")
+
+    mean_section_area      = float(np.mean(section_areas))      if sections else 0.0
+    mean_section_thickness = float(np.mean(section_thickness))  if sections else 0.0
     mean_points_per_section = float(np.mean([float(s.get("point_count") or 0.0) for s in sections])) if sections else 0.0
 
-    area_std = float(np.std(section_areas)) if section_areas else 0.0
+    area_std  = float(np.std(section_areas))     if section_areas     else 0.0
     thick_std = float(np.std(section_thickness)) if section_thickness else 0.0
-    area_cv = float(area_std / (mean_section_area + eps)) if mean_section_area > 0.0 else 0.0
-    thickness_cv = float(thick_std / (mean_section_thickness + eps)) if mean_section_thickness > 0.0 else 0.0
+    area_cv       = float(area_std  / (mean_section_area      + eps)) if mean_section_area      > 0.0 else 0.0
+    thickness_cv  = float(thick_std / (mean_section_thickness + eps)) if mean_section_thickness > 0.0 else 0.0
 
-    # Índice MAO_PLUS de homología bifacial: media armónica de balances
-    # (penaliza fuertemente el peor balance entre área y perímetro).
+    area_max  = float(max(section_areas))     if section_areas     else 0.0
+    thick_max = float(max(section_thickness)) if section_thickness else 0.0
+    area_profile      = [float(a / (area_max  + eps)) for a in section_areas]     if section_areas     else []
+    thickness_profile = [float(t / (thick_max + eps)) for t in section_thickness] if section_thickness else []
+
+    # ── Índice MAO_PLUS de homología bifacial ────────────────────────────
     mao_plus_homology_index = 0.0
     if front_back_balance > 0.0 and front_back_perimeter_balance > 0.0:
         mao_plus_homology_index = float(
@@ -924,15 +1971,256 @@ def _compute_canonical_morphological_analysis(
         )
 
     requested_sections = max(3, int(n_sections))
-    valid_sections = len(sections)
-    valid_ratio = float(valid_sections / max(requested_sections, 1))
+    valid_sections     = len(sections)
+    valid_ratio        = float(valid_sections / max(requested_sections, 1))
 
-    area_max = float(np.max(section_areas)) if section_areas else 0.0
-    thick_max = float(np.max(section_thickness)) if section_thickness else 0.0
-    area_profile = [float(a / (area_max + eps)) for a in section_areas] if section_areas else []
-    thickness_profile = [float(t / (thick_max + eps)) for t in section_thickness] if section_thickness else []
+    # ── MAO-3D Índices sintéticos ─────────────────────────────────────────
+    # Basados exclusivamente en perfiles de secciones transversales (eje X).
+    #
+    # IAS — Índice de Aplanamiento Seccional
+    #   Relación espesor/ancho en cada sección; <1 → pieza plana/tabular.
+    sec_asp = [float(t / (w + eps)) for t, w in zip(section_thickness, section_width)]
+    IAS = round(float(np.mean(sec_asp)),  4) if sec_asp else 0.0
+
+    # IRS — Índice de Regularidad Seccional
+    #   1 = área uniforme a lo largo del eje (cilíndrico); 0 = muy irregular.
+    IRS = round(float(max(0.0, 1.0 - area_cv)), 4)
+
+    # ICS — Índice de Convexidad Seccional
+    #   Media de solidez por sección; <1 → retoques/vaciados en la sección.
+    ICS = round(float(np.mean(section_solidity)),    4) if section_solidity    else 0.0
+
+    # IFC — Índice de Forma de Corte
+    #   Media de circularidad seccional; 1 = circular; <1 → ovalado/irregular.
+    IFC = round(float(np.mean(section_circularity)), 4) if section_circularity else 0.0
+
+    # IFE — Índice de Forma-Elongación seccional
+    #   Media del ratio eje_mayor/eje_menor de las secciones (tensor de inercia).
+    IFE = round(float(np.mean(section_elongation)),  4) if section_elongation  else 0.0
+
+    # IC — Índice de Constricción
+    #   0 = ningún estrangulamiento (eje uniforme); 1 = constricción máxima.
+    IC = round(float(1.0 - min(section_areas) / (area_max + eps)), 4) if area_max > 0 and section_areas else 0.0
+
+    # ISL — Índice de Simetría Longitudinal
+    #   Correlación de Pearson entre el perfil de áreas y su espejo;
+    #   +1 = completamente simétrico en longitud; -1 = asimétrico.
+    ISL = 0.0
+    if len(section_areas) >= 3:
+        _aa  = np.array(section_areas, dtype=np.float64)
+        _am  = _aa[::-1]
+        _ac  = _aa - _aa.mean(); _mc = _am - _am.mean()
+        _den = float(np.sqrt(np.dot(_ac, _ac) * np.dot(_mc, _mc)))
+        ISL  = round(float(np.dot(_ac, _mc) / _den) if _den > 1e-12 else 1.0, 4)
+
+    # IFR — Índice de Rugosidad Seccional
+    #   Media de rugosidad (P_real / P_hull) de cada sección transversal.
+    #   1 = contornos perfectamente convexos; > 1 → retoques/irregularidades.
+    IFR = round(float(np.mean(section_rugosidad)), 4) if section_rugosidad else 1.0
+
+    # ITR — Índice de Tendencia de Reducción
+    #   Correlación de Pearson entre posición X relativa y área normalizada.
+    #   > 0 → el objeto se ensancha hacia el extremo distal.
+    #   < 0 → taper distal: se afina hacia el extremo distal (lasca/hoja típica).
+    #   ≈ 0 → sección prácticamente constante a lo largo del eje.
+    ITR = 0.0
+    if len(section_areas) >= 3 and len(section_x_rel) == len(section_areas):
+        _ax  = np.array(section_x_rel, dtype=np.float64)
+        _aa2 = np.array(section_areas,  dtype=np.float64)
+        _aa2 = _aa2 / (_aa2.max() + eps)
+        _axc = _ax - _ax.mean(); _aac = _aa2 - _aa2.mean()
+        _den_itr = float(np.sqrt(np.dot(_axc, _axc) * np.dot(_aac, _aac)))
+        ITR = round(float(np.dot(_axc, _aac) / _den_itr) if _den_itr > 1e-12 else 0.0, 4)
+
+    # IPD — Índice de Polaridad Proximal-Distal
+    #   Diferencia normalizada de área media entre el tercio proximal y el distal.
+    #   > 0 → sección proximal más ancha (lasca con plataforma ancha).
+    #   < 0 → sección distal más ancha (objeto con ensanchamiento apical).
+    #   ≈ 0 → equilibrio longitudinal.
+    IPD = 0.0
+    if len(section_areas) >= 3:
+        _n3   = max(1, len(section_areas) // 3)
+        _aprx = float(np.mean(section_areas[:_n3]))
+        _adst = float(np.mean(section_areas[-_n3:]))
+        _dnom = _aprx + _adst
+        IPD = round(float((_aprx - _adst) / (_dnom + eps)), 4)
 
     long_rule = semantic_orientation.get("axis_definition", {}).get("longitudinal", {}).get("rule") if isinstance(semantic_orientation, dict) else None
+
+    # ── EFA agregada: firma morfológica media del objeto ─────────────────
+    # Promedia los coeficientes EFD normalizados de todas las secciones
+    # transversales válidas → firma comparable entre objetos distintos.
+    efa_seccional: "dict[str, Any]" = {"available": False}
+    if _EFA_AVAILABLE:
+        _efa_arrays = [
+            np.array(s["efa"]["coefficients"], dtype=np.float64)
+            for s in sections
+            if s.get("efa") and s["efa"].get("coefficients")
+        ]
+        if _efa_arrays:
+            # Homogeneizar longitud (tomar mínimo de armónicos disponibles)
+            _nh_min = min(a.shape[0] for a in _efa_arrays)
+            _stack  = np.stack([a[:_nh_min] for a in _efa_arrays])  # (nsec, nh, 4)
+            _mean_c = np.mean(_stack, axis=0)
+            _std_c  = np.std(_stack,  axis=0)
+            _ps_mean = _efa_mod._power_spectrum(_mean_c)             # type: ignore[union-attr]
+            _var_mean = _efa_mod._variance_explained(_mean_c)        # type: ignore[union-attr]
+            _h95m = _nh_min
+            for _i, _v in enumerate(_var_mean):
+                if _v >= 95.0:
+                    _h95m = _i + 1
+                    break
+
+            # ── Premisa 3: Matriz de datos (n_secciones × n_armonicos×4) ────
+            # Cada fila = descriptor EFD normalizado y aplanado de una sección.
+            # Listo para PCA/GMM inter-objeto.
+            _coeff_matrix = [
+                [round(float(v), 6) for v in a[:_nh_min].flatten()]
+                for a in _efa_arrays
+            ]                                                         # (nsec, nh×4)
+
+            # ── Vector firma del objeto (1D) ──────────────────────────────
+            # Media de la matriz: descriptor representativo del objeto.
+            _signature = [round(float(v), 8) for v in _mean_c.flatten()]
+
+            # ── Estabilidad armónica entre secciones ─────────────────────
+            # Para cada armónico k: 1 − CV(P_k) donde P_k = potencia en sección i.
+            # 1.0 = armónico perfectamente estable a lo largo del objeto.
+            _per_sec_ps = np.array([
+                [float(np.sqrt(np.sum(a[k] ** 2))) for k in range(_nh_min)]
+                for a in _efa_arrays
+            ])                                                        # (nsec, nh)
+            _ps_m2 = _per_sec_ps.mean(axis=0)                        # (nh,)
+            _ps_s2 = _per_sec_ps.std(axis=0)                         # (nh,)
+            _harm_cv = _ps_s2 / (_ps_m2 + 1e-12)
+            _harmonic_stability = [
+                round(float(max(0.0, 1.0 - cv)), 4) for cv in _harm_cv
+            ]                                                         # (nh,)
+
+            # ── Reconstrucción de la forma media (80 puntos) ─────────────
+            # Contorno "típico" del objeto derivado del EFD medio normalizado.
+            try:
+                _mean_recon = _efa_mod._reconstruct_contour(         # type: ignore[union-attr]
+                    _mean_c, n_points=120
+                )
+            except Exception:
+                _mean_recon = []
+
+            efa_seccional = {
+                "available":              True,
+                "n_sections_used":        len(_efa_arrays),
+                "n_harmonics":            int(_nh_min),
+                "mean_coefficients":      [[round(float(v), 6) for v in row] for row in _mean_c],
+                "std_coefficients":       [[round(float(v), 6) for v in row] for row in _std_c],
+                "power_spectrum_mean":    _ps_mean,
+                "variance_explained":     _var_mean,
+                "harmonics_for_95pct":    _h95m,
+                # ── Premisa 3: datos matriciales ───────────────────────────
+                "signature":              _signature,       # vector (nh×4,) — huella del objeto
+                "coeff_matrix":           _coeff_matrix,   # (nsec, nh×4) — para PCA/GMM
+                "coeff_matrix_shape":     [len(_efa_arrays), int(_nh_min) * 4],
+                "harmonic_stability":     _harmonic_stability,  # (nh,) · 1=estable
+                "mean_reconstructed":     _mean_recon,     # 80 pts del contorno típico
+                "description":            (
+                    "EFD medios de secciones transversales YZ normalizados "
+                    "(Kuhl & Giardina 1982). Usar efa.compare() para distancia inter-objeto."
+                ),
+            }
+
+    # ── EFA 3D integrado: descriptor multi-eje (equivalente al mapeo esférico) ──
+    # Precept 1 — Alternativa arqueológica a SPHARM:
+    # En lugar de proyectar la superficie sobre una esfera, se muestrea la forma
+    # desde 3 direcciones ortogonales (YZ, XZ, XY), obteniendo cobertura espacial
+    # equivalente.  El descriptor resultante (3 × nh × 4,) es comparable entre
+    # objetos mediante distancia euclidiana o PCA.
+    efa_3d_integrado: "dict[str, Any]" = {"available": False}
+    if _EFA_AVAILABLE:
+        def _efa_mean_for_sec_list(
+            sec_list: "list[dict]", efa_key: str = "efa"
+        ) -> "tuple[np.ndarray | None, int]":
+            """Extrae y promedia los EFD normalizados de una lista de secciones."""
+            arrays = [
+                np.array(s[efa_key]["coefficients"], dtype=np.float64)
+                for s in sec_list
+                if s.get(efa_key) and s[efa_key].get("coefficients")
+            ]
+            if not arrays:
+                return None, 0
+            nh = min(a.shape[0] for a in arrays)
+            stack = np.stack([a[:nh] for a in arrays])  # (nsec, nh, 4)
+            return np.mean(stack, axis=0), len(arrays)  # (nh, 4), count
+
+        _mean_t, _n_t = _efa_mean_for_sec_list(sections)           # transversales YZ
+        _mean_cor, _n_c = _efa_mean_for_sec_list(coronal_sections)  # coronales XZ
+        _mean_fro, _n_f = _efa_mean_for_sec_list(frontal_sections)  # frontales XY
+
+        _available_axes = sum(1 for m in (_mean_t, _mean_cor, _mean_fro) if m is not None)
+
+        if _available_axes >= 2:
+            # Homogeneizar n_harmonics al mínimo disponible entre los ejes activos
+            _nh_3d = min(
+                m.shape[0] for m in (_mean_t, _mean_cor, _mean_fro) if m is not None
+            )
+
+            def _safe_flat(m: "np.ndarray | None", nh: int) -> np.ndarray:
+                """Aplana a (nh×4,); rellena con ceros si el eje no está disponible."""
+                if m is None:
+                    return np.zeros(nh * 4, dtype=np.float64)
+                return m[:nh].flatten()
+
+            _vt  = _safe_flat(_mean_t,   _nh_3d)  # (nh×4,) — transversal YZ
+            _vc  = _safe_flat(_mean_cor, _nh_3d)  # (nh×4,) — coronal XZ
+            _vf  = _safe_flat(_mean_fro, _nh_3d)  # (nh×4,) — frontal XY
+
+            # Descriptor 3D: concatenación de los 3 vectores de eje
+            _sig3d = np.concatenate([_vt, _vc, _vf])               # (3·nh×4,)
+
+            # Norma del descriptor (magnitud global de la forma)
+            _sig3d_norm = float(np.linalg.norm(_sig3d))
+
+            # ── Formas medias reconstruidas por eje (120 puntos) ─────────────
+            def _safe_recon(m: "np.ndarray | None") -> list:
+                if m is None:
+                    return []
+                try:
+                    return _efa_mod._reconstruct_contour(m[:_nh_3d], n_points=120)  # type: ignore[union-attr]
+                except Exception:
+                    return []
+
+            _recon_yz  = _safe_recon(_mean_t)
+            _recon_xz  = _safe_recon(_mean_cor)
+            _recon_xy  = _safe_recon(_mean_fro)
+
+            efa_3d_integrado = {
+                "available":        True,
+                "n_harmonics":      int(_nh_3d),
+                "descriptor_dim":   len(_sig3d),
+                "descriptor_shape": [3, int(_nh_3d) * 4],
+                "axes_available":   _available_axes,
+                "n_sections_per_axis": {
+                    "transverse_yz": _n_t,
+                    "coronal_xz":    _n_c,
+                    "frontal_xy":    _n_f,
+                },
+                # Vectores EFD medio por eje (para diagnóstico y visualización)
+                "mean_yz": [round(float(v), 6) for v in _vt],
+                "mean_xz": [round(float(v), 6) for v in _vc],
+                "mean_xy": [round(float(v), 6) for v in _vf],
+                # Descriptor unificado: vector (3·nh×4,) listo para PCA/clustering
+                "signature_3d":    [round(float(v), 8) for v in _sig3d],
+                "signature_norm":  round(_sig3d_norm, 6),
+                # Formas medias reconstruidas por eje (120 pts, normalizadas)
+                "recon_yz":  _recon_yz,   # plano transversal YZ
+                "recon_xz":  _recon_xz,   # plano coronal XZ
+                "recon_xy":  _recon_xy,   # plano frontal XY
+                "description": (
+                    "Descriptor EFD 3D multi-eje (Precept 1 — equivalente arqueológico "
+                    "al mapeo esférico SPHARM): muestrea la forma desde 3 planos "
+                    "ortogonales YZ/XZ/XY. Dimensión: 3×n_armonicos×4. "
+                    "Invariante a escala, rotación y reflexión. "
+                    "Usar signature_3d para PCA o distancia inter-objeto."
+                ),
+            }
 
     return {
         "status": "ok",
@@ -946,12 +2234,12 @@ def _compute_canonical_morphological_analysis(
         },
         "front_back": {
             "front": {
-                "point_count": int(np.sum(front_mask)),
+                "point_count": front_point_count,
                 "metrics_xy": front_metrics,
                 "contour_xy": front_contour,
             },
             "back": {
-                "point_count": int(np.sum(back_mask)),
+                "point_count": back_point_count,
                 "metrics_xy": back_metrics,
                 "contour_xy": back_contour,
             },
@@ -962,30 +2250,138 @@ def _compute_canonical_morphological_analysis(
         },
         "transverse_sections": sections,
         "transverse_summary": {
-            "count": len(sections),
-            "mean_area": mean_section_area,
-            "mean_thickness_z": mean_section_thickness,
+            "count":              len(sections),
+            "mean_area":          mean_section_area,
+            "mean_thickness_z":   mean_section_thickness,
+            "mean_circularity":   round(float(np.mean(section_circularity)), 4) if section_circularity else 0.0,
+            "mean_solidity":      round(float(np.mean(section_solidity)),    4) if section_solidity    else 0.0,
+            "mean_elongation":    round(float(np.mean(section_elongation)),  4) if section_elongation  else 0.0,
+            "mean_rugosidad":     round(float(np.mean(section_rugosidad)),   4) if section_rugosidad   else 0.0,
         },
+        "coronal_sections": coronal_sections,
+        "coronal_summary": {
+            "count":     len(coronal_sections),
+            "mean_area": mean_coronal_area,
+        },
+        "frontal_sections": frontal_sections,
+        "frontal_summary": {
+            "count":     len(frontal_sections),
+            "mean_area": mean_frontal_area,
+        },
+        # ── Perfiles de sección transversal (serie a lo largo del eje X) ─
         "section_profiles": {
-            "x_relative": section_x_rel,
-            "area": section_areas,
-            "thickness_z": section_thickness,
-            "area_normalized": area_profile,
+            "x_relative":           section_x_rel,
+            "area":                 section_areas,
+            "thickness_z":          section_thickness,
+            "width_y":              section_width,
+            "circularity":          section_circularity,
+            "solidity":             section_solidity,
+            "elongation":           section_elongation,
+            "rugosidad":            section_rugosidad,
+            "area_normalized":      area_profile,
             "thickness_normalized": thickness_profile,
         },
+        # ── Índices MAO-2D legacy (compatibilidad) ────────────────────────
         "mao_plus_indices": {
-            "bifacial_homology_index": mao_plus_homology_index,
-            "area_balance": front_back_balance,
-            "perimeter_balance": front_back_perimeter_balance,
-            "transverse_area_cv": area_cv,
-            "transverse_thickness_cv": thickness_cv,
+            "bifacial_homology_index":     mao_plus_homology_index,
+            "area_balance":                front_back_balance,
+            "perimeter_balance":           front_back_perimeter_balance,
+            "transverse_area_cv":          area_cv,
+            "transverse_thickness_cv":     thickness_cv,
         },
+        # ── Índices MAO-3D sintéticos ─────────────────────────────────────
+        "mao3d_indices": {
+            "IAS": IAS,   # Índice de Aplanamiento Seccional
+            "IRS": IRS,   # Índice de Regularidad Seccional
+            "ICS": ICS,   # Índice de Convexidad Seccional
+            "IFC": IFC,   # Índice de Forma de Corte
+            "IFE": IFE,   # Índice de Forma-Elongación seccional
+            "IC":  IC,    # Índice de Constricción
+            "ISL": ISL,   # Índice de Simetría Longitudinal
+            "IFR": IFR,   # Índice de Rugosidad Seccional
+            "ITR": ITR,   # Índice de Tendencia de Reducción
+            "IPD": IPD,   # Índice de Polaridad Proximal-Distal
+        },
+        # ── EFA seccional (firma morfológica comparable) ──────────────────
+        "efa_seccional": efa_seccional,
+        # ── EFA 3D integrado (descriptor multi-eje — Precept 1) ───────────
+        "efa_3d_integrado": efa_3d_integrado,
         "quality": {
-            "requested_sections": requested_sections,
-            "valid_sections": valid_sections,
-            "valid_ratio": valid_ratio,
-            "mean_points_per_section": mean_points_per_section,
+            "requested_sections":       requested_sections,
+            "valid_sections":           valid_sections,
+            "valid_ratio":              valid_ratio,
+            "mean_points_per_section":  mean_points_per_section,
         },
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# HOMOLOGACIÓN FRONT/BACK: Extrae caras canónicas para aplicar metrics.py completo
+# ════════════════════════════════════════════════════════════════════════════════
+
+def _extract_front_back_contours(
+    canonical_points: np.ndarray,
+    mm_per_unit: float = 1.0,
+) -> dict[str, Any]:
+    """
+    Extrae contornos XY de FRONT (z≥0) y BACK (z<0) desde puntos canonicalizados.
+    
+    Retorna dict con:
+      - front_contour_xy: [[x,y],...] en unidades OBJ (físicas)
+      - back_contour_xy:  [[x,y],...] en unidades OBJ (físicas)
+      - front_pts_3d: array 3D de puntos FRONT en mm
+      - back_pts_3d:  array 3D de puntos BACK en mm
+      - mm_per_unit: factor de conversión usado
+      - bifacial_index: índice de balance bifacial (0–1)
+    """
+    eps = 1e-12
+    X = np.asarray(canonical_points, dtype=np.float64)
+    
+    if X.ndim != 2 or X.shape[1] != 3 or X.shape[0] < 10:
+        return {
+            "status": "insufficient_points",
+            "front_contour_xy": [],
+            "back_contour_xy": [],
+            "front_pts_3d": None,
+            "back_pts_3d": None,
+            "bifacial_index": 0.0,
+            "mm_per_unit": mm_per_unit,
+        }
+    
+    # Dividir por Z (frontal)
+    z = X[:, 2]
+    front_mask = z >= 0.0
+    back_mask = ~front_mask
+    
+    front_xy_pts = X[front_mask][:, [0, 1]] if np.any(front_mask) else np.empty((0, 2), dtype=np.float64)
+    back_xy_pts = X[back_mask][:, [0, 1]] if np.any(back_mask) else np.empty((0, 2), dtype=np.float64)
+    
+    front_3d_pts = X[front_mask] if np.any(front_mask) else np.empty((0, 3), dtype=np.float64)
+    back_3d_pts = X[back_mask] if np.any(back_mask) else np.empty((0, 3), dtype=np.float64)
+    
+    # Extraer contornos
+    front_contour = _contour_points_from_projection(front_xy_pts, max_points=120) if front_xy_pts.shape[0] >= 3 else []
+    back_contour = _contour_points_from_projection(back_xy_pts, max_points=120) if back_xy_pts.shape[0] >= 3 else []
+    
+    # Calcular balance bifacial (área proyectada)
+    front_metrics = _projected_hull_metrics_2d(front_xy_pts) if front_xy_pts.shape[0] >= 3 else {}
+    back_metrics = _projected_hull_metrics_2d(back_xy_pts) if back_xy_pts.shape[0] >= 3 else {}
+    
+    area_front = float(front_metrics.get("area") or 0.0)
+    area_back = float(back_metrics.get("area") or 0.0)
+    
+    bifacial_index = 0.0
+    if area_front > 0 and area_back > 0:
+        bifacial_index = float(min(area_front, area_back) / max(area_front, area_back))
+    
+    return {
+        "status": "ok",
+        "front_contour_xy": front_contour,
+        "back_contour_xy": back_contour,
+        "front_pts_3d": front_3d_pts,
+        "back_pts_3d": back_3d_pts,
+        "bifacial_index": bifacial_index,
+        "mm_per_unit": mm_per_unit,
     }
 
 
@@ -1009,6 +2405,15 @@ def _compute_crossdimensional_mao_coherence(
         except Exception:
             return default
 
+    def _to_f_opt(v: Any) -> float | None:
+        try:
+            if v is None:
+                return None
+            n = float(v)
+            return n if math.isfinite(n) else None
+        except Exception:
+            return None
+
     def _clip01(v: float) -> float:
         return float(max(0.0, min(1.0, v)))
 
@@ -1028,25 +2433,25 @@ def _compute_crossdimensional_mao_coherence(
     long_stability = _clip01(1.0 - min(1.0, 0.5 * (cv_area + cv_thk)))
 
     # 3) Consistencia de forma en plano frontal: circularidad 2D vs proxy 3D
-    circ_2d = _to_f(frontal_ref.get("circularity_2d"), 0.0)
-    circ_3d = _to_f(morphometry.get("circularity_proxy"), 0.0)
-    shape_consistency = _exp_similarity(circ_2d, circ_3d, scale=0.15)
+    circ_2d = _to_f_opt(frontal_ref.get("circularity_2d"))
+    circ_3d = _to_f_opt(morphometry.get("circularity_proxy"))
+    shape_consistency = _exp_similarity(circ_2d, circ_3d, scale=0.15) if (circ_2d is not None and circ_3d is not None) else 0.5
 
     # 4) Consistencia de espesor: ratio de espesor PCA vs secciones transversales
     dims = semantic_orientation.get("dimensions", {}) if isinstance(semantic_orientation, dict) else {}
     ancho = _to_f(dims.get("ancho"), 0.0)
     alto = _to_f(dims.get("alto"), 0.0)
-    mean_thk = _to_f(t_summary.get("mean_thickness_z"), 0.0)
-    thk_ratio_sections = mean_thk / max(max(ancho, alto), eps)
-    thk_ratio_pca = _to_f(morphometry.get("thickness_ratio"), 0.0)
-    thickness_consistency = _exp_similarity(thk_ratio_sections, thk_ratio_pca, scale=0.10)
+    mean_thk = _to_f_opt(t_summary.get("mean_thickness_z"))
+    thk_ratio_sections = (mean_thk / max(max(ancho, alto), eps)) if mean_thk is not None else None
+    thk_ratio_pca = _to_f_opt(morphometry.get("thickness_ratio"))
+    thickness_consistency = _exp_similarity(thk_ratio_sections, thk_ratio_pca, scale=0.10) if (thk_ratio_sections is not None and thk_ratio_pca is not None) else 0.5
 
     # 5) Consistencia de proporción frontal: AR frontal vs AR de reposo
-    ar_2d = _to_f(frontal_ref.get("aspect_ratio_2d"), 0.0)
+    ar_2d = _to_f_opt(frontal_ref.get("aspect_ratio_2d"))
     major = max(ancho, alto)
     minor = max(min(ancho, alto), eps)
-    ar_rest = major / minor if major > 0 else 0.0
-    aspect_consistency = _exp_similarity(ar_2d, ar_rest, scale=0.35) if ar_2d > 0 and ar_rest > 0 else 0.0
+    ar_rest = (major / minor) if major > 0 else None
+    aspect_consistency = _exp_similarity(ar_2d, ar_rest, scale=0.35) if (ar_2d is not None and ar_rest is not None) else 0.5
 
     # Agregación ponderada
     weights = {
@@ -1936,6 +3341,7 @@ def _compute_semantic_orientation(
 async def analyze_v2(
     obj_bytes: bytes,
     n_samples: int = 20000,
+    n_sections: int = 9,
     normalize_mode: str = "none",
     orientation_mode: str = "auto",
     user_anchor: tuple[float | None, float | None, float | None] | None = None,
@@ -2038,13 +3444,59 @@ async def analyze_v2(
 
     # FASE 6: Métricas morfométricas
     metrics = _make_morphometric_metrics(pca_ctx, {}, face_mode)
-    canonical_morphology = _compute_canonical_morphological_analysis(X_sem, semantic_orientation, n_sections=9)
-    pca_sequential = _compute_pca_sequential_morphometry(X_sem, pca_ctx, n_sections=11)
 
-    # Asignación explícita frente/reverso basada en normalización intrínseca
+    # FASE 6b: Paridad con familias 2D (solidez, convexidad, esfericidad,
+    # compacidad, Feret 3D, diámetro equivalente, aspect ratios, fractal D).
+    try:
+        paridad_2d_metrics = _compute_paridad_2d_metrics(mesh)
+    except Exception:
+        paridad_2d_metrics = {"error": "paridad_2d_unavailable"}
+
+    # Malla en orientación canónica para intersecciones exactas (detecta horadaciones)
+    _mesh_canonical = None
+    try:
+        if X_sem.shape[0] == len(mesh.vertices):
+            _mesh_canonical = mesh.copy()
+            _mesh_canonical.vertices = X_sem
+            # Reparar malla para evitar contornos de sección fragmentados
+            # por huecos en la geometría fotogramétrica (malla no watertight).
+            if not _mesh_canonical.is_watertight:
+                try:
+                    trimesh.repair.fix_normals(_mesh_canonical, multibody=False)
+                    trimesh.repair.fill_holes(_mesh_canonical)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # Extraer vértices de parches de cara antes del análisis morfológico
+    # para que _compute_canonical_morphological_analysis use el contorno real.
     front_reverse = norm_meta.get("front_reverse", {})
     front_id = front_reverse.get("front_patch_id")
     reverse_id = front_reverse.get("reverse_patch_id")
+
+    def _patch_verts_canonical(pid: "int | None") -> "np.ndarray | None":
+        """Devuelve índices de vértices del parche 'pid' o None si no se encuentra."""
+        if pid is None:
+            return None
+        p = next((p for p in patches if int(p.get("id", -1)) == int(pid)), None)
+        if p is None or not p.get("vertices"):
+            return None
+        return np.asarray(p["vertices"], dtype=np.int64)
+
+    _front_patch_verts = _patch_verts_canonical(front_id)
+    _back_patch_verts = _patch_verts_canonical(reverse_id)
+
+    canonical_morphology = _compute_canonical_morphological_analysis(
+        X_sem,
+        semantic_orientation,
+        n_sections=n_sections,
+        mesh_canonical=_mesh_canonical,
+        front_patch_verts=_front_patch_verts,
+        back_patch_verts=_back_patch_verts,
+    )
+    pca_sequential = _compute_pca_sequential_morphometry(X_sem, pca_ctx, n_sections=11)
+
     lateral_ids = [
         int(p.get("id"))
         for p in patches
@@ -2144,7 +3596,30 @@ async def analyze_v2(
         },
         "canonical_contours": {
             "front_back": canonical_morphology.get("front_back", {}),
+            "transverse_sections": [
+                {
+                    "index":      s.get("index"),
+                    "x_center":   s.get("x_center"),
+                    "x_relative": s.get("x_relative"),
+                    "contour_yz": s.get("contour_yz", []),   # [[y, z], ...] – hasta 80 pts
+                    "section_dims": s.get("section_dims", {}),
+                    "metrics":    s.get("metrics", {}),
+                }
+                for s in canonical_morphology.get("transverse_sections", [])
+            ],
             "transverse_summary": canonical_morphology.get("transverse_summary", {}),
+            "coronal_sections": [
+                {
+                    "index":      s.get("index"),
+                    "y_center":   s.get("y_center"),
+                    "y_relative": s.get("y_relative"),
+                    "contour_xz": s.get("contour_xz", []),   # [[x, z], ...] – hasta 80 pts
+                    "section_dims": s.get("section_dims", {}),
+                    "metrics":    s.get("metrics", {}),
+                }
+                for s in canonical_morphology.get("coronal_sections", [])
+            ],
+            "coronal_summary": canonical_morphology.get("coronal_summary", {}),
         },
         "pca_sequential_summary": pca_sequential.get("overall", {}),
         "dimensions_resting": {
@@ -2231,6 +3706,7 @@ async def analyze_v2(
             "orientation_canonical": semantic_orientation,
             "pca": pca_ctx,
             "morphometry": metrics,
+            "paridad_2d": paridad_2d_metrics,
             "morphology_canonical": canonical_morphology,
             "pca_sequential_morphometry": pca_sequential,
             "mao2d_adapted": mao2d_adapted,
@@ -2256,4 +3732,53 @@ async def analyze_v2(
                 },
             },
         },
+    }
+
+
+def flatten_3d_for_comparator(
+    result_3d: dict[str, Any],
+    object_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Adapta la salida de analyze() al formato esperado por comparator.pca/statistics.
+
+    No recalcula nada: solo extrae escalares numéricos de la firma homologada 3D
+    y de los índices MAO-3D para entregar un objeto con clave "metricas".
+    """
+    if not isinstance(result_3d, dict):
+        return {
+            "id": object_id or "obj3d_object",
+            "metricas": {},
+            "source": "obj3d_v2",
+        }
+
+    root = result_3d.get("obj3d") if isinstance(result_3d.get("obj3d"), dict) else result_3d
+    hom3d = root.get("homologation_3d", {}) if isinstance(root, dict) else {}
+    sig = hom3d.get("signature", {}) if isinstance(hom3d, dict) else {}
+
+    canonical = root.get("morphology_canonical", {}) if isinstance(root, dict) else {}
+    idx3d = canonical.get("mao3d_indices", {}) if isinstance(canonical, dict) else {}
+
+    metricas: dict[str, float] = {}
+    for k, v in sig.items() if isinstance(sig, dict) else []:
+        try:
+            num = float(v)
+            if math.isfinite(num):
+                metricas[k] = num
+        except Exception:
+            continue
+
+    for k, v in idx3d.items() if isinstance(idx3d, dict) else []:
+        try:
+            num = float(v)
+            if math.isfinite(num):
+                metricas[k] = num
+        except Exception:
+            continue
+
+    return {
+        "id": object_id or "obj3d_object",
+        "nombre": object_id or "obj3d_object",
+        "source": "obj3d_v2",
+        "metricas": metricas,
     }

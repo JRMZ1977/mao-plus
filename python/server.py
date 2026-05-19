@@ -11,8 +11,16 @@ O desde Electron (main.js):
                      '--host', '127.0.0.1', '--port', '8765'])
 """
 
+import asyncio
+import base64
 import logging
+import math
+import os
+import time
 from typing import Optional
+import numpy as np
+
+_BOOT_TIME = time.monotonic()
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -122,6 +130,9 @@ async def health():
         "status": "ok",
         "version": API_VERSION,
         "modules": modules.available_modules(),
+        "modules_failed": modules.failed_modules(),
+        "pid": os.getpid(),
+        "uptime_s": round(time.monotonic() - _BOOT_TIME, 2),
     }
 
 
@@ -317,12 +328,15 @@ async def calculate_metrics(
 async def calculate_obj3d_metrics(
     obj_file: UploadFile = File(...),
     n_samples: int = Form(default=20000),
+    n_sections: int = Form(default=9),
     normalize_mode: str = Form(default="none"),
     analysis_level: str = Form(default="pca"),
     orientation_mode: str = Form(default="auto"),
     user_anchor_x: Optional[float] = Form(default=None),
     user_anchor_y: Optional[float] = Form(default=None),
     user_anchor_z: Optional[float] = Form(default=None),
+    mm_per_unit: float = Form(default=1.0),
+    comparator_ready: bool = Form(default=False),
 ):
     """
         Analiza una malla 3D en formato OBJ y calcula métricas morfométricas.
@@ -339,6 +353,9 @@ async def calculate_obj3d_metrics(
                 - variables de forma 3D
                 - decisión inicial monofacial/bifacial
                 - calidad del análisis (quality_flags)
+
+            mm_per_unit: factor de conversión de unidades OBJ a mm
+                (1.0=mm, 10.0=cm, 1000.0=m, 25.4=pulgadas)
     """
     if not getattr(modules, "obj3d", None):
         return {
@@ -356,18 +373,599 @@ async def calculate_obj3d_metrics(
             ),
         )
 
-    return await modules.obj3d.analyze(
+    # Validar n_sections: impar, rango [9, 33]
+    _ns = max(9, min(33, int(n_sections)))
+    if _ns % 2 == 0:
+        _ns = min(_ns + 1, 33)
+
+    result = await modules.obj3d.analyze(
         obj_bytes=data,
         n_samples=n_samples,
+        n_sections=_ns,
         normalize_mode=normalize_mode,
         analysis_level=analysis_level,
         orientation_mode=orientation_mode,
         user_anchor=(user_anchor_x, user_anchor_y, user_anchor_z),
+        mm_per_unit=mm_per_unit,
     )
+
+    if comparator_ready and isinstance(result, dict) and result.get("status") == "ok":
+        try:
+            adapter = getattr(modules.obj3d, "flatten_3d_for_comparator", None)
+            if callable(adapter):
+                result["comparator_ready"] = adapter(result)
+        except Exception:
+            result["comparator_ready"] = {"metricas": {}}
+
+    return result
 
 
 # ============================================================================
-# MÓDULO: OPERACIONES MORFOLÓGICAS
+# ANÁLISIS 2D DE CONTORNO CANÓNICO (desde visor 3D)
+# Convierte un contorno [[x,y],...] en unidades físicas en un objeto 2D
+# analizable con el mismo pipeline de métricas que el modo objeto 2D.
+# ============================================================================
+
+@app.post(f"{API_PREFIX}/obj3d/contour-analyze")
+async def analyze_canonical_contour(
+    contour_json: str   = Form(...),   # JSON: [[x,y],...] en unidades OBJ
+    mm_per_unit:  float = Form(default=1.0),
+    label:        str   = Form(default="contorno_3d"),
+    pieces_json:  Optional[str] = Form(default=None),  # JSON: [[[x,y],...], ...] piezas separadas
+    holes_json:   Optional[str] = Form(default=None),  # JSON: [[[x,y],...], ...] perforaciones
+):
+    """
+    Analiza un contorno canónico 3D→2D con el pipeline completo de métricas 2D.
+
+    Recibe puntos [[x,y],...] en coordenadas OBJ (unidades físicas), rasteriza
+    el polígono en un canvas PNG y llama a metrics.calculate() con la escala
+    px→mm correcta.
+
+    Retorna: { status, label, metricas, scale_px_mm, preview_b64, bbox_units }
+    """
+    import json, base64
+
+    if not modules.metrics.IMPLEMENTED:
+        raise HTTPException(status_code=501, detail="Módulo de métricas no implementado.")
+
+    # ── Fase 4: motor de raster unificado ──────────────────────────────────
+    # Antes este endpoint inlinaba su propia rasterización (CANVAS=400 fijo).
+    # Ahora delega en `rasterize_canonical_contour` (Fase 1), el MISMO helper
+    # que consume el pipeline 2D core cuando `obj._canonicalRaster=true`.
+    # Resultado: paridad numérica garantizada entre modal Ruta A y tarjetas.
+    from python.modules.obj3d_canonical_raster import rasterize_canonical_contour
+
+    try:
+        pts_raw = json.loads(contour_json)
+    except Exception:
+        raise HTTPException(status_code=400, detail="contour_json no es JSON válido.")
+
+    if len(pts_raw) < 3:
+        raise HTTPException(status_code=400, detail="Se necesitan al menos 3 puntos de contorno.")
+
+    pts_arr = np.array(pts_raw, dtype=np.float64)
+    if pts_arr.ndim != 2 or pts_arr.shape[1] != 2:
+        raise HTTPException(status_code=400, detail="Contorno debe ser [[x,y],...] 2D.")
+
+    # ── Convex hull para bbox (estándar morfológico MAO) ──────────────────
+    try:
+        from scipy.spatial import ConvexHull as _CvxHull
+        _hull_idx = _CvxHull(pts_arr).vertices
+        _hull_pts_arr = pts_arr[_hull_idx]
+    except Exception:
+        _hull_pts_arr = pts_arr
+
+    # ── Conversión OBJ → mm (contrato del helper canónico) ────────────────
+    pts_mm = (pts_arr * float(mm_per_unit)).tolist()
+
+    # ── Piezas separadas (caso envolvente · N piezas) y perforaciones ────
+    # Cuando el modal envía un envelope formado por varias piezas, debe
+    # mandarlas también en `pieces_json` para que cada una se rasterice
+    # como un polígono cerrado independiente (sin líneas fantasma entre
+    # piezas). `contour_json` sigue siendo la UNIÓN de todos los puntos
+    # (usada para hull, bbox y métricas).
+    pieces_mm_list: Optional[list] = None
+    if pieces_json:
+        try:
+            raw_pieces = json.loads(pieces_json)
+            pieces_mm_list = [
+                (np.asarray(p, dtype=np.float64) * float(mm_per_unit)).tolist()
+                for p in raw_pieces
+                if isinstance(p, list) and len(p) >= 3
+            ] or None
+        except Exception:
+            raise HTTPException(status_code=400, detail="pieces_json no es JSON válido.")
+
+    holes_mm_list: Optional[list] = None
+    if holes_json:
+        try:
+            raw_holes = json.loads(holes_json)
+            holes_mm_list = [
+                (np.asarray(h, dtype=np.float64) * float(mm_per_unit)).tolist()
+                for h in raw_holes
+                if isinstance(h, list) and len(h) >= 3
+            ] or None
+        except Exception:
+            raise HTTPException(status_code=400, detail="holes_json no es JSON válido.")
+
+    # ── Rasterización canónica (DPI=20 px/mm, padding=10 px) ──────────────
+    raster = rasterize_canonical_contour(
+        contour_mm=pts_mm,
+        dpi=20,
+        padding_px=10,
+        holes_mm=holes_mm_list,
+        background=248,   # fondo gris claro (compatible con el preview previo)
+        fill=200,         # relleno gris
+        stroke=40,        # borde oscuro
+        stroke_width=1,
+        pieces_mm=pieces_mm_list,
+    )
+
+    image_bytes  = raster["image_png_bytes"]
+    contour_px   = raster["contour_points_px"]
+    hull_px      = raster["convex_hull_px"]
+    scale_px_mm  = raster["scale_mm_per_px"]   # = 1/dpi = 0.05 mm/px
+
+    # ── Contorno para análisis morfométrico ──────────────────────────────
+    # Caso envolvente (N piezas): se analiza el CONVEX HULL como un único
+    # contorno cerrado y coherente. Pasar la unión cruda de puntos a
+    # `metrics.calculate` produciría perímetro y radios sin sentido
+    # (los puntos no forman un polígono ordenado). Las piezas individuales
+    # se mantienen en el dibujo del raster como representación visual fiel.
+    if pieces_mm_list and len(hull_px) >= 3:
+        analysis_contour_px = hull_px
+    else:
+        analysis_contour_px = contour_px
+
+    result = await modules.metrics.calculate(
+        image_bytes=image_bytes,
+        contour_points=analysis_contour_px,
+        scale_px_mm=scale_px_mm,
+    )
+
+    metricas = result.get("metricas", {})
+
+    # ── Fase 1: Overlays geométricos en UNIDADES DEL MODELO ──────────────
+    # Transformación inversa raster → unidades del modelo:
+    #   px = (mm - min_xy_mm) * dpi + padding_px        (rasterizador)
+    #   unit = (px - padding_px) / dpi / mm_per_unit + min_xy_unit
+    # Longitudes:  len_unit = len_px / dpi / mm_per_unit
+    # NOTA: el rasterizador NO aplica flip Y, así que las (x,y) devueltas
+    # están en el mismo sistema que `pts_arr` (XY canónicas del modelo 3D).
+    geometry_overlays: dict = {}
+    try:
+        import cv2 as _cv2_ov
+        _dpi      = float(raster["dpi"])
+        _pad_px   = float(raster["padding_px"])
+        _mpu      = float(mm_per_unit) if mm_per_unit and mm_per_unit > 0 else 1.0
+        _min_xy_u = pts_arr.min(axis=0)
+        _min_x_u, _min_y_u = float(_min_xy_u[0]), float(_min_xy_u[1])
+
+        def _p2u(px, py):
+            return [
+                (float(px) - _pad_px) / _dpi / _mpu + _min_x_u,
+                (float(py) - _pad_px) / _dpi / _mpu + _min_y_u,
+            ]
+
+        def _len_u(length_px):
+            return float(length_px) / _dpi / _mpu
+
+        # Centroide CR (Shoelace, contorno real) — campo directo de metricas
+        cx_px = float(metricas.get("centroide_x", 0.0))
+        cy_px = float(metricas.get("centroide_y", 0.0))
+        geometry_overlays["centroid"] = _p2u(cx_px, cy_px)
+
+        # Centroide del Convex Hull — referencia para ejes y radios
+        cxh_px = float(metricas.get("centroide_hull_x", cx_px))
+        cyh_px = float(metricas.get("centroide_hull_y", cy_px))
+        geometry_overlays["centroid_hull"] = _p2u(cxh_px, cyh_px)
+
+        # Ejes mayor/menor reconstruidos desde (centroide_real, longitud, ángulo).
+        # IMPORTANTE: eje_mayor_px / eje_menor_px se calculan en metrics.py
+        # como (p_max − p_min) de las proyecciones de los puntos del contorno
+        # sobre la dirección principal, RELATIVOS al centroide real (Shoelace)
+        # — NO al centroide del hull. Por eso reproyectamos aquí los puntos
+        # del contorno de análisis (en píxeles canónicos) sobre la dirección
+        # y dibujamos el segmento desde min(proj) hasta max(proj). Así los
+        # extremos rozan realmente los bordes del contorno en esa dirección.
+        ang_deg = float(metricas.get("angulo_eje_principal", 0.0))
+        ang_rad = math.radians(ang_deg)
+        _cos_a, _sin_a = math.cos(ang_rad), math.sin(ang_rad)
+        _ac_np = np.asarray(analysis_contour_px, dtype=np.float64)
+        if len(_ac_np) >= 2:
+            _dx_ac = _ac_np[:, 0] - cx_px
+            _dy_ac = _ac_np[:, 1] - cy_px
+            # Proyección sobre eje mayor (dir = (cos, sin))
+            _p1 = _dx_ac * _cos_a + _dy_ac * _sin_a
+            _p1_min, _p1_max = float(_p1.min()), float(_p1.max())
+            geometry_overlays["axis_major"] = [
+                _p2u(cx_px + _p1_min * _cos_a, cy_px + _p1_min * _sin_a),
+                _p2u(cx_px + _p1_max * _cos_a, cy_px + _p1_max * _sin_a),
+            ]
+            # Proyección sobre eje menor (dir perpendicular = (-sin, cos))
+            _p2 = -_dx_ac * _sin_a + _dy_ac * _cos_a
+            _p2_min, _p2_max = float(_p2.min()), float(_p2.max())
+            geometry_overlays["axis_minor"] = [
+                _p2u(cx_px - _p2_min * _sin_a, cy_px + _p2_min * _cos_a),
+                _p2u(cx_px - _p2_max * _sin_a, cy_px + _p2_max * _cos_a),
+            ]
+
+        # Puntos de radio máx/mín (campos directos de metricas)
+        prm = metricas.get("punto_radio_maximo")
+        if isinstance(prm, (list, tuple)) and len(prm) == 2:
+            geometry_overlays["radius_max_point"] = _p2u(prm[0], prm[1])
+            geometry_overlays["radius_max_segment"] = [
+                geometry_overlays["centroid_hull"],
+                geometry_overlays["radius_max_point"],
+            ]
+        prn = metricas.get("punto_radio_minimo")
+        if isinstance(prn, (list, tuple)) and len(prn) == 2:
+            geometry_overlays["radius_min_point"] = _p2u(prn[0], prn[1])
+            geometry_overlays["radius_min_segment"] = [
+                geometry_overlays["centroid_hull"],
+                geometry_overlays["radius_min_point"],
+            ]
+
+        # Convex hull (en unidades del modelo)
+        if len(hull_px) >= 3:
+            geometry_overlays["convex_hull"] = [_p2u(p[0], p[1]) for p in hull_px]
+
+        # Cálculos geométricos adicionales con OpenCV sobre el contorno de análisis
+        _cnt_np = np.asarray(analysis_contour_px, dtype=np.float32).reshape(-1, 1, 2)
+        if len(_cnt_np) >= 3:
+            # Feret máximo: par de vértices del hull con mayor distancia
+            if len(hull_px) >= 2:
+                _hp = np.asarray(hull_px, dtype=np.float64)
+                # Distancias pairwise (hull suele ser pequeño)
+                _diff = _hp[:, None, :] - _hp[None, :, :]
+                _d2   = (_diff ** 2).sum(axis=2)
+                _i, _j = np.unravel_index(int(np.argmax(_d2)), _d2.shape)
+                geometry_overlays["feret_max_segment"] = [
+                    _p2u(_hp[_i, 0], _hp[_i, 1]),
+                    _p2u(_hp[_j, 0], _hp[_j, 1]),
+                ]
+
+            # Bounding box orientado (minAreaRect) — 4 vértices
+            _rect = _cv2_ov.minAreaRect(_cnt_np.astype(np.float32))
+            _box  = _cv2_ov.boxPoints(_rect)  # (4,2) float32
+            geometry_overlays["bbox_oriented"] = [_p2u(p[0], p[1]) for p in _box]
+
+            # Feret mínimo: rotating calipers sobre el hull convexo.
+            # Para cada arista del hull se mide el ancho perpendicular
+            # (máx. distancia de cualquier vértice del hull a la línea de
+            # la arista); el Feret min = mínimo de esos anchos. El segmento
+            # se traza desde el vértice más lejano hasta el pie de su
+            # proyección perpendicular sobre la arista correspondiente, de
+            # modo que su longitud == Feret min y su dirección es
+            # perpendicular a la dirección de medición.
+            if len(hull_px) >= 3:
+                _hp_rc = np.asarray(hull_px, dtype=np.float64)
+                _N_rc  = len(_hp_rc)
+                _best_w     = float("inf")
+                _best_edge  = 0
+                _best_far   = 0
+                for _i_rc in range(_N_rc):
+                    _p0 = _hp_rc[_i_rc]
+                    _p1 = _hp_rc[(_i_rc + 1) % _N_rc]
+                    _edge = _p1 - _p0
+                    _el = float(np.linalg.norm(_edge))
+                    if _el < 1e-9:
+                        continue
+                    # Normal unitaria a la arista
+                    _n = np.array([-_edge[1], _edge[0]]) / _el
+                    # Distancias signadas de cada vértice a la línea
+                    _dists = (_hp_rc - _p0) @ _n
+                    _w_rc  = float(np.max(np.abs(_dists)))
+                    if _w_rc < _best_w:
+                        _best_w    = _w_rc
+                        _best_edge = _i_rc
+                        _best_far  = int(np.argmax(np.abs(_dists)))
+                if _best_w < float("inf"):
+                    _p0 = _hp_rc[_best_edge]
+                    _p1 = _hp_rc[(_best_edge + 1) % _N_rc]
+                    _edge      = _p1 - _p0
+                    _edge_unit = _edge / float(np.linalg.norm(_edge))
+                    _P_far     = _hp_rc[_best_far]
+                    _t_proj    = float((_P_far - _p0) @ _edge_unit)
+                    _foot      = _p0 + _t_proj * _edge_unit
+                    geometry_overlays["feret_min_segment"] = [
+                        _p2u(_foot[0], _foot[1]),
+                        _p2u(_P_far[0], _P_far[1]),
+                    ]
+
+            # Círculo circunscrito mínimo
+            (_cc_x, _cc_y), _cc_r = _cv2_ov.minEnclosingCircle(_cnt_np.astype(np.float32))
+            geometry_overlays["circumscribed_circle"] = {
+                "center": _p2u(_cc_x, _cc_y),
+                "radius": _len_u(_cc_r),
+            }
+
+            # Círculo inscrito máximo (distance transform sobre máscara binaria)
+            try:
+                _img_arr  = np.frombuffer(image_bytes, dtype=np.uint8)
+                _img_gray = _cv2_ov.imdecode(_img_arr, _cv2_ov.IMREAD_GRAYSCALE)
+                if _img_gray is not None:
+                    # Máscara: interior del contorno relleno
+                    _mask = np.zeros(_img_gray.shape, dtype=np.uint8)
+                    _cv2_ov.drawContours(
+                        _mask,
+                        [_cnt_np.astype(np.int32)],
+                        -1, 255, _cv2_ov.FILLED,
+                    )
+                    _dist = _cv2_ov.distanceTransform(_mask, _cv2_ov.DIST_L2, 5)
+                    _, _max_v, _, _max_loc = _cv2_ov.minMaxLoc(_dist)
+                    if _max_v > 0:
+                        geometry_overlays["inscribed_circle"] = {
+                            "center": _p2u(_max_loc[0], _max_loc[1]),
+                            "radius": _len_u(_max_v),
+                        }
+            except Exception:
+                pass
+    except Exception as _ov_err:
+        # No bloqueamos el análisis si los overlays fallan
+        geometry_overlays = {"_error": f"overlay_build_failed: {type(_ov_err).__name__}: {_ov_err}"}
+
+    # ── Contorno métrico en unidades del modelo (trazabilidad visual) ────
+    # Devuelve el polígono que realmente se midió, en unidades del modelo.
+    # Permite al cliente superponerlo como capa "Contorno métrico" sobre el
+    # PNG y verificar la fidelidad raster→vector y/o distinguir hull vs
+    # contorno real en modo envolvente.
+    try:
+        _dpi_ac    = float(raster["dpi"])
+        _pad_ac    = float(raster["padding_px"])
+        _mpu_ac    = float(mm_per_unit) if mm_per_unit and mm_per_unit > 0 else 1.0
+        _min_xy_ac = pts_arr.min(axis=0)
+        _mx_ac, _my_ac = float(_min_xy_ac[0]), float(_min_xy_ac[1])
+        analysis_contour_units = [
+            [(float(p[0]) - _pad_ac) / _dpi_ac / _mpu_ac + _mx_ac,
+             (float(p[1]) - _pad_ac) / _dpi_ac / _mpu_ac + _my_ac]
+            for p in analysis_contour_px
+        ]
+    except Exception:
+        analysis_contour_units = []
+    analysis_mode = "envelope_hull" if pieces_mm_list else "single_contour"
+    analysis_trace = {
+        "n_input_points":  int(len(pts_arr)),
+        "n_metric_points": int(len(analysis_contour_px)),
+        "n_pieces": len(pieces_mm_list) if pieces_mm_list else 1,
+        "parity_error_area_pct":      raster["parity_error_area_pct"],
+        "parity_error_perimeter_pct": raster["parity_error_perimeter_pct"],
+    }
+    # También exponemos el contorno métrico DENTRO de geometry_overlays
+    # para que el módulo `obj3d-morph-canvas.js` pueda dibujarlo como una
+    # capa más sin necesidad de recibir un objeto adicional.
+    if isinstance(geometry_overlays, dict) and "_error" not in geometry_overlays:
+        geometry_overlays["analysis_contour"] = analysis_contour_units
+
+    return {
+        "status": result.get("status", "ok"),
+        "label":  label,
+        "metricas": metricas,
+        "scale_px_mm": scale_px_mm,
+        "preview_b64": base64.b64encode(image_bytes).decode("ascii"),
+        "geometry_overlays": geometry_overlays,
+        "analysis_contour": analysis_contour_units,
+        "analysis_mode": analysis_mode,
+        "analysis_trace": analysis_trace,
+        "bbox_units": {
+            "x_min": float(_hull_pts_arr[:, 0].min()),
+            "x_max": float(_hull_pts_arr[:, 0].max()),
+            "y_min": float(_hull_pts_arr[:, 1].min()),
+            "y_max": float(_hull_pts_arr[:, 1].max()),
+            "width":  float(max(_hull_pts_arr[:, 0].max() - _hull_pts_arr[:, 0].min(), 1e-9)),
+            "height": float(max(_hull_pts_arr[:, 1].max() - _hull_pts_arr[:, 1].min(), 1e-9)),
+        },
+        # Fase 4: diagnóstico de paridad raster vs input
+        # NOTA: en modo envolvente (pieces_json con N≥2 piezas), `*_input`
+        # refiere al CONVEX HULL (contorno analítico) y `*_raster` a la
+        # suma de las piezas físicas dibujadas. Los `parity_error_*` no
+        # representan error numérico sino la diferencia geométrica
+        # esperada entre la envolvente y los fragmentos. Para validar
+        # fidelidad del raster en modo envolvente comparar área de piezas
+        # con suma de áreas Shoelace de cada pieza (no se reporta aquí).
+        "_raster_diagnostics": {
+            "dpi": raster["dpi"],
+            "padding_px": raster["padding_px"],
+            "area_mm2_input":  raster["area_mm2_input"],
+            "area_mm2_raster": raster["area_mm2_raster"],
+            "perimeter_mm_input":  raster["perimeter_mm_input"],
+            "perimeter_mm_raster": raster["perimeter_mm_raster"],
+            "parity_error_area_pct":      raster["parity_error_area_pct"],
+            "parity_error_perimeter_pct": raster["parity_error_perimeter_pct"],
+            "mode": "envelope_hull" if pieces_mm_list else "single_contour",
+            "n_pieces": len(pieces_mm_list) if pieces_mm_list else 1,
+            "parity_note": (
+                "En modo envelope_hull, *_input = convex hull y *_raster = piezas físicas; "
+                "los parity_error_* reflejan la separación geométrica esperada, no error de raster."
+            ) if pieces_mm_list else "Paridad numérica raster vs contorno de entrada.",
+        },
+    }
+
+
+# ============================================================================
+# HOMOLOGACIÓN BIFACIAL: Genera 55 métricas 2D para caras FRONT/BACK canónicas
+# ============================================================================
+
+@app.post(f"{API_PREFIX}/obj3d/front-back-metrics-homologated")
+async def front_back_metrics_homologated(
+    obj_file:            UploadFile      = File(...),
+    mm_per_unit:         float           = Form(default=1.0),
+    front_contour_json:  Optional[str]   = Form(default=None),
+    back_contour_json:   Optional[str]   = Form(default=None),
+    precomputed_bifacial_index: Optional[float] = Form(default=None),
+):
+    """
+    Homologación bifacial: Extrae caras FRONT/BACK canónicas desde OBJ 3D y
+    aplica el motor completo de análisis 2D (55 métricas por cara).
+
+    Si se proveen front_contour_json / back_contour_json (contornos XY ya
+    calculados por el cliente con la orientación correcta), se omite la
+    re-ejecución de analyze_v2 y se usan directamente.
+    """
+    import json, base64
+    import cv2
+
+    if not modules.obj3d.IMPLEMENTED or not modules.metrics.IMPLEMENTED:
+        raise HTTPException(
+            status_code=501,
+            detail="Módulos obj3d o metrics no implementados."
+        )
+
+    # ── 1. Leer OBJ (para validar tamaño aunque no lo reanalicemos) ───
+    data = await obj_file.read()
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Archivo demasiado grande ({len(data)//1024//1024} MB). Máximo: {MAX_IMAGE_SIZE_MB} MB."
+        )
+
+    # ── 2. Obtener contornos FRONT/BACK ────────────────────────────────
+    # Ruta A: el cliente envía los contornos pre-calculados (orientación correcta)
+    # Ruta B: fallback — analizar OBJ en el servidor con orientación 'auto'
+    front_contour_xy: list = []
+    back_contour_xy:  list = []
+    bifacial_idx:     float = 0.0
+
+    if front_contour_json and back_contour_json:
+        # Ruta A — usar contornos pre-calculados
+        try:
+            front_contour_xy = json.loads(front_contour_json)
+            back_contour_xy  = json.loads(back_contour_json)
+            bifacial_idx     = float(precomputed_bifacial_index or 0.0)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Contornos JSON inválidos: {exc}") from exc
+    else:
+        # Ruta B — fallback: re-analizar OBJ
+        try:
+            result_analyze = await modules.obj3d.analyze(
+                obj_bytes=data,
+                n_samples=20000,
+                normalize_mode="none",
+                analysis_level="v2",
+                orientation_mode="auto",
+                user_anchor=None,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Error en análisis 3D: {exc}") from exc
+
+        if result_analyze.get("status") != "ok":
+            raise HTTPException(
+                status_code=422,
+                detail=f"Análisis 3D falló: {result_analyze.get('message', 'unknown')}"
+            )
+
+        _morph_can   = result_analyze.get("obj3d", {}).get("morphology_canonical", {})
+        _front_back  = _morph_can.get("front_back", {})
+        front_contour_xy = (_front_back.get("front") or {}).get("contour_xy", [])
+        back_contour_xy  = (_front_back.get("back")  or {}).get("contour_xy", [])
+        bifacial_idx     = float(
+            (_front_back.get("bifacial_balance") or {}).get("area_balance", 0.0)
+        )
+
+    if not front_contour_xy or not back_contour_xy:
+        raise HTTPException(
+            status_code=422,
+            detail="No se pudieron extraer contornos bifaciales (front/back)."
+        )
+
+    if len(front_contour_xy) < 3 or len(back_contour_xy) < 3:
+        raise HTTPException(
+            status_code=422,
+            detail="Una o ambas caras están vacías. OBJ puede no ser bifacial."
+        )
+    
+    # ── 3. Rasterizar y analizar FRONT ─────────────────────────────────
+    async def _analyze_contour_face(contour_xy, face_label):
+        """Rasteriza contorno y aplica metrics.calculate()."""
+        pts_arr = np.array(contour_xy, dtype=np.float64)
+        if pts_arr.shape[0] < 3:
+            return None
+        
+        CANVAS = 400
+        MARGIN = 24
+        x_min, y_min = pts_arr.min(axis=0)
+        x_max, y_max = pts_arr.max(axis=0)
+        w_units = max(x_max - x_min, 1e-9)
+        h_units = max(y_max - y_min, 1e-9)
+        
+        scale_to_px = CANVAS / max(w_units, h_units)
+        pts_px = ((pts_arr - [x_min, y_min]) * scale_to_px + MARGIN).astype(np.float32)
+        
+        w_img = int(w_units * scale_to_px) + 2 * MARGIN
+        h_img = int(h_units * scale_to_px) + 2 * MARGIN
+        img_canvas = np.ones((h_img, w_img, 3), dtype=np.uint8) * 248
+        
+        pts_int = pts_px.astype(np.int32).reshape(-1, 1, 2)
+        cv2.fillPoly(img_canvas, [pts_int], (200, 200, 200))
+        cv2.drawContours(img_canvas, [pts_int], 0, (40, 40, 40), 2)
+        
+        _, buf = cv2.imencode(".png", img_canvas)
+        image_bytes = buf.tobytes()
+        
+        scale_px_mm = (mm_per_unit / scale_to_px) if scale_to_px > 0 else mm_per_unit
+        
+        try:
+            metrics_result = await modules.metrics.calculate(
+                image_bytes=image_bytes,
+                contour_points=pts_px.tolist(),
+                scale_px_mm=scale_px_mm,
+            )
+            return {
+                "metricas": metrics_result.get("metricas", {}),
+                "contour_px": pts_px.tolist(),
+                "image_base64": base64.b64encode(image_bytes).decode("ascii"),
+            }
+        except Exception as exc:
+            logger.error(f"Error analizando cara {face_label}: {exc}")
+            return None
+    
+    # ── 4. Analizar ambas caras en paralelo ────────────────────────────
+    try:
+        front_metricas, back_metricas = await asyncio.gather(
+            _analyze_contour_face(front_contour_xy, "FRONT"),
+            _analyze_contour_face(back_contour_xy, "BACK"),
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Error en análisis de caras: {exc}"
+        ) from exc
+    
+    if not front_metricas or not back_metricas:
+        raise HTTPException(
+            status_code=422,
+            detail="Una o ambas caras no pudieron procesarse."
+        )
+
+    front_contour_px = front_metricas.get("contour_px", [])
+    back_contour_px  = back_metricas.get("contour_px", [])
+    front_metricas_dict = front_metricas.get("metricas", front_metricas)
+    back_metricas_dict  = back_metricas.get("metricas", back_metricas)
+    front_image_b64 = front_metricas.get("image_base64", "")
+    back_image_b64  = back_metricas.get("image_base64", "")
+
+    # ── 5. Retornar estructura homologada ──────────────────────────────
+    return {
+        "status": "ok",
+        "modelo": "mao_plus_3d_bifacial_homologation_v1",
+        "cara_anverso": {
+            **front_metricas_dict,
+            "label": "FRONT",
+            "contour_points": front_contour_px,
+            "face_image_base64": front_image_b64,
+        },
+        "cara_reverso": {
+            **back_metricas_dict,
+            "label": "BACK",
+            "contour_points": back_contour_px,
+            "face_image_base64": back_image_b64,
+        },
+        "bifacial_index": bifacial_idx,
+        "homologacion_metodo": "front_back_projection_xy",
+        "mm_per_unit": mm_per_unit,
+    }
+
+
 # Reemplazará: dilatarMascara, erosionarMascara, etc. — analysis-core.js
 # Biblioteca candidata: OpenCV, scikit-image
 # ============================================================================
@@ -1038,7 +1636,15 @@ async def classify_object(request: Request):
     # Soportar tanto {"metricas": {...}} como el dict plano directamente
     if "metricas" in m:
         m = m["metricas"]
-    return await modules.classifier.classify_async(m)
+
+    classifier_mod = getattr(modules, "classifier", None)
+    if classifier_mod is None or not hasattr(classifier_mod, "classify_async"):
+        return {
+            "status": "not_implemented",
+            "message": "Módulo classifier no disponible en este servidor; se omite clasificación tipológica.",
+        }
+
+    return await classifier_mod.classify_async(m)
 
 
 # ============================================================================
@@ -1259,6 +1865,76 @@ async def fs_list(
     return modules.persistence.list_folder(path)
 
 
+def _ph_detect_from_seed(img, seed_x: int, seed_y: int, tolerance: int = 30) -> dict:
+    """Detecta un contorno P/H desde un punto semilla sobre una imagen OpenCV."""
+    import cv2 as _cv2
+
+    h, w = img.shape[:2]
+    if not (0 <= seed_x < w and 0 <= seed_y < h):
+        return {
+            "status": "error",
+            "message": f"Punto ({seed_x},{seed_y}) fuera de imagen {w}×{h}",
+        }
+
+    # Flood fill desde la semilla en máscara separada.
+    img_copy = img.copy()
+    mask = np.zeros((h + 2, w + 2), np.uint8)
+    tol = (tolerance, tolerance, tolerance)
+    _cv2.floodFill(
+        img_copy,
+        mask,
+        (seed_x, seed_y),
+        (128, 128, 128),
+        tol,
+        tol,
+        _cv2.FLOODFILL_MASK_ONLY | _cv2.FLOODFILL_FIXED_RANGE,
+    )
+    region = mask[1:-1, 1:-1]
+
+    kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
+    region = _cv2.morphologyEx(region, _cv2.MORPH_CLOSE, kernel, iterations=2)
+    region = _cv2.morphologyEx(region, _cv2.MORPH_OPEN, kernel, iterations=1)
+
+    contours, _ = _cv2.findContours(region, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return {
+            "status": "error",
+            "message": "No se encontró región conectada en ese punto.",
+        }
+
+    cnt = max(contours, key=_cv2.contourArea)
+    area_px = float(_cv2.contourArea(cnt))
+    if area_px < 16:
+        return {
+            "status": "error",
+            "message": "Región demasiado pequeña (< 16 px²).",
+        }
+
+    perimeter_px = float(_cv2.arcLength(cnt, True))
+    circularity = (4.0 * np.pi * area_px) / (perimeter_px * perimeter_px) if perimeter_px > 0 else 0.0
+
+    epsilon = max(1.5, 0.004 * perimeter_px)
+    approx = _cv2.approxPolyDP(cnt, epsilon, True)
+    if len(approx) < 3:
+        approx = cnt
+
+    points = [[int(p[0][0]), int(p[0][1])] for p in approx]
+    x, y, bw, bh = _cv2.boundingRect(cnt)
+    M = _cv2.moments(cnt)
+    cx = float(M["m10"] / M["m00"]) if M["m00"] != 0 else float(seed_x)
+    cy = float(M["m01"] / M["m00"]) if M["m00"] != 0 else float(seed_y)
+
+    return {
+        "status": "ok",
+        "points": points,
+        "area_px": area_px,
+        "bbox": {"x": x, "y": y, "w": bw, "h": bh},
+        "centroid": [cx, cy],
+        "perimeter_px": perimeter_px,
+        "circularity": float(circularity),
+    }
+
+
 # ============================================================================
 # MÓDULO: DETECCIÓN P/H POR PUNTO SEMILLA
 # Detecta el contorno de una perforación/horadación a partir de un
@@ -1289,63 +1965,213 @@ async def ph_detect_at_point(
     if img is None:
         return {"status": "error", "message": "No se pudo decodificar la imagen"}
 
+    result = _ph_detect_from_seed(img, seed_x, seed_y, tolerance)
+    if result.get("status") == "error" and "Intente" not in result.get("message", ""):
+        result["message"] = f"{result['message']} Intente hacer clic más al centro de la P/H."
+    return result
+
+
+@app.post(f"{API_PREFIX}/ph/detect-auto")
+async def ph_detect_auto(
+    image: UploadFile = File(...),
+    seeds_json: str = Form(...),
+    tolerance: int = Form(default=26),
+    min_area_px: float = Form(default=24.0),
+    max_area_ratio: float = Form(default=0.35),
+    max_candidates: int = Form(default=24),
+):
+    """
+    Detección automática P/H por lote de semillas (una sola request).
+
+    - seeds_json: lista de semillas [{x,y}] o [[x,y], ...] en coords de canvas.
+    - Deduplica candidatos por cercanía de centroides y similitud de área.
+    """
+    import json
+    import numpy as np
+    import cv2 as _cv2
+
+    data = await _read_image(image)
+    img_arr = np.frombuffer(data, np.uint8)
+    img = _cv2.imdecode(img_arr, _cv2.IMREAD_COLOR)
+    if img is None:
+        return {"status": "error", "message": "No se pudo decodificar la imagen"}
+
     h, w = img.shape[:2]
+    area_canvas = float(max(1, w * h))
+    area_max = area_canvas * max(0.01, float(max_area_ratio))
 
-    if not (0 <= seed_x < w and 0 <= seed_y < h):
-        return {"status": "error",
-                "message": f"Punto ({seed_x},{seed_y}) fuera de imagen {w}×{h}"}
+    try:
+        raw_seeds = json.loads(seeds_json)
+    except Exception:
+        return {"status": "error", "message": "seeds_json inválido"}
 
-    # ── Flood fill desde el punto semilla ──────────────────────────────────
-    img_copy = img.copy()
-    mask = np.zeros((h + 2, w + 2), np.uint8)
-    tol = (tolerance, tolerance, tolerance)
-    _cv2.floodFill(
-        img_copy, mask, (seed_x, seed_y), (128, 128, 128),
-        tol, tol,
-        _cv2.FLOODFILL_MASK_ONLY | _cv2.FLOODFILL_FIXED_RANGE,
-    )
-    region = mask[1:-1, 1:-1]          # quitar padding de floodFill
+    parsed_seeds = []
+    for s in raw_seeds if isinstance(raw_seeds, list) else []:
+        if isinstance(s, dict):
+            sx = int(round(float(s.get("x", 0))))
+            sy = int(round(float(s.get("y", 0))))
+        elif isinstance(s, (list, tuple)) and len(s) >= 2:
+            sx = int(round(float(s[0])))
+            sy = int(round(float(s[1])))
+        else:
+            continue
+        if 0 <= sx < w and 0 <= sy < h:
+            parsed_seeds.append((sx, sy))
 
-    # ── Limpieza morfológica ───────────────────────────────────────────────
-    kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
-    region = _cv2.morphologyEx(region, _cv2.MORPH_CLOSE, kernel, iterations=2)
-    region = _cv2.morphologyEx(region, _cv2.MORPH_OPEN,  kernel, iterations=1)
+    if not parsed_seeds:
+        return {"status": "error", "message": "No hay semillas válidas dentro de la imagen"}
 
-    # ── Extraer contorno ───────────────────────────────────────────────────
-    contours, _ = _cv2.findContours(region, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_NONE)
-    if not contours:
-        return {"status": "error",
-                "message": "No se encontró región conectada en ese punto. "
-                           "Intente hacer clic más al centro de la P/H."}
+    dedup = []  # [(cx, cy, area), ...]
+    candidates = []
+    max_eval = min(len(parsed_seeds), max(1, int(max_candidates)) * 6)
 
-    cnt = max(contours, key=_cv2.contourArea)
-    area_px = float(_cv2.contourArea(cnt))
+    for sx, sy in parsed_seeds[:max_eval]:
+        if len(candidates) >= max_candidates:
+            break
 
-    if area_px < 16:
-        return {"status": "error",
-                "message": "Región demasiado pequeña (< 16 px²). "
-                           "Intente hacer clic más al centro de la P/H."}
+        det = _ph_detect_from_seed(img, sx, sy, tolerance)
+        if det.get("status") != "ok":
+            continue
 
-    # ── Simplificación Douglas-Peucker ─────────────────────────────────────
-    epsilon = max(1.5, 0.004 * _cv2.arcLength(cnt, True))
-    approx  = _cv2.approxPolyDP(cnt, epsilon, True)
-    if len(approx) < 3:
-        approx = cnt          # fallback: contorno completo
+        area_px = float(det.get("area_px", 0.0))
+        if area_px < float(min_area_px) or area_px > area_max:
+            continue
 
-    points = [[int(p[0][0]), int(p[0][1])] for p in approx]
+        cx, cy = det.get("centroid", [sx, sy])
+        duplicated = False
+        for dcx, dcy, da in dedup:
+            d = float(np.hypot(cx - dcx, cy - dcy))
+            ar = abs(da - area_px) / area_px if area_px > 0 else 1.0
+            if d < 14.0 and ar < 0.35:
+                duplicated = True
+                break
+        if duplicated:
+            continue
 
-    x, y, bw, bh = _cv2.boundingRect(cnt)
-    M  = _cv2.moments(cnt)
-    cx = float(M["m10"] / M["m00"]) if M["m00"] != 0 else float(seed_x)
-    cy = float(M["m01"] / M["m00"]) if M["m00"] != 0 else float(seed_y)
+        auto_tipo = "perforacion" if (area_px < area_canvas * 0.06 and float(det.get("circularity", 0.0)) > 0.55) else "horadacion"
+
+        dedup.append((cx, cy, area_px))
+        candidates.append({
+            "points": det.get("points", []),
+            "area_px": area_px,
+            "bbox": det.get("bbox"),
+            "centroid": det.get("centroid"),
+            "circularity": float(det.get("circularity", 0.0)),
+            "auto_tipo": auto_tipo,
+        })
 
     return {
-        "status":   "ok",
-        "points":   points,
-        "area_px":  area_px,
-        "bbox":     {"x": x, "y": y, "w": bw, "h": bh},
-        "centroid": [cx, cy],
+        "status": "ok",
+        "candidates": candidates,
+        "seeds_received": len(parsed_seeds),
+        "seeds_evaluated": max_eval,
     }
+
+
+# ============================================================================
+# MÓDULO: ELLIPTIC FOURIER ANALYSIS (EFA)
+# Descriptores de Fourier elípticos — puente hacia GMM/literatura arqueométrica
+# Referencia: Kuhl & Giardina (1982). Computer Graphics and Image Processing.
+# ============================================================================
+
+@app.post(f"{API_PREFIX}/efa")
+async def efa_analysis(
+    contour_json: str   = Form(...),         # JSON: [[x,y], ...]
+    n_harmonics:  int   = Form(default=20),  # 20 estándar para arqueología
+    scale_px_mm:  float = Form(default=1.0),
+    normalize:    bool  = Form(default=True),
+):
+    """
+    Calcula descriptores EFD (Elliptic Fourier Descriptors) para un contorno.
+
+    Los EFD son la representación estándar en Geometric Morphometrics (GMM)
+    para análisis de contorno cerrado. Permiten comparar formas de artefactos
+    arqueológicos con la literatura internacional (MorphoJ, momocs/R, etc.).
+
+    Invariancias aplicadas cuando normalize=True:
+      - Traslación   : centrado por offset DC
+      - Escala       : normalizado al semieje mayor del 1er armónico
+      - Rotación     : alineación SEMA (Kuhl & Giardina 1982, sec. 4)
+      - Reflexión    : signo positivo en c1 normalizado
+
+    Entrada:
+      contour_json — JSON: [[x1,y1],[x2,y2],...] en píxeles (absolutos)
+      n_harmonics  — número de armónicos (≥10 para publicación; 20 recomendado)
+      scale_px_mm  — factor de escala; si > 1 las coords se convierten a mm
+      normalize    — True para descriptores comparables entre objetos
+
+    Salida:
+      {
+        "status":            "ok",
+        "n_harmonics":       int,
+        "n_points_input":    int,
+        "coefficients":      [[an,bn,cn,dn], ...],   # normalizados
+        "coefficients_raw":  [[an,bn,cn,dn], ...],   # sin normalizar
+        "normalization":     {theta_1_deg, psi_1_deg, scale_factor},
+        "power_spectrum":    [float, ...],
+        "variance_explained": [float, ...],           # % acumulado por armónico
+        "harmonics_for_95pct": int,
+        "harmonics_for_99pct": int,
+        "contour_reconstructed": [[x,y], ...],        # 256 pts para visualización
+        "dc":                [a0, c0],
+        "scale_px_mm":       float,
+      }
+
+    Estado: IMPLEMENTADO (efa.py, IMPLEMENTED=True).
+    """
+    import json
+    pts = json.loads(contour_json)
+    return await modules.efa.calculate(
+        contour_points=pts,
+        n_harmonics=n_harmonics,
+        scale_px_mm=scale_px_mm,
+        normalize=normalize,
+    )
+
+
+@app.post(f"{API_PREFIX}/efa/compare")
+async def efa_compare(
+    coeffs_a_json: str = Form(...),   # JSON: [[an,bn,cn,dn], ...]
+    coeffs_b_json: str = Form(...),
+):
+    """
+    Calcula la distancia morfométrica EFD entre dos conjuntos de coeficientes.
+
+    Ambos conjuntos deben estar normalizados (normalize=True en /api/efa).
+
+    Retorna:
+      {
+        "d_efd":        float,   # distancia euclídea en espacio EFD
+        "d_ps":         float,   # distancia en espectro de potencia
+        "similarity":   float,   # similitud normalizada [0,1]
+        "interpretation": str,
+      }
+
+    Estado: IMPLEMENTADO (efa.py).
+    """
+    import json
+    ca = json.loads(coeffs_a_json)
+    cb = json.loads(coeffs_b_json)
+    return await modules.efa.compare(ca, cb)
+
+
+# ============================================================================
+# DEBUG LOG ENDPOINT (monitoreo en tiempo real)
+# ============================================================================
+
+_DEBUG_LOG_PATH = "/tmp/mao_monitor.log"
+
+@app.post(f"{API_PREFIX}/debug-log")
+async def debug_log(request: Request):
+    """Recibe un mensaje de texto del renderer y lo escribe en /tmp/mao_monitor.log."""
+    try:
+        body = await request.json()
+        msg = str(body.get("msg", ""))
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except Exception:
+        pass
+    return {"ok": True}
 
 
 # ============================================================================

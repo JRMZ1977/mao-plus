@@ -507,17 +507,23 @@ const ProcrustesModule = (() => {
    * @param {number} N
    * @returns {{dist:number, csA:number, csB:number, aligned_A:Array, norm_B:Array, usedReflection:boolean}}
    */
-  function psParcialBifacial(ptsA, ptsB, N) {
+  function psParcialBifacial(ptsA, ptsB, N, preProcessed = false) {
     ptsA = normalizeFormat(ptsA);
     ptsB = normalizeFormat(ptsB);
     if (ptsA.length < 3 || ptsB.length < 3) return { dist: Infinity, csA: 0, csB: 0, aligned_A: [], norm_B: [], usedReflection: false };
-    
-    // ✨ MEJORA 1: Filtrar outliers antes del resample (crítico para bifaciales)
-    ptsA = detectarYFiltrarOutliers(ptsA, 2.5);
-    ptsB = detectarYFiltrarOutliers(ptsB, 2.5);
-    
-    const rA = resampleByArc(ptsA, N);
-    const rB = resampleByArc(ptsB, N);
+
+    let rA, rB;
+    if (preProcessed) {
+      rA = ptsA;
+      rB = ptsB;
+    } else {
+      // ✨ MEJORA 1: Filtrar outliers antes del resample (crítico para bifaciales)
+      ptsA = detectarYFiltrarOutliers(ptsA, 2.5);
+      ptsB = detectarYFiltrarOutliers(ptsB, 2.5);
+      rA = resampleByArc(ptsA, N);
+      rB = resampleByArc(ptsB, N);
+    }
+
     // ✓ Alinear por eje de inercia ANTES del Procrustes (crítico para caras bifaciales)
     const { pts: nA, cs: csA } = centrarNormalizarYAlinearPorEjeInercia(rA);
     const { pts: nB, cs: csB } = centrarNormalizarYAlinearPorEjeInercia(rB);
@@ -579,7 +585,7 @@ const ProcrustesModule = (() => {
    *   en eje X (x→−x) DESPUÉS de centrar+normalizar+alinear, es decir en espacio de
    *   forma puro. Esto es correcto para caras B de pares bifaciales.
    */
-  function gpaIterativo(rawConfigs, N, maxIter = 30, mirrorMask = null) {
+  function gpaIterativo(rawConfigs, N, maxIter = 30, mirrorMask = null, preProcessed = false, bakedMask = null) {
     try {
       // Validar entrada
       if (!rawConfigs || !Array.isArray(rawConfigs) || rawConfigs.length < 2) {
@@ -615,6 +621,17 @@ const ProcrustesModule = (() => {
       // recorrido y los semi-landmarks queden en correspondencia CW con las caras A.
       const normalized = configs_norm
         .map((pts, i) => {
+          // Configuración ya preprocesada (N semi-landmarks consistentes)
+          if (preProcessed) {
+            return centrarNormalizarYAlinearPorEjeInercia(normalizeFormat(pts));
+          }
+
+          // Si bakedMask indica landmarks ya horneados y no requiere espejo,
+          // saltar filter+resample y solo re-normalizar para GPA.
+          if (bakedMask && bakedMask[i] && !mirrorResolved[i]) {
+            return centrarNormalizarYAlinearPorEjeInercia(pts);
+          }
+
           // Espejo en espacio píxel → normalizeWinding lo reordenará correctamente
           const workPts = mirrorResolved[i] ? pts.map(p => ({ x: -p.x, y: p.y })) : pts;
           const filtered  = detectarYFiltrarOutliers(workPts, 2.5);
@@ -632,7 +649,18 @@ const ProcrustesModule = (() => {
         return { consensus: [], aligned: [], dists: [], csAll: [], iters: 0 };
       }
 
+      // Detección temprana de posibles inversiones de orientación (180°)
+      // frente a la media inicial del conjunto.
       let mean = shapeMean(configs);
+      const inversionSuspects = configs.map((cfg, i) => {
+        const corr = cfg.reduce((s, p, j) => s + p.x * mean[j].x + p.y * mean[j].y, 0);
+        return corr < 0 ? i : -1;
+      }).filter(i => i >= 0);
+
+      if (inversionSuspects.length > 0) {
+        console.warn(`⚠️ [GPA] ${inversionSuspects.length} forma(s) con orientación opuesta al grupo: índices [${inversionSuspects.join(', ')}]`);
+      }
+
       let prevSS = Infinity;
       let iters = 0;
       let converged = false;
@@ -677,7 +705,7 @@ const ProcrustesModule = (() => {
       });
 
       console.log(`✅ GPA completado: ${configs_norm.length} objetos, ${iters} iteraciones`);
-      return { consensus, aligned, dists, csAll, iters, converged };
+      return { consensus, aligned, dists, csAll, iters, converged, inversionSuspects };
     } catch (err) {
       console.error('❌ [GPA] Error en gpaIterativo:', err.message, err.stack);
       return { consensus: [], aligned: [], dists: [], csAll: [], iters: 0 };
@@ -1052,7 +1080,7 @@ const ProcrustesModule = (() => {
   //  TAB: PS PARCIAL
   // ──────────────────────────────────────────────────────────────────────────
 
-  function ejecutarParcial(selObj) {
+  async function ejecutarParcial(selObj) {
     const cont = $('psParcialContenido');
     if (!cont) return;
 
@@ -1086,6 +1114,40 @@ const ProcrustesModule = (() => {
     }
 
     const n = conPuntos.length;
+
+    // ─── Hidratar EFA por objeto (asíncrono, no bloquea APS) ─────────────────
+    // COHERENCIA GEOMÉTRICA: MAO PLUS no tiene sistema de pre-alineamiento
+    // guardado, por lo tanto psParcial usa getPuntos(obj) directamente, y EFA
+    // también usa getPuntos(obj). Ambos parten de la misma geometría bruta →
+    // la coherencia está garantizada. El cache _efa_data es siempre válido aquí.
+    // Si en el futuro se incorpora pre-alineamiento, este bloque debe usar la
+    // misma función que entregue los puntos transformados a psParcial.
+    const _efaMap = new Map(); // idx → {coefficients, power_spectrum, ...} | null
+    const _efaPromesas = conPuntos.map(async (obj, idx) => {
+      try {
+        // Cache válido: no hay pre-alineamiento en MAO PLUS que pueda invalidarlo
+        const efa = obj.metricas?._efa_data || obj._efa_data;
+        if (efa && efa.coefficients) {
+          _efaMap.set(idx, efa);
+          return;
+        }
+        // getPuntos(obj) → misma fuente que psParcial en MAO PLUS
+        const pts = getPuntos(obj);
+        if (!pts || pts.length < 8) { _efaMap.set(idx, null); return; }
+        if (window.PythonBridge?.efa?.calculate) {
+          const res = await window.PythonBridge.efa.calculate(pts, { nHarmonics: 20, normalize: true });
+          _efaMap.set(idx, res?.coefficients ? res : null);
+        } else {
+          _efaMap.set(idx, null);
+        }
+      } catch (_) { _efaMap.set(idx, null); }
+    });
+    // Esperar hidratación antes de calcular distancias (máx 4s por seguridad)
+    await Promise.race([
+      Promise.all(_efaPromesas),
+      new Promise(r => setTimeout(r, 4000))
+    ]);
+    const efaDisponible = [..._efaMap.values()].some(v => v !== null);
 
     // ─── Clasificar selección PRIMERO (antes de calcular distancias) ─────────
     const clsf = clasificarSeleccion(conPuntos);
@@ -1530,22 +1592,81 @@ const ProcrustesModule = (() => {
     window._lastModo = modo;
 
     // Inicializar / actualizar _lastAPS con datos del PS Parcial
+    // ─── Calcular distancias EFA pairwise ─────────────────────────────────────
+    const efaPares = []; // [{i, j, dEFA, simCombinada}]
+    if (efaDisponible && window.PythonBridge?.efa?.compare) {
+      for (const r of resultados) {
+        const efaA = _efaMap.get(r.i);
+        const efaB = _efaMap.get(r.j);
+        if (efaA?.coefficients && efaB?.coefficients) {
+          try {
+            const cmp = await window.PythonBridge.efa.compare(efaA.coefficients, efaB.coefficients);
+            const dEFA = cmp?.distance ?? null;
+            const dAPS_norm = r.dist / (Math.PI / 2);
+            const dEFA_norm = dEFA !== null ? Math.min(1, dEFA) : null;
+
+            // ρ_EFA: Procrustes sobre contornos reconstruidos EFD (suavizado de Fourier)
+            // contour_reconstructed está en espacio EFD canónico (centrado, escala E1=1, θ₁-alineado)
+            // psParcial re-normaliza ambos por igual → residuos de forma pura
+            let rhoEFA = null;
+            if (efaA.contour_reconstructed?.length >= 8 && efaB.contour_reconstructed?.length >= 8) {
+              try {
+                const psEFA = psParcial(efaA.contour_reconstructed, efaB.contour_reconstructed, N_PUNTOS);
+                rhoEFA = isFinite(psEFA.dist) ? psEFA.dist : null;
+              } catch (_efa) { rhoEFA = null; }
+            }
+            const rhoEFA_norm = rhoEFA !== null ? rhoEFA / (Math.PI / 2) : null;
+
+            // Fusión 3 canales: S = 100*(1 - (0.5·ρ_EFA_norm + 0.3·ρ_raw_norm + 0.2·dEFA_norm))
+            // Degradación graceful si algún canal no está disponible
+            let simCombinada;
+            if (rhoEFA_norm !== null && dEFA_norm !== null) {
+              simCombinada = Math.max(0, 100 * (1 - (0.5 * rhoEFA_norm + 0.3 * dAPS_norm + 0.2 * dEFA_norm)));
+            } else if (rhoEFA_norm !== null) {
+              simCombinada = Math.max(0, 100 * (1 - (0.65 * rhoEFA_norm + 0.35 * dAPS_norm)));
+            } else if (dEFA_norm !== null) {
+              simCombinada = Math.max(0, 100 * (1 - (0.75 * dAPS_norm + 0.25 * dEFA_norm)));
+            } else {
+              simCombinada = Math.max(0, 100 * (1 - dAPS_norm));
+            }
+
+            efaPares.push({ i: r.i, j: r.j, dEFA, rhoEFA, simCombinada });
+          } catch (_) { efaPares.push({ i: r.i, j: r.j, dEFA: null, rhoEFA: null, simCombinada: null }); }
+        } else {
+          efaPares.push({ i: r.i, j: r.j, dEFA: null, rhoEFA: null, simCombinada: null });
+        }
+      }
+    }
+    const _efaPorPar = new Map(efaPares.map(e => (`${e.i}_${e.j}`), e => e));
+
     window._lastAPS = {
       id: null, // se asigna al guardar
       timestamp: new Date().toISOString(),
       modo: modo,
       N_landmarks: N_PUNTOS,
-      objetos: conPuntos.map(o => ({ nombre: o.nombre, cara: o.cara || null, id: o.id || null })),
-      parcial: resultados.map(r => ({
-        i: r.i, j: r.j,
-        objA: conPuntos[r.i]?.nombre || '',
-        objB: conPuntos[r.j]?.nombre || '',
-        rho: r.dist,
-        csA: r.csA, csB: r.csB,
-        ISB: Math.max(0, (1 - r.dist / (Math.PI / 2)) * 100),
-        usedReflection: r.usedReflection || false,
-        validation: r.validation || null
+      efaDisponible,
+      objetos: conPuntos.map((o, idx) => ({
+        nombre: o.nombre, cara: o.cara || null, id: o.id || null,
+        efaCoeficientes: _efaMap.get(idx)?.coefficients ?? null,
+        efaVarianza95: _efaMap.get(idx)?.harmonics_for_95pct ?? null,
+        efaContornoReconstruido: _efaMap.get(idx)?.contour_reconstructed ?? null
       })),
+      parcial: resultados.map(r => {
+        const ep = efaPares.find(e => e.i === r.i && e.j === r.j) || {};
+        return {
+          i: r.i, j: r.j,
+          objA: conPuntos[r.i]?.nombre || '',
+          objB: conPuntos[r.j]?.nombre || '',
+          rho: r.dist,
+          csA: r.csA, csB: r.csB,
+          ISB: Math.max(0, (1 - r.dist / (Math.PI / 2)) * 100),
+          usedReflection: r.usedReflection || false,
+          validation: r.validation || null,
+          dEFA: ep.dEFA ?? null,
+          rhoEFA: ep.rhoEFA ?? null,
+          simCombinada: ep.simCombinada ?? null
+        };
+      }),
       gpa: null // se rellena en ejecutarGPA
     };
 
@@ -1892,9 +2013,15 @@ const ProcrustesModule = (() => {
    *  T_i = aligned_i / cos(ρ_i) − consensus
    *  Linealiza el espacio de Kendall para estadística multivariada.            */
   function computeTangentSpace(aligned, consensus, dists) {
+    // El plano tangente en consensus es estable para ρ < π/2.
+    // Para ρ grandes, cos(ρ) se aproxima a 0 y puede inflar numéricamente T_i.
+    const MIN_SIGMA = 0.05; // amplificación máxima ≈ x20
     return aligned.map((al, i) => {
       const cosRho = Math.cos(dists[i]);
-      const sigma  = (isFinite(cosRho) && cosRho > 1e-10) ? cosRho : 1e-10;
+      if (dists[i] > Math.PI / 2) {
+        console.warn(`⚠️ [Tangent] Obj ${i}: ρ=${dists[i].toFixed(3)} > π/2 — proyección tangente poco confiable`);
+      }
+      const sigma  = Math.max(cosRho, MIN_SIGMA);
       return al.map((p, k) => ({ x: p.x / sigma - consensus[k].x, y: p.y / sigma - consensus[k].y }));
     });
   }
@@ -1903,13 +2030,31 @@ const ProcrustesModule = (() => {
    *  Cuantifica la energía de curvatura del campo de deformación.               */
   function computeTpsBendingMatrix(reference, K) {
     const U = Array.from({length: K}, () => new Float64Array(K));
+    const MIN_R2 = 1e-8;       // regularización de colapsos de landmarks
+    const MAX_BENDING = 1e12;  // cap defensivo para extremos numéricos
+    let collapsed = 0;
     for (let j = 0; j < K; j++) {
       for (let k = j + 1; k < K; k++) {
         const dx = reference[j].x - reference[k].x;
         const dy = reference[j].y - reference[k].y;
-        const r2 = dx * dx + dy * dy;
-        const v  = r2 > 1e-14 ? r2 * Math.log(r2) : 0;
+        let r2 = dx * dx + dy * dy;
+        if (r2 < MIN_R2) {
+          r2 = MIN_R2;
+          collapsed++;
+        }
+        let v = r2 * Math.log(r2);
+        if (Math.abs(v) > MAX_BENDING) {
+          v = Math.sign(v) * MAX_BENDING;
+        }
         U[j][k] = v; U[k][j] = v;
+      }
+    }
+    const totalPairs = (K * (K - 1)) / 2;
+    if (totalPairs > 0 && collapsed > 0) {
+      const collapseRate = (collapsed / totalPairs) * 100;
+      console.warn(`⚠️ [TPS] ${collapsed} pares de landmarks colapsan (${collapseRate.toFixed(1)}%) — posible ROI defectuoso`);
+      if (collapseRate > 10) {
+        console.error(`❌ [TPS] ROI defectuoso: ${collapseRate.toFixed(0)}% de landmarks colapsados — considerar re-digitalización`);
       }
     }
     return U;
@@ -3334,13 +3479,15 @@ const ProcrustesModule = (() => {
    */
   function exportarJSON(resultados, modo, conPuntos) {
     const ahora = new Date().toISOString();
+    const apsSnap = window._lastAPS;
     const json = {
       metadata: {
-        version: "2.0.0",
+        version: "2.1.0",
         timestamp: ahora,
         modo: modo,
         N_landmarks: N_PUNTOS,
         total_pares: resultados.length,
+        efaDisponible: apsSnap?.efaDisponible ?? false,
         usuario: "",
         software: "MAO PLUS — Procrustes Shape Analysis"
       },
@@ -3349,6 +3496,7 @@ const ProcrustesModule = (() => {
         const objB = conPuntos[r.j];
         const rotacionGrados = (r.dist * 180) / Math.PI;
         const isb = Math.max(0, (1 - r.dist / (Math.PI / 2)) * 100);
+        const snap = apsSnap?.parcial?.find(p => p.i === r.i && p.j === r.j);
         
         return {
           objA_nombre: objA?.nombre || `Objeto_${r.i}`,
@@ -3360,11 +3508,24 @@ const ProcrustesModule = (() => {
           ISB_porcentaje: isb.toFixed(2),
           CS_A: r.csA.toFixed(6),
           CS_B: r.csB.toFixed(6),
+          dEFA: snap?.dEFA !== null && snap?.dEFA !== undefined ? Number(snap.dEFA).toFixed(6) : null,
+          rhoEFA_radianes: snap?.rhoEFA !== null && snap?.rhoEFA !== undefined ? Number(snap.rhoEFA).toFixed(6) : null,
+          simCombinada_porcentaje: snap?.simCombinada !== null && snap?.simCombinada !== undefined ? Number(snap.simCombinada).toFixed(2) : null,
+          efa_fuente: snap?.dEFA !== null ? 'backend_python' : 'no_disponible',
           validation_score: r.validation?.score || null,
           validation_interpretacion: r.validation?.interpretacion || null,
           validation_flags: r.validation?.flags || []
         };
-      })
+      }),
+      // Datos EFA por objeto (coeficientes + contorno) para reutilización en MAO_A
+      objetos: apsSnap?.objetos?.map(o => ({
+        nombre: o.nombre,
+        cara: o.cara,
+        id: o.id,
+        efaCoeficientes: o.efaCoeficientes ?? null,
+        efaVarianza95: o.efaVarianza95 ?? null,
+        efaContornoReconstruido: o.efaContornoReconstruido ?? null
+      })) ?? []
     };
     return json;
   }
@@ -3376,6 +3537,7 @@ const ProcrustesModule = (() => {
    * @returns {string} CSV con headers y datos
    */
   function exportarCSV(resultados, conPuntos) {
+    const apsSnap = window._lastAPS;
     const headers = [
       'objA_nombre',
       'objB_nombre',
@@ -3384,6 +3546,10 @@ const ProcrustesModule = (() => {
       'ISB_porcentaje',
       'CS_A',
       'CS_B',
+      'dEFA',
+      'rhoEFA_radianes',
+      'simCombinada_porcentaje',
+      'efa_fuente',
       'validation_score',
       'validation_interpretacion'
     ];
@@ -3393,6 +3559,7 @@ const ProcrustesModule = (() => {
       const objB = conPuntos[r.j];
       const rotacionGrados = (r.dist * 180) / Math.PI;
       const isb = Math.max(0, (1 - r.dist / (Math.PI / 2)) * 100);
+      const snap = apsSnap?.parcial?.find(p => p.i === r.i && p.j === r.j);
       
       return [
         objA?.nombre || `Objeto_${r.i}`,
@@ -3402,6 +3569,10 @@ const ProcrustesModule = (() => {
         isb.toFixed(2),
         r.csA.toFixed(6),
         r.csB.toFixed(6),
+        snap?.dEFA !== null && snap?.dEFA !== undefined ? Number(snap.dEFA).toFixed(6) : '',
+        snap?.rhoEFA !== null && snap?.rhoEFA !== undefined ? Number(snap.rhoEFA).toFixed(6) : '',
+        snap?.simCombinada !== null && snap?.simCombinada !== undefined ? Number(snap.simCombinada).toFixed(2) : '',
+        snap?.dEFA !== null && snap?.dEFA !== undefined ? 'backend_python' : 'no_disponible',
         r.validation?.score || '',
         r.validation?.interpretacion || ''
       ];

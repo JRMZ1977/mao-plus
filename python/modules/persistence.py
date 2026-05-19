@@ -18,11 +18,15 @@ Métodos exportados:
 import base64
 import os
 import pathlib
+import tempfile
 
 IMPLEMENTED = True
 
-# Directorio base permitido: sólo rutas dentro del home del usuario
-_BASE_DIR = pathlib.Path.home()
+# Directorios base permitidos: home del usuario y temporal del sistema.
+_ALLOWED_BASE_DIRS = [
+    pathlib.Path.home().resolve(),
+    pathlib.Path(tempfile.gettempdir()).resolve(),
+]
 
 
 # ── Utilidades internas ─────────────────────────────────────────────────
@@ -30,14 +34,20 @@ _BASE_DIR = pathlib.Path.home()
 def _safe_path(path: str) -> pathlib.Path:
     """
     Resuelve la ruta y la devuelve como pathlib.Path absoluto.
-    Restringe al directorio de usuario (_BASE_DIR) para evitar path traversal.
-    Lanza ValueError si la ruta está vacía o fuera del home del usuario.
+    Restringe a directorios permitidos para evitar path traversal.
+    Lanza ValueError si la ruta está vacía o fuera de las bases admitidas.
     """
     if not path or not path.strip():
         raise ValueError("Ruta vacía")
     p = pathlib.Path(path).resolve()
-    if str(p) != str(_BASE_DIR) and not str(p).startswith(str(_BASE_DIR) + os.sep):
-        raise ValueError(f"Ruta '{p}' fuera del directorio de usuario permitido.")
+    for base_dir in _ALLOWED_BASE_DIRS:
+        try:
+            p.relative_to(base_dir)
+            return p
+        except ValueError:
+            continue
+    allowed_str = ", ".join(str(base_dir) for base_dir in _ALLOWED_BASE_DIRS)
+    raise ValueError(f"Ruta '{p}' fuera de los directorios permitidos: {allowed_str}")
     return p
 
 

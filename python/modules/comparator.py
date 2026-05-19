@@ -23,6 +23,7 @@ Ventaja sobre JS:
 from __future__ import annotations
 
 import math
+import os
 from typing import Any
 
 import numpy as np
@@ -350,6 +351,9 @@ def bifacial(cara_a: dict, cara_b: dict) -> dict:
     m_a = cara_a.get("metricas", {})
     m_b = cara_b.get("metricas", {})
 
+    # Paridad MAO_A por defecto: no exponer CI/CMS salvo modo extendido explícito.
+    include_ci_cms = os.getenv("MAO_ENABLE_CI_CMS", "0").strip().lower() in {"1", "true", "yes", "on"}
+
     def _get(m: dict, *keys) -> float:
         for k in keys:
             v = m.get(k)
@@ -359,6 +363,50 @@ def bifacial(cara_a: dict, cara_b: dict) -> dict:
                 except (TypeError, ValueError):
                     pass
         return 0.0
+
+    def _sim_par_ci_cms(va: float, vb: float) -> float:
+        """
+        Similitud par formal de Sección XIII:
+            s(a,b) = max(0, 1 - |a-b| / ((a+b)/2))
+        """
+        a = float(va)
+        b = float(vb)
+        mean_ab = (a + b) / 2.0
+        if abs(mean_ab) < 1e-12:
+            return 1.0
+        return max(0.0, 1.0 - abs(a - b) / abs(mean_ab))
+
+    def _weighted_similarity(
+        metric_defs: list[tuple[tuple[str, ...], float]],
+        *,
+        min_pairs: int = 1,
+    ) -> tuple[float | None, dict[str, float]]:
+        """
+        Calcula media ponderada de similitudes par sobre métricas disponibles.
+        Retorna (indice, detalles_por_metrica).
+        """
+        weighted_sum = 0.0
+        weight_sum = 0.0
+        used_pairs = 0
+        details: dict[str, float] = {}
+
+        for aliases, weight in metric_defs:
+            va = _get(m_a, *aliases)
+            vb = _get(m_b, *aliases)
+            # Ignorar pareja si ambos ausentes/cero reales para no sesgar por faltantes
+            if va == 0.0 and vb == 0.0:
+                continue
+            sim = _sim_par_ci_cms(va, vb)
+            key = aliases[0]
+            details[key] = round(sim, 4)
+            weighted_sum += sim * weight
+            weight_sum += weight
+            used_pairs += 1
+
+        if used_pairs < min_pairs or weight_sum <= 0:
+            return None, details
+
+        return max(0.0, min(1.0, weighted_sum / weight_sum)), details
 
     # ── 1. Análisis de centroides ────────────────────────────────────────────
     cent_a = m_a.get("centroide") or m_a.get("centroid") or [0.0, 0.0]
@@ -409,10 +457,10 @@ def bifacial(cara_a: dict, cara_b: dict) -> dict:
 
     sim_area   = _simetria_par(area_a, area_b)
     sim_perim  = _simetria_par(perim_a, perim_b)
-    sim_circ   = 1.0 - abs(_get(m_a, "circularity", "circularidad") - _get(m_b, "circularity", "circularidad"))
-    sim_conv   = 1.0 - abs(_get(m_a, "convexity", "convexidad")    - _get(m_b, "convexity", "convexidad"))
-    sim_solid  = 1.0 - abs(_get(m_a, "solidity", "solidez")        - _get(m_b, "solidity", "solidez"))
-    sim_elong  = 1.0 - abs(_get(m_a, "elongation", "elongacion")   - _get(m_b, "elongation", "elongacion"))
+    sim_circ   = max(0.0, min(1.0, 1.0 - abs(_get(m_a, "circularity", "circularidad") - _get(m_b, "circularity", "circularidad"))))
+    sim_conv   = max(0.0, min(1.0, 1.0 - abs(_get(m_a, "convexity", "convexidad")    - _get(m_b, "convexity", "convexidad"))))
+    sim_solid  = max(0.0, min(1.0, 1.0 - abs(_get(m_a, "solidity", "solidez")        - _get(m_b, "solidity", "solidez"))))
+    sim_elong  = max(0.0, min(1.0, 1.0 - abs(_get(m_a, "elongation", "elongacion")   - _get(m_b, "elongation", "elongacion"))))
 
     # ── 4. Distribución especular de P/H ────────────────────────────────────
     perfs_a = cara_a.get("perforaciones") or []
@@ -474,10 +522,98 @@ def bifacial(cara_a: dict, cara_b: dict) -> dict:
         simetria_especular  * 0.10
     )
 
-    return {
+    # ── 6. Sección XIII: CI / CMS (coherencia bifacial formal) ──────────────
+    # CI: métricas dimensionales absolutas
+    ci_defs = [
+        (("area",), 3.0),
+        (("perimetro", "perimeter"), 2.0),
+        (("eje_mayor_real_longitud", "eje_mayor", "major_axis"), 2.0),
+        (("eje_menor_real_longitud", "eje_menor", "minor_axis"), 1.5),
+        (("feret_max", "feret_maximo"), 1.5),
+        (("feret_min", "feret_minimo"), 1.0),
+    ]
+    ci, ci_details = _weighted_similarity(ci_defs, min_pairs=2)
+
+    # CMS: subíndices (forma / radial / contorno)
+    forma_defs = [
+        (("circularity", "circularidad"), 1.0),
+        (("solidity", "solidez"), 1.0),
+        (("elongation", "elongacion"), 1.0),
+        (("rectangularidad", "rectangularity"), 1.0),
+        (("simetria_bilateral", "symmetry_score"), 1.0),
+        (("convexity", "convexidad"), 1.0),
+        (("excentricidad",), 1.0),
+    ]
+    radial_defs = [
+        (("radio_medio",), 1.0),
+        (("ratio_radios",), 1.0),
+        (("coeficiente_variacion_radial",), 1.0),
+        (("regularidad_radial",), 1.0),
+        (("indice_estrellamiento", "estrellamiento"), 1.0),
+    ]
+    contorno_defs = [
+        (("rugosidad_borde", "rugosidad_contorno", "rugosidad"), 1.0),
+        (("ici",), 1.0),
+        (("curvatura_media",), 1.0),
+        (("varianza_tonal_interna", "variabilidad_intensidad"), 1.0),
+        (("entropia_superficie",), 1.0),
+        (("gradiente_medio",), 1.0),
+    ]
+
+    i_forma, i_forma_details = _weighted_similarity(forma_defs, min_pairs=2)
+    i_radial, i_radial_details = _weighted_similarity(radial_defs, min_pairs=2)
+    i_contorno, i_contorno_details = _weighted_similarity(contorno_defs, min_pairs=2)
+
+    cms: float | None = None
+    if i_forma is not None and i_radial is not None and i_contorno is not None:
+        cms = 0.50 * i_forma + 0.30 * i_radial + 0.20 * i_contorno
+
+    # Interpretación CI/CMS (Sección XIII)
+    interpretacion_ci_cms = {
+        "categoria": "Datos insuficientes",
+        "descripcion": "No hay métricas suficientes para evaluar CI/CMS.",
+        "diferenciacionNatural": False,
+    }
+    if ci is not None and cms is not None:
+        if ci >= 0.85 and cms >= 0.85:
+            interpretacion_ci_cms = {
+                "categoria": "Correspondencia máxima",
+                "descripcion": "Caras prácticamente idénticas en dimensiones y morfología de superficie.",
+                "diferenciacionNatural": False,
+            }
+        elif ci >= 0.78 and cms >= 0.62:
+            interpretacion_ci_cms = {
+                "categoria": "Correspondencia normal",
+                "descripcion": "Caras compatibles del mismo objeto con variación esperable de manufactura.",
+                "diferenciacionNatural": False,
+            }
+        elif ci >= 0.78 and cms < 0.62:
+            interpretacion_ci_cms = {
+                "categoria": "Diferenciación natural",
+                "descripcion": "Dimensiones equivalentes con morfología superficial divergente.",
+                "diferenciacionNatural": True,
+            }
+        elif ci < 0.60 and cms < 0.60:
+            interpretacion_ci_cms = {
+                "categoria": "No relacionados morfométricamente",
+                "descripcion": "Baja coherencia dimensional y superficial entre caras.",
+                "diferenciacionNatural": False,
+            }
+        else:
+            interpretacion_ci_cms = {
+                "categoria": "Correspondencia baja o ambigua",
+                "descripcion": "Patrón intermedio que requiere revisión contextual.",
+                "diferenciacionNatural": False,
+            }
+
+    result = {
         "status": "ok",
         # — índice global —
         "indiceSimetriaGeneral":      round(indice, 4),
+        # — claves legacy (compatibilidad de contrato) —
+        "interpretacionSimetria":     None,
+        "coherenciaPromedio":         None,
+        "correlacionEspacial":        None,
         # — área y perímetro —
         "simetriaArea":               round(sim_area, 4),
         "simetriaPerimetro":          round(sim_perim, 4),
@@ -525,3 +661,27 @@ def bifacial(cara_a: dict, cara_b: dict) -> dict:
             cara_a.get("clasificacion_forma") == cara_b.get("clasificacion_forma")
         ),
     }
+
+    if include_ci_cms:
+        ci_cms_payload = {
+            # — coherencia bifacial formal (Sección XIII) —
+            "subindicesCMS": {
+                "I_forma": round(i_forma, 4) if i_forma is not None else None,
+                "I_radial": round(i_radial, 4) if i_radial is not None else None,
+                "I_contorno": round(i_contorno, 4) if i_contorno is not None else None,
+            },
+            "similitudesCI": ci_details,
+            "similitudesCMS": {
+                "forma": i_forma_details,
+                "radial": i_radial_details,
+                "contorno": i_contorno_details,
+            },
+            "interpretacionCI_CMS": interpretacion_ci_cms,
+        }
+        if ci is not None:
+            ci_cms_payload["CI"] = round(ci, 4)
+        if cms is not None:
+            ci_cms_payload["CMS"] = round(cms, 4)
+        result.update(ci_cms_payload)
+
+    return result

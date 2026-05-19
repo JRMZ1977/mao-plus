@@ -84,6 +84,7 @@
     sectionCanvas:                  ['sectionEscala'],   // alias → mismo bloque
     morphologicalAnalysisContainer: ['resultadosPanel'],
     comparadorMultiObjetoSection:   ['comparadorMultiObjetoSection'],
+    sectionAnalisis3D:              ['sectionAnalisis3D'],  // paneles de análisis 3D
   };
 
   // IDs de todos los paneles gestionados por activatePanel (únicos, nivel raíz)
@@ -92,6 +93,7 @@
     'sectionImagen', 'sectionEscala',
     'resultadosPanel',
     'comparadorMultiObjetoSection',
+    'sectionAnalisis3D',
   ];
 
   let _activePanel = 'fieldsetGestionProyectos';
@@ -313,6 +315,15 @@
           const group = document.getElementById(groupId);
           if (group) {
             setTimeout(() => group.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+          }
+        }
+        // Si tiene data-scroll-to: navegar al sub-panel dentro de la sección
+        const scrollToId = btn.dataset.scrollTo;
+        if (scrollToId) {
+          const target = document.getElementById(scrollToId + '-anchor') ||
+                         document.getElementById(scrollToId);
+          if (target) {
+            setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
           }
         }
       });
@@ -780,6 +791,20 @@
 
   // Exponer activatePanel para uso desde otros módulos (ej. mao-ia.js)
   window.maoActivatePanel = activatePanel;
+
+  // ── Modo 2D / 3D: mostrar u ocultar el ítem “Análisis 3D” en sidebar ──
+  // Escucha el evento global que lanza object-dimension-mode.js al cambiar modo.
+  window.addEventListener('mao:object-dimension-changed', function (e) {
+    const is3d = e?.detail?.mode === '3d';
+    const navBtn      = document.getElementById('navAnalisis3DBtn');
+    const navSubs     = document.getElementById('navAnalisis3DSubitems');
+    if (navBtn)  navBtn.style.display  = is3d ? '' : 'none';
+    if (navSubs) navSubs.style.display = is3d ? '' : 'none';
+    // Al salir de 3D, si el panel activo era el de análisis 3D, redirigir
+    if (!is3d && _activePanel === 'sectionAnalisis3D') {
+      activatePanel('sectionImagen');
+    }
+  });
 
 })();
 

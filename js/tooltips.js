@@ -29,7 +29,7 @@ const tooltipData = {
   convexidad: 'Relación entre el perímetro del envolvente convexo y el perímetro real. Valores <0.9 indican concavidades pronunciadas.',
   solidez: 'Proporción del área del envolvente convexo ocupada por el objeto. Valores altos (>0.9) indican formas sin perforaciones ni concavidades.',
   compacidad: 'Medida de cuán compacto es el objeto. Fórmula: √(Área/π) / Radio. Valores bajos indican formas irregulares con protuberancias.',
-  aspecto: 'Relación entre eje mayor y eje menor. Indica elongación del objeto. Valores >2 = muy alargado, <1.5 = redondeado.',
+  aspecto: 'Relación de aspecto (AR): eje mayor / eje menor. Complementa la elongación normalizada y describe anisotropía planar.',
   
   // ========================================================================
   // CONVEX HULL
@@ -113,7 +113,7 @@ const tooltipData = {
   compactness_fragmentada: 'Compacidad calculada sobre el contorno real. Penaliza concavidades y fragmentaciones que la versión del Hull ignora.',
   rectangularity: 'Fracción del tight bounding box ocupada por el área del Hull. Valores cercanos a 1 indican formas rectangulares. Fórmula: A_Hull / A_BB_tight.',
   rectangularity_fragmentada: 'Rectangularidad del contorno real respecto al tight bounding box.',
-  elongation: 'Medida de cuán alargado es el objeto. Fórmula: 1 − (eje_menor / eje_mayor). 0 = equidimensional, → 1 = muy elongado.',
+  elongation: 'Medida de cuán alargado es el objeto. Fórmula: 1 − (eje_menor / eje_mayor). Rango [0,1]: 0 = equidimensional, 1 = muy elongado.',
   shape_factor: 'Factor de forma de Wadell (P² / 4πA). 1.0 = círculo perfecto; valores mayores indican mayor complejidad o irregularidad del contorno.',
   shape_factor_fragmentado: 'Factor de forma calculado sobre el contorno real fragmentado.',
   contour_complexity_index: 'Índice de complejidad del contorno. Fórmula: P_real / (2π × √(A_real/π)), es decir, la razón entre el perímetro real y el perímetro de un círculo de igual área. 1.0 = círculo simple; valores > 2 indican contornos muy complejos.',

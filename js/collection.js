@@ -2,6 +2,68 @@
 let currentCollection = null;
 let filteredObjects = [];
 
+function _ensureCollectionTraceability(collection = null) {
+  if (!collection) return null;
+  if (collection.trazabilidadMetricas) return collection.trazabilidadMetricas;
+
+  const objetos = collection.objetos || [];
+  const modos = { monofacial: 0, bifacial: 0, obj3d: 0, otros: 0 };
+  let incluyePH = false;
+  let incluyeCI_CMS = false;
+
+  for (const obj of objetos) {
+    const modo = String(obj?.modo || 'monofacial').toLowerCase();
+    if (modo === 'monofacial' || modo === 'bifacial' || modo === 'obj3d') modos[modo] += 1;
+    else modos.otros += 1;
+
+    const ph = Number(obj?.metricasResumen?.numPerforaciones || 0) + Number(obj?.metricasResumen?.numHoradaciones || 0);
+    if (ph > 0) incluyePH = true;
+    if (obj?.trazabilidadMetricas?.summary?.incluyeCI_CMS) incluyeCI_CMS = true;
+  }
+
+  return {
+    schemaVersion: '1.0.0',
+    specDoc: 'FORMULAS_METRICAS_MAO.html',
+    generatedAt: new Date().toISOString(),
+    totalObjetos: objetos.length,
+    modos,
+    incluyePH,
+    incluyeCI_CMS,
+    scope: ['II', 'III', 'IV', 'V', 'VI', 'VIII', 'XII'].concat(incluyeCI_CMS ? ['XIII'] : [])
+  };
+}
+
+function renderCollectionTraceabilitySummary(collection = null) {
+  const el = document.getElementById('collectionTraceabilitySummary');
+  if (!el) return;
+  if (!collection) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+
+  const trace = _ensureCollectionTraceability(collection);
+  if (!trace) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+
+  const modos = trace.modos || {};
+  const modosTexto = [
+    modos.monofacial ? `${modos.monofacial} mono` : null,
+    modos.bifacial ? `${modos.bifacial} bi` : null,
+    modos.obj3d ? `${modos.obj3d} 3D` : null
+  ].filter(Boolean).join(' · ') || 'sin desglose';
+
+  const cobertura = trace.scope?.join(', ') || 'II–XII';
+  const phTxt = trace.incluyePH ? 'sí' : 'no';
+  const bicTxt = trace.incluyeCI_CMS ? 'sí' : 'no';
+
+  el.textContent = `Trazabilidad métricas · Especificación: ${trace.specDoc || 'FORMULAS_METRICAS_MAO.html'} · Secciones: ${cobertura} · Modos: ${modosTexto} · P/H: ${phTxt} · CI/CMS: ${bicTxt}`;
+  el.style.display = 'block';
+}
+
 /**
  * Abrir explorador de colección
  */
@@ -68,6 +130,7 @@ async function openCollectionExplorer(projectId) {
     const totalObj = (collection.objetos || []).length;
     const subtitle = `${totalObj} objeto${totalObj !== 1 ? 's' : ''} • Última actualización: ${new Date(collection.ultimaActualizacion || Date.now()).toLocaleString('es-ES')}`;
     document.getElementById('collectionPanelSubtitle').textContent = subtitle;
+    renderCollectionTraceabilitySummary(collection);
     
     // Renderizar tabla
     renderCollectionTable();
@@ -1112,6 +1175,13 @@ async function exportGeometryToSVG() {
     toast.error('No hay geometría cargada para exportar');
     return;
   }
+
+  const escapeXml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
   
   const geometryData = window.currentGeometryData;
   const analysis = window.currentAnalysisData;
@@ -1126,15 +1196,20 @@ async function exportGeometryToSVG() {
   const minY = bbox.minY || 0;
 
   // ── Factor de escala real (mm/px) ──────────────────────────────────────────
-  // ViewBox se mantiene en píxeles; solo width/height del SVG se expresan en mm
-  // Así todos los editores vectoriales (Inkscape, Illustrator, CAD) respetan la escala 1:1
+  // ViewBox se mantiene en píxeles; width/height del SVG se expresan en mm × SCALE_RATIO
+  // Estándar morfometría: representación 10:1 (dibujo = 10× tamaño real del objeto)
+  const SCALE_RATIO = 10;                           // factor de representación 10:1
   const escala = geometryData.escala || {};
   const factor = escala.factorConversion || escala.factor || 1; // mm/px
   const unidades = escala.unidades || 'mm';
-  const widthMM = +(width  * factor).toFixed(3);
-  const heightMM = +(height * factor).toFixed(3);
+  // Dimensiones reales del objeto (usadas para barra de escala y etiquetas de ejes)
+  const widthMM  = +(width  * factor).toFixed(3);   // mm reales
+  const heightMM = +(height * factor).toFixed(3);   // mm reales
+  // Dimensiones físicas del documento SVG (escala 10:1)
+  const widthSVGmm  = +(widthMM  * SCALE_RATIO).toFixed(3);
+  const heightSVGmm = +(heightMM * SCALE_RATIO).toFixed(3);
   const scalado = factor !== 1;
-  console.log(`📏 Escala SVG: ${factor} mm/px → dimensiones reales ${widthMM}×${heightMM} ${unidades}`);
+  console.log(`📏 Escala SVG 10:1: ${factor} mm/px | objeto real ${widthMM}×${heightMM} ${unidades} | SVG físico ${widthSVGmm}×${heightSVGmm} mm`);
   // ──────────────────────────────────────────────────────────────────────────
 
   // Helper para extraer coordenadas
@@ -1169,40 +1244,40 @@ async function exportGeometryToSVG() {
   };
   
   // Iniciar SVG
-  // width/height en mm → escala física real; viewBox en px → coordenadas sin tocar
+  // width/height en mm a escala 10:1; viewBox en px → coordenadas sin modificar
   let svg = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n`;
   svg += `<svg xmlns="http://www.w3.org/2000/svg" `;
-  svg += `width="${widthMM}mm" height="${heightMM}mm" `;
+  svg += `width="${widthSVGmm}mm" height="${heightSVGmm}mm" `;
   svg += `viewBox="0 0 ${width} ${height}">\n`;
   
   // ========================================================================
   // METADATOS DEL PROYECTO EN SVG
   // ========================================================================
-  svg += `  <title>Análisis Morfológico - ${analysis.nombreObjeto || 'Objeto'}</title>\n`;
+  svg += `  <title>Análisis Morfológico - ${escapeXml(analysis.nombreObjeto || 'Objeto')}</title>\n`;
   svg += `  <desc>Exportado desde MAO Plus - ${new Date().toLocaleString('es-ES')}</desc>\n`;
   
   if (projectManager?.activeProject) {
     svg += `  <metadata>\n`;
     svg += `    <proyecto>\n`;
-    svg += `      <nombre>${projectManager.activeProject.name || 'N/A'}</nombre>\n`;
+      svg += `      <nombre>${escapeXml(projectManager.activeProject.name || 'N/A')}</nombre>\n`;
     if (projectManager.activeProject.descripcion) {
-      svg += `      <descripcion>${projectManager.activeProject.descripcion}</descripcion>\n`;
+      svg += `      <descripcion>${escapeXml(projectManager.activeProject.descripcion)}</descripcion>\n`;
     }
     if (projectManager.activeProject.sitio) {
-      svg += `      <sitio>${projectManager.activeProject.sitio}</sitio>\n`;
+      svg += `      <sitio>${escapeXml(projectManager.activeProject.sitio)}</sitio>\n`;
     }
     if (projectManager.activeProject.investigadorResponsable) {
-      svg += `      <investigador>${projectManager.activeProject.investigadorResponsable}</investigador>\n`;
+      svg += `      <investigador>${escapeXml(projectManager.activeProject.investigadorResponsable)}</investigador>\n`;
     }
     if (projectManager.activeProject.institucionResponsable) {
-      svg += `      <institucion>${projectManager.activeProject.institucionResponsable}</institucion>\n`;
+      svg += `      <institucion>${escapeXml(projectManager.activeProject.institucionResponsable)}</institucion>\n`;
     }
     svg += `    </proyecto>\n`;
     svg += `  </metadata>\n`;
   }
 
   // Escala real embebida en desc
-  svg += `  <desc>Escala: 1 px = ${factor} mm | Dimensiones reales: ${widthMM} × ${heightMM} ${unidades} | Exportado desde MAO Plus - ${new Date().toLocaleString('es-ES')}</desc>\n`;
+  svg += `  <desc>Escala representación: ${SCALE_RATIO}:1 | 1 px = ${factor} mm | Objeto real: ${widthMM} × ${heightMM} ${unidades} | SVG físico: ${widthSVGmm} × ${heightSVGmm} mm | Exportado desde MAO Plus - ${new Date().toLocaleString('es-ES')}</desc>\n`;
   svg += `\n`;
   // ========================================================================
 
@@ -1286,7 +1361,38 @@ async function exportGeometryToSVG() {
   if (geometryData.ejes) {
     svg += `  <!-- Ejes Principales -->\n`;
     svg += `  <g id="ejes">\n`;
-    
+
+    // Helper: etiqueta de longitud perpendicular al eje (solo si hay escala calibrada)
+    const _labelEje = (eje) => {
+      if (!eje.p1 || !eje.p2 || !scalado) return '';
+      const axisLenPx = Math.hypot(eje.p2[0] - eje.p1[0], eje.p2[1] - eje.p1[1]);
+      const lenMM = (eje.longitudMM != null && eje.longitudMM > 0)
+        ? +eje.longitudMM
+        : axisLenPx * factor;
+      if (lenMM <= 0) return '';
+      const label = `${lenMM.toFixed(1)} mm`;
+      const mx  = (eje.p1[0] + eje.p2[0]) / 2 - minX;
+      const my  = (eje.p1[1] + eje.p2[1]) / 2 - minY;
+      const dx  = eje.p2[0] - eje.p1[0];
+      const dy  = eje.p2[1] - eje.p1[1];
+      const len = Math.hypot(dx, dy) || 1;
+      // Normal perpendicular (rotación 90° CCW): (-dy/len, dx/len)
+      const pxN = -dy / len;
+      const pyN =  dx / len;
+      const lfs = Math.max(height * 0.028, 9);
+      const off = lfs * 2.2;
+      const lx  = (mx + pxN * off).toFixed(1);
+      const ly  = (my + pyN * off).toFixed(1);
+      const rW  = (label.length * lfs * 0.58).toFixed(1);
+      const rH  = (lfs * 1.3).toFixed(1);
+      let out = `    <rect x="${(+lx - rW / 2).toFixed(1)}" y="${(+ly - lfs * 0.9).toFixed(1)}" `;
+      out += `width="${rW}" height="${rH}" fill="white" fill-opacity="0.82" rx="2"/>\n`;
+      out += `    <text x="${lx}" y="${(+ly + lfs * 0.35).toFixed(1)}" text-anchor="middle" `;
+      out += `font-family="Arial, sans-serif" font-size="${lfs.toFixed(1)}" `;
+      out += `fill="${eje.color || '#333'}" font-weight="bold">${label}</text>\n`;
+      return out;
+    };
+
     // Eje Mayor
     if (geometryData.ejes.ejeMayor?.p1 && geometryData.ejes.ejeMayor?.p2) {
       const eje = geometryData.ejes.ejeMayor;
@@ -1297,6 +1403,7 @@ async function exportGeometryToSVG() {
       svg += `stroke-width="${eje.grosor || 2.5}" `;
       svg += `stroke-dasharray="${dashArray}" `;
       svg += `stroke-linecap="round"/>\n`;
+      svg += _labelEje(eje);
     }
     
     // Eje Menor
@@ -1309,6 +1416,7 @@ async function exportGeometryToSVG() {
       svg += `stroke-width="${eje.grosor || 2.5}" `;
       svg += `stroke-dasharray="${dashArray}" `;
       svg += `stroke-linecap="round"/>\n`;
+      svg += _labelEje(eje);
     }
     svg += `  </g>\n\n`;
   }
@@ -1399,15 +1507,19 @@ async function exportGeometryToSVG() {
 \n`;
   // ──────────────────────────────────────────────────────────────────────────
 
-  // ── Nombre del objeto (esquina superior izquierda) ──────────────────────
+  // ── Nombre del objeto + indicador de escala (esquina superior izquierda) ──
   const nameFS    = Math.max(height * 0.03, 10);
   const namePad   = nameFS * 0.6;
   const nameLabel = (analysis.nombreObjeto || 'Objeto').replace(/[<>&"']/g,
     c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
-  svg += `  <!-- Nombre del objeto -->\n`;
+  const scaleLabel = scalado ? `E ${SCALE_RATIO}:1` : 'E s/escala';
+  const blockW = Math.max(nameLabel.length * nameFS * 0.62 + nameFS, scaleLabel.length * (nameFS * 0.82) * 0.62 + nameFS);
+  const blockH = nameFS * 3.2;
+  svg += `  <!-- Nombre del objeto y escala -->\n`;
   svg += `  <g id="nombre-objeto">\n`;
-  svg += `    <rect x="${namePad.toFixed(1)}" y="${namePad.toFixed(1)}" width="${(nameLabel.length * nameFS * 0.62 + nameFS).toFixed(1)}" height="${(nameFS * 1.7).toFixed(1)}" fill="white" fill-opacity="0.85" rx="3"/>\n`;
+  svg += `    <rect x="${namePad.toFixed(1)}" y="${namePad.toFixed(1)}" width="${blockW.toFixed(1)}" height="${blockH.toFixed(1)}" fill="white" fill-opacity="0.85" rx="3"/>\n`;
   svg += `    <text x="${(namePad * 2).toFixed(1)}" y="${(namePad + nameFS * 1.2).toFixed(1)}" font-family="Arial, sans-serif" font-size="${nameFS.toFixed(1)}" font-weight="bold" fill="#1a202c">${nameLabel}</text>\n`;
+  svg += `    <text x="${(namePad * 2).toFixed(1)}" y="${(namePad + nameFS * 2.5).toFixed(1)}" font-family="Arial, sans-serif" font-size="${(nameFS * 0.82).toFixed(1)}" fill="#555">${scaleLabel}</text>\n`;
   svg += `  </g>\n\n`;
 
   // Cerrar SVG
@@ -1420,14 +1532,28 @@ async function exportGeometryToSVG() {
 
   const svgBlob = new Blob([svg], { type: 'image/svg+xml' });
   const svgText = await svgBlob.text();
-  const dialogResult = await window.electronAPI.showSaveDialog(filename, 'svg');
-  if (!dialogResult || dialogResult.canceled || !dialogResult.filePath) return;
-  const saveResult = await window.electronAPI.saveFile(dialogResult.filePath, svgText);
+  let saveResult = null;
+  if (window.electronAPI?.showSaveDialog && window.electronAPI?.saveFile) {
+    const dialogResult = await window.electronAPI.showSaveDialog(filename, 'svg');
+    if (!dialogResult || dialogResult.canceled || !dialogResult.filePath) return;
+    saveResult = await window.electronAPI.saveFile(dialogResult.filePath, svgText);
+  } else {
+    const blob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${filename}.svg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    saveResult = { success: true, fallback: true };
+  }
 
   if (saveResult?.success) {
     console.log('✅ SVG exportado exitosamente');
     if (scalado) {
-      toast.success(`SVG exportado a escala real: ${widthMM} × ${heightMM} ${unidades}`);
+      toast.success(`SVG exportado E${SCALE_RATIO}:1 — real: ${widthMM} × ${heightMM} ${unidades}`);
     } else {
       toast.success('Geometría exportada a SVG (sin factor de escala aplicado)');
     }
@@ -2275,7 +2401,7 @@ function generarTablaMetricasVisor(obj, metricas) {
         <tr><td style="${estiloTd}">Compacidad</td><td style="${estiloTd}; font-weight: 600;">${formatNumber(metricas.compactness, 4)}</td><td style="${estiloTd}; font-size: 12px;">Relación área/perímetro²</td></tr>
         <tr style="background: #f8f9fa;"><td style="${estiloTd}">Solidez</td><td style="${estiloTd}; font-weight: 600;">${formatNumber(metricas.solidity, 4)}</td><td style="${estiloTd}; font-size: 12px;">Área/Área convexa</td></tr>
         <tr><td style="${estiloTd}">Convexidad</td><td style="${estiloTd}; font-weight: 600;">${formatNumber(metricas.convexity, 4)}</td><td style="${estiloTd}; font-size: 12px;">Perímetro convexo/Perímetro</td></tr>
-        <tr style="background: #f8f9fa;"><td style="${estiloTd}">Elongación</td><td style="${estiloTd}; font-weight: 600;">${formatNumber(metricas.elongation, 4)}</td><td style="${estiloTd}; font-size: 12px;">Relación alto/ancho</td></tr>
+        <tr style="background: #f8f9fa;"><td style="${estiloTd}">Elongación</td><td style="${estiloTd}; font-weight: 600;">${formatNumber(metricas.elongation, 4)}</td><td style="${estiloTd}; font-size: 12px;">1 − (eje menor / eje mayor), rango 0-1</td></tr>
         <tr><td style="${estiloTd}">Excentricidad</td><td style="${estiloTd}; font-weight: 600;">${formatNumber(metricas.eccentricity, 4)}</td><td style="${estiloTd}; font-size: 12px;">Desviación de círculo (0-1)</td></tr>
         <tr style="background: #f8f9fa;"><td style="${estiloTd}">Rectangularidad</td><td style="${estiloTd}; font-weight: 600;">${formatNumber(metricas.rectangularity, 4)}</td><td style="${estiloTd}; font-size: 12px;">Área/Área bbox</td></tr>
         <tr><td style="${estiloTd}">Asimetría</td><td style="${estiloTd}; font-weight: 600;">${formatNumber(metricas.asymmetry, 4)}</td><td style="${estiloTd}; font-size: 12px;">Medida de asimetría</td></tr>
@@ -2588,14 +2714,16 @@ async function exportarSVGMorfologicoActual() {
         p2: m.eje_mayor_p2_recortado || null,
         color: '#ff0000',
         grosor: 2.5,
-        punteado: [10, 5]
+        punteado: [10, 5],
+        longitudMM: m.eje_mayor_real_longitud || null
       },
       ejeMenor: {
         p1: m.eje_menor_p1_recortado || null,
         p2: m.eje_menor_p2_recortado || null,
         color: '#00ff00',
         grosor: 2.5,
-        punteado: [10, 5]
+        punteado: [10, 5],
+        longitudMM: m.eje_menor_real_longitud || null
       }
     },
     radios: {
@@ -3579,6 +3707,7 @@ async function abrirProyectoCompleto(folderPath) {
     // 5. Renderizar tabla
     const subtitle = `${totalObj} objeto${totalObj !== 1 ? 's' : ''} • Última actualización: ${new Date(proyectoMAO.metadata.ultimaActualizacion).toLocaleString('es-ES')}`;
     document.getElementById('collectionPanelSubtitle').textContent = subtitle;
+    renderCollectionTraceabilitySummary(window.currentCollection);
     
     currentCollection = window.currentCollection;
     filteredObjects = [...collectionObjetos];
@@ -3936,7 +4065,7 @@ async function exportarColeccionCSV() {
 
     const headers = [
       'Nombre', 'Fecha', 'Modo', 'Cara',
-      'Área (mm²)', 'Perímetro (mm)', 'Circularidad', 'Elongación', 'Aspect Ratio',
+      'Área (mm²)', 'Perímetro (mm)', 'Circularidad', 'Elongación', 'Relación de aspecto (AR)',
       'Forma Clasificada', 'Nº Perforaciones', 'Nº Horadaciones', 'Carpeta'
     ];
 
@@ -4045,9 +4174,11 @@ async function refreshCollectionIndex() {
       // Actualizar currentCollection con nuevos datos
       currentCollection.objetos = collection.objetos;
       currentCollection.totalObjetos = collection.objetos.length;
+      currentCollection.trazabilidadMetricas = collection.trazabilidadMetricas || _ensureCollectionTraceability(currentCollection);
       
       filteredObjects = [...collection.objetos];
       renderCollectionTable();
+      renderCollectionTraceabilitySummary(currentCollection);
       
       toast.success(`Índice actualizado: ${collection.objetos.length} objetos`);
       
@@ -4069,6 +4200,7 @@ async function refreshCollectionIndex() {
       currentCollection = collection;
       filteredObjects = [...collection.objetos];
       renderCollectionTable();
+      renderCollectionTraceabilitySummary(currentCollection);
     }
   }
 }
@@ -4080,6 +4212,8 @@ function showCollectionLoadingState() {
   document.getElementById('collectionLoadingState').style.display = 'block';
   document.getElementById('collectionEmptyState').style.display = 'none';
   document.getElementById('collectionErrorState').style.display = 'none';
+  const traceEl = document.getElementById('collectionTraceabilitySummary');
+  if (traceEl) traceEl.style.display = 'none';
   const tbl = document.querySelector('.collection-table');
   if (tbl) tbl.style.display = 'none';
 }
@@ -4106,6 +4240,8 @@ function showCollectionErrorState(message) {
   document.getElementById('collectionErrorState').style.display = 'block';
   document.getElementById('collectionErrorMessage').textContent = message;
   document.getElementById('collectionLoadingState').style.display = 'none';
+  const traceEl = document.getElementById('collectionTraceabilitySummary');
+  if (traceEl) traceEl.style.display = 'none';
   const tbl = document.querySelector('.collection-table');
   if (tbl) tbl.style.display = 'none';
 }

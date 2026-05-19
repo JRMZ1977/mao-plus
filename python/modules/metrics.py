@@ -550,8 +550,8 @@ async def calculate(
     m["centroide_x"] = _r(cx, 2); m["centroide_y"] = _r(cy, 2)
     m["centroide"]   = [_r(cx, 2), _r(cy, 2)]
 
-    # ── 4. Bounding box ajustado ───────────────────────────────────────────
-    bbox = _tight_bbox(pts)
+    # ── 4. Bounding box sobre convex hull (estándar morfológico MAO) ────────
+    bbox = _tight_bbox(hull_pts if len(hull_pts) >= 3 else pts)
     m["tight_bounding_width_px"]  = _r(bbox["width"])
     m["tight_bounding_height_px"] = _r(bbox["height"])
     m["tight_bounding_area_px"]   = _r(bbox["area"])
@@ -568,31 +568,43 @@ async def calculate(
         m["perdida_perimetro_fragmentacion_percent"] = _r((hull_perim - perim_real) / hull_perim * 100, 1) if hull_perim > 0 else 0.0
 
     # ── 6. Conversión a mm ────────────────────────────────────────────────
+    # PRINCIPIO MAO: area y perimeter PRIMARIOS = convex hull (forma canónica completa).
+    # Los valores del contorno real (Shoelace) se conservan como _fragmentada/_real
+    # para calcular solidez, déficit de fragmentación y métricas de relleno.
     if sc > 0:
-        m["area"]               = _r(hull_area * sc * sc, 3); m["area_unit"]      = "mm²"
-        m["perimeter"]          = _r(hull_perim * sc, 3);     m["perimeter_unit"] = "mm"
-        m["area_fragmentada"]   = _r(area_real * sc * sc, 3)
-        m["perimeter_fragmentado"] = _r(perim_real * sc, 3)
-        m["width"]              = _r(bbox["width"] * sc, 3)
-        m["height"]             = _r(bbox["height"] * sc, 3)
+        m["area"]                  = _r(hull_area  * sc * sc, 3); m["area_unit"]      = "mm²"
+        m["perimeter"]             = _r(hull_perim  * sc, 3);     m["perimeter_unit"] = "mm"
+        m["hull_area"]             = _r(hull_area  * sc * sc, 3)  # alias canónico
+        m["perimeter_hull"]        = _r(hull_perim  * sc, 3)      # alias canónico
+        m["area_real"]             = _r(area_real  * sc * sc, 3)  # Shoelace contorno real
+        m["perimeter_real"]        = _r(perim_real * sc, 3)       # perímetro contorno real
+        m["area_fragmentada"]      = _r(area_real  * sc * sc, 3)  # alias de area_real
+        m["perimeter_fragmentado"] = _r(perim_real * sc, 3)       # alias de perimeter_real
+        m["width"]                 = _r(bbox["width"]  * sc, 3)
+        m["height"]                = _r(bbox["height"] * sc, 3)
     else:
-        m["area"]               = _r(hull_area);   m["area_unit"]      = "px²"
-        m["perimeter"]          = _r(hull_perim);  m["perimeter_unit"] = "px"
-        m["area_fragmentada"]   = _r(area_real)
-        m["perimeter_fragmentado"] = _r(perim_real)
-        m["width"]              = _r(bbox["width"])
-        m["height"]             = _r(bbox["height"])
+        m["area"]                  = _r(hull_area);  m["area_unit"]      = "px²"
+        m["perimeter"]             = _r(hull_perim); m["perimeter_unit"] = "px"
+        m["hull_area"]             = _r(hull_area)   # alias canónico
+        m["perimeter_hull"]        = _r(hull_perim)  # alias canónico
+        m["area_real"]             = _r(area_real)   # Shoelace contorno real
+        m["perimeter_real"]        = _r(perim_real)  # perímetro contorno real
+        m["area_fragmentada"]      = _r(area_real)   # alias de area_real
+        m["perimeter_fragmentado"] = _r(perim_real)  # alias de perimeter_real
+        m["width"]                 = _r(bbox["width"])
+        m["height"]                = _r(bbox["height"])
 
     # ── 7. Aspect ratio ───────────────────────────────────────────────────
     tw = bbox["width"]; th = bbox["height"]
     ar = _r(tw / th if th > 0 else 1.0, 4)
     m["aspect_ratio_tight"] = ar; m["aspect_ratio_original"] = ar
 
-    # ── 8. Circularidad 4πA/P² (Hull y fragmentado) ───────────────────────
+    # ── 8. Circularidad 4πA/P² (hull=principal, real=referencia de fragmentación) ──
     circ  = (_FOUR_PI * hull_area) / (hull_perim ** 2) if hull_perim > 0 else 0.0
     circF = (_FOUR_PI * area_real) / (perim_real ** 2) if perim_real > 0 else 0.0
-    m["circularity"]            = _r(circ, 4)
-    m["circularity_fragmentada"]= _r(circF, 4)
+    m["circularity"]            = _r(circ,  4)   # hull (forma canónica)
+    m["circularity_hull"]       = _r(circ,  4)   # alias canónico
+    m["circularity_fragmentada"]= _r(circF, 4)   # contorno real (indica fragmentación)
 
     # ── 9. Compacidad A / (π·r²) donde r = P/(2π) ─────────────────────────
     def _compac(a, p):
@@ -602,8 +614,9 @@ async def calculate(
     m["compactness_fragmentada"]= _r(_compac(area_real, perim_real), 4)
 
     # ── 10. Rectangularidad A / A_bbox ───────────────────────────────────
-    m["rectangularity"]            = _r(hull_area / bbox["area"], 4) if bbox["area"] > 0 else None
-    m["rectangularity_fragmentada"]= _r(area_real / bbox["area"], 4) if bbox["area"] > 0 else None
+    m["rectangularity"]            = _r(area_real / bbox["area"], 4) if bbox["area"] > 0 else None
+    m["rectangularity_hull"]       = _r(hull_area / bbox["area"], 4) if bbox["area"] > 0 else None
+    m["rectangularity_fragmentada"]= _r(area_real / bbox["area"], 4) if bbox["area"] > 0 else None  # alias
 
     # ── 11. Solidez A_real / A_hull ───────────────────────────────────────
     solidez = area_real / hull_area if hull_area > 0 else 1.0

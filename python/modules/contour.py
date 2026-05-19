@@ -480,10 +480,18 @@ async def extract(
     arc_len = float(np.sum(
         np.sqrt(np.sum(np.diff(pts_full, axis=0).astype(np.float64) ** 2, axis=1))
     ))
-    # ε adaptativo igual que JS: tolerancia relativa al perímetro
-    epsilon = max(simplify_tolerance, arc_len * 0.001)
+    # ε adaptativo igual que JS simplificarContornoInteligente():
+    #   ε = min(tolerancia, max(0.5, perímetro × 0.001))
+    # Antes se usaba max() en lugar de min() → simplificación más agresiva en
+    # contornos grandes (perímetro > 2000 px). Corregido.
+    epsilon = min(simplify_tolerance, max(0.5, arc_len * 0.001))
     approx = cv2.approxPolyDP(main_cnt.reshape(-1, 1, 2).astype(np.float32), epsilon, True)
     pts_visual = approx.reshape(-1, 2)
+
+    # Fallback JS: si resultado < 8 puntos, submuestrear a ~100 puntos
+    if len(pts_visual) < 8 and len(pts_full) >= 8:
+        step = max(1, int(math.ceil(len(pts_full) / 100)))
+        pts_visual = pts_full[::step]
 
     # ── Paso 7: Trasladar a coordenadas absolutas (igual JS: += minX, minY) ──
     pts_abs      = pts_full.copy()

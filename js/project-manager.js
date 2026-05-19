@@ -76,6 +76,71 @@ function _extractAnalysisSummary(analysisData = {}) {
   };
 }
 
+function _buildMetricTraceability(modo = 'monofacial', metricas = {}, options = {}) {
+  const metricKeys = Object.keys(metricas || {});
+  const includesPH = Number(options?.numPerforaciones || 0) > 0 || Number(options?.numHoradaciones || 0) > 0;
+  const includesCI_CMS = Number.isFinite(Number(metricas?.CI)) || Number.isFinite(Number(metricas?.CMS));
+
+  const keyMetrics = [
+    { key: 'area', section: 'II', source: 'metricas.objeto.area' },
+    { key: 'perimeter', section: 'II', source: 'metricas.objeto.perimeter' },
+    { key: 'circularity', section: 'III', source: 'metricas.objeto.circularity' },
+    { key: 'solidity', section: 'III', source: 'metricas.objeto.solidity' },
+    { key: 'regularidad_radial', section: 'IV', source: 'metricas.objeto.regularidad_radial' },
+    { key: 'rugosidad_contorno', section: 'V', source: 'metricas.objeto.rugosidad_contorno' },
+    { key: 'simetria_bilateral', section: 'VI', source: 'metricas.objeto.simetria_bilateral' },
+    { key: 'feret_ratio', section: 'XII', source: 'metricas.objeto.feret_ratio' }
+  ].map((item) => ({
+    ...item,
+    present: metricas?.[item.key] !== undefined && metricas?.[item.key] !== null
+  }));
+
+  const sections = ['II', 'III', 'IV', 'V', 'VI', 'VIII', 'XII'];
+  if (modo === 'bifacial' || includesCI_CMS) sections.push('XIII');
+
+  return {
+    schemaVersion: '1.0.0',
+    specDoc: 'FORMULAS_METRICAS_MAO.html',
+    specSections: sections,
+    generatedAt: new Date().toISOString(),
+    mode: modo,
+    summary: {
+      metricasDetectadas: metricKeys.length,
+      incluyePH: includesPH,
+      incluyeCI_CMS: includesCI_CMS,
+      fuentes: ['metadata.json', 'metricas.json', 'geometria.json']
+    },
+    keyMetrics
+  };
+}
+
+function _buildCollectionTraceabilitySummary(objetos = []) {
+  const modos = { monofacial: 0, bifacial: 0, obj3d: 0, otros: 0 };
+  let incluyePH = false;
+  let incluyeCI_CMS = false;
+
+  for (const obj of objetos || []) {
+    const modo = String(obj?.modo || 'monofacial').toLowerCase();
+    if (modo === 'monofacial' || modo === 'bifacial' || modo === 'obj3d') modos[modo] += 1;
+    else modos.otros += 1;
+
+    const t = obj?.trazabilidadMetricas;
+    if (t?.summary?.incluyePH) incluyePH = true;
+    if (t?.summary?.incluyeCI_CMS) incluyeCI_CMS = true;
+  }
+
+  return {
+    schemaVersion: '1.0.0',
+    specDoc: 'FORMULAS_METRICAS_MAO.html',
+    generatedAt: new Date().toISOString(),
+    totalObjetos: (objetos || []).length,
+    modos,
+    incluyePH,
+    incluyeCI_CMS,
+    scope: ['II', 'III', 'IV', 'V', 'VI', 'VIII', 'XII'].concat(incluyeCI_CMS ? ['XIII'] : [])
+  };
+}
+
 class ProjectManager {
   constructor() {
     this.projects = [];
@@ -1007,7 +1072,7 @@ class ProjectManager {
     rows.push(`03_Proporciones,Rectangularidad,${metricas.rectangularity || 0},,Similitud con rectángulo`);
     rows.push(`03_Proporciones,Elongacion,${metricas.elongation || 0},,Grado de alargamiento`);
     rows.push(`03_Proporciones,Factor de Forma,${metricas.shape_factor || metricas.shape_factor_real || 0},,Perímetro² / (4π × área)`);
-    rows.push(`03_Proporciones,Relacion de Aspecto,${metricas.aspect_ratio || metricas.aspect_ratio_tight || 0},,Ancho / alto`);
+    rows.push(`03_Proporciones,Relacion de Aspecto (AR),${metricas.aspect_ratio || metricas.aspect_ratio_tight || 0},,Eje mayor / eje menor`);
     rows.push(`03_Proporciones,Excentricidad,${metricas.excentricidad || metricas.eccentricity || 0},,0.0 = círculo, 1.0 = línea`);
     
     // ========================================================================
@@ -1067,7 +1132,7 @@ class ProjectManager {
     rows.push(`04_Regularidad,Ancho Hull,${metricas.hull_width_px || 0},px,Ancho mínimo envolvente`);
     rows.push(`04_Regularidad,Alto Hull,${metricas.hull_height_px || 0},px,Alto mínimo envolvente`);
     rows.push(`04_Regularidad,Circularidad Hull,${metricas.hull_circularity || 0},,Circularidad del hull`);
-    rows.push(`04_Regularidad,Aspect Ratio Hull,${metricas.hull_aspect_ratio || 0},,Relación ancho/alto hull`);
+    rows.push(`04_Regularidad,Relacion Aspecto Hull (AR),${metricas.hull_aspect_ratio || 0},,Relación eje mayor/eje menor del hull`);
     rows.push(`04_Regularidad,Convexidad,${metricas.convexity || metricas.convexidad || 0},,1.0 = totalmente convexo`);
     rows.push(`04_Regularidad,Clasificacion Convexidad,${metricas.convexity_class || metricas.convexidad_class || 'N/A'},,Estado de convexidad`);
     rows.push(`04_Regularidad,Diferencia Area,${metricas.hull_area_difference_percent || 0},%,Hull vs real`);
@@ -1132,7 +1197,7 @@ class ProjectManager {
     rows.push(`01_Clasificacion,Confianza Global,${metricas.forma_confianza_global || ((metricas.forma_confianza || 0) * 100).toFixed(1)},%,Certeza de clasificación`);
     rows.push(`01_Clasificacion,Metodos Coincidentes (Det),${metricas.forma_metodos_coincidentes || 'N/A'},,Consenso entre métodos`);
     rows.push(`01_Clasificacion,Clase Circularidad,${metricas.shape_class_circularity || 'N/A'},,Por circularidad`);
-    rows.push(`01_Clasificacion,Clase Aspect Ratio,${metricas.shape_class_aspect || 'N/A'},,Por relación aspecto`);
+    rows.push(`01_Clasificacion,Clase Relacion Aspecto (AR),${metricas.shape_class_aspect || 'N/A'},,Por relación de aspecto`);
     
     // ========================================================================
     // XI. (11) ANÁLISIS COMPARATIVO OBJETO–P/H
@@ -1258,7 +1323,7 @@ class ProjectManager {
         rows.push(`20_Perforacion_P${id},17_Compacidad,${parseFloat(m.compactness || m.compacidad) || 0},,Relación área/perímetro²`);
         rows.push(`20_Perforacion_P${id},18_Solidez,${parseFloat(m.solidity || m.solidez) || 0},,Área real / área hull`);
         rows.push(`20_Perforacion_P${id},19_Convexidad,${parseFloat(m.convexity || m.convexidad) || 0},,1.0 = totalmente convexo`);
-        rows.push(`20_Perforacion_P${id},20_Relacion_Aspecto,${parseFloat(m.aspect_ratio) || 0},,Ancho / Alto`);
+        rows.push(`20_Perforacion_P${id},20_Relacion_Aspecto_AR,${parseFloat(m.aspect_ratio) || 0},,Eje mayor / eje menor`);
         
         // Ubicación
         rows.push(`20_Perforacion_P${id},21_Distancia_Centro,${parseFloat(p.distanciaAlCentro) || 0},mm,Distancia al centroide del objeto`);
@@ -1315,7 +1380,7 @@ class ProjectManager {
         rows.push(`21_Horadacion_H${id},17_Compacidad,${parseFloat(m.compactness || m.compacidad) || 0},,Relación área/perímetro²`);
         rows.push(`21_Horadacion_H${id},18_Solidez,${parseFloat(m.solidity || m.solidez) || 0},,Área real / área hull`);
         rows.push(`21_Horadacion_H${id},19_Convexidad,${parseFloat(m.convexity || m.convexidad) || 0},,1.0 = totalmente convexo`);
-        rows.push(`21_Horadacion_H${id},20_Relacion_Aspecto,${parseFloat(m.aspect_ratio) || 0},,Ancho / Alto`);
+        rows.push(`21_Horadacion_H${id},20_Relacion_Aspecto_AR,${parseFloat(m.aspect_ratio) || 0},,Eje mayor / eje menor`);
         
         // Ubicación
         rows.push(`21_Horadacion_H${id},21_Distancia_Centro,${parseFloat(h.distanciaAlCentro) || 0},mm,Distancia al centroide del objeto`);
@@ -1651,6 +1716,25 @@ class ProjectManager {
         }
       }
 
+      // Compatibilidad: añadir trazabilidad faltante en índices anteriores
+      let collectionNeedsSave = false;
+      for (const obj of (collection.objetos || [])) {
+        if (!obj.trazabilidadMetricas) {
+          obj.trazabilidadMetricas = _buildMetricTraceability(obj.modo || 'monofacial', {}, {
+            numPerforaciones: obj?.metricasResumen?.numPerforaciones || 0,
+            numHoradaciones: obj?.metricasResumen?.numHoradaciones || 0
+          });
+          collectionNeedsSave = true;
+        }
+      }
+      if (!collection.trazabilidadMetricas) {
+        collection.trazabilidadMetricas = _buildCollectionTraceabilitySummary(collection.objetos || []);
+        collectionNeedsSave = true;
+      }
+      if (collectionNeedsSave) {
+        await window.electronAPI.saveFile(indexPath, JSON.stringify(collection, null, 2));
+      }
+
       console.log(`✅ Colección cargada: ${collection.objetos.length} objetos`);
       toast.success(`Colección cargada: ${collection.objetos.length} objetos`);
       
@@ -1765,6 +1849,11 @@ class ProjectManager {
               medidaEtiqueta: _modoAnalisis === 'obj3d' ? 'Volumen BBox' : 'Área',
               medidaUnidad: _modoAnalisis === 'obj3d' ? ((metadata.configuracion?.unidades || 'u3d') + '³') : 'mm²'
             },
+
+            trazabilidadMetricas: _buildMetricTraceability(_modoAnalisis, metricas.objeto || {}, {
+              numPerforaciones: metricas.estadisticas?.totalPerforaciones || 0,
+              numHoradaciones: metricas.estadisticas?.totalHoradaciones || 0
+            }),
             
             thumbnail: `${folderName}/imagenes/thumbnail.png`,
             thumbnailPath: `${folderPath}/imagenes/objeto_recortado.png`,
@@ -1790,7 +1879,8 @@ class ProjectManager {
         rasgoComun: project.commonTrait || '',
         totalObjetos: objetos.length,
         ultimaActualizacion: new Date().toISOString(),
-        objetos: objetos
+        objetos: objetos,
+        trazabilidadMetricas: _buildCollectionTraceabilitySummary(objetos)
       };
       
       // 7. Guardar índice en disco
@@ -1873,6 +1963,10 @@ class ProjectManager {
         modo: _normalizeAnalysisMode(newAnalysis.data),
         cara: _normalizeAnalysisCara(newAnalysis.data),
         metricasResumen: _extractAnalysisSummary(newAnalysis.data),
+        trazabilidadMetricas: _buildMetricTraceability(_normalizeAnalysisMode(newAnalysis.data), newAnalysis.data?.metricas || {}, {
+          numPerforaciones: (newAnalysis.data?.perforaciones || []).length,
+          numHoradaciones: (newAnalysis.data?.horadaciones || []).length
+        }),
         thumbnail: `${analysisFolderName}/imagenes/thumbnail.png`,
         completado: true
       };
@@ -1889,6 +1983,7 @@ class ProjectManager {
       // 4. Actualizar metadatos de la colección
       collection.totalObjetos = collection.objetos.length;
       collection.ultimaActualizacion = new Date().toISOString();
+      collection.trazabilidadMetricas = _buildCollectionTraceabilitySummary(collection.objetos);
       
       // 5. Ordenar por timestamp (más reciente primero)
       collection.objetos.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));

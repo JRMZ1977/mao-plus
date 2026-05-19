@@ -115,34 +115,50 @@ def _feret_diameters(hull_pts: list[list[float]], step: int = 2
             feret_max, angle_max = diameter, angle_deg
         if diameter < feret_min:
             feret_min, angle_min = diameter, angle_deg
-    ratio = feret_max / feret_min if feret_min > 0 else 0.0
+    # Fórmula MAO (FORMULAS_METRICAS_MAO): ratio = F_min / F_max ∈ [0, 1]
+    ratio = feret_min / feret_max if feret_max > 0 else 0.0
     return feret_max, feret_min, ratio, float(angle_max), float(angle_min)
 
 
 def _principal_axes(pts: list[list[float]]) -> dict:
     """
-    Ejes principales usando PCA (momentos de inercia de área).
-    Réplica de calcularExcentricidad() — analysis-core.js ~L5653.
+    Ejes principales usando tensor de inercia de área (teorema de Green).
+    Idéntico a calcularExcentricidad() JS y _inertia_eigenvalues() de metrics.py.
     """
     arr = np.array(pts, dtype=float)
-    centered = arr - arr.mean(axis=0)
-    cov = np.cov(centered.T)
-    eigvals, eigvecs = np.linalg.eigh(cov)
-    idx = np.argsort(eigvals)[::-1]
-    eigvals = eigvals[idx]
-    eigvecs = eigvecs[:, idx]
-    # longitud caliper ≈ 2·σ a lo largo del eje (aprox. diámetro)
-    eje_mayor_px = 4.0 * math.sqrt(max(eigvals[0], 0))
-    eje_menor_px = 4.0 * math.sqrt(max(eigvals[1], 0))
+    cx = float(arr[:, 0].mean()); cy = float(arr[:, 1].mean())
+    n = len(arr)
+    sxx = syy = sxy = sa = 0.0
+    for i in range(n):
+        j = (i + 1) % n
+        xi = arr[i, 0] - cx; yi = arr[i, 1] - cy
+        xj = arr[j, 0] - cx; yj = arr[j, 1] - cy
+        c = xi * yj - xj * yi
+        sa += c
+        sxx += (xi * xi + xi * xj + xj * xj) * c
+        syy += (yi * yi + yi * yj + yj * yj) * c
+        sxy += (2 * xi * yi + 2 * xj * yj + xi * yj + xj * yi) * c
+    if abs(sa) > 1e-10:
+        sxx /= (6 * sa); syy /= (6 * sa); sxy /= (12 * sa)
+    tr = sxx + syy; det = sxx * syy - sxy * sxy
+    disc = max(0.0, tr * tr - 4 * det)
+    lam1 = (tr + math.sqrt(disc)) / 2
+    ang = math.atan2(lam1 - sxx, sxy) if abs(sxy) > 1e-10 else 0.0
+    cos_a = math.cos(ang); sin_a = math.sin(ang)
+    dx_ = arr[:, 0] - cx; dy_ = arr[:, 1] - cy
+    p1 = dx_ * cos_a + dy_ * sin_a
+    p2 = -dx_ * sin_a + dy_ * cos_a
+    eje_mayor_px = float(p1.max() - p1.min())
+    eje_menor_px = float(p2.max() - p2.min())
     excentricidad = (
-        math.sqrt(1 - (eigvals[1] / eigvals[0])) if eigvals[0] > 0 else 0.0
+        math.sqrt(max(0.0, 1 - (eje_menor_px / eje_mayor_px) ** 2))
+        if eje_mayor_px > 0 else 0.0
     )
-    angulo = math.degrees(math.atan2(eigvecs[1, 0], eigvecs[0, 0]))
     return {
         "eje_mayor_px": eje_mayor_px,
         "eje_menor_px": eje_menor_px,
         "excentricidad": excentricidad,
-        "angulo_eje": angulo,
+        "angulo_eje": math.degrees(ang),
     }
 
 
@@ -208,25 +224,47 @@ async def calculate_metrics(puntos: list, tipo: str, ph_id: Any, scale_px_mm: fl
     hull_area_mm2 = hull_area_px * scale2
     hull_perim_px = _polygon_perimeter(hull_pts)
 
-    # 5. Radios desde centroide (sobre hull)
-    radios_px = [math.hypot(p[0] - cx, p[1] - cy) for p in hull_pts] or [0.0]
-    r_max_px  = max(radios_px)
-    r_min_px  = min(radios_px)
-    r_med_px  = sum(radios_px) / len(radios_px)
-    r_std_px  = math.sqrt(sum((r - r_med_px) ** 2 for r in radios_px) / len(radios_px))
+    # 5. Radios desde centroide — idéntico a calcularRadiosExtremos() JS / _radios_extremos() metrics.py
+    #    r_max: vértice del hull más alejado del centroide
+    #    r_min: distancia perp. mínima centroide ↔ aristas del hull (geométricamente exacto)
+    #    estadísticas: sobre el contorno completo (pts), no solo vértices del hull
+    _hn = len(hull_pts)
+    r_max_px = max(math.hypot(p[0] - cx, p[1] - cy) for p in hull_pts) if hull_pts else 0.0
+    r_min_px = math.inf
+    for _i in range(_hn):
+        _ax = hull_pts[_i][0] - cx;       _ay = hull_pts[_i][1] - cy
+        _bx = hull_pts[(_i + 1) % _hn][0] - cx; _by = hull_pts[(_i + 1) % _hn][1] - cy
+        _abx = _bx - _ax; _aby = _by - _ay; _ab2 = _abx ** 2 + _aby ** 2
+        if _ab2 < 1e-12:
+            _t = 0.0
+        else:
+            _t = max(0.0, min(1.0, -(_ax * _abx + _ay * _aby) / _ab2))
+        _nx = _ax + _t * _abx; _ny = _ay + _t * _aby
+        _d = math.sqrt(_nx ** 2 + _ny ** 2)
+        if _d < r_min_px:
+            r_min_px = _d
+    if r_min_px == math.inf:
+        r_min_px = 0.0
+    # Estadísticas sobre contorno completo (igual que JS usa fullContour)
+    _pts_s = pts if len(pts) >= 3 else hull_pts
+    _dists = [math.hypot(p[0] - cx, p[1] - cy) for p in _pts_s]
+    r_med_px = sum(_dists) / len(_dists) if _dists else 0.0
+    r_std_px = math.sqrt(sum((d - r_med_px) ** 2 for d in _dists) / len(_dists)) if _dists else 0.0
     cv_radios = (r_std_px / r_med_px * 100) if r_med_px > 0 else 0.0
-    regularidad = max(0.0, 100.0 - cv_radios)
+    # ratio_radios = r_min/r_max (igual que JS) y regularidad = ratio * 100
+    ratio_radios = r_min_px / r_max_px if r_max_px > 0 else 0.0
+    regularidad = ratio_radios * 100
 
     # 6. Métricas de forma (adimensionales, en px)
-    circularity  = (4 * math.pi * area_px) / (perim_px ** 2)        if perim_px > 0       else 0.0
+    circularity  = min((4 * math.pi * area_px) / (perim_px ** 2), 1.0) if perim_px > 0 else 0.0
     compactness  = (perim_px ** 2) / area_px                          if area_px > 0        else 0.0
     solidity     = area_px / hull_area_px                             if hull_area_px > 0   else 0.0
     aspect_ratio = max(w_px, h_px) / min(w_px, h_px)                 if min(w_px, h_px) > 0 else 1.0
-    convexity    = perim_px / hull_perim_px                           if hull_perim_px > 0  else 0.0
+    # Fórmula MAO (FORMULAS_METRICAS_MAO): convexidad = P_hull / P_real ∈ [0, 1]
+    convexity    = hull_perim_px / perim_px                           if perim_px > 0  else 0.0
     elongation   = abs(1 - min(w_px, h_px) / max(w_px, h_px))        if max(w_px, h_px) > 0 else 0.0
     shape_factor = (perim_px ** 2) / (4 * math.pi * area_px)         if area_px > 0        else 0.0
     rectangularity = area_px / (w_px * h_px)                         if (w_px * h_px) > 0  else 0.0
-    ratio_radios = r_max_px / r_min_px                                if r_min_px > 0       else 0.0
 
     # 7. Ejes principales (PCA de momentos de área)
     axes = _principal_axes(pts)

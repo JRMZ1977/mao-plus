@@ -365,10 +365,12 @@ def _build_quality_flags(
 async def analyze(
     obj_bytes: bytes,
     n_samples: int = 20000,
+    n_sections: int = 9,
     normalize_mode: str = "none",
     analysis_level: str = "pca",
     orientation_mode: str = "auto",
     user_anchor: tuple[float | None, float | None, float | None] | None = None,
+    mm_per_unit: float = 1.0,
 ) -> dict[str, Any]:
     """
     Analiza una malla OBJ y retorna métricas morfométricas.
@@ -379,19 +381,45 @@ async def analyze(
     n_samples       : número de puntos de muestreo superficial
     normalize_mode  : normalización de escala (none|bboxdiag|std)
     analysis_level  : 'pca' | 'hybrid_v1' (PCA primero) | 'v2' (caras primero, arquitectura correcta)
+    mm_per_unit     : factor de conversión de unidades OBJ a milímetros
+                      (1.0=mm, 10.0=cm, 1000.0=m, 25.4=pulgadas)
     """
     
     level = (analysis_level or "pca").strip().lower()
     
     # Delegación a v2 si se pide arquitectura correcta
     if level == "v2" and V2_AVAILABLE:
-        return await obj3d_v2.analyze_v2(
+        result = await obj3d_v2.analyze_v2(
             obj_bytes,
             n_samples=n_samples,
+            n_sections=n_sections,
             normalize_mode=normalize_mode,
             orientation_mode=orientation_mode,
             user_anchor=user_anchor,
         )
+        # ── Conversión de unidades a milímetros (sobre resultado v2) ────────
+        f = float(mm_per_unit)
+        if f > 0.0 and f != 1.0:
+            f2, f3 = f * f, f * f * f
+            p = result.get("obj3d", {})
+            if "bounds_min" in p:
+                p["bounds_min"] = [v * f for v in p["bounds_min"]]
+            if "bounds_max" in p:
+                p["bounds_max"] = [v * f for v in p["bounds_max"]]
+            if "centroid" in p:
+                p["centroid"] = [v * f for v in p["centroid"]]
+            if "surface_area" in p:
+                p["surface_area"] = p["surface_area"] * f2
+            if p.get("volume") is not None:
+                p["volume"] = p["volume"] * f3
+            # pca_extents dentro del bloque pca, si existe
+            pca_block = p.get("pca", {})
+            if isinstance(pca_block, dict) and "pca_extents" in pca_block:
+                norm_lower = (normalize_mode or "none").strip().lower()
+                if norm_lower in ("none", "no", "off"):
+                    pca_block["pca_extents"] = [v * f for v in pca_block["pca_extents"]]
+        result.setdefault("obj3d", {})["mm_per_unit"] = f
+        return result
     elif level == "v2" and not V2_AVAILABLE:
         raise HTTPException(
             status_code=422,
@@ -450,6 +478,23 @@ async def analyze(
         **pca,
     }
 
+    # ── Conversión de unidades a milímetros ──────────────────────────────────
+    f = float(mm_per_unit)
+    if f != 1.0 and f > 0.0:
+        f2 = f * f
+        f3 = f2 * f
+        obj_payload["bounds_min"] = [v * f for v in obj_payload["bounds_min"]]
+        obj_payload["bounds_max"] = [v * f for v in obj_payload["bounds_max"]]
+        obj_payload["centroid"] = [v * f for v in obj_payload["centroid"]]
+        obj_payload["surface_area"] = obj_payload["surface_area"] * f2
+        if obj_payload["volume"] is not None:
+            obj_payload["volume"] = obj_payload["volume"] * f3
+        # pca_extents solo si no se normalizó (en ese caso ya son adimensionales)
+        norm_lower = normalize_mode.lower() if normalize_mode else "none"
+        if norm_lower in ("none", "no", "off"):
+            obj_payload["pca_extents"] = [v * f for v in obj_payload["pca_extents"]]
+    obj_payload["mm_per_unit"] = f
+
     if level in ("hybrid", "hybrid_v1"):
         axes_np = np.asarray(pca["principal_axes"], dtype=np.float64)
         eigvals = [float(v) for v in pca["eigenvalues"]]
@@ -493,4 +538,94 @@ async def analyze(
     return {
         "status": "ok",
         "obj3d": obj_payload,
+    }
+
+
+def flatten_3d_for_comparator(
+    result_3d: dict[str, Any],
+    object_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Adapta salida de análisis 3D al formato esperado por comparator.pca/statistics.
+
+    Soporta tanto salida legacy (pca/hybrid_v1) como salida v2.
+    """
+    if not isinstance(result_3d, dict):
+        return {
+            "id": object_id or "obj3d_object",
+            "nombre": object_id or "obj3d_object",
+            "source": "obj3d",
+            "metricas": {},
+        }
+
+    root = result_3d.get("obj3d") if isinstance(result_3d.get("obj3d"), dict) else result_3d
+    if not isinstance(root, dict):
+        root = {}
+
+    metricas: dict[str, float] = {}
+
+    # v2: firma homologada + índices MAO3D
+    hom3d = root.get("homologation_3d") if isinstance(root.get("homologation_3d"), dict) else {}
+    sig = hom3d.get("signature") if isinstance(hom3d.get("signature"), dict) else {}
+    canonical = root.get("morphology_canonical") if isinstance(root.get("morphology_canonical"), dict) else {}
+    idx3d = canonical.get("mao3d_indices") if isinstance(canonical.get("mao3d_indices"), dict) else {}
+
+    for bucket in (sig, idx3d):
+        for k, v in bucket.items():
+            try:
+                fv = float(v)
+                if math.isfinite(fv):
+                    metricas[str(k)] = fv
+            except Exception:
+                continue
+
+    # Legacy: PCA + shape_variables + bifacial index
+    for key in (
+        "linearity",
+        "planarity",
+        "sphericity",
+        "elongation",
+        "surface_area",
+        "volume",
+    ):
+        if key in root:
+            try:
+                fv = float(root[key])
+                if math.isfinite(fv):
+                    metricas[key] = fv
+            except Exception:
+                pass
+
+    shape_vars = root.get("shape_variables") if isinstance(root.get("shape_variables"), dict) else {}
+    for key in (
+        "thickness_ratio",
+        "anisotropy",
+        "roughness_mean",
+        "roughness_std",
+        "roughness_mad",
+    ):
+        if key in shape_vars:
+            try:
+                fv = float(shape_vars[key])
+                if math.isfinite(fv):
+                    metricas[key] = fv
+            except Exception:
+                pass
+
+    faces = root.get("faces") if isinstance(root.get("faces"), dict) else {}
+    bifacial = faces.get("bifacial_index") if isinstance(faces.get("bifacial_index"), dict) else {}
+    if "value" in bifacial:
+        try:
+            fv = float(bifacial["value"])
+            if math.isfinite(fv):
+                metricas["bifacial_index"] = fv
+        except Exception:
+            pass
+
+    obj_name = object_id or str(root.get("analysis_level") or "obj3d_object")
+    return {
+        "id": object_id or "obj3d_object",
+        "nombre": obj_name,
+        "source": "obj3d",
+        "metricas": metricas,
     }

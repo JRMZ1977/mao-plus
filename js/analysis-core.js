@@ -180,7 +180,6 @@
   ============================================================================
   GUÍA DE USO DEL ALMACENAMIENTO DE ANÁLISIS MORFOLÓGICOS
   ============================================================================
-  
   Los análisis se guardan AUTOMÁTICAMENTE cuando se completa el análisis
   morfológico de cada objeto. Los datos están disponibles en la consola.
   
@@ -410,6 +409,8 @@
   let perforationMousePos = null; // B: posición del mouse para línea guía en vivo
   let phPointDetectMode   = false;  // Modo clic→detección automática de contorno P/H
   let phPointDetectActive = false;  // Petición Python en curso (anti-doble-disparo)
+  let phAutoProfileMode = 'auto';   // auto|micro|mediano|grande
+  let phAutoSensitivity = 1.0;      // 0.70..1.60
 
   // === CONSTANTES MATEMÁTICAS OPTIMIZADAS ===
   const MATH_CONSTANTS = Object.freeze({
@@ -431,6 +432,83 @@
     MAX_CACHE_SIZE: 50,               // Máximo objetos en caché
     PROGRESS_UPDATE_INTERVAL: 100      // ms entre actualizaciones de progreso
   });
+
+  // Presets para detección IA automática de perforaciones/horadaciones.
+  const PH_AUTO_DETECT_PROFILES = Object.freeze({
+    micro: Object.freeze({
+      areaMax: 35000,
+      gridDivisor: 9,
+      tolerance: 20,
+      minAreaPx: 10,
+      maxAreaRatio: 0.22,
+      maxCandidates: 18,
+    }),
+    mediano: Object.freeze({
+      areaMax: 140000,
+      gridDivisor: 7,
+      tolerance: 24,
+      minAreaPx: 18,
+      maxAreaRatio: 0.30,
+      maxCandidates: 24,
+    }),
+    grande: Object.freeze({
+      areaMax: Number.POSITIVE_INFINITY,
+      gridDivisor: 6,
+      tolerance: 28,
+      minAreaPx: 30,
+      maxAreaRatio: 0.42,
+      maxCandidates: 30,
+    }),
+  });
+
+  function getPhAutoDetectProfile(areaObjPx) {
+    if (areaObjPx < PH_AUTO_DETECT_PROFILES.micro.areaMax) {
+      return { key: 'micro', cfg: PH_AUTO_DETECT_PROFILES.micro };
+    }
+    if (areaObjPx < PH_AUTO_DETECT_PROFILES.mediano.areaMax) {
+      return { key: 'mediano', cfg: PH_AUTO_DETECT_PROFILES.mediano };
+    }
+    return { key: 'grande', cfg: PH_AUTO_DETECT_PROFILES.grande };
+  }
+
+  function _normalizePhAutoProfileKey(value) {
+    const v = String(value || '').toLowerCase();
+    return (v === 'micro' || v === 'mediano' || v === 'grande' || v === 'auto') ? v : 'auto';
+  }
+
+  function persistPhAutoUiSettings() {
+    const settings = {
+      profile: _normalizePhAutoProfileKey(phAutoProfileMode),
+      sensitivity: Math.max(0.7, Math.min(1.6, Number(phAutoSensitivity) || 1.0)),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (currentAnalyzedObject?.metricas) {
+      currentAnalyzedObject.metricas._ph_auto_detect_ui = settings;
+    }
+    if (currentAnalyzedObject?.obj?.metricas) {
+      currentAnalyzedObject.obj.metricas._ph_auto_detect_ui = settings;
+    }
+    if (selectedObjectForPerforation?.metricas) {
+      selectedObjectForPerforation.metricas._ph_auto_detect_ui = settings;
+    }
+    if (selectedObjectForPerforation) {
+      selectedObjectForPerforation._ph_auto_detect_ui = settings;
+    }
+  }
+
+  function restorePhAutoUiSettings(obj = null, metricas = null) {
+    const saved = metricas?._ph_auto_detect_ui ||
+                  obj?.metricas?._ph_auto_detect_ui ||
+                  obj?._ph_auto_detect_ui ||
+                  currentAnalyzedObject?.metricas?._ph_auto_detect_ui ||
+                  null;
+    if (!saved || typeof saved !== 'object') return;
+
+    phAutoProfileMode = _normalizePhAutoProfileKey(saved.profile);
+    const s = Number(saved.sensitivity);
+    phAutoSensitivity = Number.isFinite(s) ? Math.max(0.7, Math.min(1.6, s)) : 1.0;
+  }
 
   // =====================================================================================
   // FUNCIONES DE CONVERSIÓN DE COORDENADAS
@@ -7022,7 +7100,12 @@
       return "Hexagonal";
     
     // ── Formas arqueológicas específicas ────────────────────────────────────────
-    if (c.includes("elipsoidal") || c.includes("elipse") || c.includes("elíptico") || c.includes("ovalado"))
+    // Oval ≠ Elipsoidal: oval tiene un solo eje de simetría (un extremo más ancho);
+    // elipsoidal tiene dos ejes ortogonales de simetría (elipse matemática).
+    if (c.includes("oval"))
+      return "Oval";
+
+    if (c.includes("elipsoidal") || c.includes("elipse") || c.includes("elíptico"))
       return "Elipsoidal";
     
     if (c.includes("lanceolad") || c.includes("foliáce") || c.includes("foliace"))
@@ -7073,6 +7156,7 @@
       "Pentagonal": "Forma Pentagonal",
       "Hexagonal": "Forma Hexagonal",
       "Elipsoidal": "Forma Elipsoidal",
+      "Oval":       "Forma Oval",
       "Lanceolada": "Forma Lanceolada",
       "Amigdaloide": "Forma Amigdaloide",
       "Laminar": "Forma Laminar",
@@ -7088,6 +7172,186 @@
     };
     
     return nombres[categoria] || "Forma Indeterminada";
+  }
+
+  function extraerContextoMorfologico(metrics, formaIdealizada = null) {
+    const radialAngular = formaIdealizada?.distribucionRadialAngular || null;
+    const solidez = parseFloat(metrics.solidity || metrics.solidez) || 1.0;
+    const circularidad = parseFloat(metrics.circularidad || metrics.circularity) || 0;
+    const ratioRadios = parseFloat(metrics.ratio_radios);
+    const aspectRatio = parseFloat(metrics.aspect_ratio_tight) || 1.0;
+    const arNorm = Math.min(aspectRatio, 1.0 / (aspectRatio || 0.001));
+    const clasificacionRadial = formaIdealizada?.nombre || radialAngular?.geometriaInferida || "Irregular";
+    const categoriaRadial = mapearACategoria(clasificacionRadial);
+    const categoriasCurvilineas = new Set(["Circular", "Elipsoidal", "Oval", "Lanceolada", "Amigdaloide", "Laminar", "Lunar"]);
+    const categoriasAngulares = new Set(["Triangular", "Cuadrangular", "Pentagonal", "Hexagonal", "Poligonal", "Trapezoidal", "Romboidal"]);
+    const categoriasTopologicas = new Set(["Lunar", "Lobulado", "Estrellado", "Anular"]);
+    const completitud = parseFloat(metrics.completitud_estimada);
+
+    const contexto = {
+      solidez,
+      circularidad,
+      ratioRadios: isNaN(ratioRadios) ? null : ratioRadios,
+      arNorm,
+      categoriaRadial,
+      clasificacionRadial,
+      esFragmento: !!radialAngular?.esFragmento || (!isNaN(completitud) && completitud < 95 && solidez < 0.92),
+      esCurvilinea: categoriasCurvilineas.has(categoriaRadial),
+      esAngular: categoriasAngulares.has(categoriaRadial),
+      esTopologica: categoriasTopologicas.has(categoriaRadial),
+      fracturaSevera: solidez < 0.65,
+      fragmentacionModerada: solidez < 0.85,
+      lunarSuave: !isNaN(ratioRadios) && ratioRadios < 0.50 && arNorm < 0.52 && circularidad >= 0.65 && circularidad < 0.86 && solidez >= 0.75 && solidez < 0.95
+    };
+
+    contexto.topologiaBase = (contexto.esTopologica || contexto.lunarSuave)
+      ? "concava"
+      : (solidez < 0.92 ? "irregular" : "convexa");
+
+    return contexto;
+  }
+
+  function aplicarContextoAEvidencias(evidencias, contexto, metrics) {
+    const ajustadas = Object.fromEntries(
+      Object.entries(evidencias).map(([clave, datos]) => [clave, { ...datos }])
+    );
+    const notas = [];
+
+    if (contexto.fracturaSevera && ajustadas.angulos_vertices) {
+      ajustadas.angulos_vertices.peso *= 0.35;
+      notas.push("fractura severa: ángulos locales dejan de ser evidencia primaria");
+    } else if (contexto.fragmentacionModerada && ajustadas.angulos_vertices) {
+      ajustadas.angulos_vertices.peso *= 0.65;
+      notas.push("fragmentación moderada: se atenúa el peso de ángulos locales");
+    }
+
+    if ((contexto.esCurvilinea || contexto.topologiaBase === "concava") && ajustadas.radial_angular) {
+      ajustadas.radial_angular.peso += 0.75;
+      notas.push("familia curvilínea/cóncava: se prioriza la distribución radial");
+    }
+
+    if ((contexto.esTopologica || contexto.lunarSuave) && ajustadas.tradicional) {
+      ajustadas.tradicional.peso *= 0.70;
+      notas.push("morfotipo topológico: circularidad/AR tradicional pasan a apoyo");
+    }
+
+    const numRectos = parseInt(metrics.num_angulos_rectos) || 0;
+    if (contexto.esAngular && contexto.solidez >= 0.80 && numRectos >= 3 && ajustadas.angulos_vertices) {
+      ajustadas.angulos_vertices.peso += 0.75;
+      notas.push("familia angular bien conservada: se refuerzan vértices/ángulos");
+    }
+
+    return { evidencias: ajustadas, notas };
+  }
+
+  function construirEtiquetaTipologica(base, esFragmento, completitud) {
+    if (!base) return null;
+    if (!esFragmento) return base;
+    const prefijo = base.toLowerCase().startsWith('fragmento ') ? '' : 'Fragmento ';
+    return `${prefijo}${base}${Number.isFinite(completitud) ? ` (${completitud}% completo)` : ''}`;
+  }
+
+  function inferirInterpretacionTipologica(clasificacionGeometrica, categoriaBase, contexto, esFragmento, completitud) {
+    const categoriaGeom = mapearACategoria(clasificacionGeometrica || categoriaBase || 'Irregular');
+    const valorCompletitud = Number.isFinite(completitud) ? completitud : 100;
+    const resultado = {
+      forma_geometrica_observada: clasificacionGeometrica || convertirCategoriaANombre(categoriaBase, {}),
+      forma_tipologica_inferida: clasificacionGeometrica || convertirCategoriaANombre(categoriaBase, {}),
+      razon_tipologica: 'Sin reinterpretación tipológica adicional: la lectura geométrica observada se conserva como salida principal.',
+      requiere_reinterpretacion: false
+    };
+
+    if (categoriaGeom === 'Lunar' || contexto.categoriaRadial === 'Lunar') {
+      resultado.forma_tipologica_inferida = construirEtiquetaTipologica('Media Luna', esFragmento, valorCompletitud);
+      resultado.razon_tipologica = 'La geometría radial ya identifica un morfotipo lunar; la lectura tipológica coincide con la forma observada.';
+      return resultado;
+    }
+
+    if (contexto.lunarSuave && (categoriaGeom === 'Oval' || categoriaGeom === 'Elipsoidal' || categoriaGeom === 'Irregular')) {
+      resultado.forma_tipologica_inferida = construirEtiquetaTipologica('Media Luna', esFragmento, valorCompletitud);
+      resultado.razon_tipologica = `Compatible con media luna por asimetría radial fuerte (Rmin/Rmax=${contexto.ratioRadios != null ? contexto.ratioRadios.toFixed(3) : 'n/a'}), curvatura curvilínea (circ=${contexto.circularidad.toFixed(3)}) y lectura semántica de fragmento de toroide.`;
+      resultado.requiere_reinterpretacion = true;
+      return resultado;
+    }
+
+    // Caso semántico frecuente: fragmento toroidal severo.
+    // Aunque la solidez sea baja por pérdida de área, la doble curvatura suave
+    // (circularidad alta + ratio radial bajo) mantiene una lectura tipológica lunar.
+    const toroideSevero =
+      esFragmento &&
+      contexto.ratioRadios != null && contexto.ratioRadios < 0.50 &&
+      contexto.circularidad >= 0.74 && contexto.circularidad < 0.88 &&
+      contexto.solidez >= 0.45 && contexto.solidez < 0.75;
+
+    if (toroideSevero && (categoriaGeom === 'Oval' || categoriaGeom === 'Elipsoidal' || categoriaGeom === 'Irregular')) {
+      resultado.forma_tipologica_inferida = construirEtiquetaTipologica('Media Luna', esFragmento, valorCompletitud);
+      resultado.razon_tipologica = `Lectura tipológica lunar para fragmento toroidal severo: Rmin/Rmax=${contexto.ratioRadios.toFixed(3)}, circ=${contexto.circularidad.toFixed(3)}, solidez=${contexto.solidez.toFixed(3)}.`;
+      resultado.requiere_reinterpretacion = true;
+      return resultado;
+    }
+
+    if (contexto.topologiaBase === 'concava' && categoriaGeom === 'Anular') {
+      resultado.forma_tipologica_inferida = construirEtiquetaTipologica('Fragmento de Toroide', esFragmento, valorCompletitud);
+      resultado.razon_tipologica = 'La topología anular/perforada sugiere lectura tipológica de fragmento de toroide sobre la geometría observada.';
+      resultado.requiere_reinterpretacion = true;
+      return resultado;
+    }
+
+    return resultado;
+  }
+
+  /**
+   * Regla canónica de salida semántica (geometría observada, tipología inferida y forma mostrada).
+   * Se usa en manual e IA para evitar divergencias por campos desfasados en cache o rutas parciales.
+   */
+  function aplicarReglaCanonicaInterpretacion(metricas) {
+    if (!metricas || typeof metricas !== 'object') {
+      return {
+        forma_geometrica_observada: '',
+        forma_tipologica_inferida: '',
+        forma_detectada_mostrada: '',
+        forma_requiere_reinterpretacion_tipologica: false,
+      };
+    }
+
+    const formaGeo = metricas.forma_geometrica_observada || metricas.forma_detectada_meta || metricas.forma_detectada || '';
+    let formaTip = metricas.forma_tipologica_inferida || metricas.forma_detectada_tipologica || '';
+    let requiere = !!metricas.forma_requiere_reinterpretacion_tipologica;
+    const tipologiaAsistidaEfa = !!metricas.forma_tipologia_asistida_efa;
+    let formaMostrada = metricas.forma_detectada_mostrada ||
+      ((requiere && formaTip) ? formaTip : (metricas.forma_detectada_meta || metricas.forma_detectada || formaTip || formaGeo));
+
+    if (!tipologiaAsistidaEfa && ((formaTip && formaGeo && formaTip !== formaGeo) ||
+        (formaMostrada && formaGeo && formaMostrada !== formaGeo))) {
+      requiere = true;
+    }
+
+    // Canon semántico lunar: si la salida visible ya es lunar, la tipología no puede quedar en Oval/Elipsoidal.
+    const mostradaEsLunar = /media\s+luna/i.test(String(formaMostrada || ''));
+    const tipPareceOval = /(forma\s*)?(oval|elipsoidal)/i.test(String(formaTip || ''));
+    if (requiere && mostradaEsLunar && (!formaTip || tipPareceOval)) {
+      formaTip = formaMostrada;
+    }
+
+    if (!formaTip) formaTip = formaMostrada || formaGeo;
+    if (!formaMostrada) formaMostrada = (requiere && formaTip) ? formaTip : (formaGeo || formaTip);
+
+    metricas.forma_geometrica_observada = formaGeo;
+    metricas.forma_tipologica_inferida = formaTip;
+    metricas.forma_detectada_tipologica = formaTip;
+    metricas.forma_requiere_reinterpretacion_tipologica = !!requiere;
+    metricas.forma_detectada_mostrada = formaMostrada;
+    metricas.forma_detectada = formaMostrada;
+    if (!metricas.forma_razon_tipologica && requiere) {
+      metricas.forma_razon_tipologica = 'Regla canónica: interpretación tipológica alineada con la forma mostrada.';
+    }
+
+    return {
+      forma_geometrica_observada: formaGeo,
+      forma_tipologica_inferida: formaTip,
+      forma_detectada_mostrada: formaMostrada,
+      forma_requiere_reinterpretacion_tipologica: !!requiere,
+    };
   }
   
   /**
@@ -7366,6 +7630,7 @@
     
     const formaIdealizada = metrics._forma_idealizada;
     const radialAngular = formaIdealizada?.distribucionRadialAngular;
+    const contextoMorfologico = extraerContextoMorfologico(metrics, formaIdealizada);
     
     // 🆕 CLASIFICAR CONVEXIDAD (Solo para mostrar en UI, NO participa en votación)
     const convexidad = parseFloat(metrics.convexidad) || 1.0;
@@ -7374,7 +7639,7 @@
     else if (convexidad < 0.80) clasificacion_convexidad = "Irregular";
     else if (convexidad < 0.92) clasificacion_convexidad = "Poco Irregular";
     
-    const evidencias = {
+    const evidenciasBase = {
       tradicional: {
         clasificacion: metrics.forma_detectada || "Indeterminada",
         confianza: calcularConfianzaTradicional(metrics),
@@ -7424,9 +7689,16 @@
         descripcion: "Energía de curvatura (validador de sinuosidad, no vota)"
       }
     };
+
+    const ajusteContextual = aplicarContextoAEvidencias(evidenciasBase, contextoMorfologico, metrics);
+    const evidencias = ajusteContextual.evidencias;
     
     console.log("\n📊 EVIDENCIAS RECOLECTADAS:");
     console.log("─".repeat(70));
+    console.log(`   Contexto: topología=${contextoMorfologico.topologiaBase}, radial=${contextoMorfologico.categoriaRadial}, solidez=${contextoMorfologico.solidez.toFixed(3)}, ratio_radios=${contextoMorfologico.ratioRadios != null ? contextoMorfologico.ratioRadios.toFixed(3) : 'n/a'}`);
+    for (const nota of ajusteContextual.notas) {
+      console.log(`   ↳ ajuste: ${nota}`);
+    }
     
     for (const [nombre, datos] of Object.entries(evidencias)) {
       console.log(`\n   ${nombre.toUpperCase()}`);
@@ -7450,6 +7722,7 @@
       "Poligonal": 0,
       // Formas curvilíneas (incluye clases Python extendidas)
       "Elipsoidal": 0,
+      "Oval": 0,       // Oval: un solo eje de simetría (un extremo más ancho que el otro)
       "Lanceolada": 0,
       "Amigdaloide": 0,
       "Laminar": 0,
@@ -7578,6 +7851,54 @@
       }
     }
     
+    // 🆕 REGLA 5: ÁNGULOS DE FRACTURA vs ÁNGULOS DE FORMA
+    // Cuando solidity < 0.65, las roturas del fragmento generan ángulos rectos falsos
+    // que hacen ganar a "angulos_vertices" → Cuadrangular/Poligonal erróneamente.
+    // Si radial_angular dice Irregular, confiar en él (analiza la distribución radial real).
+    if ((categoria_ganadora === "Cuadrangular" || categoria_ganadora === "Poligonal") &&
+        (parseFloat(metrics.solidity || metrics.solidez) || 1.0) < 0.65) {
+      const _radialCat5 = mapearACategoria(evidencias.radial_angular.clasificacion);
+      if (_radialCat5 === "Irregular") {
+        console.log(`   ⚠️  REGLA 5: solidity=${parseFloat(metrics.solidity||metrics.solidez||0).toFixed(2)} < 0.65 + ganador ${categoria_ganadora} + radial=Irregular`);
+        console.log(`   → Ángulos son de FRACTURA, no de forma → reclasificando como Irregular`);
+        categoria_ganadora = "Irregular";
+        clasificacion_final = es_fragmento
+          ? `Fragmento Forma Irregular (${completitud}% completo)`
+          : "Forma Irregular";
+      }
+    }
+
+    // 🆕 REGLA 6: ESTABILIDAD CURVILÍNEA FRAGMENTARIA (Manual/IA)
+    // Evita saltos de clase entre "Irregular" y "Oval/Elipsoidal" cuando ambos
+    // pipelines miden casi lo mismo pero el contorno IA añade ruido de borde.
+    // Se activa solo en región de frontera curvilínea para no forzar falsos positivos.
+    if (categoria_ganadora === "Irregular") {
+      const _ratio6 = parseFloat(metrics.ratio_radios);
+      const _circ6 = parseFloat(metrics.circularity || metrics.circularidad);
+      const _sol6 = parseFloat(metrics.solidity || metrics.solidez);
+      const _arNorm6 = contextoMorfologico.arNorm;
+      const _frag6 = es_fragmento || (!isNaN(parseFloat(metrics.completitud_estimada)) && parseFloat(metrics.completitud_estimada) < 95);
+
+      const _zonaCurvilineaFrontera =
+        _frag6 &&
+        !isNaN(_ratio6) && _ratio6 >= 0.18 && _ratio6 <= 0.55 &&
+        !isNaN(_circ6) && _circ6 >= 0.50 && _circ6 <= 0.86 &&
+        !isNaN(_sol6) && _sol6 >= 0.58;
+
+      if (_zonaCurvilineaFrontera) {
+        const _catCurv = (_arNorm6 >= 0.82 && _circ6 >= 0.78 && _sol6 >= 0.80)
+          ? "Elipsoidal"
+          : "Oval";
+        const _nombreCurv = convertirCategoriaANombre(_catCurv, metrics);
+        categoria_ganadora = _catCurv;
+        clasificacion_final = es_fragmento
+          ? `Fragmento ${_nombreCurv} (${completitud}% completo)`
+          : _nombreCurv;
+        console.log(`   ⚖️  REGLA 6: frontera curvilínea detectada (R=${_ratio6.toFixed(3)}, C=${_circ6.toFixed(3)}, S=${_sol6.toFixed(3)})`);
+        console.log(`   → Estabilizando salida a "${clasificacion_final}" para consistencia Manual/IA`);
+      }
+    }
+
     // 🆕 REGLA 4: VALIDACIÓN CRUZADA CON CONVEXIDAD/SOLIDEZ
     // Si se clasificó como Circular pero tiene baja convexidad/solidez → Reclasificar
     // 🔧 AJUSTADO: Solo reclasificar si HAY EVIDENCIA FUERTE de irregularidad
@@ -7623,6 +7944,14 @@
       }
     }
     
+    const interpretacionTipologica = inferirInterpretacionTipologica(
+      clasificacion_final,
+      categoria_ganadora,
+      contextoMorfologico,
+      es_fragmento,
+      completitud
+    );
+
     // ============================================================
     // PASO 5: CÁLCULO DE CONFIANZA GLOBAL
     // ============================================================
@@ -7709,6 +8038,10 @@
     if (es_fragmento) {
       razonamiento.push(`Fragmentación: Objeto ${completitud}% completo detectado por análisis radial-angular`);
     }
+    razonamiento.push(`Contexto morfológico: topología ${contextoMorfologico.topologiaBase}, familia radial ${contextoMorfologico.categoriaRadial}`);
+    if (interpretacionTipologica.requiere_reinterpretacion) {
+      razonamiento.push(`Interpretación tipológica: ${interpretacionTipologica.forma_tipologica_inferida}`);
+    }
     
     for (const [nombre, datos] of Object.entries(evidencias)) {
       if (datos.clasificacion === "No calculado" || datos.clasificacion === "Indeterminada") {
@@ -7747,6 +8080,11 @@
       votos_detallados: votos,
       razonamiento: razonamiento,
       evidencias: evidencias,
+      contexto_morfologico: contextoMorfologico,
+      forma_geometrica_observada: interpretacionTipologica.forma_geometrica_observada,
+      forma_tipologica_inferida: interpretacionTipologica.forma_tipologica_inferida,
+      razon_tipologica: interpretacionTipologica.razon_tipologica,
+      requiere_reinterpretacion_tipologica: interpretacionTipologica.requiere_reinterpretacion,
       es_fragmento: es_fragmento,
       completitud: completitud
     };
@@ -8464,13 +8802,117 @@
       const esElipsoidal = concentracionCambios < 0.55 && uniformidadRadial >= 0.72;
       
       if (esElipsoidal) {
-        // Variación gradual → elipse, no polígono
-        geometriaInferida = "Elipsoidal";
+        // ── Discriminador morfotípico: Oval / Amigdaloide / Lanceolada / Elipsoidal ──
+        //
+        // Taxonomía arqueológica:
+        //  • Elipsoidal  : dos ejes de simetría; ambos extremos redondeados y equivalentes
+        //  • Oval        : un eje de simetría; un extremo más ancho (asimetría > 12% en limaçon)
+        //  • Amigdaloide : un extremo redondeado (base) + uno agudo (ápex); ej: bifaz achelense
+        //  • Lanceolada  : ambos extremos agudos (hoja de lanza / foliácea)
+        //
+        // MÉTRICAS:
+        //  [A] Asimetría de extremos (Oval):
+        //      Ratio de radios promedio en los dos extremos del eje mayor.
+        //      Oval ≈ limaçon: asim < 0.88 (un extremo claramente más corto desde centroide).
+        //
+        //  [B] Apex Sharpness Index (Amigdaloide / Lanceolada):
+        //      Se mide en el sector de radio MÍNIMO (el posible ápex agudo),
+        //      NO en los extremos del eje mayor.
+        //      ASI = (promedio_r±3sectores − r_mínimo) / r_global_medio
+        //      Ápex puntudo: radios crecen rápido al alejarse del mínimo → ASI > 0.22
+        //      Extremo redondeado (eje menor de elipse): crecimiento suave → ASI ≈ 0.05-0.12
+
+        // ── 1. Sector de radio máximo y su opuesto (extremos del eje mayor) ──────
+        let _maxR_v = -Infinity, _maxIdx = 0;
+        for (let _si = 0; _si < NUM_SECTORES; _si++) {
+          if (sectores[_si].count > 0) {
+            const _v = sectores[_si].radios.reduce((a, b) => a + b, 0) / sectores[_si].count;
+            if (_v > _maxR_v) { _maxR_v = _v; _maxIdx = _si; }
+          }
+        }
+        const _oppIdx = (_maxIdx + 18) % NUM_SECTORES;
+
+        // ── 2. Radio promedio en ±2 sectores de cada extremo (robustez) ──────────
+        const _avgW = (ci) => {
+          let _s = 0, _n = 0;
+          for (let _d = -2; _d <= 2; _d++) {
+            const _idx = ((ci + _d) + NUM_SECTORES) % NUM_SECTORES;
+            if (sectores[_idx].count > 0) {
+              _s += sectores[_idx].radios.reduce((a, b) => a + b, 0) / sectores[_idx].count; _n++;
+            }
+          }
+          return _n > 0 ? _s / _n : 0;
+        };
+        const _r1 = _avgW(_maxIdx);
+        const _r2 = _avgW(_oppIdx);
+        const asimetriaExtremos = (_r1 > 0 && _r2 > 0) ? Math.min(_r1, _r2) / Math.max(_r1, _r2) : 1.0;
+
+        // ── 3. Sector de radio MÍNIMO (candidato a ápex agudo) ───────────────────
+        // IMPORTANTE: el ápex de un amigdaloide es el sector de RADIO MÍNIMO
+        // desde el centroide, NO el extremo del eje mayor (que es el máximo).
+        let _minR_v = Infinity, _minIdx = 0;
+        for (let _si = 0; _si < NUM_SECTORES; _si++) {
+          if (sectores[_si].count > 0) {
+            const _v = sectores[_si].radios.reduce((a, b) => a + b, 0) / sectores[_si].count;
+            if (_v < _minR_v) { _minR_v = _v; _minIdx = _si; }
+          }
+        }
+        // Segundo mínimo en el cuadrante opuesto (detecta segunda punta: Lanceolada)
+        // Requiere ≥ 12 sectores de separación (≥ 120°) para evitar falsos positivos
+        // por el "lado" de la forma (que siempre tiene un mínimo local lateral).
+        let _min2R_v = Infinity, _min2Idx = 0;
+        for (let _si = 0; _si < NUM_SECTORES; _si++) {
+          const _angDist = Math.min(Math.abs(_si - _minIdx), NUM_SECTORES - Math.abs(_si - _minIdx));
+          if (_angDist >= 12 && sectores[_si].count > 0) {
+            const _v = sectores[_si].radios.reduce((a, b) => a + b, 0) / sectores[_si].count;
+            if (_v < _min2R_v) { _min2R_v = _v; _min2Idx = _si; }
+          }
+        }
+
+        // ── 4. Apex Sharpness Index (ASI) en el mínimo radial ────────────────────
+        // ASI positivo alto = radios crecen rápido al alejarse del mínimo = punta aguda
+        // ASI positivo bajo = radios crecen suavemente = extremo redondeado
+        const _ASI = (ci) => {
+          const rTip = sectores[ci].count > 0
+            ? sectores[ci].radios.reduce((a, b) => a + b, 0) / sectores[ci].count : 0;
+          if (rTip <= 0 || radioGlobalPromedio <= 0) return 0;
+          const _ci3L = ((ci - 3) + NUM_SECTORES) % NUM_SECTORES;
+          const _ci3R = (ci + 3) % NUM_SECTORES;
+          const r3L = sectores[_ci3L].count > 0 ? sectores[_ci3L].radios.reduce((a,b)=>a+b,0)/sectores[_ci3L].count : rTip;
+          const r3R = sectores[_ci3R].count > 0 ? sectores[_ci3R].radios.reduce((a,b)=>a+b,0)/sectores[_ci3R].count : rTip;
+          return ((r3L + r3R) / 2 - rTip) / radioGlobalPromedio;
+        };
+        const ASI1 = _ASI(_minIdx);   // Sharpness en el mínimo principal
+        const ASI2 = _ASI(_min2Idx);  // Sharpness en el segundo mínimo (para Lanceolada)
+
+        // ── 5. Clasificación morfotípica ──────────────────────────────────────────
+        // Umbrales validados:
+        //   ASI > 0.22   : ápex agudo (radio crece >22% del radio medio en solo 3 sectores)
+        //   asim < 0.88  : extremos del eje mayor asimétricos (Oval tipo limaçon/huevo)
+        //   arNorm < 0.75: elongación notable (refuerza Lanceolada)
+        const _apexAgudo1 = ASI1 > 0.22;
+        const _apexAgudo2 = ASI2 > 0.22;
+        const _esOval     = asimetriaExtremos < 0.88;
+
+        if (_apexAgudo1 && _apexAgudo2 && arNorm < 0.75) {
+          // Dos puntas agudas + elongado → Lanceolada (hoja de lanza)
+          geometriaInferida = "Lanceolada";
+        } else if (_apexAgudo1) {
+          // Una punta aguda, base redondeada → Amigdaloide (bifaz, almendra)
+          geometriaInferida = "Amigdaloide";
+        } else if (_esOval) {
+          // Ambos extremos redondeados pero asimétricos → Oval
+          geometriaInferida = "Oval";
+        } else {
+          // Simétrico y redondeado → Elipsoidal
+          geometriaInferida = "Elipsoidal";
+        }
+
         confianzaGeometria = uniformidadRadial;
         if (esFragmento) {
-          geometriaInferida = `Fragmento Elipsoidal (${porcentajeCompletitud.toFixed(0)}% completo)`;
+          geometriaInferida = `Fragmento ${geometriaInferida} (${porcentajeCompletitud.toFixed(0)}% completo)`;
         }
-        console.log(`      🥚 GEOMETRÍA ELIPSOIDAL detectada (concentración cambios: ${(concentracionCambios*100).toFixed(0)}%, uniformidad: ${(uniformidadRadial*100).toFixed(0)}%)`);
+        console.log(`      🪨 GEOMETRÍA ${geometriaInferida} (asim.ext: ${(asimetriaExtremos*100).toFixed(0)}%, ASI_min1: ${ASI1.toFixed(3)}, ASI_min2: ${ASI2.toFixed(3)}, concent: ${(concentracionCambios*100).toFixed(0)}%, unif: ${(uniformidadRadial*100).toFixed(0)}%)`);
       // Discriminar entre Poligonal (regular con esquinas) e Irregular (caótico)
       } else if (uniformidadRadial >= 0.70) {
         geometriaInferida = "Poligonal";
@@ -9083,128 +9525,127 @@
     const arNorm = Math.min(aspectRatio, 1.0 / (aspectRatio || 0.001));
     const _sfx = (base) => geometriaInferida.includes("Fragmento")
       ? `${base} (${distribucionRadialAngular.porcentajeCompletitud.toFixed(0)}% completo)` : base;
-    
-    // ── PRIORIDAD 1: LAMINAR — elongación métrica extrema ─────────────────────
+
+    // ============================================================================
+    // ÁRBOL DE DECISIÓN ÚNICO — 18 categorías morfotípicas
+    //
+    // Cada nodo usa la métrica más discriminante para ese nivel.
+    // No hay duplicación de lógica entre ramas.
+    //
+    // Métricas en uso:
+    //   arNorm      = min(W/H, H/W)            → elongación
+    //   solidez     = A_real / A_hull           → concavidad
+    //   circularidad = 4π·A/P²                 → suavidad del borde
+    //   geometriaInferida                       → análisis radial-angular
+    //   verticesSignificativos.length           → N° esquinas reales
+    //   aspectRatio                             → W/H bruto (para refinar cuadriláteros)
+    // ============================================================================
+
+    // ── NIVEL 0: Formas métricamente extremas (independientes del análisis radial)
     if (arNorm < 0.28 && solidez > 0.55) {
-      tipoForma = 'laminar';
-      nombreForma = _sfx('Forma Laminar');
-      colorForma = '#6f42c1'; // Violeta
-    
-    // ── PRIORIDAD 2: LUNAR — concavidad muy fuerte ────────────────────────────
+      // Elongación extrema (ratio eje > 3.6:1) con cuerpo sólido → Laminar
+      tipoForma = 'laminar'; nombreForma = _sfx('Forma Laminar'); colorForma = '#6f42c1';
+
     } else if (solidez < 0.60 && circularidad < 0.72) {
-      tipoForma = 'lunar';
-      nombreForma = _sfx('Forma Lunar');
-      colorForma = '#20c997'; // Teal
-    
-    // ── PRIORIDAD 3: ELIPSOIDAL (radial angular explícito) ─────────────────────
-    } else if (geometriaInferida.includes("Elipsoidal") || geometriaInferida === "Elipsoidal") {
-      tipoForma = 'elipsoidal';
-      nombreForma = geometriaInferida.includes("Fragmento")
-        ? `Forma Elipsoidal (${distribucionRadialAngular.porcentajeCompletitud.toFixed(0)}% completo)` : 'Forma Elipsoidal';
-      colorForma = '#e83e8c'; // Rosa
-    
-    // ── PRIORIDAD 4: CIRCULAR / ELIPSOIDAL (análisis radial) ──────────────────
-    } else if (geometriaInferida.includes("Circular") || geometriaInferida === "Circular") {
+      // Concavidad muy fuerte (falta > 40% del área convexa) → Lunar pronunciado / creciente
+      tipoForma = 'lunar'; nombreForma = _sfx('Forma Lunar'); colorForma = '#20c997';
+
+    } else if (
+      // Lunar suave: asimetría radial alta en forma elongada con curvatura moderada
+      // Rmin/Rmax < 0.50: el borde cóncavo/recto es < 50% del arco convexo
+      // → lunate arqueológico con concavidad leve (solidez 0.75-0.95)
+      (geometriaInferida.includes('Oval') || geometriaInferida.includes('Elipsoidal')) &&
+      arNorm < 0.52 &&
+      (regularidad.ratioExtension || 1.0) < 0.50 &&
+      circularidad >= 0.65 && circularidad < 0.86 &&
+      solidez >= 0.75 && solidez < 0.95
+    ) {
+      tipoForma = 'lunar'; nombreForma = _sfx('Forma Lunar'); colorForma = '#20c997';
+
+    // ── NIVEL 1: Formas curvilíneas detectadas por análisis radial-angular ──────
+    // El análisis radial ya discriminó entre Circular / Elipsoidal / Oval /
+    // Amigdaloide / Lanceolada.  Aquí simplemente se mapea a tipo+color.
+    } else if (geometriaInferida.includes("Circular")) {
+      // Nota: si es muy elongado a pesar de ser "Circular" en sectores → Elipsoidal
       if (arNorm < 0.80 && excentricidad > 0.30) {
-        // Uniforme radialmente pero elongado → Elipsoidal
-        tipoForma = 'elipsoidal';
-        nombreForma = _sfx('Forma Elipsoidal');
-        colorForma = '#e83e8c'; // Rosa
+        tipoForma = 'elipsoidal'; nombreForma = _sfx('Forma Elipsoidal'); colorForma = '#e83e8c';
       } else {
-        tipoForma = 'circular';
-        nombreForma = _sfx('Forma Circular');
-        colorForma = '#007bff'; // Azul
+        tipoForma = 'circular'; nombreForma = _sfx('Forma Circular'); colorForma = '#007bff';
       }
-    
-    // ── PRIORIDAD 5: POLIGONAL (análisis radial) — refinar con métricas ───────
-    } else if (geometriaInferida.includes("Poligonal") || geometriaInferida === "Poligonal") {
-      // Discriminación Elipsoidal vs Lanceolada:
-      // Elipsoidal: borde suave (circularidad ALTA ≥ 0.75) + excentricidad
-      // Lanceolada: extremos puntiagudos (circularidad MEDIA < 0.76) + elongación
-      if (arNorm < 0.82 && circularidad >= 0.75 && solidez >= 0.76 && excentricidad >= 0.22) {
-        // Borde suave + ovalado → Elipsoidal (captura ellipses que caen en "Poligonal")
-        tipoForma = 'elipsoidal';
-        nombreForma = _sfx('Forma Elipsoidal');
-        colorForma = '#e83e8c'; // Rosa
-      } else if (arNorm < 0.55 && circularidad >= 0.46 && circularidad < 0.76 && solidez >= 0.68) {
-        // Elongado + extremos puntiagudos (circularidad media) → Lanceolada
-        tipoForma = 'lanceolada';
-        nombreForma = _sfx('Forma Lanceolada');
-        colorForma = '#fd7e14'; // Naranja
-      } else if (arNorm >= 0.55 && arNorm < 0.82 && circularidad >= 0.68 && solidez >= 0.83) {
-        tipoForma = 'amigdaloide';
-        nombreForma = _sfx('Forma Amigdaloide');
-        colorForma = '#795548'; // Marrón
-      } else if (arNorm < 0.82 && circularidad >= 0.62 && solidez >= 0.76 && excentricidad >= 0.22) {
-        tipoForma = 'elipsoidal';
-        nombreForma = _sfx('Forma Elipsoidal');
-        colorForma = '#e83e8c'; // Rosa (fallback para elipses con circularidad 0.62-0.74)
-      } else if (solidez >= 0.62 && solidez < 0.82 && circularidad >= 0.55) {
-        tipoForma = 'irregular';
-        nombreForma = 'Forma Irregular';
-        colorForma = '#6c757d';
-      } else if (verticesSignificativos.length === 3) {
-        tipoForma = 'triangular';
-        nombreForma = _sfx('Forma Triangular');
-        colorForma = '#28a745'; // Verde
-      } else if (verticesSignificativos.length === 4) {
+
+    } else if (geometriaInferida.includes("Elipsoidal")) {
+      tipoForma = 'elipsoidal'; nombreForma = _sfx('Forma Elipsoidal'); colorForma = '#e83e8c';
+
+    } else if (geometriaInferida.includes("Oval")) {
+      tipoForma = 'oval'; nombreForma = _sfx('Forma Oval'); colorForma = '#c0397a';
+
+    } else if (geometriaInferida.includes("Amigdaloide")) {
+      tipoForma = 'amigdaloide'; nombreForma = _sfx('Forma Amigdaloide'); colorForma = '#795548';
+
+    } else if (geometriaInferida.includes("Lanceolada")) {
+      tipoForma = 'lanceolada'; nombreForma = _sfx('Forma Lanceolada'); colorForma = '#fd7e14';
+
+    // ── NIVEL 2: Formas poligonales — discriminación por N° vértices ────────────
+    // Aplica cuando el análisis radial dice "Poligonal" o "Triangular".
+    } else if (geometriaInferida.includes("Poligonal") || geometriaInferida.includes("Triangular")) {
+
+      // Sub-nivel 2a: vértices definidos → polígono regular específico
+      const nV = verticesSignificativos.length;
+
+      if (nV === 3) {
+        tipoForma = 'triangular'; nombreForma = _sfx('Forma Triangular'); colorForma = '#28a745';
+
+      } else if (nV === 4) {
         if (aspectRatio >= 0.85 && aspectRatio <= 1.18) {
-          tipoForma = 'cuadrangular';
-          nombreForma = _sfx('Forma Cuadrangular');
-          colorForma = '#ffc107'; // Dorado
-        } else if (aspectRatio < 0.68 || aspectRatio > 1.47) {
-          // AR extremo → Rectangular
-          tipoForma = 'rectangular';
-          nombreForma = _sfx('Forma Rectangular');
-          colorForma = '#fd7e14'; // Naranja
+          tipoForma = 'cuadrangular'; nombreForma = _sfx('Forma Cuadrangular'); colorForma = '#ffc107';
+        } else if (solidez >= 0.82 && arNorm >= 0.55) {
+          // 4 vértices con lados no paralelos → Trapezoidal
+          tipoForma = 'trapezoidal'; nombreForma = _sfx('Forma Trapezoidal'); colorForma = '#e0a800';
         } else {
-          // AR moderado, 4 vértices, no encaja en cuadrado/rect → Trapezoidal
-          tipoForma = 'trapezoidal';
-          nombreForma = _sfx('Forma Trapezoidal');
-          colorForma = '#e0a800'; // Ámbar
+          // 4 vértices + muy elongado → Rectangular
+          tipoForma = 'rectangular'; nombreForma = _sfx('Forma Rectangular'); colorForma = '#fd7e14';
         }
+
+      } else if (nV === 5) {
+        tipoForma = 'pentagonal'; nombreForma = _sfx('Forma Pentagonal'); colorForma = '#6610f2';
+
+      } else if (nV === 6) {
+        tipoForma = 'hexagonal'; nombreForma = _sfx('Forma Hexagonal'); colorForma = '#20c997';
+
+      // Sub-nivel 2b: vértices ambiguos → discriminar curvilíneas que caen en Poligonal
+      // (ocurre cuando la elipse pixelada supera el umbral de cambios abruptos)
+      } else if (circularidad >= 0.72 && solidez >= 0.76) {
+        // Borde suave + compacto: es una elipse/oval mal clasificada como Poligonal
+        if (arNorm < 0.55 && circularidad < 0.76) {
+          // Elongada con extremos medios → Lanceolada
+          tipoForma = 'lanceolada'; nombreForma = _sfx('Forma Lanceolada'); colorForma = '#fd7e14';
+        } else if (arNorm >= 0.55 && arNorm < 0.82 && solidez >= 0.83) {
+          // Moderadamente elongada + muy sólida → Amigdaloide
+          tipoForma = 'amigdaloide'; nombreForma = _sfx('Forma Amigdaloide'); colorForma = '#795548';
+        } else {
+          tipoForma = 'elipsoidal'; nombreForma = _sfx('Forma Elipsoidal'); colorForma = '#e83e8c';
+        }
+
+      } else if (solidez < 0.72 && nV >= 6) {
+        // Muchos vértices + solidez baja → Estrellado
+        tipoForma = 'estrellado'; nombreForma = _sfx('Forma Estrellada'); colorForma = '#fd7e14';
+
+      } else if (solidez >= 0.72 && solidez < 0.86 && nV >= 5) {
+        // Moderadamente cóncavo + varios vértices → Lobulado
+        tipoForma = 'lobulado'; nombreForma = _sfx('Forma Lobulada'); colorForma = '#20c997';
+
       } else {
-        // Poligonal genérica (5+ vértices)
+        // Poligonal genérica
         tipoForma = 'poligonal';
         nombreForma = geometriaInferida.includes("Fragmento")
-          ? `Forma Poligonal (${verticesSignificativos.length}V, ${distribucionRadialAngular.porcentajeCompletitud.toFixed(0)}% completo)`
-          : `Forma Poligonal (${verticesSignificativos.length} vértices)`;
-        colorForma = '#17a2b8'; // Cian
+          ? `Forma Poligonal (${nV}V, ${distribucionRadialAngular.porcentajeCompletitud.toFixed(0)}% completo)`
+          : `Forma Poligonal (${nV > 0 ? nV : '?'} vértices)`;
+        colorForma = '#17a2b8';
       }
-    
-    } else if (geometriaInferida === "Triangular") {
-      tipoForma = 'triangular';
-      nombreForma = _sfx('Forma Triangular');
-      colorForma = '#28a745'; // Verde
-    
+
+    // ── NIVEL 3: Irregular — fallback controlado ─────────────────────────────────
     } else {
-      // Irregular (default) — intentar rescatar formas arqueológicas antes de confirmar
-      // Misma lógica de discriminación Elipsoidal/Lanceolada que en rama Poligonal
-      if (arNorm < 0.84 && circularidad >= 0.75 && solidez >= 0.76 && excentricidad >= 0.22) {
-        tipoForma = 'elipsoidal';
-        nombreForma = _sfx('Forma Elipsoidal');
-        colorForma = '#e83e8c';
-      } else if (arNorm < 0.55 && circularidad >= 0.45 && circularidad < 0.76 && solidez >= 0.66) {
-        tipoForma = 'lanceolada';
-        nombreForma = _sfx('Forma Lanceolada');
-        colorForma = '#fd7e14';
-      } else if (arNorm >= 0.55 && arNorm < 0.84 && circularidad >= 0.68 && solidez >= 0.83) {
-        tipoForma = 'amigdaloide';
-        nombreForma = _sfx('Forma Amigdaloide');
-        colorForma = '#795548';
-      } else if (arNorm < 0.84 && circularidad >= 0.62 && solidez >= 0.76 && excentricidad >= 0.22) {
-        tipoForma = 'elipsoidal';
-        nombreForma = _sfx('Forma Elipsoidal');
-        colorForma = '#e83e8c';
-      } else if (solidez >= 0.62 && solidez < 0.80 && circularidad >= 0.55 && circularidad < 0.82) {
-        tipoForma = 'irregular';
-        nombreForma = 'Forma Irregular';
-        colorForma = '#6c757d';
-      } else {
-        tipoForma = 'irregular';
-        nombreForma = 'Forma Irregular';
-        colorForma = '#6c757d'; // Gris
-      }
+      tipoForma = 'irregular'; nombreForma = 'Forma Irregular'; colorForma = '#6c757d';
     }
     
     console.log(`\n   🎯 CLASIFICACIÓN DEFINITIVA (análisis radial-angular):`);
@@ -9307,7 +9748,20 @@
       clasificaciones.push({
         nombre: "Lunar",
         confianza: 0.80,
-        razon: `Solidez muy baja (${solidez.toFixed(2)} < 0.60), forma cóncava/cresciente`
+        razon: `Solidez muy baja (${solidez.toFixed(2)} < 0.60), forma cóncava/cresciente pronunciada`
+      });
+    }
+    // ── LUNAR SUAVE: asimetría radial alta con elongación y curvatura moderada ────────
+    else if (
+      arNorm < 0.52 &&
+      (parseFloat(metrics.ratio_radios) || 1.0) < 0.50 &&
+      circularidad >= 0.65 && circularidad < 0.86 &&
+      solidez >= 0.75 && solidez < 0.95
+    ) {
+      clasificaciones.push({
+        nombre: "Lunar",
+        confianza: 0.75,
+        razon: `Asimetría radial fuerte (Rmin/Rmax=${(parseFloat(metrics.ratio_radios)||1).toFixed(3)}<0.50), elongada (arNorm=${arNorm.toFixed(2)}), curvatura lunar (circ=${circularidad.toFixed(2)})`
       });
     }
     // ── LANCEOLADA: elongada y apuntada en ambos extremos (puntas foliáceas) ──────────
@@ -9497,8 +9951,13 @@
       // sistema de referencia que usa extraerContornoReal (coordenadas absolutas de imagen).
       let _convexHullAbsoluto = null;
       if (obj.convexHull && obj.convexHull.length >= 3) {
-        // obj.convexHull viene en coords relativas al bbox (x_rel, y_rel) → convertir a absolutas
-        _convexHullAbsoluto = obj.convexHull.map(([rx, ry]) => [rx + obj.minX, ry + obj.minY]);
+        if (obj._hullIsAbsolute) {
+          // Hull ya en coordenadas absolutas (extraído por Python /api/contour) → no añadir offset
+          _convexHullAbsoluto = obj.convexHull.map(p => Array.isArray(p) ? p : [p[0], p[1]]);
+        } else {
+          // Hull relativo al bbox → convertir a absolutas
+          _convexHullAbsoluto = obj.convexHull.map(([rx, ry]) => [rx + obj.minX, ry + obj.minY]);
+        }
       } else if (_cPts.length >= 3) {
         // No hay hull precalculado: calcularlo desde el contorno (coords absolutas)
         if (typeof calcularConvexHull === 'function') {
@@ -10466,9 +10925,13 @@
       metrics.forma_confianza_global = (metaClasificacion.confianza_global * 100).toFixed(1);
       metrics.forma_metodos_coincidentes = `${metaClasificacion.metodos_coincidentes}/${metaClasificacion.total_metodos}`;
       metrics.forma_razonamiento = metaClasificacion.razonamiento.join(" | ");
-      
-      // Sobrescribir forma_detectada con meta-clasificación
-      metrics.forma_detectada = metaClasificacion.clasificacion_final;
+      metrics.forma_geometrica_observada = metaClasificacion.forma_geometrica_observada || metaClasificacion.clasificacion_final;
+      metrics.forma_tipologica_inferida = metaClasificacion.forma_tipologica_inferida || metrics.forma_geometrica_observada;
+      metrics.forma_razon_tipologica = metaClasificacion.razon_tipologica || '';
+      metrics.forma_requiere_reinterpretacion_tipologica = !!metaClasificacion.requiere_reinterpretacion_tipologica;
+      metrics.forma_detectada_tipologica = metrics.forma_tipologica_inferida;
+      // Resolver salida final con la regla canónica compartida Manual/IA.
+      aplicarReglaCanonicaInterpretacion(metrics);
       metrics.forma_confianza = metaClasificacion.confianza_global;
       
       // Guardar clasificaciones individuales para referencia
@@ -11118,11 +11581,39 @@
           }
         }
 
-        // ── Reconstruir _forma_idealizada si falta (objetos AIA: el contorno AIA es el idealizado) ──
-        // El contorno generado por la red neuronal es equivalente al "contorno depurado" manual.
-        if (!metricasCached._forma_idealizada &&
-            obj.contour_points && obj.contour_points.length >= 3) {
-          metricasCached._forma_idealizada = {
+        // ── Reconstruir _forma_idealizada para objetos IA con análisis JS completo ──
+        // Los objetos IA tienen contorno real correcto; para que metaClasificarForma()
+        // use distribucionRadialAngular real (y no el valor por defecto 0.85 del voter
+        // radial_angular con peso 3.0), ejecutar calcularMetricasMorfologicas sobre el
+        // contorno IA. Condición: no hay _forma_idealizada, o la existente no tiene
+        // distribucionRadialAngular y aún no se ha ejecutado el pipeline JS (_formaIAFixed).
+        if (obj.contour_points && obj.contour_points.length >= 3 &&
+            (!metricasCached._forma_idealizada ||
+             (!metricasCached._forma_idealizada.distribucionRadialAngular && !metricasCached._formaIAFixed))) {
+          let _jsForma = null;
+          if (typeof calcularMetricasMorfologicas === 'function') {
+            try {
+              const _escala = obj.analisisCached?.escalaUsada || 1.0;
+              const _jsMets = calcularMetricasMorfologicas(obj, _escala);
+              if (_jsMets?._forma_idealizada) {
+                _jsForma = _jsMets._forma_idealizada;
+                // Complementar con campos de clasificación JS que Python no calcula
+                if (!metricasCached.geometria_vertices && _jsMets.geometria_vertices)
+                  metricasCached.geometria_vertices = _jsMets.geometria_vertices;
+                if (!metricasCached.energia_clasificacion && _jsMets.energia_clasificacion)
+                  metricasCached.energia_clasificacion = _jsMets.energia_clasificacion;
+                if (!metricasCached.simetria_clasificacion && _jsMets.simetria_clasificacion)
+                  metricasCached.simetria_clasificacion = _jsMets.simetria_clasificacion;
+                if (!metricasCached.simetria_bilateral && _jsMets.simetria_bilateral)
+                  metricasCached.simetria_bilateral = _jsMets.simetria_bilateral;
+                console.log(`[cache-ia] _forma_idealizada JS (con distribucionRadialAngular) para ${obj.id}`);
+              }
+            } catch (_eJs) {
+              console.warn('[cache-ia] calcularMetricasMorfologicas falló:', _eJs.message);
+            }
+          }
+          // Fallback sintético si el análisis JS no produjo resultado
+          metricasCached._forma_idealizada = _jsForma || metricasCached._forma_idealizada || {
             nombre:  metricasCached.forma_detectada || 'Contorno IA',
             color:   '#007bff',
             vertices: obj.contour_points,
@@ -11139,7 +11630,11 @@
               alto:                    obj.height,
             },
           };
-          console.log(`[cache] _forma_idealizada reconstruida para ${obj.id}`);
+          // Marcar para no re-ejecutar en aperturas posteriores
+          metricasCached._formaIAFixed = true;
+          // Invalidar forma_confianza_global para forzar re-cálculo de metaClasificarForma
+          // con la nueva _forma_idealizada que ahora tiene distribucionRadialAngular
+          if (_jsForma) delete metricasCached.forma_confianza_global;
         }
 
         // ── Persistir caché enriquecida si se recalculó algún campo ──────────────
@@ -11165,6 +11660,11 @@
             metricasCached.forma_confianza_global        = (_mc.confianza_global * 100).toFixed(1);
             metricasCached.forma_metodos_coincidentes    = `${_mc.metodos_coincidentes}/${_mc.total_metodos}`;
             metricasCached.forma_razonamiento            = _mc.razonamiento.join(' | ');
+            metricasCached.forma_geometrica_observada    = _mc.forma_geometrica_observada || _mc.clasificacion_final;
+            metricasCached.forma_tipologica_inferida     = _mc.forma_tipologica_inferida || metricasCached.forma_geometrica_observada;
+            metricasCached.forma_razon_tipologica        = _mc.razon_tipologica || '';
+            metricasCached.forma_requiere_reinterpretacion_tipologica = !!_mc.requiere_reinterpretacion_tipologica;
+            metricasCached.forma_detectada_tipologica    = metricasCached.forma_tipologica_inferida;
             metricasCached._clasificaciones_individuales = {
               tradicional:      _mc.evidencias.tradicional.clasificacion,
               radial_angular:   _mc.evidencias.radial_angular.clasificacion,
@@ -11184,7 +11684,9 @@
         }
 
         // Mostrar análisis con datos cacheados (ahora obj tiene P/H)
-        mostrarAnalisisMorfologico(obj, metricasCached);
+        // Para objetos 3D, pasar la imagen rasterizada de la cara como imagenEspecifica
+        // para que mostrarAnalisisMorfologico pueda dibujar sin imageCaraA/B del pipeline 2D.
+        mostrarAnalisisMorfologico(obj, metricasCached, obj._imagen3d || null);
 
         // Restaurar canvas desde backup SÓLO cuando la imagen fuente NO estaba disponible.
         // Si la imagen era válida, mostrarAnalisisMorfologico ya dibujó correctamente;
@@ -11226,9 +11728,14 @@
     }
     
     try {
-      // ── Extraer DataURL del objeto (reutilizado en B1, B2, A3) ──────────────
+      // ── Extraer DataURL del objeto (reutilizado en B1, A3) ───────────────────────────
+      // Fase 3: para `_canonicalRaster` la imagen sintética YA es del tamaño exacto
+      // del objeto (no necesita recorte del canvas global); usarla directamente.
       let objImageURL = null;
-      if (typeof canvas !== 'undefined') {
+      if (obj._canonicalRaster && typeof obj.imagenRecortada === 'string' &&
+          obj.imagenRecortada.startsWith('data:')) {
+        objImageURL = obj.imagenRecortada;
+      } else if (typeof canvas !== 'undefined') {
         const tmpC = document.createElement('canvas');
         tmpC.width  = obj.width  || 1;
         tmpC.height = obj.height || 1;
@@ -11238,29 +11745,55 @@
         objImageURL = tmpC.toDataURL('image/png');
       }
 
+      // ── Imagen completa + bbox absoluto para contour.extract ──────────────────
+      // contour.py detecta el fondo desde la imagen completa; usar solo el crop
+      // del objeto puede invertir la máscara o alterar el perímetro detectado.
+      // Fase 3: para `_canonicalRaster`, la imagen sintética es a la vez "completa"
+      // y "recortada" (un solo objeto en un canvas dedicado).
+      const imagenFuenteContorno = obj._canonicalRaster
+        ? (obj._imagen3d || null)
+        : ((obj.cara === 'A' ? imageCaraA : (obj.cara === 'B' ? imageCaraB : null)) || image);
+      let fullImageDataURL = null;
+      if (imagenFuenteContorno?.src && imagenFuenteContorno.src.startsWith('data:')) {
+        fullImageDataURL = imagenFuenteContorno.src;
+      } else if (imagenFuenteContorno instanceof HTMLImageElement) {
+        const tmpFull = document.createElement('canvas');
+        tmpFull.width = imagenFuenteContorno.naturalWidth || imagenFuenteContorno.width || 1;
+        tmpFull.height = imagenFuenteContorno.naturalHeight || imagenFuenteContorno.height || 1;
+        tmpFull.getContext('2d').drawImage(imagenFuenteContorno, 0, 0);
+        fullImageDataURL = tmpFull.toDataURL('image/png');
+      } else if (imagenFuenteContorno instanceof HTMLCanvasElement) {
+        fullImageDataURL = imagenFuenteContorno.toDataURL('image/png');
+      }
+
       // ── B2: Contorno subpíxel Python /api/contour ───────────────────────────
       // Reemplaza extraerContornoReal() → cornerSubPix OpenCV (más preciso que JS)
       // Si el objeto ya fue segmentado con IA (_samSegmented), preservar ese
       // contorno — el segmentador IA usa la imagen completa con contexto de fondo
       // y produce un contorno más preciso que el extractor estándar sobre el recorte.
-      if (window.PythonBridge && PythonBridge.isModuleActive('contour') && objImageURL && !obj._samSegmented) {
+      // Fase 3: para `_canonicalRaster`, el contorno ya proviene de la geometría 3D
+      // exacta; re-extraerlo desde el raster sintético sólo añadiría ruido de stair-step.
+      if (window.PythonBridge && PythonBridge.isModuleActive('contour') && fullImageDataURL &&
+          !obj._samSegmented && !obj._canonicalRaster) {
         try {
           const pyCont = await PythonBridge.contour.extract(
-            objImageURL,
-            { x: 0, y: 0, w: obj.width || 1, h: obj.height || 1 }, // imagen ya recortada
+            fullImageDataURL,
+            { x: obj.minX || 0, y: obj.minY || 0, w: obj.width || 1, h: obj.height || 1 },
             { subpixel: true, simplify: 2.0 }
           );
           if (pyCont && Array.isArray(pyCont.points) && pyCont.points.length >= 3) {
-            // Traducir coordenadas relativas al objeto → absolutas en canvas
-            const ox = obj.minX || 0, oy = obj.minY || 0;
-            obj.contour_points = pyCont.points.map(([x, y]) => [x + ox, y + oy]);
+            // Python devuelve coords ABSOLUTAS (paso 7 en contour.py suma bbox.x/y).
+            // Los canvases (schematicCanvas, morphologicalCanvas) esperan absolutas y
+            // restan obj.minX/minY ellos mismos al dibujar → almacenar sin modificar.
+            obj.contour_points = pyCont.points;
             obj.has_real_contour = true;
-            console.log(`[Python] contour.extract ✓ → ${obj.contour_points.length} pts subpíxel`);
+            console.log(`[Python] contour.extract ✓ → ${obj.contour_points.length} pts subpíxel (coords absolutas)`);
 
-            // Usar convex hull de Python (ya en coords absolutas: bbox_x=0 → +ox)
+            // Hull absoluto — _hullIsAbsolute=true para que la lógica del canvas
+            // (isRelative = !_hullIsAbsolute) aplique la resta de minX/minY.
             if (Array.isArray(pyCont.convex_hull) && pyCont.convex_hull.length >= 3) {
-              obj.convexHull = pyCont.convex_hull.map(([x, y]) => [x + ox, y + oy]);
-              obj._hullIsAbsolute = true;  // marca para que redrawCanvas no sume minX de nuevo
+              obj.convexHull = pyCont.convex_hull;
+              obj._hullIsAbsolute = true;
             }
           }
         } catch (_e) {
@@ -11276,9 +11809,29 @@
                         obj.contour_points && obj.contour_points.length >= 3;
       if (_bridgeOk) {
         try {
+          // /api/metrics recibe la imagen recortada (objImageURL = crop del objeto).
+          // Los puntos almacenados son absolutos → convertir a ROI-relativos restando
+          // el offset del bbox antes de pasarlos a Python.
+          const _metOx = obj.minX || 0;
+          const _metOy = obj.minY || 0;
+          const _contourForMetrics = (_metOx > 0 || _metOy > 0)
+            ? obj.contour_points.map(p => [p[0] - _metOx, p[1] - _metOy])
+            : obj.contour_points;
+
+          // Fase 3: para `_canonicalRaster`, forzar la escala mm/px del raster
+          // (= 1/dpi), ya que la global `scale` proviene de EXIF y no aplica.
+          // También se salta `metrics.texture` cuando `_skipTexture=true` porque la
+          // imagen sintética es de tono plano y produciría GLCM espurio.
+          const _scaleForMetrics = obj._canonicalRaster && obj.scale_mm_per_px > 0
+            ? obj.scale_mm_per_px
+            : (scale || 1.0);
+          const _texturePromise = obj._skipTexture
+            ? Promise.resolve({ status: 'fulfilled', value: null })
+            : PythonBridge.metrics.texture(objImageURL);
+
           const [pyMetsRes, pyTexRes] = await Promise.allSettled([
-            PythonBridge.metrics.calculate(objImageURL, obj.contour_points, scale || 1.0),
-            PythonBridge.metrics.texture(objImageURL),
+            PythonBridge.metrics.calculate(objImageURL, _contourForMetrics, _scaleForMetrics),
+            _texturePromise,
           ]);
           if (pyMetsRes.status === 'fulfilled' && pyMetsRes.value?.metricas &&
               Object.keys(pyMetsRes.value.metricas).length > 0) {
@@ -11307,22 +11860,114 @@
               metricas.completitud_tipo_fragmento = metricas.completitud_es_fragmento
                 ? 'Fragmento' : 'Pieza completa';
             }
-            // _forma_idealizada sintética para meta-clasificación (sin análisis radial-angular)
+
+              // ── Convertir campos de posición ROI-relativos → coordenadas absolutas ────
+              // Python calcula posiciones con la imagen recortada (crop) y puntos relativos al
+              // ROI → todos los campos posicionales están en rango [0..w] × [0..h].
+              // Los canvases (morphologicalCanvas, schematicCanvas) esperan absolutos y
+              // restan obj.minX/minY internamente → sin este paso los trazos quedan fuera.
+              const _posOx = obj.minX || 0;
+              const _posOy = obj.minY || 0;
+              if (_posOx > 0 || _posOy > 0) {
+                // Escalares
+                if (metricas.centroide_x       != null) metricas.centroide_x       = +metricas.centroide_x       + _posOx;
+                if (metricas.centroide_y       != null) metricas.centroide_y       = +metricas.centroide_y       + _posOy;
+                if (metricas.centroide_hull_x  != null) metricas.centroide_hull_x  = +metricas.centroide_hull_x  + _posOx;
+                if (metricas.centroide_hull_y  != null) metricas.centroide_hull_y  = +metricas.centroide_hull_y  + _posOy;
+                // Arrays [x, y]
+                const _aOff = (pt) => (pt && pt.length >= 2) ? [pt[0] + _posOx, pt[1] + _posOy] : pt;
+                metricas.punto_radio_maximo = _aOff(metricas.punto_radio_maximo);
+                metricas.punto_radio_minimo = _aOff(metricas.punto_radio_minimo);
+                const _posFields = [
+                  'eje_mayor_p1', 'eje_mayor_p2', 'eje_menor_p1', 'eje_menor_p2',
+                  'eje_mayor_p1_recortado', 'eje_mayor_p2_recortado',
+                  'eje_menor_p1_recortado', 'eje_menor_p2_recortado',
+                  'punto_eje_mayor_1', 'punto_eje_mayor_2',
+                  'punto_eje_menor_1', 'punto_eje_menor_2',
+                ];
+                for (const _f of _posFields) {
+                  if (metricas[_f]) metricas[_f] = _aOff(metricas[_f]);
+                }
+                console.log(`[Python] posiciones convertidas a absolutas (+${_posOx}, +${_posOy})`);
+                if (typeof window._maoLog === 'function') window._maoLog(`[MANUAL] coords-absolutas offset=(+${_posOx},+${_posOy}) centroide=(${metricas.centroide_x?.toFixed(0)},${metricas.centroide_y?.toFixed(0)})`);
+              }
+
+              // _forma_idealizada: intentar análisis JS completo para distribucionRadialAngular
+            // (equivalente al pipeline Manual), usando el contorno correcto del objeto IA.
             if (!metricas._forma_idealizada) {
-              metricas._forma_idealizada = {
+              let _jsFormaNC = null;
+              if (obj.contour_points?.length >= 3 && typeof calcularMetricasMorfologicas === 'function') {
+                try {
+                  const _jsMetsNC = calcularMetricasMorfologicas(obj, scale || 1.0);
+                  if (_jsMetsNC?._forma_idealizada) {
+                    _jsFormaNC = _jsMetsNC._forma_idealizada;
+                    if (!metricas.geometria_vertices && _jsMetsNC.geometria_vertices)
+                      metricas.geometria_vertices = _jsMetsNC.geometria_vertices;
+                    if (!metricas.energia_clasificacion && _jsMetsNC.energia_clasificacion)
+                      metricas.energia_clasificacion = _jsMetsNC.energia_clasificacion;
+                    if (!metricas.simetria_clasificacion && _jsMetsNC.simetria_clasificacion)
+                      metricas.simetria_clasificacion = _jsMetsNC.simetria_clasificacion;
+                    if (!metricas.simetria_bilateral && _jsMetsNC.simetria_bilateral)
+                      metricas.simetria_bilateral = _jsMetsNC.simetria_bilateral;
+                  }
+                } catch (_eJsNC) {
+                  console.warn('[Python-path] calcularMetricasMorfologicas falló:', _eJsNC.message);
+                }
+              }
+              metricas._forma_idealizada = _jsFormaNC || {
                 nombre: metricas.forma_detectada,
                 vertices: (metricas.vertices_coords || []).map(p => Array.isArray(p) ? p : [p.x, p.y]),
                 distribucionRadialAngular: null
               };
             }
+
+            // ── Forzar etiqueta de fragmento en _forma_idealizada si Python indica baja completitud ──
+            // metaClasificarForma (REGLA 2) sólo activa el fragmento si _forma_idealizada.nombre
+            // ya contiene "Fragmento". Con contorno cerrado (hull ≥360°) el análisis radial no lo
+            // detecta → inyectamos aquí la señal cuando completitud < 95% o perdida > 1%.
+            // GUARDA P/H: solidity ≥0.92 indica contorno exterior íntegro → la pérdida se explica
+            // por perforación/horadación interna o muñeca, NO por fractura real → no inyectar.
+            {
+              const _mComp     = parseFloat(metricas.completitud_estimada);
+              const _mPerd     = parseFloat(metricas.perdida_area_fragmentacion_percent);
+              const _mSolidity = parseFloat(metricas.solidity || metricas.solidez) || 1.0;
+              const _mEsFrag   = _mSolidity < 0.92 && (
+                (!isNaN(_mComp) && _mComp < 95) ||
+                (!isNaN(_mPerd) && _mPerd > 1.0)
+              );
+              const _mPct = !isNaN(_mComp) && _mComp < 95
+                ? Math.round(_mComp)
+                : (!isNaN(_mPerd) && _mPerd > 0 ? Math.round(100 - _mPerd) : null);
+              if (_mEsFrag && _mPct != null && metricas._forma_idealizada) {
+                const _mBase = (metricas._forma_idealizada.nombre || 'Circular')
+                  .replace(/fragmento\s*/i, '').replace(/\s*\(\d+%\s*completo\)/i, '').trim();
+                metricas._forma_idealizada.nombre = `Fragmento ${_mBase} (${_mPct}% completo)`;
+                metricas._forma_idealizada.distribucionRadialAngular =
+                  metricas._forma_idealizada.distribucionRadialAngular || {};
+                console.log(`[Python-manual] fragmento forzado: perd=${_mPerd?.toFixed(1)}% comp=${_mComp?.toFixed(1)}% sol=${_mSolidity?.toFixed(3)} → "${metricas._forma_idealizada.nombre}"`);
+              } else if (_mSolidity >= 0.92 && (!isNaN(_mComp) && _mComp < 95)) {
+                console.log(`[Python-manual] completitud baja (${_mComp?.toFixed(1)}%) ignorada: solidity=${_mSolidity?.toFixed(3)} ≥ 0.92 → P/H o muñeca, no fragmento`);
+              }
+            }
+
             // Meta-clasificación con información Python disponible
             try {
               const _metaClassif = metaClasificarForma(metricas, obj);
               metricas.forma_detectada_meta          = _metaClassif.clasificacion_final;
+              if (typeof window._maoLog === 'function') window._maoLog(`[MANUAL] meta-clasif="${_metaClassif.clasificacion_final}" tipologia="${_metaClassif.forma_tipologica_inferida || _metaClassif.clasificacion_final}" reinterpretada=${!!_metaClassif.requiere_reinterpretacion_tipologica} conf=${(_metaClassif.confianza_global*100).toFixed(1)}% metodos=${_metaClassif.metodos_coincidentes}/${_metaClassif.total_metodos} completitud=${metricas.completitud_estimada ?? 'n/a'}`);
               metricas.forma_confianza_global        = (_metaClassif.confianza_global * 100).toFixed(1);
               metricas.forma_metodos_coincidentes    = `${_metaClassif.metodos_coincidentes}/${_metaClassif.total_metodos}`;
               metricas.forma_razonamiento            = _metaClassif.razonamiento.join(' | ');
-              metricas.forma_detectada               = _metaClassif.clasificacion_final;
+              metricas.forma_geometrica_observada    = _metaClassif.forma_geometrica_observada || _metaClassif.clasificacion_final;
+              metricas.forma_tipologica_inferida     = _metaClassif.forma_tipologica_inferida || metricas.forma_geometrica_observada;
+              metricas.forma_razon_tipologica        = _metaClassif.razon_tipologica || '';
+              metricas.forma_requiere_reinterpretacion_tipologica = !!_metaClassif.requiere_reinterpretacion_tipologica;
+              metricas.forma_detectada_tipologica    = metricas.forma_tipologica_inferida;
+              const _formaMostradaPy = (metricas.forma_tipologica_inferida && metricas.forma_requiere_reinterpretacion_tipologica)
+                ? metricas.forma_tipologica_inferida
+                : _metaClassif.clasificacion_final;
+              metricas.forma_detectada               = _formaMostradaPy;
+              metricas.forma_detectada_mostrada      = _formaMostradaPy;
               metricas.forma_confianza               = _metaClassif.confianza_global;
               if (!metricas.forma_categoria_base)    metricas.forma_categoria_base = _metaClassif.categoria_base;
               metricas._clasificaciones_individuales = {
@@ -11390,8 +12035,40 @@
         }
       }
 
+      const emitirMonitorAnalisis = (objMonitor, metricasMonitor) => {
+        const modoMonitor = objMonitor._samSegmented
+          ? 'ia'
+          : (objMonitor.detectionMethod === 'manual_area' || objMonitor.detectionArea ? 'manual' : 'automatico');
+        const payload = {
+          objeto: objMonitor.id || null,
+          cara: objMonitor.cara || 'mono',
+          modo: modoMonitor,
+          metodoDeteccion: objMonitor.detectionMethod || null,
+          analysis_method: metricasMonitor.analysis_method || null,
+          forma: metricasMonitor.forma_detectada || metricasMonitor.forma_detectada_meta || null,
+          forma_meta: metricasMonitor.forma_detectada_meta || null,
+          forma_geometrica: metricasMonitor.forma_geometrica_observada || metricasMonitor.forma_detectada || null,
+          forma_tipologica: metricasMonitor.forma_tipologica_inferida || metricasMonitor.forma_detectada_tipologica || null,
+          forma_tipologica_reinterpretada: !!metricasMonitor.forma_requiere_reinterpretacion_tipologica,
+          razon_tipologica: metricasMonitor.forma_razon_tipologica || null,
+          area_fragmentada_px: metricasMonitor.area_fragmentada_px ?? null,
+          area_px: metricasMonitor.area_px ?? null,
+          centroid_hull_x: metricasMonitor.centroide_hull_x ?? null,
+          centroid_hull_y: metricasMonitor.centroide_hull_y ?? null,
+          radio_maximo_px: metricasMonitor.radio_maximo_px ?? null,
+          radio_minimo_px: metricasMonitor.radio_minimo_px ?? null,
+          ratio_radios: metricasMonitor.ratio_radios ?? null,
+          regularidad_radial: metricasMonitor.regularidad_radial ?? null,
+          circularity: metricasMonitor.circularity ?? null,
+          solidity: metricasMonitor.solidity ?? null,
+          timestamp: new Date().toISOString(),
+        };
+        console.info(`[MONITOR_ANALISIS] ${JSON.stringify(payload)}`);
+      };
+
       // Guardar siempre en caché — incluso en modo silencioso (auto-análisis background)
       guardarAnalisisEnCache(obj, metricas);
+      emitirMonitorAnalisis(obj, metricas);
 
       if (!silencioso) {
         console.log(`✅ Métricas calculadas para objeto ${obj.id}:`, metricas);
@@ -13723,6 +14400,12 @@
       obj.metricas = metricas;
 
       try {
+        if (currentAnalyzedObject.efaPromise) {
+          console.log(`⏳ Esperando EFA antes de guardar ${labelCompleto}...`);
+          setStatus(`Esperando cálculo EFA de ${labelCompleto} antes de guardar...`, false);
+          await Promise.resolve(currentAnalyzedObject.efaPromise);
+        }
+
         const guardadoExitoso = await guardarAnalisisMorfologico(obj, true);
 
         if (guardadoExitoso) {
@@ -13732,6 +14415,10 @@
           setStatus(`Análisis ${labelCompleto} guardado. Puede cargar la siguiente imagen.`, false);
           await new Promise(r => setTimeout(r, 600));
           morphologicalAnalysisContainer.style.display = 'none';
+          // Volver a las tarjetas de objetos tras cerrar el análisis
+          if (individualObjectsContainer && individualObjectsContainer.style.display !== 'none') {
+            individualObjectsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
           setBtnState('reset');
         } else {
           console.warn('⚠️ guardarAnalisisMorfologico devolvió false');
@@ -13748,6 +14435,9 @@
     } else {
       console.log('ℹ️ No hay análisis activo — cerrando sin guardar');
       morphologicalAnalysisContainer.style.display = 'none';
+      if (individualObjectsContainer && individualObjectsContainer.style.display !== 'none') {
+        individualObjectsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
 
     currentAnalyzedObject = null;
@@ -18847,7 +19537,11 @@
         metricas.patron_agrupamiento_detalles = patronAgrupamiento.detalles;
         
         // Actualizar clasificación síntesis final
-        metricas.clasificacion_sintesis_final = `${metricas.forma_detectada} con ${patronAgrupamiento.clasificacion}`;
+        const _formaIntegrada = metricas.forma_detectada_mostrada ||
+          ((metricas.forma_tipologica_inferida && metricas.forma_requiere_reinterpretacion_tipologica)
+            ? metricas.forma_tipologica_inferida
+            : (metricas.forma_detectada || metricas.forma_detectada_meta || metricas.forma_geometrica_observada || 'No clasificada'));
+        metricas.clasificacion_sintesis_final = `${_formaIntegrada} con ${patronAgrupamiento.clasificacion}`;
         
         console.log(`✅ Patrón actualizado: ${patronAgrupamiento.clasificacion}`);
         console.log(`✅ Síntesis actualizada: ${metricas.clasificacion_sintesis_final}`);
@@ -19023,9 +19717,19 @@
           </tr>` : ''}
           <tr ${obj.cara ? '' : 'style="background: #f8f9fa;"'}>
             <td style="${estiloTd}; font-weight: 600;">Meta-Clasificación Geométrica</td>
-            <td style="${estiloTd}; color: #28a745; font-weight: 700; font-size: 14px;">${metricas.forma_detectada || 'No clasificada'}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Síntesis de 6 métodos de clasificación</td>
+            <td style="${estiloTd}; color: ${(metricas.forma_tipologica_inferida && metricas.forma_requiere_reinterpretacion_tipologica) ? '#ef6c00' : '#28a745'}; font-weight: 700; font-size: 14px;">${(metricas.forma_tipologica_inferida && metricas.forma_requiere_reinterpretacion_tipologica) ? metricas.forma_tipologica_inferida : (metricas.forma_detectada || 'No clasificada')}</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">${(metricas.forma_tipologica_inferida && metricas.forma_requiere_reinterpretacion_tipologica) ? 'Se prioriza lectura tipológica para interpretación arqueológica' : 'Síntesis de 6 métodos de clasificación'}</td>
           </tr>
+          <tr>
+            <td style="${estiloTd}; font-weight: 600;">Interpretación Tipológica</td>
+            <td style="${estiloTd}; color: ${(metricas.forma_tipologica_inferida && metricas.forma_tipologica_inferida !== (metricas.forma_geometrica_observada || metricas.forma_detectada)) ? '#ef6c00' : '#37474f'}; font-weight: 700; font-size: 14px;">${metricas.forma_tipologica_inferida || metricas.forma_detectada_tipologica || metricas.forma_detectada || 'N/A'}</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Lectura arqueológica/semántica complementaria</td>
+          </tr>
+          ${metricas.forma_razon_tipologica ? `
+          <tr style="background: #fff8e1;">
+            <td style="${estiloTd}; font-weight: 600;">Razón Tipológica</td>
+            <td style="${estiloTd}; font-size: 12px;" colspan="2">${metricas.forma_razon_tipologica}</td>
+          </tr>` : ''}
           <tr>
             <td style="${estiloTd}; font-weight: 600;">Confianza de Clasificación</td>
             <td style="${estiloTd}; font-weight: 600;">${metricas.forma_confianza_global || ((metricas.forma_confianza || 0) * 100).toFixed(1)}%</td>
@@ -19097,6 +19801,13 @@
     html += generarSeccionEstadoConservacion(metricas, estiloTabla, estiloTh, estiloTd);
     
     // ========================================================================
+    // IX. ERROR ÓPTICO POSICIONAL (condicional)
+    // ========================================================================
+    if (metricas.error_optico_lineal_percent !== undefined) {
+      html += generarSeccionErrorOptico(metricas, estiloTabla, estiloTh, estiloTd);
+    }
+    
+    // ========================================================================
     // X. PERFORACIONES Y HORADACIONES (condicional)
     // ========================================================================
     if (obj.perforaciones && obj.perforaciones.length > 0) {
@@ -19141,15 +19852,20 @@
    * 2. DIMENSIONES BÁSICAS
    */
   function generarSeccionDimensiones(obj, metricas, estiloTabla, estiloTh, estiloTd) {
-    const area = parseFloat(metricas.area) || 0;
-    const perimetro = parseFloat(metricas.perimeter) || 0;
-    const anchoBBAjustado = parseFloat(metricas.tight_width || metricas.width) || 0;
-    const altoBBAjustado = parseFloat(metricas.tight_height || metricas.height) || 0;
-    // BB Original usa bounding_width/height (distinto del tight/ajustado)
-    const anchoBBOriginal = parseFloat(metricas.bounding_width) || 0;
-    const altoBBOriginal = parseFloat(metricas.bounding_height) || 0;
+    // Área y perímetro del convex hull (forma canónica completa — estándar MAO)
+    const area = parseFloat(metricas.hull_area || metricas.area) || 0;
+    const perimetro = parseFloat(metricas.perimeter_hull || metricas.perimeter) || 0;
+    // Dimensiones primarias: Feret caliper (invariante a orientación — estándar MAO)
+    const feretMax = parseFloat(metricas.feret_max) || 0;
+    const feretMin = parseFloat(metricas.feret_min) || 0;
+    // Ejes de inercia (tensor de área — complementarios a Feret)
+    const ejeMayor = parseFloat(metricas.eje_mayor) || 0;
+    const ejeMenor = parseFloat(metricas.eje_menor) || 0;
+    // BB del hull convexo (referencia geométrica orientada)
+    const anchoBB = parseFloat(metricas.width) || 0;
+    const altoBB  = parseFloat(metricas.height) || 0;
     const puntosContorno = metricas.contour_points || obj.contour_points?.length || 0;
-    
+
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #28a745;">
         II. DIMENSIONES MÉTRICAS DEL OBJETO
@@ -19166,32 +19882,42 @@
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}; font-weight: 600;">Área</td>
             <td style="${estiloTd}; font-weight: 700; color: #28a745; font-size: 15px;">${area.toFixed(2)}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm²</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm² — área convex hull (forma canónica completa)</td>
           </tr>
           <tr>
             <td style="${estiloTd}; font-weight: 600;">Perímetro</td>
             <td style="${estiloTd}; font-weight: 700; font-size: 15px;">${perimetro.toFixed(2)}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm — perímetro convex hull</td>
           </tr>
           <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Ancho (BB Ajustado)</td>
-            <td style="${estiloTd}; font-weight: 600;">${anchoBBAjustado.toFixed(2)}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm - Bounding Box ajustado</td>
+            <td style="${estiloTd}; font-weight: 600;">Longitud máxima (Feret↑)</td>
+            <td style="${estiloTd}; font-weight: 700; color: #0066cc; font-size: 15px;">${feretMax.toFixed(2)}</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm — diámetro caliper máximo (invariante a orientación)</td>
           </tr>
           <tr>
-            <td style="${estiloTd}; font-weight: 600;">Alto (BB Ajustado)</td>
-            <td style="${estiloTd}; font-weight: 600;">${altoBBAjustado.toFixed(2)}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm - Bounding Box ajustado</td>
+            <td style="${estiloTd}; font-weight: 600;">Anchura máxima (Feret↓)</td>
+            <td style="${estiloTd}; font-weight: 700; color: #0066cc; font-size: 15px;">${feretMin.toFixed(2)}</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm — diámetro caliper mínimo (invariante a orientación)</td>
           </tr>
           <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Ancho (BB Original)</td>
-            <td style="${estiloTd}">${anchoBBOriginal.toFixed(2)}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm - Bounding Box original</td>
+            <td style="${estiloTd}; font-weight: 600;">Eje Mayor (tensor inercia)</td>
+            <td style="${estiloTd}; font-weight: 600;">${ejeMayor.toFixed(2)}</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm — proyección sobre eje principal</td>
           </tr>
           <tr>
-            <td style="${estiloTd}; font-weight: 600;">Alto (BB Original)</td>
-            <td style="${estiloTd}">${altoBBOriginal.toFixed(2)}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm - Bounding Box original</td>
+            <td style="${estiloTd}; font-weight: 600;">Eje Menor (tensor inercia)</td>
+            <td style="${estiloTd}; font-weight: 600;">${ejeMenor.toFixed(2)}</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm — proyección sobre eje secundario</td>
+          </tr>
+          <tr style="background: #f8f9fa;">
+            <td style="${estiloTd}; font-weight: 600; color: #888;">Ancho BB (hull)</td>
+            <td style="${estiloTd}; color: #888;">${anchoBB.toFixed(2)}</td>
+            <td style="${estiloTd}; font-size: 12px; color: #aaa;">mm — bounding box convex hull (depende orientación)</td>
+          </tr>
+          <tr>
+            <td style="${estiloTd}; font-weight: 600; color: #888;">Alto BB (hull)</td>
+            <td style="${estiloTd}; color: #888;">${altoBB.toFixed(2)}</td>
+            <td style="${estiloTd}; font-size: 12px; color: #aaa;">mm — bounding box convex hull (depende orientación)</td>
           </tr>
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}; font-weight: 600;">Puntos del Contorno</td>
@@ -19411,9 +20137,9 @@
             <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Cercanía a un rectángulo</td>
           </tr>
           <tr>
-            <td style="${estiloTd}; font-weight: 600;">Aspect Ratio</td>
+            <td style="${estiloTd}; font-weight: 600;">Relación de aspecto (AR)</td>
             <td style="${estiloTd}">${aspectRatio.toFixed(3)} → ${metricas.shape_class_aspect || 'N/A'}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Relación alto/ancho</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Relación eje mayor/eje menor</td>
           </tr>
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}; font-weight: 600;">Radio Máximo</td>
@@ -20488,6 +21214,100 @@
   }
 
   /**
+   * 9. ERROR ÓPTICO POSICIONAL (Sección IX)
+   */
+  function generarSeccionErrorOptico(metricas, estiloTabla, estiloTh, estiloTd) {
+    const errorLineal = parseFloat(metricas.error_optico_lineal_percent) || 0;
+    const errorArea = parseFloat(metricas.error_optico_area_percent) || 0;
+    const errorPerspectiva = parseFloat(metricas.error_perspectiva_percent) || 0;
+    const errorDistorsion = parseFloat(metricas.error_distorsion_percent) || 0;
+    const posicionRadial = parseFloat(metricas.posicion_radial_norm) || 0;
+    const anguloOptico = parseFloat(metricas.angulo_optico_deg) || 0;
+    const k1Estimado = parseFloat(metricas.k1_estimado) || 0;
+    const fovDiagonal = parseFloat(metricas.fov_diagonal_deg) || 0;
+    const confianzaOptica = metricas.confianza_optica || 'Sin datos';
+    const notaErrorOptico = metricas.nota_error_optico || 'No disponible';
+    
+    const errorTotal = Math.sqrt(errorLineal ** 2 + errorArea ** 2);
+    const confianzaColor = confianzaOptica.includes('Alta') ? '#28a745' : confianzaOptica.includes('Media') ? '#ffc107' : '#dc3545';
+    
+    return `
+      <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #f57c00;">
+        IX. ERROR ÓPTICO POSICIONAL
+      </h3>
+      <div style="padding: 12px; background: #fff3e0; border-left: 4px solid #f57c00; border-radius: 4px; margin-bottom: 15px;">
+        <strong>🔭 Análisis de incertidumbre óptica basado en parámetros de cámara</strong><br>
+        <span style="font-size: 12px; color: #6c757d;">Estimación del error sistemático introducido por la geometría de captura (distorsión, perspectiva, aberraciones).</span>
+      </div>
+      <table style="${estiloTabla}">
+        <thead>
+          <tr>
+            <th style="${estiloTh}; width: 40%;">Parámetro</th>
+            <th style="${estiloTh}; width: 30%;">Valor</th>
+            <th style="${estiloTh}; width: 30%;">Interpretación</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="background: #fff8e1;">
+            <td style="${estiloTd}; font-weight: 700; color: #e65100;">Error Lineal</td>
+            <td style="${estiloTd}; font-weight: 700; color: #e65100; font-size: 14px;">±${errorLineal.toFixed(2)}%</td>
+            <td style="${estiloTd}; font-size: 12px;">Incertidumbre en distancias, perímetros, radios y Feret</td>
+          </tr>
+          <tr>
+            <td style="${estiloTd}; font-weight: 700; color: #e65100;">Error en Área</td>
+            <td style="${estiloTd}; font-weight: 700; color: #e65100; font-size: 14px;">±${errorArea.toFixed(2)}%</td>
+            <td style="${estiloTd}; font-size: 12px;">Propagación cuadrática ≈ 2 × error lineal</td>
+          </tr>
+          <tr style="background: #fff8e1;">
+            <td style="${estiloTd}; font-weight: 600;">Error de Perspectiva</td>
+            <td style="${estiloTd}; font-weight: 600;">${errorPerspectiva.toFixed(2)}%</td>
+            <td style="${estiloTd}; font-size: 12px;">Distorsión por ángulo oblicuo de captura</td>
+          </tr>
+          <tr>
+            <td style="${estiloTd}; font-weight: 600;">Error de Distorsión Óptica</td>
+            <td style="${estiloTd}; font-weight: 600;">${errorDistorsion.toFixed(2)}%</td>
+            <td style="${estiloTd}; font-size: 12px;">Aberración de barril/pincushion de la lente</td>
+          </tr>
+          <tr style="background: #f8f9fa;">
+            <td style="${estiloTd}; font-weight: 600;">Posición Radial (normalizada)</td>
+            <td style="${estiloTd}; font-weight: 600;">${(posicionRadial * 100).toFixed(1)}%</td>
+            <td style="${estiloTd}; font-size: 12px;">Distancia del centroid al eje óptico (0=centro, 1=borde)</td>
+          </tr>
+          <tr>
+            <td style="${estiloTd}; font-weight: 600;">Ángulo Óptico</td>
+            <td style="${estiloTd}; font-weight: 600;">${anguloOptico.toFixed(1)}°</td>
+            <td style="${estiloTd}; font-size: 12px;">Ángulo del objeto respecto al eje óptico</td>
+          </tr>
+          <tr style="background: #f8f9fa;">
+            <td style="${estiloTd}; font-weight: 600;">Coeficiente Radial (k₁)</td>
+            <td style="${estiloTd}; font-weight: 600;">${k1Estimado.toFixed(6)}</td>
+            <td style="${estiloTd}; font-size: 12px;">Parámetro de distorsión óptica del modelo de cámara</td>
+          </tr>
+          <tr>
+            <td style="${estiloTd}; font-weight: 600;">FOV Diagonal de Cámara</td>
+            <td style="${estiloTd}; font-weight: 600;">${fovDiagonal.toFixed(1)}°</td>
+            <td style="${estiloTd}; font-size: 12px;">Campo de visión diagonal estimado</td>
+          </tr>
+          <tr style="background: #fff8e1;">
+            <td style="${estiloTd}; font-weight: 700; color: ${confianzaColor};">Confianza de la Estimación</td>
+            <td style="${estiloTd}; font-weight: 700; color: ${confianzaColor}; font-size: 14px;">${confianzaOptica}</td>
+            <td style="${estiloTd}; font-size: 12px;">Fiabilidad del modelo de error óptico</td>
+          </tr>
+          <tr>
+            <td style="${estiloTd}; font-weight: 600;">Error Total Combinado</td>
+            <td style="${estiloTd}; font-weight: 600; color: #d32f2f; font-size: 14px;">±${errorTotal.toFixed(2)}%</td>
+            <td style="${estiloTd}; font-size: 12px;">Raíz cuadrática de error lineal + área</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="margin-top: 15px; padding: 12px; background: #fff3e0; border-left: 4px solid #f57c00; border-radius: 4px;">
+        <strong>📌 Nota del Análisis:</strong><br>
+        <span style="font-size: 12px; color: #333;">${notaErrorOptico}</span>
+      </div>
+    `;
+  }
+
+  /**
    * 5. EJES Y ORIENTACIÓN
    */
   function generarSeccionEjesOrientacion(metricas, estiloTabla, estiloTh, estiloTd) {
@@ -21389,6 +22209,10 @@
   function generarSeccionClasificacion(metricas, estiloTabla, estiloTh, estiloTd) {
     const formaDetectada = metricas.forma_detectada || 'No clasificada';
     const formaMeta = metricas.forma_detectada_meta || formaDetectada;
+    const formaGeometrica = metricas.forma_geometrica_observada || formaMeta;
+    const formaTipologica = metricas.forma_tipologica_inferida || metricas.forma_detectada_tipologica || formaGeometrica;
+    const razonTipologica = metricas.forma_razon_tipologica || metricas.razon_tipologica || '';
+    const reinterpretacionTipologica = !!metricas.forma_requiere_reinterpretacion_tipologica || (formaTipologica && formaTipologica !== formaGeometrica);
     const categoriaBase = metricas.forma_categoria_base || 'N/A';
     const confianza = metricas.forma_confianza_global || ((metricas.forma_confianza || 0) * 100).toFixed(1);
     const metodosCoincidentes = metricas.forma_metodos_coincidentes || 'N/A';
@@ -21438,6 +22262,20 @@
             <td style="${estiloTd}; font-weight: 700;">Forma Detectada (Meta-Clasificación)</td>
             <td style="${estiloTd}; font-weight: 700; color: #4527a0; font-size: 15px;" colspan="2">${formaMeta}</td>
           </tr>
+          <tr>
+            <td style="${estiloTd}; font-weight: 600;">Forma Geométrica Observada</td>
+            <td style="${estiloTd}; font-weight: 600; color: #1b5e20;" colspan="2">${formaGeometrica}</td>
+          </tr>
+          <tr style="background: ${reinterpretacionTipologica ? '#fff8e1' : '#f8f9fa'};">
+            <td style="${estiloTd}; font-weight: 600;">Interpretación Tipológica</td>
+            <td style="${estiloTd}; font-weight: 700; color: ${reinterpretacionTipologica ? '#e65100' : '#455a64'};" colspan="2">${formaTipologica}</td>
+          </tr>
+          ${razonTipologica ? `
+          <tr>
+            <td style="${estiloTd};">Razón Tipológica</td>
+            <td style="${estiloTd}; font-size: 12px; line-height: 1.45;" colspan="2">${razonTipologica}</td>
+          </tr>
+          ` : ''}
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}">Categoría Base</td>
             <td style="${estiloTd}" colspan="2">${categoriaBase}</td>
@@ -21574,6 +22412,7 @@
         <strong style="font-size: 16px;">RESULTADO FINAL:</strong>
         <div style="margin-top: 10px; font-size: 14px;">
           <strong>Forma:</strong> ${metricas.forma_detectada || 'No clasificada'}<br>
+          ${(metricas.forma_tipologica_inferida || metricas.forma_detectada_tipologica) ? `<strong>Interpretación Tipológica:</strong> ${metricas.forma_tipologica_inferida || metricas.forma_detectada_tipologica}<br>` : ''}
           <strong>Patrón:</strong> ${patron}<br>
           <strong>Síntesis:</strong> <span style="color: #bf360c; font-weight: 700;">${sintesis}</span>
         </div>
@@ -21938,6 +22777,514 @@
   // FIN DEL MÓDULO DE TABLA DE MÉTRICAS
   // ============================================================================
 
+  function _normalizarPuntosEFA(puntos = []) {
+    if (!Array.isArray(puntos)) return [];
+    return puntos
+      .map((p) => {
+        if (Array.isArray(p) && p.length >= 2) {
+          return [Number(p[0]), Number(p[1])];
+        }
+        if (p && typeof p === 'object' && p.x != null && p.y != null) {
+          return [Number(p.x), Number(p.y)];
+        }
+        return null;
+      })
+      .filter((p) => p && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  }
+
+  function _obtenerPuntosContornoEFA(obj, metricas) {
+    // Prioridad: contorno OpenCV real (antes de idealización) > contorno activo > fallbacks
+    // _contour_data_original existe solo cuando hubo idealización (modo manual);
+    // en ese caso _contour_data.points ya es el polígono simplificado, no el OpenCV.
+    const candidatos = [
+      metricas?._contour_data_original?.points, // OpenCV real (modo manual con idealización)
+      metricas?._contour_data?.points,          // OpenCV real (modo IA o manual sin idealización)
+      obj?.original_contour_points,             // respaldo en obj si se guardó antes
+      obj?.contour_points,
+      metricas?.contour_points,
+      metricas?.puntosContorno,
+    ];
+    for (const candidato of candidatos) {
+      const pts = _normalizarPuntosEFA(candidato);
+      if (pts.length >= 8) return pts;
+    }
+    return [];
+  }
+
+  function _resampleByArcEFA(pts, nSamples) {
+    if (!Array.isArray(pts) || pts.length < 3) return [];
+    const n = pts.length;
+    const arc = [0];
+    for (let i = 1; i < n; i++) {
+      const dx = pts[i][0] - pts[i - 1][0];
+      const dy = pts[i][1] - pts[i - 1][1];
+      arc.push(arc[i - 1] + Math.hypot(dx, dy));
+    }
+    const dx0 = pts[0][0] - pts[n - 1][0];
+    const dy0 = pts[0][1] - pts[n - 1][1];
+    const totalLen = arc[n - 1] + Math.hypot(dx0, dy0);
+    if (totalLen <= 0) return [];
+
+    const step = totalLen / nSamples;
+    const out = [];
+    let j = 0;
+    for (let i = 0; i < nSamples; i++) {
+      const target = i * step;
+      while (j < n - 1 && arc[j + 1] < target) j++;
+      const a0 = arc[j];
+      const a1 = j + 1 < n ? arc[j + 1] : totalLen;
+      const t = a1 > a0 ? (target - a0) / (a1 - a0) : 0;
+      const p0 = pts[j];
+      const p1 = pts[(j + 1) % n];
+      out.push([
+        p0[0] + t * (p1[0] - p0[0]),
+        p0[1] + t * (p1[1] - p0[1]),
+      ]);
+    }
+    return out;
+  }
+
+  function _curvaturaMengerAbs(p0, p1, p2) {
+    const area2 = Math.abs((p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1]));
+    const d01 = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+    const d12 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+    const d20 = Math.hypot(p0[0] - p2[0], p0[1] - p2[1]);
+    const den = d01 * d12 * d20;
+    if (den <= 1e-12) return 0;
+    return (2 * area2) / den;
+  }
+
+  function _generarLandmarksSemiAutomaticos(contourPoints, nLandmarks = 32, nCurvatura = 10) {
+    const pts = _normalizarPuntosEFA(contourPoints);
+    if (pts.length < 8) {
+      return { landmarks: [], usedCurvature: 0, total: 0 };
+    }
+
+    const n = pts.length;
+    const kCurv = Math.max(0, Math.min(nCurvatura, nLandmarks - 4));
+    const kUni = Math.max(4, nLandmarks - kCurv);
+
+    const uniform = _resampleByArcEFA(pts, kUni);
+
+    const scores = [];
+    const salto = Math.max(1, Math.floor(n / 120));
+    for (let i = 0; i < n; i++) {
+      const i0 = (i - salto + n) % n;
+      const i2 = (i + salto) % n;
+      scores.push({ i, k: _curvaturaMengerAbs(pts[i0], pts[i], pts[i2]) });
+    }
+    scores.sort((a, b) => b.k - a.k);
+
+    const minSep = Math.max(3, Math.floor(n / Math.max(12, kCurv * 2)));
+    const selectedIdx = [];
+    for (const s of scores) {
+      if (selectedIdx.length >= kCurv) break;
+      const tooClose = selectedIdx.some((idx) => {
+        const d = Math.abs(s.i - idx);
+        return Math.min(d, n - d) < minSep;
+      });
+      if (!tooClose) selectedIdx.push(s.i);
+    }
+    selectedIdx.sort((a, b) => a - b);
+
+    const curvPts = selectedIdx.map((i) => pts[i]);
+    const merged = [...uniform, ...curvPts];
+
+    if (merged.length < nLandmarks) {
+      const extra = _resampleByArcEFA(pts, nLandmarks * 2);
+      for (const p of extra) {
+        merged.push(p);
+        if (merged.length >= nLandmarks) break;
+      }
+    }
+
+    // Deduplicación estable por cuantización suave y trim final
+    const seen = new Set();
+    const dedup = [];
+    for (const p of merged) {
+      const key = `${Math.round(p[0] * 10)}:${Math.round(p[1] * 10)}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        dedup.push(p);
+      }
+      if (dedup.length >= nLandmarks) break;
+    }
+
+    return {
+      landmarks: dedup,
+      usedCurvature: selectedIdx.length,
+      total: dedup.length,
+    };
+  }
+
+  function _generarTextoTPSLandmarks(landmarks, obj = {}, metricas = {}) {
+    const id = String(obj?.id || `OBJ_${obj?.numeroObjeto || 'X'}`);
+    const lines = [];
+    lines.push(`LM=${landmarks.length}`);
+    landmarks.forEach((p) => {
+      lines.push(`${Number(p[0]).toFixed(6)} ${Number(p[1]).toFixed(6)}`);
+    });
+    lines.push(`ID=${id}`);
+    if (Number.isFinite(Number(metricas?.scale_px_mm))) {
+      lines.push(`COMMENT=scale_px_mm ${Number(metricas.scale_px_mm).toFixed(8)}`);
+    }
+    lines.push('COMMENT=MAO Plus semi-landmarks (curvatura + arco)');
+    return lines.join('\n') + '\n';
+  }
+
+  function _descargarLandmarksTPS(landmarks, obj = {}, metricas = {}, fileBaseOverride = null) {
+    const tps = _generarTextoTPSLandmarks(landmarks, obj, metricas);
+    const fileBase = String(fileBaseOverride || obj?.id || `obj_${obj?.numeroObjeto || 'x'}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const blob = new Blob([tps], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${fileBase}_landmarks.tps`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  }
+
+  function _descargarCoeficientesEFA(efaData, obj = {}, fileBaseOverride = null) {
+    const coeffs = Array.isArray(efaData?.coefficients) ? efaData.coefficients : [];
+    const csvLines = ['harmonic,an,bn,cn,dn'];
+    coeffs.forEach((c, idx) => {
+      if (!Array.isArray(c) || c.length < 4) return;
+      csvLines.push(`${idx + 1},${c[0]},${c[1]},${c[2]},${c[3]}`);
+    });
+    const fileBase = String(fileBaseOverride || obj?.id || `obj_${obj?.numeroObjeto || 'x'}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const blob = new Blob([csvLines.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${fileBase}_efa_coeffs.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  }
+
+  function _renderEfaPanelContenido(panel, obj, metricas, efaData, lmInfo, fuente = 'calculado', options = {}) {
+    const ps = Array.isArray(efaData?.power_spectrum) ? efaData.power_spectrum.slice(0, 5) : [];
+    const psText = ps.length ? ps.map(v => Number(v).toFixed(4)).join(', ') : 'N/A';
+    const enableExports = options.enableExports !== false;
+    const btnTpsId = `efaExportTpsBtn_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    const btnCoeffId = `efaExportCoeffBtn_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    const origenHtml = fuente === 'cache'
+      ? '<div style="font-size: 10px; color: #0f5132; background: rgba(25,135,84,0.12); border: 1px solid rgba(25,135,84,0.2); padding: 3px 8px; border-radius: 999px;">Recuperado del análisis guardado</div>'
+      : '<div style="font-size: 10px; color: #334155;">Kuhl & Giardina (1982)</div>';
+    const exportButtonsHtml = enableExports
+      ? `
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="${btnTpsId}" style="padding: 6px 10px; border: 1px solid #0d6efd; background: #ffffff; color: #0d6efd; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">
+            Exportar landmarks TPS
+          </button>
+          <button id="${btnCoeffId}" style="padding: 6px 10px; border: 1px solid #198754; background: #ffffff; color: #198754; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">
+            Exportar coeficientes EFA CSV
+          </button>
+        </div>
+      `
+      : '';
+
+    panel.innerHTML = `
+      <div style="background: linear-gradient(135deg, #e8f4ff 0%, #dff8ef 100%); border: 1px solid #b9d7f5; border-left: 5px solid #0d6efd; border-radius: 8px; padding: 10px; font-size: 11px; color: #1f2937;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+          <div style="font-weight: 700; color: #0d4f9a;">EFA - Descriptores de Fourier Elipticos</div>
+          ${origenHtml}
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(140px, 1fr)); gap: 6px; margin-bottom: 8px;">
+          <div><strong>Armónicos:</strong> ${efaData?.n_harmonics ?? 'N/A'}</div>
+          <div><strong>Puntos entrada:</strong> ${efaData?.n_points_input ?? 'N/A'}</div>
+          <div><strong>95% var:</strong> ${efaData?.harmonics_for_95pct ? `h${efaData.harmonics_for_95pct}` : 'N/A'}</div>
+          <div><strong>99% var:</strong> ${efaData?.harmonics_for_99pct ? `h${efaData.harmonics_for_99pct}` : 'N/A'}</div>
+        </div>
+        <div style="background: rgba(255,255,255,0.65); border: 1px solid #cfe3ff; border-radius: 6px; padding: 8px; margin-bottom: 8px;">
+          <div style="font-weight: 600; color: #0d4f9a; margin-bottom: 4px;">Power spectrum (primeros 5)</div>
+          <div style="font-family: monospace; font-size: 10px; color: #334155; line-height: 1.5; word-break: break-all;">${psText}</div>
+        </div>
+        <div style="background: rgba(255,255,255,0.65); border: 1px solid #cfe3ff; border-radius: 6px; padding: 8px; margin-bottom: 8px;">
+          <div style="font-weight: 600; color: #0d4f9a; margin-bottom: 4px;">Landmarks semi-automaticos</div>
+          <div style="font-size: 10px; color: #334155; line-height: 1.45;">
+            Total: <strong>${lmInfo.total}</strong> · Curvatura maxima: <strong>${lmInfo.usedCurvature}</strong> · Resto por arco equidistante
+          </div>
+        </div>
+        ${exportButtonsHtml}
+      </div>
+    `;
+
+    const exportTpsBtn = enableExports ? document.getElementById(btnTpsId) : null;
+    if (exportTpsBtn) {
+      exportTpsBtn.onclick = () => {
+        _descargarLandmarksTPS(lmInfo.landmarks, obj, metricas);
+      };
+    }
+
+    const exportCoeffBtn = enableExports ? document.getElementById(btnCoeffId) : null;
+    if (exportCoeffBtn) {
+      exportCoeffBtn.onclick = () => {
+        _descargarCoeficientesEFA(efaData, obj);
+      };
+    }
+  }
+
+  function _colectarFuentesEFAConfirmadas(obj, metricas, efaDataPrincipal, lmInfoPrincipal) {
+    const fuentes = [];
+
+    if (efaDataPrincipal) {
+      const areaContorno = Number(metricas?.area);
+      fuentes.push({
+        etiqueta: 'Contorno principal',
+        tipo: 'contorno',
+        efaData: efaDataPrincipal,
+        landmarks: Array.isArray(lmInfoPrincipal?.landmarks) ? lmInfoPrincipal.landmarks : [],
+        area: Number.isFinite(areaContorno) ? areaContorno : null,
+      });
+    }
+
+    const agregarPH = (lista, prefijo, tipo) => {
+      if (!Array.isArray(lista)) return;
+      lista.forEach((item, index) => {
+        const metricasPH = item?.metricas || {};
+        if (!metricasPH?._efa_data) return;
+        fuentes.push({
+          key: `${tipo}_${item?.id ?? index + 1}`,
+          etiqueta: `${prefijo}${item?.id ?? index + 1}`,
+          tipo,
+          efaData: metricasPH._efa_data,
+          landmarks: Array.isArray(metricasPH._landmarks_semiauto) ? metricasPH._landmarks_semiauto : [],
+          area: Number(metricasPH?.area),
+          objRef: { id: `${obj?.id || 'obj'}_${prefijo}${item?.id ?? index + 1}` },
+          metricasRef: metricasPH,
+        });
+      });
+    };
+
+    agregarPH(obj?.perforaciones, 'P', 'perforacion');
+    agregarPH(obj?.horadaciones, 'H', 'horadacion');
+
+    return fuentes;
+  }
+
+  async function _hidratarEFAConfirmadoPH(obj) {
+    const bridgeOk = window.PythonBridge && PythonBridge.isModuleActive('efa') && PythonBridge.efa;
+    if (!bridgeOk || !obj) return;
+
+    const pxMm = Number.isFinite(Number(scale)) ? Number(scale) : 1.0;
+    const colecciones = [obj?.perforaciones, obj?.horadaciones];
+
+    for (const lista of colecciones) {
+      if (!Array.isArray(lista)) continue;
+      for (const item of lista) {
+        const metricasPH = item?.metricas || null;
+        if (!metricasPH) continue;
+
+        if (metricasPH._efa_data && Array.isArray(metricasPH._landmarks_semiauto)) {
+          continue;
+        }
+
+        const contourPoints = _normalizarPuntosEFA(item?.puntos || item?.contorno || item?.poligonoTrazado);
+        if (contourPoints.length < 8) continue;
+
+        if (!metricasPH._efa_data) {
+          try {
+            const efaData = await PythonBridge.efa.calculate(contourPoints, {
+              nHarmonics: 20,
+              scalePxMm: pxMm,
+              normalize: true,
+            });
+            if (efaData && efaData.status === 'ok') {
+              metricasPH._efa_data = efaData;
+            }
+          } catch (_err) {
+            console.warn('[EFA] No se pudo hidratar EFA para P/H confirmado:', _err?.message || _err);
+          }
+        }
+
+        if (!Array.isArray(metricasPH._landmarks_semiauto) && metricasPH._efa_data) {
+          const lmInfo = _generarLandmarksSemiAutomaticos(contourPoints, 32, 10);
+          metricasPH._landmarks_semiauto = lmInfo.landmarks;
+        }
+      }
+    }
+  }
+
+  function _renderResumenFuentesEFA(panel, obj, metricas, efaDataPrincipal, lmInfoPrincipal) {
+    const fuentes = _colectarFuentesEFAConfirmadas(obj, metricas, efaDataPrincipal, lmInfoPrincipal);
+    const resumenPanel = panel.querySelector('[data-efa-fuentes]');
+    if (!resumenPanel) return;
+
+    if (!fuentes.length) {
+      resumenPanel.innerHTML = '';
+      return;
+    }
+
+    const colorTipo = (tipo) => {
+      if (tipo === 'perforacion') return '#0d6efd';
+      if (tipo === 'horadacion') return '#198754';
+      return '#475569';
+    };
+
+    const filas = fuentes.map((fuente) => {
+      const exportTpsId = `efaFuenteTps_${fuente.key}_${Math.floor(Math.random() * 10000)}`;
+      const exportCsvId = `efaFuenteCsv_${fuente.key}_${Math.floor(Math.random() * 10000)}`;
+      fuente._exportTpsId = exportTpsId;
+      fuente._exportCsvId = exportCsvId;
+      const arm = fuente.efaData?.n_harmonics ?? 'N/A';
+      const h95 = fuente.efaData?.harmonics_for_95pct ? `h${fuente.efaData.harmonics_for_95pct}` : 'N/A';
+      const h99 = fuente.efaData?.harmonics_for_99pct ? `h${fuente.efaData.harmonics_for_99pct}` : 'N/A';
+      const areaTxt = Number.isFinite(fuente.area) ? ` · Área ${Number(fuente.area).toFixed(2)} mm²` : '';
+      return `
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:7px 8px; background:rgba(255,255,255,0.7); border:1px solid #dbeafe; border-left:4px solid ${colorTipo(fuente.tipo)}; border-radius:6px;">
+          <div>
+            <div style="font-weight:700; color:#0f172a;">${fuente.etiqueta}</div>
+            <div style="font-size:10px; color:#475569;">${fuente.landmarks.length} landmarks${areaTxt}</div>
+          </div>
+          <div style="text-align:right; font-size:10px; color:#334155; line-height:1.45; white-space:nowrap;">
+            <div><strong>${arm}</strong> armónicos</div>
+            <div>95%: ${h95} · 99%: ${h99}</div>
+            <div style="display:flex; gap:6px; justify-content:flex-end; margin-top:6px;">
+              <button id="${exportTpsId}" style="padding:4px 7px; border:1px solid #0d6efd; background:#fff; color:#0d6efd; border-radius:5px; cursor:pointer; font-size:10px; font-weight:600;">TPS</button>
+              <button id="${exportCsvId}" style="padding:4px 7px; border:1px solid #198754; background:#fff; color:#198754; border-radius:5px; cursor:pointer; font-size:10px; font-weight:600;">CSV EFA</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    resumenPanel.innerHTML = `
+      <div style="margin-top:10px; background:rgba(13,110,253,0.06); border:1px solid #cfe3ff; border-radius:8px; padding:10px;">
+        <div style="font-weight:700; color:#0d4f9a; margin-bottom:6px;">Listado EFA: contorno, P y H confirmados</div>
+        <div style="display:grid; gap:6px;">${filas}</div>
+      </div>
+    `;
+
+    fuentes.forEach((fuente) => {
+      const btnTps = document.getElementById(fuente._exportTpsId);
+      if (btnTps) {
+        btnTps.onclick = () => {
+          _descargarLandmarksTPS(
+            fuente.landmarks,
+            fuente.objRef || obj,
+            fuente.metricasRef || metricas,
+            `${obj?.id || 'obj'}_${fuente.etiqueta}`
+          );
+        };
+      }
+
+      const btnCsv = document.getElementById(fuente._exportCsvId);
+      if (btnCsv) {
+        btnCsv.onclick = () => {
+          _descargarCoeficientesEFA(
+            fuente.efaData,
+            fuente.objRef || obj,
+            `${obj?.id || 'obj'}_${fuente.etiqueta}`
+          );
+        };
+      }
+    });
+  }
+
+  function _renderPanelEFAIntegrado(panel, obj, metricas, efaData, lmInfo, fuente = 'calculado') {
+    panel.innerHTML = `
+      <div data-efa-principal></div>
+      <div data-efa-fuentes></div>
+    `;
+
+    const principal = panel.querySelector('[data-efa-principal]');
+    if (!principal) return;
+
+    _renderEfaPanelContenido(principal, obj, metricas, efaData, lmInfo, fuente, { enableExports: false });
+    _renderResumenFuentesEFA(panel, obj, metricas, efaData, lmInfo);
+  }
+
+  async function renderPanelEFA(obj, metricas) {
+    const panel = document.getElementById('efaMetricsPanel');
+    if (!panel) return;
+
+    panel.style.display = 'block';
+    panel.innerHTML = `
+      <div style="background: linear-gradient(135deg, #e8f4ff 0%, #dff8ef 100%); border: 1px solid #b9d7f5; border-left: 5px solid #0d6efd; border-radius: 8px; padding: 10px; font-size: 11px; color: #1f2937;">
+        <div style="font-weight: 700; color: #0d4f9a; margin-bottom: 6px;">EFA - Descriptores de Fourier Elipticos</div>
+        <div style="color: #334155;">Calculando descriptores...</div>
+      </div>
+    `;
+
+    const contourPoints = _obtenerPuntosContornoEFA(obj, metricas);
+    const cachedEfaData = metricas?._efa_data || obj?._efa_data || null;
+    let cachedLandmarks = Array.isArray(metricas?._landmarks_semiauto) ? metricas._landmarks_semiauto : null;
+    if (!cachedLandmarks && Array.isArray(obj?._landmarks_semiauto)) {
+      cachedLandmarks = obj._landmarks_semiauto;
+    }
+
+    if (cachedEfaData) {
+      const lmInfo = cachedLandmarks && cachedLandmarks.length
+        ? {
+            landmarks: cachedLandmarks,
+            usedCurvature: Number.isFinite(Number(cachedEfaData.used_curvature_landmarks))
+              ? Number(cachedEfaData.used_curvature_landmarks)
+              : 0,
+            total: cachedLandmarks.length,
+          }
+        : _generarLandmarksSemiAutomaticos(contourPoints, 32, 10);
+      metricas._efa_data = cachedEfaData;
+      obj._efa_data = cachedEfaData;
+      metricas._landmarks_semiauto = lmInfo.landmarks;
+      obj._landmarks_semiauto = lmInfo.landmarks;
+      await _hidratarEFAConfirmadoPH(obj);
+      _renderPanelEFAIntegrado(panel, obj, metricas, cachedEfaData, lmInfo, 'cache');
+      return;
+    }
+
+    const bridgeOk = window.PythonBridge && PythonBridge.isModuleActive('efa') && PythonBridge.efa;
+    if (!bridgeOk) {
+      panel.innerHTML = `
+        <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-left: 5px solid #adb5bd; border-radius: 8px; padding: 10px; font-size: 11px; color: #495057;">
+          <div style="font-weight: 700; margin-bottom: 4px;">EFA - Descriptores de Fourier Elipticos</div>
+          <div>Modulo EFA no disponible en el backend Python.</div>
+        </div>
+      `;
+      return;
+    }
+
+    if (contourPoints.length < 8) {
+      panel.innerHTML = `
+        <div style="background: #fff4e6; border: 1px solid #ffd8a8; border-left: 5px solid #f08c00; border-radius: 8px; padding: 10px; font-size: 11px; color: #7f5539;">
+          <div style="font-weight: 700; margin-bottom: 4px;">EFA - Descriptores de Fourier Elipticos</div>
+          <div>Contorno insuficiente para EFA (minimo 8 puntos).</div>
+        </div>
+      `;
+      return;
+    }
+
+    try {
+      const pxMm = Number.isFinite(Number(scale)) ? Number(scale) : 1.0;
+      const efaData = await PythonBridge.efa.calculate(contourPoints, {
+        nHarmonics: 20,
+        scalePxMm: pxMm,
+        normalize: true,
+      });
+
+      if (!efaData || efaData.status !== 'ok') {
+        throw new Error(efaData?.message || 'Respuesta invalida de /api/efa');
+      }
+
+      metricas._efa_data = efaData;
+      obj._efa_data = efaData;
+
+      const lmInfo = _generarLandmarksSemiAutomaticos(contourPoints, 32, 10);
+      metricas._landmarks_semiauto = lmInfo.landmarks;
+      obj._landmarks_semiauto = lmInfo.landmarks;
+      await _hidratarEFAConfirmadoPH(obj);
+      _renderPanelEFAIntegrado(panel, obj, metricas, efaData, lmInfo, 'calculado');
+    } catch (err) {
+      panel.innerHTML = `
+        <div style="background: #fff5f5; border: 1px solid #fecaca; border-left: 5px solid #dc2626; border-radius: 8px; padding: 10px; font-size: 11px; color: #7f1d1d;">
+          <div style="font-weight: 700; margin-bottom: 4px;">EFA - Descriptores de Fourier Elipticos</div>
+          <div>No fue posible calcular EFA: ${String(err?.message || err)}</div>
+        </div>
+      `;
+    }
+  }
+
   // Función para mostrar análisis morfológico en la interfaz
   function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = null) {
     console.log(`📊 DEBUG mostrarAnalisisMorfologico - Iniciando visualización:`);
@@ -21992,9 +23339,13 @@
     
     console.log(`   ✅ Imagen a usar: ${imagenAUsar === imageCaraA ? 'Cara A' : (imagenAUsar === imageCaraB ? 'Cara B' : 'Global')}`);
     
-    // Mostrar container de análisis morfológico y asegurar que el panel maestro sea visible
+    // Mostrar container de análisis morfológico y asegurar que el panel maestro sea visible.
+    // IMPORTANTE: usar 'morphologicalAnalysisContainer' (no 'resultadosPanel') para que
+    // activatePanel llame también a activateTab() y elimine la clase res-hidden que aplica
+    // display:none !important — de lo contrario el container quedaría invisible aunque
+    // resultadosPanel esté visible.
     if (typeof window.maoActivatePanel === 'function') {
-      window.maoActivatePanel('resultadosPanel');
+      window.maoActivatePanel('morphologicalAnalysisContainer');
     }
     morphologicalAnalysisContainer.style.display = 'block';
     
@@ -22065,10 +23416,12 @@
     // Dibujar el objeto en el canvas morfológico
     // Guard: verificar que la imagen esté completamente cargada; si no lo está,
     // desencadenar un reintento automático cuando termine de cargar.
-    const _imagenListaParaDibujar = imagenAUsar &&
+    // Fallback para objetos 3D sin imagen 2D: permitir dibujo con fondo neutro.
+    const _fromObj3dSinImagen = !imagenAUsar && !!obj._fromObj3d;
+    const _imagenListaParaDibujar = _fromObj3dSinImagen || (imagenAUsar &&
       (imagenAUsar === window._tempImagenObjetoRecortado ||
        !(imagenAUsar instanceof HTMLImageElement) ||
-       (imagenAUsar.complete && imagenAUsar.naturalWidth > 0));
+       (imagenAUsar.complete && imagenAUsar.naturalWidth > 0)));
 
     if (!_imagenListaParaDibujar && imagenAUsar instanceof HTMLImageElement && !imagenAUsar.complete) {
       // La imagen existe pero todavía está cargando — programar reintento único
@@ -22102,7 +23455,12 @@
         // 🔧 DETECTAR SI ES IMAGEN RECORTADA o IMAGEN COMPLETA
         const esImagenRecortada = imagenAUsar === window._tempImagenObjetoRecortado;
         
-        if (esImagenRecortada) {
+        if (_fromObj3dSinImagen) {
+          // Objeto 3D sin imagen 2D: fondo neutro para que el contorno sea visible
+          console.log(`   🧱 Objeto 3D sin imagen 2D — dibujando fondo neutro`);
+          morphologicalCtx.fillStyle = '#e9ecef';
+          morphologicalCtx.fillRect(0, 0, obj.width, obj.height);
+        } else if (esImagenRecortada) {
           // Es una imagen ya recortada del objeto - dibujar directamente sin offset
           console.log(`   📸 Usando imagen recortada - dibujando sin offsets`);
           morphologicalCtx.drawImage(
@@ -22522,6 +23880,13 @@
           <span class="value" style="color: #6a1b9a; font-weight: bold;">${metricas.completitud_estimada}% → ${metricas.completitud_tipo_fragmento}</span>
         </div>`;
       }
+
+      // Resolver campos mostrados con regla canónica compartida.
+      const _canonRender = aplicarReglaCanonicaInterpretacion(metricas);
+      const _formaGeoRender = _canonRender.forma_geometrica_observada;
+      const _formaTipRenderMostrada = _canonRender.forma_tipologica_inferida;
+      const _formaMostradaRender = _canonRender.forma_detectada_mostrada;
+      const _tieneReinterpretacionRender = _canonRender.forma_requiere_reinterpretacion_tipologica;
       
       metricsHTML += `
         
@@ -22530,14 +23895,18 @@
         <!-- RESULTADO DE META-CLASIFICACIÓN -->
         <div class="morphological-metric" style="background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); padding: 15px; border-radius: 8px; margin: 10px 0; border: 3px solid #4caf50; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
           <div style="font-size: 0.85em; color: #1b5e20; margin-bottom: 5px; font-weight: 600;">
-            CLASIFICACIÓN DEFINITIVA (Síntesis de 6 Métodos):
+            ${_tieneReinterpretacionRender ? 'CLASIFICACIÓN MOSTRADA (Interpretación Tipológica):' : 'CLASIFICACIÓN DEFINITIVA (Síntesis de 6 Métodos):'}
           </div>
-          <div style="color: #2d5a2d; font-weight: bold; font-size: 1.3em; margin: 5px 0;">
-            ${metricas.forma_detectada}
+          <div style="color: ${_tieneReinterpretacionRender ? '#e65100' : '#2d5a2d'}; font-weight: bold; font-size: 1.3em; margin: 5px 0;">
+            ${_formaMostradaRender}
           </div>
           <div style="font-size: 0.8em; color: #388e3c; margin-top: 5px;">
             ${metricas.forma_categoria_base ? `Categoría: ${metricas.forma_categoria_base}` : ''}
           </div>
+          ${(_formaTipRenderMostrada || _tieneReinterpretacionRender) ? `
+          <div style="font-size: 0.95em; color: ${_tieneReinterpretacionRender ? '#e65100' : '#455a64'}; margin-top: 10px; padding-top: 8px; border-top: 1px dashed #a5d6a7;">
+            <strong>Interpretación Tipológica:</strong> ${_formaTipRenderMostrada || _formaMostradaRender}
+          </div>` : ''}
         </div>
         
         <!-- MÉTRICAS DE CONFIANZA -->
@@ -23823,6 +25192,9 @@
     
     // Mostrar métricas en el panel
     morphologicalMetrics.innerHTML = metricsHTML;
+    currentAnalyzedObject = { obj, metricas, efaPromise: null };
+    window.currentAnalyzedObject = currentAnalyzedObject; // Sincronizar con scope global
+    currentAnalyzedObject.efaPromise = renderPanelEFA(obj, metricas);
     
     // ============================================================================
     // 🆕 INICIALIZAR TOOLTIPS - FASE 1 UI IMPROVEMENTS
@@ -23837,7 +25209,8 @@
     }
     
     // Guardar referencia del objeto analizado
-    currentAnalyzedObject = { obj, metricas };
+    currentAnalyzedObject.obj = obj;
+    currentAnalyzedObject.metricas = metricas;
     window.currentAnalyzedObject = currentAnalyzedObject; // Sincronizar con scope global
     
     // ❌ LÓGICA DE BOTÓN BIFACIAL COMPLETO ELIMINADA - Ahora usa botón unificado
@@ -26207,9 +27580,25 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       <div class="metric-group">
         <h3>Forma Geométrica</h3>
         <div class="metric-row highlight">
-          <span class="metric-label">Forma detectada:</span>
-          <span class="metric-value"><strong>${metricas.forma_detectada}</strong></span>
+          <span class="metric-label">Forma mostrada al usuario:</span>
+          <span class="metric-value"><strong>${(metricas.forma_tipologica_inferida && metricas.forma_requiere_reinterpretacion_tipologica) ? metricas.forma_tipologica_inferida : metricas.forma_detectada}</strong></span>
         </div>
+        <div class="metric-row">
+          <span class="metric-label">Forma geométrica observada:</span>
+          <span class="metric-value">${metricas.forma_geometrica_observada || metricas.forma_detectada}</span>
+        </div>
+        ${(metricas.forma_tipologica_inferida || metricas.forma_detectada_tipologica) ? `
+        <div class="metric-row ${metricas.forma_requiere_reinterpretacion_tipologica ? 'highlight' : ''}">
+          <span class="metric-label">Interpretación tipológica:</span>
+          <span class="metric-value">${metricas.forma_tipologica_inferida || metricas.forma_detectada_tipologica}</span>
+        </div>
+        ` : ''}
+        ${metricas.forma_razon_tipologica ? `
+        <div class="metric-row" style="font-size: 0.9em; color: #555;">
+          <span class="metric-label">Razón tipológica:</span>
+          <span class="metric-value">${metricas.forma_razon_tipologica}</span>
+        </div>
+        ` : ''}
         <div class="metric-row">
           <span class="metric-label">Confianza de clasificación:</span>
           <span class="metric-value">${(parseFloat(metricas.forma_confianza) * 100).toFixed(1)}%</span>
@@ -29837,7 +31226,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
 
       const _seccionesMetricas = [
         { titulo: 'I. Clasificación Morfológica', claves: [['Forma Detectada','forma_detectada'],['Confianza de Clasificación  [0–1]','forma_confianza'],['Razón de Clasificación','forma_razon'],['Simetría Bilateral  [0–1]','simetria_bilateral'],['Desplazamiento de Asimetría (mm)','simetria_distancia_asimetria'],['Clasificación Simetría','simetria_clasificacion'],['Orientación del Eje Principal','eje_principal_orientacion'],['Forma Dominante del Contorno','eje_principal_forma_dominante']] },
-        { titulo: 'II. Dimensiones Métricas del Objeto (mm — escala calibrada)', claves: [['Área (mm²)','area'],['Perímetro (mm)','perimeter'],['Ancho máx. — Bounding Box (mm)','bounding_width'],['Alto máx. — Bounding Box (mm)','bounding_height'],['Eje Mayor — Convex Hull (mm)','eje_mayor'],['Eje Menor — Convex Hull (mm)','eje_menor'],['Eje Mayor Real del Contorno (mm)','eje_mayor_real_longitud'],['Eje Menor Real del Contorno (mm)','eje_menor_real_longitud'],['Diámetro Feret Máximo (mm)','feret_max'],['Diámetro Feret Mínimo (mm)','feret_min'],['Radio Máximo desde Centroide (mm)','radio_maximo'],['Radio Mínimo desde Centroide (mm)','radio_minimo'],['Radio Medio desde Centroide (mm)','radio_medio']] },
+        { titulo: 'II. Dimensiones Métricas del Objeto (mm — escala calibrada)', claves: [['Área convex hull (mm²)','area'],['Perímetro convex hull (mm)','perimeter'],['Longitud máxima — Feret↑ (mm)','feret_max'],['Anchura máxima — Feret↓ (mm)','feret_min'],['Eje Mayor — tensor inercia (mm)','eje_mayor'],['Eje Menor — tensor inercia (mm)','eje_menor'],['Eje Mayor Real del Contorno (mm)','eje_mayor_real_longitud'],['Eje Menor Real del Contorno (mm)','eje_menor_real_longitud'],['Radio Máximo desde Centroide (mm)','radio_maximo'],['Radio Mínimo desde Centroide (mm)','radio_minimo'],['Radio Medio desde Centroide (mm)','radio_medio'],['Ancho BB convex hull (mm)','width'],['Alto BB convex hull (mm)','height']] },
         { titulo: 'III. Proporciones y Forma Global  [adimensional 0–1]', claves: [['Circularidad  [0–1]','circularity'],['Compacidad  [0–1]','compactness'],['Solidez  [0–1]','solidity'],['Rectangularidad  [0–1]','rectangularity'],['Elongación  [0–1]','elongation'],['Factor de Forma  [0–1]','shape_factor'],['Excentricidad  [0–1]','excentricidad'],['Relación de Aspecto Tight (L/A)','aspect_ratio_tight'],['Relación de Aspecto Original (L/A)','aspect_ratio_original'],['Ratio Feret (Máx./Mín.)','feret_ratio'],['Anisotropía del Eje Principal  [0–1]','eje_principal_anisotropia'],['Eficiencia Bounding Box  [0–1]','bounding_box_efficiency']] },
         { titulo: 'IV. Regularidad del Contorno — Evidencia de Manufactura', claves: [['Regularidad Radial  [0–1]','regularidad_radial'],['Coef. Variación Radial (%)','coeficiente_variacion_radial'],['Desviación Radial (mm)','desviacion_radial'],['Ratio Radios (Máx./Mín.)','ratio_radios'],['Índice de Estrellamiento  [0–1]','indice_estrellamiento'],['Clasificación Estrellamiento','estrellamiento_clasificacion'],['Índice de Lobularidad  [0–1]','indice_lobularidad'],['Clasificación Lobularidad','lobularidad_clasificacion'],['N° de Vértices Aproximados','vertices_aproximados'],['N° de Puntos de Contorno','contour_points']] },
         { titulo: 'V. Rugosidad y Complejidad del Borde — Técnica de Manufactura', claves: [['Rugosidad del Contorno  [0–1]','rugosidad_contorno'],['Índice de Complejidad del Contorno','contour_complexity_index'],['Long. Media de Segmento de Contorno (mm)','rugosidad_longitud_segmento_media'],['Desviación de Rugosidad (mm)','rugosidad_desviacion'],['Clasificación Rugosidad','rugosidad_clasificacion'],['Curvatura Media (rad/px)','curvatura_media'],['Curvatura Máxima (rad/px)','curvatura_maxima'],['Desviación de Curvatura (rad/px)','curvatura_desviacion'],['Energía de Curvatura','energia_curvatura'],['Clasificación Energía de Curvatura','energia_clasificacion'],['N° de Puntos de Inflexión','curvatura_puntos_inflexion'],['N° de Puntos de Esquina','curvatura_puntos_esquina'],['Clasificación Curvatura','curvatura_clasificacion']] },
@@ -31297,19 +32686,19 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
             {
               titulo: 'II. Dimensiones Métricas del Objeto (mm — escala calibrada)',
               metricas: [
-                ['Área (mm²)', 'area'],
-                ['Perímetro (mm)', 'perimeter'],
-                ['Ancho máx. — Bounding Box (mm)', 'bounding_width'],
-                ['Alto máx. — Bounding Box (mm)', 'bounding_height'],
-                ['Eje Mayor — Convex Hull (mm)', 'eje_mayor'],
-                ['Eje Menor — Convex Hull (mm)', 'eje_menor'],
+                ['Área convex hull (mm²)', 'area'],
+                ['Perímetro convex hull (mm)', 'perimeter'],
+                ['Longitud máxima — Feret↑ (mm)', 'feret_max'],
+                ['Anchura máxima — Feret↓ (mm)', 'feret_min'],
+                ['Eje Mayor — tensor inercia (mm)', 'eje_mayor'],
+                ['Eje Menor — tensor inercia (mm)', 'eje_menor'],
                 ['Eje Mayor Real del Contorno (mm)', 'eje_mayor_real_longitud'],
                 ['Eje Menor Real del Contorno (mm)', 'eje_menor_real_longitud'],
-                ['Diámetro Feret Máximo (mm)', 'feret_max'],
-                ['Diámetro Feret Mínimo (mm)', 'feret_min'],
                 ['Radio Máximo desde Centroide (mm)', 'radio_maximo'],
                 ['Radio Mínimo desde Centroide (mm)', 'radio_minimo'],
-                ['Radio Medio desde Centroide (mm)', 'radio_medio']
+                ['Radio Medio desde Centroide (mm)', 'radio_medio'],
+                ['Ancho BB convex hull (mm)', 'width'],
+                ['Alto BB convex hull (mm)', 'height']
               ]
             },
             {
@@ -32160,8 +33549,23 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       if (esBifacial && (caras.A || caras.B)) {
         console.log(`   ✅ Creando contenedor BIFACIAL para objeto ${numeroObj}`);
         // BIFACIAL: Contenedor para ambas caras del mismo objeto
+        const esObj3d = !!(caras.A?._fromObj3d || caras.B?._fromObj3d);
+        const wrapOuter = document.createElement('div');
+        wrapOuter.style.cssText = 'grid-column:1/-1;margin-bottom:15px;';
+
+        if (esObj3d) {
+          // Header badge para pares de caras 3D
+          const badge3d = document.createElement('div');
+          badge3d.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:6px 10px;background:linear-gradient(135deg,#0d47a1,#1565c0);border-radius:6px 6px 0 0;color:#fff;font-size:12px;font-weight:700;letter-spacing:.5px;';
+          badge3d.innerHTML = '<span style="background:#fff;color:#0d47a1;border-radius:3px;padding:1px 6px;font-size:11px;font-weight:800;">3D</span> Análisis morfológico — contornos proyectados anverso / reverso';
+          wrapOuter.appendChild(badge3d);
+        }
+
         const objContainer = document.createElement('div');
-        objContainer.style.cssText = `grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:15px;padding:12px;background:linear-gradient(135deg,rgba(23,162,184,0.05) 0%,rgba(40,167,69,0.05) 100%);border-radius:8px;border:2px solid #e0e0e0;`;
+        objContainer.style.cssText = esObj3d
+          ? 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;padding:12px;background:linear-gradient(135deg,rgba(13,71,161,0.07) 0%,rgba(21,101,192,0.04) 100%);border-radius:0 0 8px 8px;border:2px solid #1565c0;border-top:none;'
+          : 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;padding:12px;background:linear-gradient(135deg,rgba(23,162,184,0.05) 0%,rgba(40,167,69,0.05) 100%);border-radius:8px;border:2px solid #e0e0e0;';
+
         if(caras.A) {
           console.log(`      → Agregando Cara A`);
           objContainer.appendChild(crearCardObjeto(caras.A,'A'));
@@ -32170,7 +33574,8 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           console.log(`      → Agregando Cara B`);
           objContainer.appendChild(crearCardObjeto(caras.B,'B'));
         }
-        individualObjectsGrid.appendChild(objContainer);
+        wrapOuter.appendChild(objContainer);
+        individualObjectsGrid.appendChild(wrapOuter);
       } else if (caras.mono) {
         try {
           individualObjectsGrid.appendChild(crearCardObjeto(caras.mono,null));
@@ -32180,8 +33585,16 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   
     toggleObjectsBtn.style.display = 'block';
     toggleObjectsBtn.textContent = 'Ocultar objetos individuales';
-    
-    individualObjectsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // Solo hacer scroll a las tarjetas si el panel de análisis morfológico NO está abierto.
+    // Cuando el análisis está visible, hacer scroll a las tarjetas secuestraría el viewport
+    // (ocurre al final del auto-análisis silencioso o desde actualizarTarjetaObjeto).
+    const _analisisAbierto = morphologicalAnalysisContainer &&
+      morphologicalAnalysisContainer.style.display !== '' &&
+      morphologicalAnalysisContainer.style.display !== 'none';
+    if (!_analisisAbierto) {
+      individualObjectsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     console.log(`✅ Individualización completada: ${objects.length} objetos procesados`);
     setStatus(`${objects.length} objetos individualizados y mostrados.`, false);
 
@@ -32320,20 +33733,48 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
    */
   async function saveFileWithDialog(filename, content, format = 'csv') {
     try {
+      const extensionMap = {
+        csv: '.csv',
+        pdf: '.pdf',
+        html: '.html',
+        json: '.json',
+        png: '.png',
+        jpg: '.jpg',
+        jpeg: '.jpg',
+        svg: '.svg',
+        tps: '.tps'
+      };
+      const mimeMap = {
+        csv: 'text/csv;charset=utf-8',
+        pdf: 'application/pdf',
+        html: 'text/html;charset=utf-8',
+        json: 'application/json;charset=utf-8',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        svg: 'image/svg+xml;charset=utf-8',
+        tps: 'text/plain;charset=utf-8'
+      };
+      const normalizedFormat = String(format || 'csv').toLowerCase();
+      const toDataUrl = async (binaryContent, explicitMime = null) => {
+        const ab = binaryContent instanceof Blob ? await binaryContent.arrayBuffer() : binaryContent;
+        const uint8 = new Uint8Array(ab);
+        let binary = '';
+        for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+        const mime = explicitMime || (binaryContent instanceof Blob && binaryContent.type) || mimeMap[normalizedFormat] || 'application/octet-stream';
+        return `data:${mime};base64,${btoa(binary)}`;
+      };
+
       if (window.electronAPI?.showSaveDialog) {
         // 1. Diálogo nativo → solo devuelve la ruta (ningún dato binario viaja por IPC)
-        const dialogResult = await window.electronAPI.showSaveDialog(filename, format);
+        const dialogResult = await window.electronAPI.showSaveDialog(filename, normalizedFormat);
         if (dialogResult.canceled || !dialogResult.filePath) return;
 
         const filepath = dialogResult.filePath;
 
         // 2. Escribir via IPC seguro (contextIsolation: true — sin require('fs') directo)
-        if (format === 'pdf' && (content instanceof Blob || content instanceof ArrayBuffer)) {
-          const ab = content instanceof Blob ? await content.arrayBuffer() : content;
-          const uint8 = new Uint8Array(ab);
-          let binary = '';
-          for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
-          await window.electronAPI.saveFile(filepath, `data:application/pdf;base64,${btoa(binary)}`);
+        if (content instanceof Blob || content instanceof ArrayBuffer) {
+          await window.electronAPI.saveFile(filepath, await toDataUrl(content));
         } else {
           const text = typeof content === 'string' ? content : String(content);
           await window.electronAPI.saveFile(filepath, text);
@@ -32347,11 +33788,15 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
 
       // Fallback a descarga tradicional del navegador (sin Electron)
       console.warn('electronAPI.showSaveDialog no disponible, usando descarga navegador...');
-      const blobFallback = content instanceof Blob ? content : new Blob([content], { type: `text/${format}` });
+      const blobFallback = content instanceof Blob
+        ? content
+        : content instanceof ArrayBuffer
+          ? new Blob([content], { type: mimeMap[normalizedFormat] || 'application/octet-stream' })
+          : new Blob([content], { type: mimeMap[normalizedFormat] || `text/${normalizedFormat}` });
       const url = URL.createObjectURL(blobFallback);
       const link = document.createElement('a');
       link.href = url;
-      link.download = filename + (format === 'pdf' ? '.pdf' : format === 'csv' ? '.csv' : '.html');
+      link.download = filename + (extensionMap[normalizedFormat] || `.${normalizedFormat}`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -32362,6 +33807,37 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     }
   }
   window.saveFileWithDialog = saveFileWithDialog;
+
+  function _csvEscapeValue(value) {
+    const raw = value === null || value === undefined ? '' : String(value);
+    const normalized = raw.replace(/\r?\n/g, ' ').trim();
+    if (normalized === '') return '';
+    if (/[",]/.test(normalized)) {
+      return `"${normalized.replace(/"/g, '""')}"`;
+    }
+    return normalized;
+  }
+
+  function _csvRow(cells) {
+    return cells.map(_csvEscapeValue).join(',') + '\n';
+  }
+
+  function _normalizarCsvEstructural(csvText, expectedColumns) {
+    if (!csvText || !Number.isInteger(expectedColumns) || expectedColumns < 2) return csvText;
+    const lines = String(csvText).split('\n');
+    const fixed = lines.map((line) => {
+      if (!line || !line.trim()) return '';
+      if (!line.includes(',')) return line;
+      const parts = line.split(',');
+      if (parts.length <= expectedColumns) return line;
+
+      const firstColumns = parts.slice(0, Math.max(1, expectedColumns - 2));
+      const lastColumn = parts[parts.length - 1];
+      const middle = parts.slice(firstColumns.length, parts.length - 1).join(',');
+      return _csvRow([...firstColumns, middle, lastColumn]).trimEnd();
+    });
+    return fixed.join('\n');
+  }
   
   // ============================================================================
   // � EXPORTACIÓN DIRECTA DESDE LA UI - Solución Simple y Eficiente
@@ -33460,6 +34936,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       const _idBifComp = obtenerIdentificacionActual()?.valor?.replace(/[^a-zA-Z0-9_-]/g, '_') || idObjeto;
       const nombreArchivo = `${_idBifComp}_bifacial`;
       
+      csvContent = _normalizarCsvEstructural(csvContent, 5);
       await saveFileWithDialog(nombreArchivo, csvContent, 'csv');
       console.log(`✅ Exportado: ${nombreArchivo}.csv`);
       
@@ -33534,6 +35011,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       const caraSufijo = obj.cara ? `_Cara${obj.cara}` : '';
       const nombreArchivo = `${nombreBase}${caraSufijo}_analisis`;
       
+      csvContent = _normalizarCsvEstructural(csvContent, 4);
       await saveFileWithDialog(nombreArchivo, csvContent, 'csv');
       
       // Mensaje de éxito con detalle
@@ -34143,24 +35621,25 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       // Generar CSV de comparación
       const idObjeto = `OBJ_${numeroObjeto}`;
       let csvContent = '';
+      const row = (...cells) => _csvRow(cells);
       
       // ========================================================================
       // METADATOS DEL PROYECTO
       // ========================================================================
       if (projectManager?.activeProject) {
         csvContent += `# PROYECTO\n`;
-        csvContent += `Nombre del Proyecto,${projectManager.activeProject.name || 'N/A'}\n`;
+        csvContent += row('Nombre del Proyecto', projectManager.activeProject.name || 'N/A');
         if (projectManager.activeProject.descripcion) {
-          csvContent += `Descripcion,${projectManager.activeProject.descripcion}\n`;
+          csvContent += row('Descripcion', projectManager.activeProject.descripcion);
         }
         if (projectManager.activeProject.sitio) {
-          csvContent += `Sitio Arqueologico,${projectManager.activeProject.sitio}\n`;
+          csvContent += row('Sitio Arqueologico', projectManager.activeProject.sitio);
         }
         if (projectManager.activeProject.investigadorResponsable) {
-          csvContent += `Investigador Responsable,${projectManager.activeProject.investigadorResponsable}\n`;
+          csvContent += row('Investigador Responsable', projectManager.activeProject.investigadorResponsable);
         }
         if (projectManager.activeProject.institucionResponsable) {
-          csvContent += `Institucion Responsable,${projectManager.activeProject.institucionResponsable}\n`;
+          csvContent += row('Institucion Responsable', projectManager.activeProject.institucionResponsable);
         }
         csvContent += `\n`;
       }
@@ -34168,8 +35647,8 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
       // Header del archivo
       csvContent += `Comparación Morfológica Bifacial - MAO Plus v1.1.0\n`;
-      csvContent += `Objeto: ${idObjeto}\n`;
-      csvContent += `Fecha: ${new Date().toLocaleString('es-ES')}\n`;
+      csvContent += row('Objeto', idObjeto);
+      csvContent += row('Fecha', new Date().toLocaleString('es-ES'));
       csvContent += `\n`;
       csvContent += `Este archivo contiene la comparación métrica entre Cara A (Anverso) y Cara B (Reverso)\n`;
       csvContent += `\n`;
@@ -34179,17 +35658,17 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       if (_imcExport) {
         const _fmtPct = v => v !== null && v !== undefined ? (v*100).toFixed(1)+'%' : 'N/D';
         csvContent += `COHERENCIA MORFOMÉTRICA INTEGRAL (IMC)\n`;
-        csvContent += `IMC Global,${_fmtPct(_imcExport.global)},,Índice de compatibilidad morfológica bilateral [0–100%]\n`;
-        csvContent += `Nivel de coherencia,${_imcExport.nivel || 'N/D'},,Clasificación interpretativa\n`;
-        csvContent += `Coherencia Identitaria (CI),${_fmtPct(_imcExport.ci)},,Solo dimensional — confirma identidad del objeto\n`;
-        csvContent += `Coherencia de Superficie (CMS),${_fmtPct(_imcExport.cms)},,Forma+radial+contorno — similitud superficial entre caras\n`;
-        csvContent += `Dimensional (tamaño),${_fmtPct(_imcExport.dimensional)},,Peso 30% — área / perímetro / ejes / Feret\n`;
-        csvContent += `Forma (descriptores),${_fmtPct(_imcExport.forma)},,Peso 30% — circularidad / solidez / aspecto / elongación\n`;
-        csvContent += `Radial (perfil),${_fmtPct(_imcExport.radial)},,Peso 20% — radios / regularidad radial / CV radial\n`;
-        csvContent += `Contorno (textura),${_fmtPct(_imcExport.contorno)},,Peso 10% — rugosidad / curvatura / lobularidad / simetría\n`;
-        csvContent += `Conservación,${_fmtPct(_imcExport.conservacion)},,Peso 10% — completitud / pérdida área / solidez\n`;
+        csvContent += row('IMC Global', _fmtPct(_imcExport.global), '', 'Índice de compatibilidad morfológica bilateral [0–100%]');
+        csvContent += row('Nivel de coherencia', _imcExport.nivel || 'N/D', '', 'Clasificación interpretativa');
+        csvContent += row('Coherencia Identitaria (CI)', _fmtPct(_imcExport.ci), '', 'Solo dimensional — confirma identidad del objeto');
+        csvContent += row('Coherencia de Superficie (CMS)', _fmtPct(_imcExport.cms), '', 'Forma+radial+contorno — similitud superficial entre caras');
+        csvContent += row('Dimensional (tamaño)', _fmtPct(_imcExport.dimensional), '', 'Peso 30% — área / perímetro / ejes / Feret');
+        csvContent += row('Forma (descriptores)', _fmtPct(_imcExport.forma), '', 'Peso 30% — circularidad / solidez / aspecto / elongación');
+        csvContent += row('Radial (perfil)', _fmtPct(_imcExport.radial), '', 'Peso 20% — radios / regularidad radial / CV radial');
+        csvContent += row('Contorno (textura)', _fmtPct(_imcExport.contorno), '', 'Peso 10% — rugosidad / curvatura / lobularidad / simetría');
+        csvContent += row('Conservación', _fmtPct(_imcExport.conservacion), '', 'Peso 10% — completitud / pérdida área / solidez');
         if (_imcExport.divergentes?.length) {
-          csvContent += `Rasgos divergentes (Δ>20%),${_imcExport.divergentes.slice(0,6).map(d => `${d.nombre} Δ${d.dif}%`).join(' | ')},,Métricas con mayor discordancia bilateral\n`;
+          csvContent += row('Rasgos divergentes (Δ>20%)', _imcExport.divergentes.slice(0,6).map(d => `${d.nombre} Δ${d.dif}%`).join(' | '), '', 'Métricas con mayor discordancia bilateral');
         }
         csvContent += `\n`;
       }
@@ -34619,6 +36098,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
    */
   function generarTablaComparativaBifacialCSV(caraA, caraB) {
     let csvContent = '';
+    const row = (...cells) => _csvRow(cells);
     
     const mA = caraA.metricas;
     const mB = caraB.metricas;
@@ -34736,9 +36216,9 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     // ============================================================
     csvContent += `\n CLASIFICACIÓN MORFOLÓGICA\n`;
     
-    csvContent += `Forma Detectada,${mA.forma_detectada || 'N/A'},${mB.forma_detectada || 'N/A'},-,-,${mA.forma_detectada === mB.forma_detectada ? 'Idéntica' : 'Diferente'}\n`;
-    csvContent += `Confianza (%),${fmt((mA.forma_confianza || 0) * 100, 1)},${fmt((mB.forma_confianza || 0) * 100, 1)},-,-,-\n`;
-    csvContent += `Categoría Base,${mA.forma_categoria_base || 'N/A'},${mB.forma_categoria_base || 'N/A'},-,-,${mA.forma_categoria_base === mB.forma_categoria_base ? 'Idéntica' : 'Diferente'}\n`;
+    csvContent += row('Forma Detectada', mA.forma_detectada || 'N/A', mB.forma_detectada || 'N/A', '-', '-', mA.forma_detectada === mB.forma_detectada ? 'Idéntica' : 'Diferente');
+    csvContent += row('Confianza (%)', fmt((mA.forma_confianza || 0) * 100, 1), fmt((mB.forma_confianza || 0) * 100, 1), '-', '-', '-');
+    csvContent += row('Categoría Base', mA.forma_categoria_base || 'N/A', mB.forma_categoria_base || 'N/A', '-', '-', mA.forma_categoria_base === mB.forma_categoria_base ? 'Idéntica' : 'Diferente');
     
     // ============================================================
     // SECCIÓN 6: PERFORACIONES Y HORADACIONES
@@ -34750,9 +36230,9 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     
     if (perfA > 0 || perfB > 0 || horadA > 0 || horadB > 0) {
       csvContent += `\n PERFORACIONES Y HORADACIONES\n`;
-      csvContent += `Número de Perforaciones,${perfA},${perfB},${perfB - perfA},-,${perfA === perfB ? 'Igual' : (perfA > perfB ? 'Más en Cara A' : 'Más en Cara B')}\n`;
-      csvContent += `Número de Horadaciones,${horadA},${horadB},${horadB - horadA},-,${horadA === horadB ? 'Igual' : (horadA > horadB ? 'Más en Cara A' : 'Más en Cara B')}\n`;
-      csvContent += `Total P/H,${perfA + horadA},${perfB + horadB},${(perfB + horadB) - (perfA + horadA)},-,-\n`;
+      csvContent += row('Número de Perforaciones', perfA, perfB, perfB - perfA, '-', perfA === perfB ? 'Igual' : (perfA > perfB ? 'Más en Cara A' : 'Más en Cara B'));
+      csvContent += row('Número de Horadaciones', horadA, horadB, horadB - horadA, '-', horadA === horadB ? 'Igual' : (horadA > horadB ? 'Más en Cara A' : 'Más en Cara B'));
+      csvContent += row('Total P/H', perfA + horadA, perfB + horadB, (perfB + horadB) - (perfA + horadA), '-', '-');
     }
     
     // ============================================================
@@ -34777,8 +36257,8 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     else if (promedioDiferencias < 50) nivelSimetria = 'Poco simétrico';
     else nivelSimetria = 'Muy asimétrico';
     
-    csvContent += `Índice de Simetría Global (%),${fmt(100 - promedioDiferencias, 1)},${nivelSimetria},-,-,-\n`;
-    csvContent += `Diferencia Promedio (%),${fmt(promedioDiferencias, 1)},-,-,-,-\n`;
+    csvContent += row('Índice de Simetría Global (%)', fmt(100 - promedioDiferencias, 1), nivelSimetria, '-', '-', '-');
+    csvContent += row('Diferencia Promedio (%)', fmt(promedioDiferencias, 1), '-', '-', '-', '-');
     
     return csvContent;
   }
@@ -35703,7 +37183,13 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       elementosGeometricos: {
         // 1. CONTORNO ORIGINAL (polígono del objeto detectado)
         contorno: {
-          puntos: obj.metricas._contour_data?.points || [],
+          // Guardar siempre el contorno OpenCV real, no el idealizado.
+          // _contour_data_original existe cuando hubo idealización (modo manual);
+          // en ese caso _contour_data.points es el polígono simplificado.
+          puntos: obj.metricas._contour_data_original?.points
+                  || obj.original_contour_points
+                  || obj.metricas._contour_data?.points
+                  || [],
           tipo: 'contorno_original',
           color: '#00ff00',
           grosor: 2,
@@ -35871,8 +37357,11 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         }
       },
       
-      // Compatibilidad retroactiva (mantener campo antiguo)
-      contorno: obj.metricas._contour_data?.points || []
+      // Compatibilidad retroactiva (mantener campo antiguo) — contorno OpenCV real
+      contorno: obj.metricas._contour_data_original?.points
+               || obj.original_contour_points
+               || obj.metricas._contour_data?.points
+               || []
     };
     
     console.log(`💾 Datos completos preparados para guardado:`, {
@@ -36849,6 +38338,47 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
    * 🔄 REFLEJO ESPECULAR: Cara B es el reverso reflejado de Cara A (rotación 180°)
    */
   function calcularComparacionBifacial(caraA, caraB) {
+    // --------------------------------------------------------------------------
+    // Helpers Sección XIII (CI/CMS)
+    // --------------------------------------------------------------------------
+    const similitudPar = (a, b) => {
+      const va = Number(a) || 0;
+      const vb = Number(b) || 0;
+      const media = (va + vb) / 2;
+      if (Math.abs(media) < 1e-12) return 1;
+      return Math.max(0, 1 - Math.abs(va - vb) / Math.abs(media));
+    };
+
+    const promedioPonderado = (defs) => {
+      let suma = 0;
+      let pesos = 0;
+      let usados = 0;
+      const detalles = {};
+
+      defs.forEach(({ aliases, peso }) => {
+        const getVal = (m, names) => {
+          for (const n of names) {
+            const v = m?.[n];
+            if (v !== undefined && v !== null && !Number.isNaN(Number(v))) return Number(v);
+          }
+          return 0;
+        };
+
+        const a = getVal(caraA.metricas || {}, aliases);
+        const b = getVal(caraB.metricas || {}, aliases);
+        if (a === 0 && b === 0) return; // faltante en ambas caras
+
+        const s = similitudPar(a, b);
+        detalles[aliases[0]] = Number(s.toFixed(4));
+        suma += s * peso;
+        pesos += peso;
+        usados += 1;
+      });
+
+      if (usados < 2 || pesos <= 0) return { indice: null, detalles };
+      return { indice: Math.max(0, Math.min(1, suma / pesos)), detalles };
+    };
+
     // ============================================================================
     // 1️⃣ ANÁLISIS DE CENTROIDES (Punto Ancla Común)
     // ============================================================================
@@ -36990,6 +38520,109 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       simetriaOrientacion * 0.10 + // Reflejo angular
       distribucionPH.simetriaEspecular * 0.10 // Reflejo de P/H
     );
+
+    // ============================================================================
+    // 5️⃣ Sección XIII — Índices CI / CMS
+    // ============================================================================
+    const ciDefs = [
+      { aliases: ['area'], peso: 3.0 },
+      { aliases: ['perimetro', 'perimeter'], peso: 2.0 },
+      { aliases: ['eje_mayor_real_longitud', 'eje_mayor', 'major_axis'], peso: 2.0 },
+      { aliases: ['eje_menor_real_longitud', 'eje_menor', 'minor_axis'], peso: 1.5 },
+      { aliases: ['feret_max', 'feret_maximo'], peso: 1.5 },
+      { aliases: ['feret_min', 'feret_minimo'], peso: 1.0 }
+    ];
+
+    const formaDefs = [
+      { aliases: ['circularity', 'circularidad'], peso: 1.0 },
+      { aliases: ['solidity', 'solidez'], peso: 1.0 },
+      { aliases: ['elongation', 'elongacion'], peso: 1.0 },
+      { aliases: ['rectangularidad', 'rectangularity'], peso: 1.0 },
+      { aliases: ['simetria_bilateral', 'symmetry_score'], peso: 1.0 },
+      { aliases: ['convexity', 'convexidad'], peso: 1.0 },
+      { aliases: ['excentricidad'], peso: 1.0 }
+    ];
+
+    const radialDefs = [
+      { aliases: ['radio_medio'], peso: 1.0 },
+      { aliases: ['ratio_radios'], peso: 1.0 },
+      { aliases: ['coeficiente_variacion_radial'], peso: 1.0 },
+      { aliases: ['regularidad_radial'], peso: 1.0 },
+      { aliases: ['indice_estrellamiento', 'estrellamiento'], peso: 1.0 }
+    ];
+
+    const contornoDefs = [
+      { aliases: ['rugosidad_borde', 'rugosidad_contorno', 'rugosidad'], peso: 1.0 },
+      { aliases: ['ici'], peso: 1.0 },
+      { aliases: ['curvatura_media'], peso: 1.0 },
+      { aliases: ['varianza_tonal_interna', 'variabilidad_intensidad'], peso: 1.0 },
+      { aliases: ['entropia_superficie'], peso: 1.0 },
+      { aliases: ['gradiente_medio'], peso: 1.0 }
+    ];
+
+    const ciCalc = promedioPonderado(ciDefs);
+    const formaCalc = promedioPonderado(formaDefs);
+    const radialCalc = promedioPonderado(radialDefs);
+    const contornoCalc = promedioPonderado(contornoDefs);
+
+    const CI = ciCalc.indice;
+    const I_forma = formaCalc.indice;
+    const I_radial = radialCalc.indice;
+    const I_contorno = contornoCalc.indice;
+    const CMS = (I_forma != null && I_radial != null && I_contorno != null)
+      ? (0.50 * I_forma + 0.30 * I_radial + 0.20 * I_contorno)
+      : null;
+
+    let interpretacionCI_CMS = {
+      categoria: 'Datos insuficientes',
+      descripcion: 'No hay métricas suficientes para evaluar CI/CMS.',
+      diferenciacionNatural: false
+    };
+
+    if (CI != null && CMS != null) {
+      if (CI >= 0.85 && CMS >= 0.85) {
+        interpretacionCI_CMS = {
+          categoria: 'Correspondencia máxima',
+          descripcion: 'Caras prácticamente idénticas en dimensiones y morfología de superficie.',
+          diferenciacionNatural: false
+        };
+      } else if (CI >= 0.78 && CMS >= 0.62) {
+        interpretacionCI_CMS = {
+          categoria: 'Correspondencia normal',
+          descripcion: 'Caras compatibles del mismo objeto con variación esperable de manufactura.',
+          diferenciacionNatural: false
+        };
+      } else if (CI >= 0.78 && CMS < 0.62) {
+        interpretacionCI_CMS = {
+          categoria: 'Diferenciación natural',
+          descripcion: 'Dimensiones equivalentes con morfología superficial divergente.',
+          diferenciacionNatural: true
+        };
+      } else if (CI < 0.60 && CMS < 0.60) {
+        interpretacionCI_CMS = {
+          categoria: 'No relacionados morfométricamente',
+          descripcion: 'Baja coherencia dimensional y superficial entre caras.',
+          diferenciacionNatural: false
+        };
+      } else {
+        interpretacionCI_CMS = {
+          categoria: 'Correspondencia baja o ambigua',
+          descripcion: 'Patrón intermedio que requiere revisión contextual.',
+          diferenciacionNatural: false
+        };
+      }
+    }
+
+    comparacion.CI = CI;
+    comparacion.CMS = CMS;
+    comparacion.subindicesCMS = { I_forma, I_radial, I_contorno };
+    comparacion.similitudesCI = ciCalc.detalles;
+    comparacion.similitudesCMS = {
+      forma: formaCalc.detalles,
+      radial: radialCalc.detalles,
+      contorno: contornoCalc.detalles
+    };
+    comparacion.interpretacionCI_CMS = interpretacionCI_CMS;
     
     return comparacion;
   }
@@ -39377,7 +41010,8 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
               (diferencia de ${comp.diferenciaArea.toFixed(2)} mm²)
             </p>
             <p style="margin: 8px 0;">
-              <strong>Simetría de Perímetro:</strong> ${(1 - comp.diferenciaPerimetro / Math.max(caraA.metricas?.perimetro || caraA.perimetro || 0, caraB.metricas?.perimetro || caraB.perimetro || 0) * 100).toFixed(1)}%
+              <strong>Simetría de Perímetro:</strong> ${(comp.simetriaPerimetro * 100).toFixed(1)}%
+              (diferencia de ${comp.diferenciaPerimetro.toFixed(2)} mm)
             </p>
           </div>
         </div>
@@ -42337,16 +43971,33 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     
     canvas.width = bb.ancho + padding * 2;
     canvas.height = bb.alto + padding * 2;
+    canvas.style.maxWidth = '100%';
+    canvas.style.height = 'auto';
     ctx.fillStyle = 'white';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(imagenActual, bb.minX, bb.minY, bb.ancho, bb.alto, padding, padding, bb.ancho, bb.alto);
+    if (imagenActual) {
+      ctx.drawImage(imagenActual, bb.minX, bb.minY, bb.ancho, bb.alto, padding, padding, bb.ancho, bb.alto);
+    } else if (obj.imagenRecortada) {
+      // Modo 3D: no hay imagen 2D de cara — usar snapshot del canvas 3D como thumbnail
+      const _snap3d = new Image();
+      _snap3d.onload = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(_snap3d, 0, 0, canvas.width, canvas.height);
+      };
+      _snap3d.src = obj.imagenRecortada;
+    }
     
     const infoDiv = document.createElement('div');
     infoDiv.style.cssText = 'padding:10px;background:#f8f9fa;border-top:1px solid #e0e0e0;';
     const caraIcono = obj.cara === 'A'? '': (obj.cara === 'B'? '': '');
     const caraTexto = obj.cara === 'A' ? 'Anverso (Cara A)' : (obj.cara === 'B' ? 'Reverso (Cara B)' : 'Monofacial');
     const caraColor = obj.cara === 'A' ? '#0066cc' : (obj.cara === 'B' ? '#28a745' : '#6c757d');
-    
+    const badge3dHtml = obj._fromObj3d
+      ? '<span style="display:inline-block;background:#0d47a1;color:#fff;font-size:9px;font-weight:800;letter-spacing:.5px;padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle;">3D</span>'
+      : '';
+
     // Título mejorado para bifaciales
     if (obj.numeroObjeto && (obj.cara === 'A' || obj.cara === 'B')) {
       // MODO BIFACIAL - Título destacado con número de objeto + cara
@@ -42355,7 +44006,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         <div style="font-weight:600;margin-bottom:8px;padding:8px;background:linear-gradient(135deg,${obj.cara === 'A' ? 'rgba(0,102,204,0.1)' : 'rgba(40,167,69,0.1)'} 0%,rgba(255,255,255,0.3) 100%);border-left:3px solid ${caraColor};border-radius:4px;">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
             <span style="font-size:20px;">${caraIcono}</span>
-            <span style="color:#2c3e50;font-size:14px;">${bifacialName ? bifacialName : ('Objeto Bifacial #' + obj.numeroObjeto)}</span>
+            <span style="color:#2c3e50;font-size:14px;">${bifacialName ? bifacialName : ('Objeto Bifacial #' + obj.numeroObjeto)}${badge3dHtml}</span>
           </div>
           <div style="font-size:12px;color:${caraColor};font-weight:600;margin-left:26px;">
             ${caraTexto}
@@ -42393,7 +44044,9 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     
     analyzeBtn.onmouseover = () => { analyzeBtn.style.transform = 'translateY(-2px)'; analyzeBtn.style.boxShadow = tieneCache ? '0 4px 8px rgba(40,167,69,0.4)' : '0 4px 8px rgba(23,162,184,0.4)'; };
     analyzeBtn.onmouseout = () => { analyzeBtn.style.transform = 'translateY(0)'; analyzeBtn.style.boxShadow = tieneCache ? '0 2px 4px rgba(40,167,69,0.3)' : '0 2px 4px rgba(23,162,184,0.3)'; };
-    analyzeBtn.onclick = () => {
+    analyzeBtn.addEventListener('click', () => {
+      console.log(`🖱️ Click en botón análisis para ${obj.id} (cache: ${!!obj.analisisCached})`);
+      setStatus(`Procesando análisis para ${obj.id}…`, false);
       const imagenCara = obj.cara === 'A' ? imageCaraA : (obj.cara === 'B' ? imageCaraB : image);
       
       if (obj.analisisCached) {
@@ -42403,13 +44056,16 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         if (objectIndex >= 0) {
           analizarObjetoMorfologicamente(objectIndex, false);
           setStatus(`Análisis recuperado desde caché para ${obj.id}`, false);
+        } else {
+          console.warn(`⚠️ Objeto ${obj.id} no encontrado en objects. Total: ${objects.length}`);
+          setStatus(`Error: objeto ${obj.id} no encontrado en lista`, true);
         }
       } else {
         // Analizar nuevo
         console.log(`🔍 Iniciando análisis morfológico para objeto ${obj.id} (Cara: ${obj.cara || 'Mono'})`);
         analizarObjetoIndividual(obj, imagenCara);
       }
-    };
+    });
     
     infoDiv.appendChild(analyzeBtn);
 
@@ -45771,6 +47427,38 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           togglePhPointDetectMode();
         });
       }
+
+      const phDetectarAutoBtn = document.getElementById('phDetectarAutoBtn');
+      if (phDetectarAutoBtn) {
+        phDetectarAutoBtn.addEventListener('click', async () => {
+          await detectarPhAutomatico();
+        });
+      }
+
+      const phAutoProfileSelect = document.getElementById('phAutoProfileSelect');
+      if (phAutoProfileSelect) {
+        phAutoProfileSelect.addEventListener('change', (e) => {
+          phAutoProfileMode = e.target.value || 'auto';
+          persistPhAutoUiSettings();
+          const modoTxt = phAutoProfileMode === 'auto' ? 'Auto' : phAutoProfileMode;
+          setStatus(`Perfil IA seleccionado: ${modoTxt}.`, false);
+        });
+      }
+
+      const phAutoSensitivityRange = document.getElementById('phAutoSensitivityRange');
+      const phAutoSensitivityValue = document.getElementById('phAutoSensitivityValue');
+      if (phAutoSensitivityRange) {
+        const renderPhSens = () => {
+          const parsed = parseFloat(phAutoSensitivityRange.value);
+          phAutoSensitivity = Number.isFinite(parsed) ? parsed : 1.0;
+          persistPhAutoUiSettings();
+          if (phAutoSensitivityValue) {
+            phAutoSensitivityValue.textContent = `${phAutoSensitivity.toFixed(2)}x`;
+          }
+        };
+        phAutoSensitivityRange.addEventListener('input', renderPhSens);
+        renderPhSens();
+      }
     }
   });
 
@@ -45980,6 +47668,38 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     }
     
     pointCountSpan.textContent = '0';
+
+    // Cargar P/H ya existentes como trazados editables (edición posterior).
+    const existentes = [];
+    (obj.perforaciones || []).forEach((p, i) => {
+      const pts = p.puntos || p.contorno || p.poligonoTrazado;
+      if (Array.isArray(pts) && pts.length >= 3) {
+        existentes.push({
+          id: Number.isFinite(p.id) ? p.id : (i + 1),
+          tipo: 'perforacion',
+          puntos: pts,
+          timestamp: p.timestamp || Date.now(),
+          metodo: 'existente',
+        });
+      }
+    });
+    (obj.horadaciones || []).forEach((h, i) => {
+      const pts = h.puntos || h.contorno || h.poligonoTrazado;
+      if (Array.isArray(pts) && pts.length >= 3) {
+        existentes.push({
+          id: Number.isFinite(h.id) ? h.id : (i + 1 + existentes.length),
+          tipo: 'horadacion',
+          puntos: pts,
+          timestamp: h.timestamp || Date.now(),
+          metodo: 'existente',
+        });
+      }
+    });
+
+    trazadosPerforaciones = existentes;
+    contadorTrazados = existentes.reduce((m, t) => Math.max(m, Number(t.id) || 0), 0);
+    actualizarListaTrazados();
+    redibujarPoligonoEnCanvasAmpliado();
     
     // Configurar selector de zoom a 2x (valor por defecto)
     const zoomSelector = document.getElementById('perforationZoomSelector');
@@ -45995,10 +47715,27 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     const _phDetBtn = document.getElementById('phDetectarPorPuntoBtn');
     if (_phDetBtn) { _phDetBtn.style.background = 'transparent'; _phDetBtn.style.color = '#e65100'; }
 
+    // Restaurar preferencias guardadas de IA Auto desde el análisis cargado.
+    restorePhAutoUiSettings(obj, obj.metricas || currentAnalyzedObject?.metricas);
+
+    const _phAutoProfile = document.getElementById('phAutoProfileSelect');
+    if (_phAutoProfile) _phAutoProfile.value = phAutoProfileMode;
+    const _phAutoSensRange = document.getElementById('phAutoSensitivityRange');
+    if (_phAutoSensRange) _phAutoSensRange.value = phAutoSensitivity.toFixed(2);
+    const _phAutoSensLabel = document.getElementById('phAutoSensitivityValue');
+    if (_phAutoSensLabel) _phAutoSensLabel.textContent = `${phAutoSensitivity.toFixed(2)}x`;
+
+    // Re-escribir en métricas para mantener sincronía tras restauración.
+    persistPhAutoUiSettings();
+
     modal.style.display = 'block';
     setTimeout(() => perforationCanvas.focus(), 100);
     
-    setStatus(`Canvas listo (Zoom 2x). Trace el polígono haciendo clic. Use el zoom para más precisión.`, false);
+    if (existentes.length > 0) {
+      setStatus(`Canvas listo (Zoom 2x). Se cargaron ${existentes.length} P/H existentes para edición: puede eliminar, ajustar y volver a detectar.`, false);
+    } else {
+      setStatus(`Canvas listo (Zoom 2x). Trace el polígono haciendo clic. Use el zoom para más precisión.`, false);
+    }
     console.log(`🎯 Modal abierto con zoom 2x por defecto`);
   }
 
@@ -47659,6 +49396,9 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
    */
   function redibujarPoligonoEnCanvasAmpliado() {
     if (!selectedObjectForPerforation || !perforationCanvas || !perforationCanvasCtx) return;
+
+    // Mantener etiquetas sincronizadas entre canvas y listado en cada redibujo.
+    recalcularEtiquetasTrazadosPH();
     
     const obj = selectedObjectForPerforation;
     
@@ -47743,7 +49483,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
       // Etiqueta semi-transparente en una esquina externa (valores fijos 1:1)
       const centroide = calcularCentroidePoligono(canvasPoints);
-      const etiqueta = trazado.tipo === 'perforacion' ? `P${index + 1}` : `H${index + 1}`;
+      const etiqueta = trazado._displayLabel || (trazado.tipo === 'perforacion' ? `P${index + 1}` : `H${index + 1}`);
       const fontSize = 10;
       
       // Encontrar punto más alejado del centro (para poner etiqueta afuera)
@@ -48045,6 +49785,206 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     }
   }
 
+  /**
+   * Detección IA automática de P/H (multi-semilla) sobre el objeto activo.
+   * Recorre una malla de puntos internos y usa /api/ph/detect-at-point para
+   * proponer contornos. Los candidatos se deduplican por centro/área.
+   */
+  async function detectarPhAutomatico() {
+    if (!selectedObjectForPerforation || !perforationCanvas) return;
+    if (phPointDetectActive) return;
+    if (!window.PythonBridge?.isAvailable()) {
+      toast.warning('El servidor Python no está disponible.');
+      return;
+    }
+
+    phPointDetectMode = false;
+    phPointDetectActive = true;
+
+    const pointBtn = document.getElementById('phDetectarPorPuntoBtn');
+    if (pointBtn) {
+      pointBtn.style.background = 'transparent';
+      pointBtn.style.color = '#e65100';
+    }
+
+    try {
+      const obj = selectedObjectForPerforation;
+      const imageDataURL = perforationCanvas.toDataURL('image/png');
+      const canvasW = perforationCanvas.width;
+      const canvasH = perforationCanvas.height;
+      const areaObjPx = parseFloat(obj.metricas?.area_real || obj.metricas?.area || 0) || (canvasW * canvasH);
+
+      const profileResolved = phAutoProfileMode === 'auto'
+        ? getPhAutoDetectProfile(areaObjPx)
+        : {
+            key: phAutoProfileMode,
+            cfg: PH_AUTO_DETECT_PROFILES[phAutoProfileMode] || getPhAutoDetectProfile(areaObjPx).cfg,
+          };
+      const phAutoProfile = profileResolved.key;
+      const phCfg = profileResolved.cfg;
+
+      const sensitivity = Math.max(0.7, Math.min(1.6, Number(phAutoSensitivity) || 1.0));
+      const gridDivisor = Math.max(4, phCfg.gridDivisor * sensitivity);
+      const autoTolerance = Math.max(14, Math.min(38, Math.round(phCfg.tolerance + (sensitivity - 1.0) * 4)));
+      const autoMinAreaPx = Math.max(6, Math.round(phCfg.minAreaPx / sensitivity));
+      const autoMaxAreaRatio = Math.max(0.15, Math.min(0.55, phCfg.maxAreaRatio + (sensitivity - 1.0) * 0.08));
+      const autoMaxCandidates = Math.max(8, Math.round(phCfg.maxCandidates * sensitivity));
+      const profileLabel = phAutoProfileMode === 'auto' ? `${phAutoProfile}/auto` : `${phAutoProfile}/manual`;
+
+      const contour = obj.metricas?._contour_data?.points || [];
+      const getX = (p) => p?.x !== undefined ? p.x : p?.[0];
+      const getY = (p) => p?.y !== undefined ? p.y : p?.[1];
+
+      const pointInPolygon = (x, y, poly) => {
+        if (!Array.isArray(poly) || poly.length < 3) return true;
+        let inside = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const xi = getX(poly[i]);
+          const yi = getY(poly[i]);
+          const xj = getX(poly[j]);
+          const yj = getY(poly[j]);
+          if (!Number.isFinite(xi) || !Number.isFinite(yi) || !Number.isFinite(xj) || !Number.isFinite(yj)) continue;
+          const intersects = ((yi > y) !== (yj > y)) &&
+            (x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi);
+          if (intersects) inside = !inside;
+        }
+        return inside;
+      };
+
+      const step = Math.max(18, Math.min(72, Math.round(Math.min(canvasW, canvasH) / gridDivisor)));
+      const margin = Math.max(10, Math.round(step * 0.6));
+      const seeds = [];
+      for (let y = margin; y < canvasH - margin; y += step) {
+        for (let x = margin; x < canvasW - margin; x += step) {
+          const imgX = x + perforationCanvasOffsetX;
+          const imgY = y + perforationCanvasOffsetY;
+          if (pointInPolygon(imgX, imgY, contour)) {
+            seeds.push({ x, y });
+          }
+        }
+      }
+
+      if (!seeds.length) {
+        toast.warning('No se generaron semillas internas para detección automática.');
+        setStatus('No fue posible iniciar detección IA automática.', true);
+        return;
+      }
+
+      setStatus(
+        `✦ Detección IA Auto (${profileLabel}, sens ${sensitivity.toFixed(2)}x): evaluando hasta ${Math.min(autoMaxCandidates * 3, seeds.length)} semillas...`,
+        false
+      );
+
+      let candidatos = [];
+      let autoResp = null;
+      try {
+        autoResp = await window.PythonBridge.ph.detectAuto(imageDataURL, seeds, {
+          tolerance: autoTolerance,
+          minAreaPx: autoMinAreaPx,
+          maxAreaRatio: autoMaxAreaRatio,
+          maxCandidates: autoMaxCandidates,
+        });
+      } catch (errAuto) {
+        // Compatibilidad: backend antiguo sin endpoint batch => usar fallback por semilla.
+        if (errAuto?.status === 404) {
+          console.warn('[detectarPhAutomatico] /ph/detect-auto no disponible, activando fallback por semilla.');
+          setStatus('Detección IA batch no disponible en backend actual. Usando fallback por semilla...', false);
+        } else {
+          throw errAuto;
+        }
+      }
+
+      if (autoResp && autoResp.status === 'ok' && Array.isArray(autoResp.candidates)) {
+        candidatos = autoResp.candidates
+          .filter(c => Array.isArray(c.points) && c.points.length >= 4)
+          .map(c => ({
+            puntos: c.points.map(([cx, cy]) => ({
+              x: cx + perforationCanvasOffsetX,
+              y: cy + perforationCanvasOffsetY,
+            })),
+            areaPx: parseFloat(c.area_px || 0) || 0,
+            tipo: (c.auto_tipo === 'perforacion' || c.auto_tipo === 'horadacion')
+              ? c.auto_tipo
+              : 'horadacion',
+          }));
+      }
+
+      // Fallback de compatibilidad: si detectAuto no responde candidatos, usar método previo por semilla.
+      if (!candidatos.length) {
+        const vistos = [];
+        const maxCalls = Math.min(Math.max(18, autoMaxCandidates * 2), seeds.length);
+        for (let i = 0; i < maxCalls; i++) {
+          const seed = seeds[i];
+          const result = await window.PythonBridge.ph.detectAtPoint(
+            imageDataURL,
+            Math.round(seed.x),
+            Math.round(seed.y),
+            autoTolerance
+          );
+          if (!result || result.status !== 'ok' || !Array.isArray(result.points) || result.points.length < 4) {
+            continue;
+          }
+          const areaPx = parseFloat(result.area_px || 0);
+          if (!Number.isFinite(areaPx) || areaPx < autoMinAreaPx || areaPx > areaObjPx * autoMaxAreaRatio) {
+            continue;
+          }
+          const centroid = Array.isArray(result.centroid) ? result.centroid : [seed.x, seed.y];
+          const already = vistos.some(v => {
+            const d = Math.hypot(v.cx - centroid[0], v.cy - centroid[1]);
+            const ar = areaPx > 0 ? Math.abs(v.area - areaPx) / areaPx : 1;
+            return d < 14 && ar < 0.35;
+          });
+          if (already) continue;
+
+          const puntos = result.points.map(([cx, cy]) => ({
+            x: cx + perforationCanvasOffsetX,
+            y: cy + perforationCanvasOffsetY,
+          }));
+          const circularity = parseFloat(result.circularity || 0);
+          const tipoAuto = (areaPx < areaObjPx * 0.06 && circularity > 0.55) ? 'perforacion' : 'horadacion';
+
+          vistos.push({ cx: centroid[0], cy: centroid[1], area: areaPx });
+          candidatos.push({ puntos, areaPx, tipo: tipoAuto });
+        }
+      }
+
+      if (!candidatos.length) {
+        toast.warning('No se detectaron candidatos IA. Puede usar trazado manual o detección por punto.');
+        setStatus('Detección IA Auto finalizada sin candidatos.', false);
+        return;
+      }
+
+      for (const cand of candidatos) {
+        contadorTrazados++;
+        trazadosPerforaciones.push({
+          id: contadorTrazados,
+          tipo: cand.tipo,
+          puntos: cand.puntos,
+          timestamp: Date.now(),
+          metodo: 'auto_malla_ia',
+          area_px: cand.areaPx,
+        });
+      }
+
+      actualizarListaTrazados();
+      redibujarPoligonoEnCanvasAmpliado();
+
+      const nPerf = candidatos.filter(c => c.tipo === 'perforacion').length;
+      const nHor = candidatos.length - nPerf;
+      toast.success(`Detección IA Auto: ${candidatos.length} candidatos (${nPerf} P, ${nHor} H).`);
+      setStatus(
+        `Detección IA Auto completada: ${candidatos.length} candidatos añadidos. Revise/edite y pulse "Finalizar y Aplicar".`,
+        false
+      );
+    } catch (err) {
+      console.error('[detectarPhAutomatico]', err);
+      toast.warning('Error en detección IA automática. Intente detección por punto o trazado manual.');
+      setStatus('Error en detección IA automática.', true);
+    } finally {
+      phPointDetectActive = false;
+    }
+  }
+
   function iniciarTrazadoPoligonoPerforacion(mouseX, mouseY) {
     if (!selectedObjectForPerforation) {
       // Intentar seleccionar objeto primero
@@ -48216,6 +50156,20 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   /**
    * Actualizar lista visual de trazados completados
    */
+  function recalcularEtiquetasTrazadosPH() {
+    let nPerf = 0;
+    let nHor = 0;
+    trazadosPerforaciones.forEach(t => {
+      if (t.tipo === 'perforacion') {
+        nPerf += 1;
+        t._displayLabel = `P${nPerf}`;
+      } else {
+        nHor += 1;
+        t._displayLabel = `H${nHor}`;
+      }
+    });
+  }
+
   function actualizarListaTrazados() {
     const panel = document.getElementById('trazadosCompletadosPanel');
     const lista = document.getElementById('listaTrazados');
@@ -48225,22 +50179,26 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     
     // Mostrar/ocultar panel según si hay trazados
     if (trazadosPerforaciones.length > 0) {
+      recalcularEtiquetasTrazadosPH();
       panel.style.display = 'block';
       
       // Generar HTML de la lista
       lista.innerHTML = trazadosPerforaciones.map(t => {
         const color = t.tipo === 'perforacion' ? '#0066cc' : '#28a745';
-        const icono = t.tipo === 'perforacion'? '': '';
+        const icono = t.tipo === 'perforacion' ? '' : '';
         const nombre = t.tipo === 'perforacion' ? 'PERFORACIÓN' : 'HORADACIÓN';
+        const etiqueta = t._displayLabel || (t.tipo === 'perforacion' ? 'P?' : 'H?');
         
         return `
-          <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px; margin: 3px 0; background: white; border-left: 4px solid ${color}; border-radius: 3px;">
-            <span style="font-size: 11px; font-weight: bold; color: ${color};">
-              ${icono} ${nombre} #${t.id} <span style="color: #6c757d;">(${t.puntos.length} puntos)</span>
-            </span>
-            <button onclick="eliminarTrazado(${t.id})" style="padding: 2px 8px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">
-              
-            </button>
+          <div style="margin: 3px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px; background: white; border-left: 4px solid ${color}; border-radius: 3px;">
+              <span style="font-size: 11px; font-weight: bold; color: ${color};">
+                ${icono} ${nombre} ${etiqueta} <span style="color: #6c757d;">(${t.puntos.length} pts)</span>
+              </span>
+              <span style="display:flex;gap:4px;align-items:center;">
+                <button onclick="eliminarTrazado(${t.id})" style="padding: 2px 8px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;"></button>
+              </span>
+            </div>
           </div>
         `;
       }).join('');
@@ -48262,6 +50220,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     if (index !== -1) {
       const trazado = trazadosPerforaciones[index];
       trazadosPerforaciones.splice(index, 1);
+      recalcularEtiquetasTrazadosPH();
       
       console.log(`🗑️ Trazado #${id} eliminado`);
       
@@ -48270,7 +50229,8 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       redibujarPoligonoEnCanvasAmpliado();
       
       const tipoNombre = trazado.tipo === 'perforacion' ? 'Perforación' : 'Horadación';
-      setStatus(`${tipoNombre} #${id} eliminada. Total: ${trazadosPerforaciones.length}`, false);
+      const etiqueta = trazado._displayLabel || (trazado.tipo === 'perforacion' ? 'P?' : 'H?');
+      setStatus(`${tipoNombre} ${etiqueta} eliminada. Total: ${trazadosPerforaciones.length}`, false);
     }
   }
   // C: Exponer a scope global para los onclick inlineados en actualizarListaTrazados()
@@ -49177,6 +51137,31 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
    */
   function finalizarTodosTrazados() {
     if (trazadosPerforaciones.length === 0) {
+      // Permitir eliminación total de P/H preexistentes.
+      if (selectedObjectForPerforation) {
+        selectedObjectForPerforation.perforaciones = [];
+        selectedObjectForPerforation.horadaciones = [];
+
+        if (currentAnalyzedObject && currentAnalyzedObject.obj) {
+          currentAnalyzedObject.obj.perforaciones = [];
+          currentAnalyzedObject.obj.horadaciones = [];
+          sincronizarPerforacionesEnMemoria(currentAnalyzedObject.obj);
+        }
+
+        redibujarMorphologicalCanvasConPerforaciones(
+          selectedObjectForPerforation,
+          currentAnalyzedObject ? currentAnalyzedObject.metricas : null
+        );
+
+        if (currentAnalyzedObject && currentAnalyzedObject.metricas) {
+          actualizarTablaMorfologica(selectedObjectForPerforation, currentAnalyzedObject.metricas);
+        }
+
+        setStatus('Se eliminaron todas las perforaciones/horadaciones del objeto.', false);
+        ocultarCanvasAmpliadoPerforation();
+        return;
+      }
+
       toast.warning('No hay trazados para aplicar.');
       return;
     }
@@ -49190,9 +51175,9 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     console.log(`   - Perforaciones: ${perforaciones.length}`);
     console.log(`   - Horadaciones: ${horadaciones.length}`);
     
-    // Agregar al objeto
-    if (!selectedObjectForPerforation.perforaciones) selectedObjectForPerforation.perforaciones = [];
-    if (!selectedObjectForPerforation.horadaciones) selectedObjectForPerforation.horadaciones = [];
+    // Reemplazar conjunto completo para soportar edición posterior (eliminar + redetectar).
+    selectedObjectForPerforation.perforaciones = [];
+    selectedObjectForPerforation.horadaciones = [];
     
     // Obtener la escala del sistema (mm/px)
     const scaleToUse = scale || 1; // Usar escala global, o 1 si no está definida
@@ -49208,6 +51193,10 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         return;
       }
       
+      // Preservar EFA calculado en sesión (si el usuario lo ejecutó antes de finalizar)
+      if (t._efa_data) metricas._efa_data = t._efa_data;
+      if (t._landmarks_semiauto) metricas._landmarks_semiauto = t._landmarks_semiauto;
+
       selectedObjectForPerforation.perforaciones.push({
         id: numeroPerforacion,
         tipo: 'perforacion',
@@ -49231,6 +51220,10 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         return;
       }
       
+      // Preservar EFA calculado en sesión
+      if (t._efa_data) metricas._efa_data = t._efa_data;
+      if (t._landmarks_semiauto) metricas._landmarks_semiauto = t._landmarks_semiauto;
+
       selectedObjectForPerforation.horadaciones.push({
         id: numeroHoradacion,
         tipo: 'horadacion',
@@ -52776,6 +54769,80 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
 
   // Funciones de métricas geométricas (necesarias para el flujo MAO IA → análisis morfológico)
   window.calcularEjePrincipal = calcularEjePrincipal;
+  window.aplicarReglaCanonicaInterpretacion = aplicarReglaCanonicaInterpretacion;
+
+  /**
+   * Meta-clasificación morfológica para objetos IA — mismo pipeline que análisis manual.
+   * Enriquece _forma_idealizada con distribucionRadialAngular (necesario para detectar
+   * fragmentación y completitud) y ejecuta el árbol de votación ponderada de metaClasificarForma.
+   * Garantiza coherencia matemática de etiquetas entre los modos manual e IA.
+   *
+   * @param {Object} metricasFinal  Métricas ya fusionadas del objeto IA (con _contour_data)
+   * @returns {Object}              Resultado de metaClasificarForma (clasificacion_final, etc.)
+   */
+
+  // ── Helper de monitoreo en tiempo real → /tmp/mao_monitor.log ────────────────
+  window._maoLog = function(msg) {
+    const ts = new Date().toISOString().substring(11, 23);
+    const line = `[${ts}] ${msg}`;
+    console.log(line);
+    try {
+      fetch('http://127.0.0.1:8765/api/debug-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ msg: line })
+      }).catch(() => {});
+    } catch (_e) {}
+  };
+
+  window.metaClasificarFormaIA = function(metricasFinal) {
+    // Paso 1: enriquecer _forma_idealizada con el análisis radial-angular real
+    // (distribucionRadialAngular, fragmentación, completitud) si aún no está calculado.
+    if (metricasFinal._contour_data?.points?.length >= 3) {
+      try {
+        const _formaJS = simplificarAFormaRegular(
+          metricasFinal._contour_data.points,
+          metricasFinal,
+          metricasFinal._contour_data.metrics
+        );
+        if (_formaJS) metricasFinal._forma_idealizada = _formaJS;
+      } catch (_e) {
+        console.warn('[metaClasificarFormaIA] simplificarAFormaRegular falló:', _e.message);
+      }
+    }
+
+    // Paso 1b: señal de fragmento desde completitud o desde pérdida de área.
+    // El contorno IA es un polígono CERRADO → sin gap angular → esFragmento=false.
+    // Usamos las métricas Python (completitud_estimada < 95 O perdida_area > 1.5%)
+    // para forzar el nombre de fragmento en _forma_idealizada antes de REGLA 2.
+    const _complet = parseFloat(metricasFinal.completitud_estimada);
+    const _perdida = parseFloat(metricasFinal.perdida_area_fragmentacion_percent);
+    // Derivar porcentaje de completitud: preferir (100 - perdida) si disponible y coherente
+    const _pctPerdida = !isNaN(_perdida) && _perdida > 0 ? Math.round(100 - _perdida) : null;
+    const _pctComp    = !isNaN(_complet) && _complet < 95 ? Math.round(_complet) : null;
+    // Disparar si: completitud < 95%  OR  pérdida de área > 1.0%
+    // GUARDA P/H: solidity ≥0.92 → contorno exterior íntegro, la pérdida es P/H/muñeca, no fractura
+    const _solIA    = parseFloat(metricasFinal.solidity || metricasFinal.solidez) || 1.0;
+    const _esFragIA = _solIA < 0.92 && (
+      _pctComp != null || (!isNaN(_perdida) && _perdida > 1.0)
+    );
+    if (_solIA >= 0.92 && (_pctComp != null || (!isNaN(_perdida) && _perdida > 1.0))) {
+      console.log(`[metaClasificarFormaIA] completitud/perdida ignorada: solidity=${_solIA.toFixed(3)} ≥ 0.92 → P/H o muñeca, no fragmento`);
+    }
+    const _pct = _pctComp ?? _pctPerdida;
+    if (_esFragIA && _pct != null && metricasFinal._forma_idealizada) {
+      const _formaBase = (metricasFinal._forma_idealizada.nombre || metricasFinal.forma_detectada || 'Circular')
+        .replace(/fragmento\s*/i, '').replace(/\s*\(\d+%\s*completo\)/i, '').trim();
+      metricasFinal._forma_idealizada.distribucionRadialAngular =
+        metricasFinal._forma_idealizada.distribucionRadialAngular || {};
+      // Inyectar nombre de fragmento para que REGLA 2 lo detecte
+      metricasFinal._forma_idealizada.nombre = `Fragmento ${_formaBase} (${_pct}% completo)`;
+      console.log(`[metaClasificarFormaIA] fragmento forzado: perdida=${_perdida?.toFixed(1)}% completitud=${_complet?.toFixed(1)}% → "${metricasFinal._forma_idealizada.nombre}"`);
+    }
+
+    // Paso 2: árbol de clasificación ponderada — idéntico al flujo manual
+    return metaClasificarForma(metricasFinal, null);
+  };
 
   // Getter de identificación activa (usado por mao-ia.js para heredar nombre al crear tarjetas)
   window._maoGetIdentificacion = () => obtenerIdentificacionActual();
@@ -52991,6 +55058,246 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
     }
 
     console.log('[IA→Cards] Inyectados', nuevos.length, 'objetos IA como tarjetas morfológicas (cara:', cara || 'mono', ').');
+  };
+
+  /**
+   * Inyecta los registros duales de un análisis 3D (anverso/reverso) en el flujo
+   * morfológico 2D, emulando el sistema bifacial de objetos 2D.
+   * Cada cara se convierte en un objeto con cara 'A' (anverso) o 'B' (reverso),
+   * con analisisCached precargado desde las métricas del pipeline 3D.
+   *
+   * @param {Array} dualRecords  Par [anverso, reverso] producido por buildObj3dDualRecords()
+   */
+  window.inyectarObjetosDesdeObj3d = function(dualRecords) {
+    if (!Array.isArray(dualRecords) || dualRecords.length === 0) return;
+
+    const NUMERO_OBJETO_3D = 1; // Ambas caras comparten el mismo número → agrupación bifacial
+
+    const nuevos = dualRecords.map((record, idx) => {
+      const faceLabel = record.cara || (idx === 0 ? 'ANVERSO' : 'REVERSO');
+      const cara2d    = faceLabel === 'ANVERSO' ? 'A' : 'B';
+
+      // ── Bounding box 2D desde puntos de contorno proyectado ──────────────────
+      const contourPts = (record.elementosGeometricos?.contorno?.puntos) || [];
+      let minX = 0, minY = 0, maxX = 100, maxY = 100;
+      if (contourPts.length >= 2) {
+        const xs = contourPts.map(p => Array.isArray(p) ? p[0] : (p.x ?? 0));
+        const ys = contourPts.map(p => Array.isArray(p) ? p[1] : (p.y ?? 0));
+        minX = Math.floor(Math.min(...xs));
+        minY = Math.floor(Math.min(...ys));
+        maxX = Math.ceil(Math.max(...xs));
+        maxY = Math.ceil(Math.max(...ys));
+      }
+      const width  = Math.max(1, maxX - minX);
+      const height = Math.max(1, maxY - minY);
+
+      // ── Métricas de caché (ya calculadas por el pipeline 3D) ─────────────────
+      // buildCardForFace guarda { metricas:{…métricas planas…}, label, contour_points, … }
+      // → desanidar para que metricasCached.centroide_x, area_px, etc. estén al primer nivel.
+      const _rawMet    = record.metricas || {};
+      const metricas3d = { ...(_rawMet.metricas || _rawMet) };
+      // Campos de infraestructura requeridos por el panel morfológico
+      metricas3d.object_id                     = metricas3d.object_id || record.id || `obj3d_${faceLabel.toLowerCase()}`;
+      metricas3d.analysis_method               = metricas3d.analysis_method || `MAO 3D — ${faceLabel}`;
+      metricas3d.contour_extraction_successful = contourPts.length >= 3;
+      if (!metricas3d.analysis_timestamp) metricas3d.analysis_timestamp = record.timestamp || new Date().toISOString();
+
+      // ── Pre-calcular convexHull radial (evita warnings de Graham scan en el panel) ─
+      // Los pts_px del servidor están en coordenadas de imagen (Y↓); el hull radial es
+      // robusto con cualquier orientación del eje Y, a diferencia del Graham scan.
+      let _convexHullRel = null;
+      if (contourPts.length >= 3 && typeof calcularConvexHullRadial === 'function') {
+        const _cxH = contourPts.reduce((s, p) => s + (Array.isArray(p) ? p[0] : (p.x ?? 0)), 0) / contourPts.length;
+        const _cyH = contourPts.reduce((s, p) => s + (Array.isArray(p) ? p[1] : (p.y ?? 0)), 0) / contourPts.length;
+        const _hullAbs = calcularConvexHullRadial(contourPts, _cxH, _cyH);
+        if (_hullAbs && _hullAbs.length >= 3) {
+          _convexHullRel = _hullAbs.map(([ax, ay]) => [ax - minX, ay - minY]);
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // FASE 2 — Vía CANONICAL RASTER (flag `window.OBJ3D_USE_CANONICAL_RASTER`)
+      // Convierte el contorno OBJ → mm → raster sintético + estructuras 2D,
+      // y desactiva `analisisCached` para que el pipeline morfológico 2D
+      // estándar (analizarObjetoMorfologicamente/calcularMetricasMorfologicas)
+      // recompute todas las métricas con escala mm/px conocida.
+      // ─────────────────────────────────────────────────────────────────────────
+      let _useCanonicalRaster = false;
+      let _rasterPayload      = null;
+      let _rasterImg          = null;
+
+      if (window.OBJ3D_USE_CANONICAL_RASTER === true
+          && typeof window.obj3dToCanonicalRaster === 'function'
+          && contourPts.length >= 3) {
+        try {
+          // Conversión EXPLÍCITA OBJ → mm (escala = mm_per_unit).
+          // Contrato del helper: contour_mm SIEMPRE en milímetros.
+          const mmPerUnit = Number(record.escala) > 0 ? Number(record.escala) : 1.0;
+          const contour_mm = contourPts.map(p => {
+            const x = Array.isArray(p) ? p[0] : (p.x ?? 0);
+            const y = Array.isArray(p) ? p[1] : (p.y ?? 0);
+            return [x * mmPerUnit, y * mmPerUnit];
+          });
+
+          // Perforaciones / horadaciones (si vienen en record, también en unidades OBJ)
+          const _toMm = arr => Array.isArray(arr)
+            ? arr.map(poly => Array.isArray(poly) ? poly.map(p => {
+                const x = Array.isArray(p) ? p[0] : (p.x ?? 0);
+                const y = Array.isArray(p) ? p[1] : (p.y ?? 0);
+                return [x * mmPerUnit, y * mmPerUnit];
+              }) : null).filter(Boolean)
+            : [];
+          const holes_mm = _toMm(record.perforaciones).concat(_toMm(record.horadaciones));
+
+          _rasterPayload = window.obj3dToCanonicalRaster(contour_mm, {
+            dpi: 20,
+            padding_px: 10,
+            holes_mm: holes_mm,
+          });
+          _useCanonicalRaster = true;
+
+          // Pre-cargar la imagen sintética para que mostrarAnalisisMorfologico
+          // disponga de ella sin race condition.
+          if (_rasterPayload.image_data_url) {
+            _rasterImg = new Image();
+            _rasterImg.src = _rasterPayload.image_data_url;
+          }
+        } catch (err) {
+          console.warn('[Obj3D→CanonicalRaster] fallo, cayendo a vía cached:', err);
+          _useCanonicalRaster = false;
+          _rasterPayload = null;
+        }
+      }
+
+      if (_useCanonicalRaster && _rasterPayload) {
+        // Sobrescribir geometría con coordenadas del raster sintético (en px reales).
+        const bb = _rasterPayload.bbox_px;
+        const escalaMmPx = _rasterPayload.scale_mm_per_px;            // 1/dpi
+        const escalaPxMm = 1.0 / escalaMmPx;                          // px/mm = dpi
+        const widthPx  = bb.width;
+        const heightPx = bb.height;
+        const areaPx   = Math.round(_rasterPayload.area_mm2_input / (escalaMmPx * escalaMmPx));
+
+        const obj2d = {
+          // ── Identificación ─────────────────────────────────────────────────
+          id:           record.id || `obj3d_${faceLabel.toLowerCase()}_${Date.now()}`,
+          nombreObjeto: record.nombreObjeto || `Obj3D ${faceLabel}`,
+          numeroObjeto: NUMERO_OBJETO_3D,
+          cara:         cara2d,
+          modo:         'obj3d',
+          _fromObj3d:   true,
+          _canonicalRaster: true,   // flag para PDF / export / debug
+          _skipTexture:     true,   // textura no aplica a raster sintético
+
+          // ── Geometría en píxeles del raster sintético ──────────────────────
+          minX: bb.minX,  minY: bb.minY,
+          maxX: bb.minX + widthPx,
+          maxY: bb.minY + heightPx,
+          width:  widthPx,
+          height: heightPx,
+          area:   areaPx,                              // px² (consistente con pipeline 2D)
+          contour_points:    _rasterPayload.contour_points_px,
+          has_real_contour:  true,
+          convexHull:        _rasterPayload.convex_hull_px,
+          perforaciones:     _rasterPayload.holes_px,  // ya en px del raster
+          horadaciones:      [],
+
+          // ── Imágenes ───────────────────────────────────────────────────────
+          imagenRecortada: _rasterPayload.image_data_url,
+          canvasImgenes:   { morphological: _rasterPayload.image_data_url },
+          _imagen3d:       _rasterImg,                 // HTMLImageElement pre-cargado
+
+          // ── Escala: el pipeline 2D usa window.escalaPixelesPorMM (global).
+          // Guardamos también la escala local para que mostrarAnalisisMorfologico /
+          // calcularMetricasMorfologicas la encuentren en el objeto.
+          escala:           escalaPxMm,                // px/mm
+          escala_px_mm:     escalaPxMm,
+          scale_mm_per_px:  escalaMmPx,
+          unidades:         'mm',
+
+          // ── Metadatos de origen 3D ─────────────────────────────────────────
+          obj3d:    record.obj3d || null,
+          mm_per_unit_origen: Number(record.escala) > 0 ? Number(record.escala) : 1.0,
+
+          // ── Paridad mm↔raster (diagnóstico) ────────────────────────────────
+          _rasterDiagnostics: {
+            dpi:                _rasterPayload.dpi,
+            padding_px:         _rasterPayload.padding_px,
+            area_mm2_input:     _rasterPayload.area_mm2_input,
+            perimeter_mm_input: _rasterPayload.perimeter_mm_input,
+            image_size:         _rasterPayload.image_size,
+          },
+
+          // NOTA: deliberadamente NO se incluye `analisisCached`.
+          // El pipeline 2D recomputará todas las métricas desde el raster.
+        };
+        return obj2d;
+      }
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // Vía LEGACY (analisisCached) — comportamiento previo
+      // ─────────────────────────────────────────────────────────────────────────
+      return {
+        // ── Identificación ──────────────────────────────────────────────────────
+        id:           record.id || `obj3d_${faceLabel.toLowerCase()}_${Date.now()}`,
+        nombreObjeto: record.nombreObjeto || `Obj3D ${faceLabel}`,
+        numeroObjeto: NUMERO_OBJETO_3D,
+        cara:         cara2d,   // 'A' (anverso) / 'B' (reverso) → agrupación bifacial
+        modo:         'obj3d',
+        _fromObj3d:   true,
+
+        // ── Geometría (bounding box derivado del contorno proyectado) ───────────
+        minX, minY, maxX, maxY, width, height,
+        area:             Math.round(width * height),
+        contour_points:   contourPts,
+        has_real_contour: contourPts.length >= 3,
+        convexHull:       _convexHullRel,   // pre-calculado, evita Graham scan en análisis
+
+        // ── Imagen para el thumbnail de la tarjeta ──────────────────────────────
+        // crearCardObjeto no encuentra imageCaraA/B para objetos 3D;
+        // imagenRecortada (snapshot del canvas 3D) se usa como fallback visual.
+        imagenRecortada: record.imagenRecortada || null,
+        canvasImgenes:   record.canvasImgenes   || null,
+
+        // ── Caché de análisis: métricas listas desde el pipeline 3D ────────────
+        analisisCached: {
+          metricas:    metricas3d,
+          canvasData:  record.canvasImgenes?.morphological || null,
+          timestamp:   record.timestamp || new Date().toISOString(),
+          escalaUsada: record.escala || window.escalaPixelesPorMM || null,
+        },
+
+        // ── Metadatos de origen 3D ──────────────────────────────────────────────
+        obj3d:    record.obj3d    || null,
+        escala:   record.escala   || null,
+        unidades: record.unidades || null,
+      };
+    });
+
+    // Pre-crear HTMLImageElement para cada objeto 3D; permite que
+    // mostrarAnalisisMorfologico use la imagen rasterizada de la cara
+    // sin necesitar imageCaraA/B del pipeline 2D.
+    nuevos.forEach(nuevo => {
+      const src = nuevo.imagenRecortada;
+      if (src && typeof src === 'string' && src.startsWith('data:')) {
+        const imgEl = new Image();
+        imgEl.src = src;
+        nuevo._imagen3d = imgEl;
+      }
+    });
+
+    // Reemplazar objetos 3D previos; conservar los 2D detectados en el flujo normal
+    objects = objects.filter(o => !o._fromObj3d).concat(nuevos);
+
+    // Navegar al panel de imagen para que individualObjectsContainer sea visible
+    if (typeof window.maoActivatePanel === 'function') {
+      window.maoActivatePanel('sectionImagen');
+    }
+    if (typeof individualizarObjetos === 'function') {
+      individualizarObjetos();
+    }
+
+    console.log('[Obj3D→Cards]', nuevos.length, 'objetos 3D inyectados como tarjetas morfológicas bifaciales.');
   };
 
   /**

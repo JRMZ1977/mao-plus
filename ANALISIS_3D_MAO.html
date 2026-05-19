@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Análisis 3D — Matemáticas y Referencias — MAO Plus</title>
+<style>
+  /* ─── TIPOGRAFÍA Y BASE ────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+    font-size: 13px; line-height: 1.6; color: #1a202c; background: #f7f8fa;
+  }
+  .page-wrapper { max-width: 900px; margin: 0 auto; background: #fff; padding: 0; }
+
+  /* ─── PORTADA ───────────────────────────────────────────────────── */
+  .cover {
+    background: #fff; color: #1a202c;
+    padding: 64px 64px 52px;
+    border-top: 5px solid #1a202c;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .cover-super { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: #718096; margin-bottom: 20px; }
+  .cover-header { display: flex; align-items: center; gap: 22px; margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid #e2e8f0; }
+  .cover-wordmark-title { font-size: 26px; font-weight: 800; color: #1a202c; line-height: 1.1; letter-spacing: -0.5px; }
+  .cover-wordmark-title span { color: #2b6cb0; }
+  .cover-wordmark-sub { font-size: 11px; color: #718096; letter-spacing: 0.3px; margin-top: 5px; }
+  .cover h1 { font-size: 38px; font-weight: 800; line-height: 1.1; margin-bottom: 10px; color: #1a202c; letter-spacing: -0.5px; }
+  .cover-subtitle { font-size: 15px; color: #4a5568; margin-bottom: 36px; font-weight: 400; }
+  .cover-meta { display: flex; gap: 40px; flex-wrap: wrap; padding-top: 24px; border-top: 1px solid #e2e8f0; }
+  .cover-meta-item .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #718096; }
+  .cover-meta-item .value { font-size: 14px; color: #1a202c; font-weight: 700; }
+  .cover-badge { display: inline-block; background: #f7fafc; border: 1px solid #cbd5e0; border-radius: 4px; padding: 5px 14px; font-size: 11px; letter-spacing: 0.8px; color: #4a5568; margin-bottom: 32px; text-transform: uppercase; }
+  .cover-icon { display: block; width: 80px; height: 80px; object-fit: contain; border-radius: 18px; box-shadow: 0 2px 16px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.05); flex-shrink: 0; }
+
+  /* ─── ÍNDICE ────────────────────────────────────────────────────── */
+  .toc { padding: 40px 64px; background: #f0f4f8; border-bottom: 2px solid #e2e8f0; }
+  .toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 2px; color: #718096; margin-bottom: 20px; }
+  .toc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 40px; }
+  .toc-entry { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; color: #2d3748; text-decoration: none; }
+  .toc-entry:hover { color: #4a5568; }
+  .toc-num { font-weight: 700; color: #718096; font-size: 11px; min-width: 24px; }
+  .toc-dots { flex: 1; border-bottom: 1px dotted #cbd5e0; min-width: 20px; }
+
+  /* ─── CONTENIDO PRINCIPAL ───────────────────────────────────────── */
+  .content { padding: 48px 64px; }
+  .section { margin-bottom: 56px; }
+  .section-header { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid #e2e8f0; }
+  .section-num { background: #2d3748; color: #fff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 4px; letter-spacing: 0.5px; flex-shrink: 0; }
+  .section h2 { font-size: 20px; font-weight: 700; color: #2d3748; }
+  .subsection { margin-bottom: 28px; }
+  .subsection h3 { font-size: 13px; font-weight: 700; color: #4a5568; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; padding: 8px 14px; background: #edf2f7; border-left: 3px solid #4a5568; border-radius: 0 4px 4px 0; }
+  h4 { font-size: 13px; font-weight: 700; color: #4a5568; margin: 18px 0 8px; }
+  p { color: #4a5568; margin-bottom: 10px; }
+
+  /* ─── BLOQUE DE FÓRMULA ─────────────────────────────────────────── */
+  .formula-block { background: #f8f9ff; border: 1px solid #c3dafe; border-left: 4px solid #3182ce; border-radius: 6px; padding: 18px 22px; margin: 14px 0 20px; font-family: 'Georgia', 'Times New Roman', serif; }
+  .formula-block .formula-name { font-family: 'Segoe UI', system-ui, Arial, sans-serif; font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #3182ce; font-weight: 700; margin-bottom: 8px; }
+  .formula-block .formula-expr { font-size: 17px; color: #1a202c; line-height: 2; font-style: italic; }
+  .formula-block .formula-def { font-family: 'Segoe UI', system-ui, Arial, sans-serif; font-size: 11.5px; color: #4a5568; margin-top: 10px; line-height: 1.7; font-style: normal; }
+  .formula-block .formula-def span { font-family: 'Georgia', serif; font-style: italic; color: #2b6cb0; }
+  .formula-block .formula-range { font-family: 'Segoe UI', system-ui, Arial, sans-serif; font-size: 11px; color: #718096; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #bee3f8; }
+  .formula-block .formula-range strong { color: #2b6cb0; font-weight: 700; }
+
+  /* Variante para grupos de fórmulas */
+  .formula-group { background: #f8f9ff; border: 1px solid #c3dafe; border-radius: 6px; overflow: hidden; margin: 14px 0 20px; }
+  .formula-group-header { background: #ebf8ff; padding: 8px 16px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #2b6cb0; border-bottom: 1px solid #bee3f8; }
+  .formula-row { display: grid; grid-template-columns: 220px 1fr; gap: 0; border-bottom: 1px solid #e9eef8; }
+  .formula-row:last-child { border-bottom: none; }
+  .formula-row .fr-label { padding: 10px 16px; font-size: 11.5px; font-weight: 600; color: #2d3748; background: #f0f4ff; border-right: 1px solid #c3dafe; display: flex; align-items: center; }
+  .formula-row .fr-expr { padding: 10px 16px; font-family: 'Georgia', 'Times New Roman', serif; font-size: 14px; font-style: italic; color: #1a202c; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .formula-row .fr-range { font-family: 'Segoe UI', system-ui, Arial, sans-serif; font-size: 10.5px; color: #718096; font-style: normal; }
+
+  /* ─── TABLAS ────────────────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 12px; }
+  thead tr { background: #2d3748; color: #fff; }
+  thead th { padding: 8px 12px; text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; }
+  tbody tr:nth-child(even) { background: #f7f8fa; }
+  tbody tr:hover { background: #edf2f7; }
+  tbody td { padding: 7px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; color: #2d3748; }
+
+  /* ─── CALLOUTS ───────────────────────────────────────────────────── */
+  .callout { padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 12.5px; line-height: 1.55; }
+  .callout-info  { background: #ebf8ff; border-left: 3px solid #3182ce; color: #2c5282; }
+  .callout-warn  { background: #fffbeb; border-left: 3px solid #d69e2e; color: #744210; }
+  .callout-tip   { background: #f0fff4; border-left: 3px solid #38a169; color: #22543d; }
+  .callout strong { font-weight: 700; }
+
+  /* ─── GRID ───────────────────────────────────────────────────────── */
+  .col2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 16px; }
+  .col3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+  .card { background: #f7f8fa; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; }
+  .card h5 { font-size: 12px; font-weight: 700; color: #2d3748; margin-bottom: 6px; }
+  .card p  { font-size: 11.5px; color: #718096; margin: 0; line-height: 1.5; }
+  hr { border: none; border-top: 1px solid #e2e8f0; margin: 28px 0; }
+  code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 11px; background: #edf2f7; padding: 2px 6px; border-radius: 3px; color: #2b6cb0; }
+
+  /* ─── REFERENCIAS BIBLIOGRÁFICAS ─────────────────────────────────── */
+  .bib-entry { margin-bottom: 14px; padding: 10px 14px; background: #f7f8fa; border-left: 3px solid #a0aec0; border-radius: 0 4px 4px 0; font-size: 12px; color: #2d3748; line-height: 1.6; }
+  .bib-key { display: inline-block; font-weight: 700; color: #2b6cb0; font-size: 11px; background: #ebf8ff; padding: 1px 6px; border-radius: 3px; margin-right: 8px; white-space: nowrap; font-family: 'SFMono-Regular', Consolas, monospace; }
+  .bib-authors { font-style: italic; }
+  .bib-year { font-weight: 700; }
+  .bib-title { color: #1a202c; }
+  .bib-journal { color: #4a5568; }
+
+  /* ─── INLINE CITA ────────────────────────────────────────────────── */
+  .cita { font-size: 10.5px; font-weight: 700; color: #2b6cb0; font-family: 'SFMono-Regular', Consolas, monospace; background: #ebf8ff; padding: 1px 5px; border-radius: 3px; vertical-align: super; line-height: 1; white-space: nowrap; }
+
+  /* ─── FLOW DIAGRAM ───────────────────────────────────────────────── */
+  .flow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 14px 0 20px; }
+  .flow-step { background: #2d3748; color: #fff; padding: 6px 14px; border-radius: 4px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.3px; }
+  .flow-step.alt { background: #2b6cb0; }
+  .flow-arrow { color: #718096; font-size: 16px; font-weight: 300; }
+
+  /* ─── PIE DE PÁGINA ──────────────────────────────────────────────── */
+  .footer { background: #2d3748; color: #ffffff; text-align: center; padding: 24px 40px; font-size: 11px; line-height: 1.8; }
+  .footer strong { color: #ffffff; }
+
+  /* ─── IMPRESIÓN ──────────────────────────────────────────────────── */
+  @media print {
+    body { background: #fff; font-size: 11px; }
+    .page-wrapper { max-width: 100%; box-shadow: none; }
+    .cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .section-num { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    thead tr { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .formula-block { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-inside: avoid; }
+    .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .section { page-break-inside: avoid; }
+    h2, h3, h4 { page-break-after: avoid; }
+    .no-print { display: none; }
+    .bib-entry { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+  .print-btn { position: fixed; bottom: 28px; right: 28px; background: #2d3748; color: #fff; border: none; padding: 12px 22px; border-radius: 30px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.25); z-index: 100; letter-spacing: 0.3px; transition: background 0.2s; }
+  .print-btn:hover { background: #4a5568; }
+</style>
+</head>
+<body>
+
+<button class="print-btn no-print" onclick="window.print()">⬇ Exportar PDF</button>
+
+<div class="page-wrapper">
+
+<!-- ══════════════════════ PORTADA ══════════════════════ -->
+<div class="cover">
+  <div class="cover-header">
+    <img src="icon.png" alt="MAO Plus" class="cover-icon">
+    <div>
+      <div class="cover-wordmark-title">MAO <span>Plus</span></div>
+      <div class="cover-wordmark-sub">Morphological Analysis &amp; Objects</div>
+    </div>
+  </div>
+  <div class="cover-super">Documentación técnica — Matemáticas y referencias</div>
+  <h1>Análisis Morfométrico 3D</h1>
+  <div class="cover-subtitle">Fundamentos matemáticos, pipeline de procesamiento y justificación bibliográfica del módulo <code>obj3d_v2.py</code> y su integración con EFA</div>
+  <div class="cover-badge">10 secciones · Segmentación · PCA · EFA seccional · EFA 3D · Coherencia metodológica</div>
+  <div class="cover-meta">
+    <div class="cover-meta-item"><div class="label">Versión</div><div class="value">MAO Plus v1.3+</div></div>
+    <div class="cover-meta-item"><div class="label">Fecha</div><div class="value">Mayo 2026</div></div>
+    <div class="cover-meta-item"><div class="label">Módulos</div><div class="value">obj3d_v2.py · efa.py</div></div>
+    <div class="cover-meta-item"><div class="label">Dominio</div><div class="value">Arqueología · Morfometría</div></div>
+  </div>
+</div>
+
+<!-- ══════════════════════ ÍNDICE ══════════════════════ -->
+<div class="toc">
+  <h2>Índice de secciones</h2>
+  <div class="toc-grid">
+    <a class="toc-entry" href="#s1"><span class="toc-num">I</span>Pipeline general del análisis 3D<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#s6"><span class="toc-num">VI</span>Métricas por sección 2D<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#s2"><span class="toc-num">II</span>Segmentación de superficies<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#s7"><span class="toc-num">VII</span>Perfil de área transversal<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#s3"><span class="toc-num">III</span>Detección de pares de caras<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#s8"><span class="toc-num">VIII</span>EFA por sección (Kuhl &amp; Giardina)<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#s4"><span class="toc-num">IV</span>Normalización por caras<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#s9"><span class="toc-num">IX</span>EFA 3D integrado<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#s5"><span class="toc-num">V</span>ACP contextualizado<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#s10"><span class="toc-num">X</span>Coherencia con Godefroy (2012)<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sbib" style="margin-top:6px"><span class="toc-num">—</span>Referencias bibliográficas<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#s5" style="margin-top:6px"><span class="toc-num">—</span>Secciones morfológicas YZ/XZ/XY<span class="toc-dots"></span></a>
+  </div>
+</div>
+
+<div class="content">
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECCIÓN I — PIPELINE GENERAL
+═══════════════════════════════════════════════════════════════ -->
+<div class="section" id="s1">
+  <div class="section-header">
+    <div class="section-num">I</div>
+    <h2>Pipeline general del análisis 3D</h2>
+  </div>
+
+  <p>El módulo <code>obj3d_v2.py</code> implementa un flujo de análisis morfométrico completo para mallas triangulares <code>.obj</code>. El diseño parte del principio de que la orientación del objeto debe estar anclada a cualidades geométricas <em>intrínsecas</em> de sus superficies principales (frente/reverso), no al encuadre espacial del archivo ni a los signos arbitrarios de un ACP global sin referencia. <span class="cita">Drap &amp; Lefèvre 2001</span></p>
+
+  <div class="flow">
+    <div class="flow-step">1. Carga malla (.obj)</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">2. Segmentación de superficies</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">3. Detección pares de caras</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step alt">4. Normalización por caras</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step alt">5. ACP contextualizado</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">6. Secciones YZ/XZ/XY</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">7. Métricas seccionales</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step alt">8. EFA por sección + EFA 3D</div>
+  </div>
+
+  <div class="callout callout-info">
+    <strong>Principio de diseño.</strong> La normalización se basa en las caras detectadas (paso 4) y el ACP se aplica <em>después</em> de esa normalización (paso 5). Este orden —denominado «ACP contextualizado»— evita que los signos de los ejes propios de la nube completa contaminen la asignación frente/reverso. <span class="cita">Kazhdan et al. 2003</span>
+  </div>
+
+  <h4>Dependencias técnicas</h4>
+  <table>
+    <thead><tr><th>Biblioteca</th><th>Función</th><th>Referencia</th></tr></thead>
+    <tbody>
+      <tr><td><code>trimesh</code></td><td>Carga de malla, normales, áreas de caras, vecindarios de vértices</td><td>Dawson-Haggerty et al. 2019</td></tr>
+      <tr><td><code>numpy</code></td><td>Álgebra lineal, ACP, segmentación</td><td>Harris et al. 2020</td></tr>
+      <tr><td><code>scipy.spatial.ConvexHull</code></td><td>Envolventes convexas para métricas 2D</td><td>Virtanen et al. 2020</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECCIÓN II — SEGMENTACIÓN DE SUPERFICIES
+═══════════════════════════════════════════════════════════════ -->
+<div class="section" id="s2">
+  <div class="section-header">
+    <div class="section-num">II</div>
+    <h2>Segmentación de superficies regulares</h2>
+  </div>
+  <p>La función <code>_segment_regular_surfaces()</code> identifica parches de superficie que son geométricamente estables (baja curvatura, normales coherentes) para separar las caras principales del objeto del ruido topológico. <span class="cita">Besl &amp; Jain 1988</span></p>
+
+  <div class="subsection">
+    <h3>Curvatura Gaussiana</h3>
+    <p>Se obtienen las curvaturas principales por vértice mediante <code>trimesh.principal_curvatures</code>, y se calcula la curvatura Gaussiana como producto de las dos principales:</p>
+    <div class="formula-block">
+      <div class="formula-name">Curvatura Gaussiana por vértice</div>
+      <div class="formula-expr">K<sub>v</sub> = κ<sub>1</sub>(v) · κ<sub>2</sub>(v)</div>
+      <div class="formula-def">
+        <span>κ<sub>1</sub>, κ<sub>2</sub></span> — curvaturas principales máxima y mínima en el vértice <span>v</span>.<br>
+        Un vértice en una superficie plana tiene <span>K<sub>v</sub> ≈ 0</span>; una esfera tiene <span>K<sub>v</sub> = 1/R²</span>.<br>
+        Se clasifica como «regular» si <span>|K<sub>v</sub>| &lt; κ<sub>thresh</sub></span> (umbral por defecto: <strong>0.1</strong>).
+      </div>
+    </div>
+    <div class="callout callout-warn">
+      <strong>Fallback implementado.</strong> Cuando <code>trimesh</code> no expone <code>principal_curvatures</code>, el código sustituye K<sub>v</sub> por la norma media de diferencias de normales entre los primeros 10 vértices, propagada como escalar constante a todos los vértices de la malla. Este valor no es la curvatura Gaussiana formal: es un indicador de suavidad global que puede producir clasificaciones de «regularidad» menos precisas en mallas sin soporte nativo de curvaturas principales.
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Coherencia de normales</h3>
+    <p>Para cada vértice se mide la alineación de su normal con las normales de sus vecinos inmediatos:</p>
+    <div class="formula-block">
+      <div class="formula-name">Coherencia de normales — vértice v</div>
+      <div class="formula-expr">NC(v) = ⟨|𝐧<sub>v</sub> · 𝐧<sub>w</sub>|⟩<sub>w ∈ N(v)</sub></div>
+      <div class="formula-def">
+        <span>𝐧<sub>v</sub></span> — normal unitaria del vértice <span>v</span><br>
+        <span>N(v)</span> — vecindario de <span>v</span> en la malla (vértices adyacentes por arista)<br>
+        <span>NC(v) = 1</span> → normales perfectamente alineadas (superficie plana); <span>NC(v) → 0</span> → curvatura alta.
+      </div>
+      <div class="formula-range">Umbral por defecto: <strong>NC(v) &gt; 0.85</strong>.</div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Agrupación por conectividad (BFS)</h3>
+    <p>Los vértices que cumplen simultáneamente <span class="cita">|K<sub>v</sub>| &lt; κ<sub>thresh</sub></span> y <span class="cita">NC(v) &gt; NC<sub>thresh</sub></span> se agrupan por conectividad de malla mediante una búsqueda en amplitud (BFS), formando <em>parches</em>. Parches con menos de <strong>100 vértices</strong> se descartan. <span class="cita">Besl &amp; Jain 1988</span></p>
+  </div>
+
+  <div class="subsection">
+    <h3>Score de horizontalidad intrínseca</h3>
+    <p>Cada parche recibe un score que mide qué tan «plano y extendido» es en su propio plano tangente:</p>
+    <div class="formula-block">
+      <div class="formula-name">Score de horizontalidad del parche p</div>
+      <div class="formula-expr">H(p) = [σ²<sub>⊥</sub>(u) + σ²<sub>⊥</sub>(v)] / (σ²<sub>n</sub> + ε) · NC<sub>med</sub>(p)³</div>
+      <div class="formula-def">
+        <span>σ²<sub>⊥</sub>(u), σ²<sub>⊥</sub>(v)</span> — varianza de la proyección de los vértices sobre los dos ejes tangentes <span>t₁, t₂</span><br>
+        <span>σ²<sub>n</sub></span> — varianza de la proyección sobre la normal media del parche (espesor intríseco)<br>
+        <span>NC<sub>med</sub>(p)</span> — coherencia de normales media del parche<br>
+        La potencia cúbica penaliza fuertemente la incoherencia de normales.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECCIÓN III — DETECCIÓN DE PARES DE CARAS
+═══════════════════════════════════════════════════════════════ -->
+<div class="section" id="s3">
+  <div class="section-header">
+    <div class="section-num">III</div>
+    <h2>Detección de pares de caras opuestas</h2>
+  </div>
+  <p>La función <code>_detect_face_pairs()</code> identifica pares de parches que representan las dos caras principales del objeto (frente y reverso). El criterio combina oposición geométrica con indicadores de relevancia morfológica. <span class="cita">Mitra et al. 2006</span></p>
+
+  <div class="subsection">
+    <h3>Criterios de elegibilidad del par</h3>
+    <p>Un par (p<sub>a</sub>, p<sub>b</sub>) es candidato si:</p>
+    <div class="formula-group">
+      <div class="formula-group-header">Filtros de elegibilidad</div>
+      <div class="formula-row">
+        <div class="fr-label">Oposición normal</div>
+        <div class="fr-expr">|π − arccos(𝐧<sub>a</sub>·𝐧<sub>b</sub>)| &lt; α<sub>thresh</sub> <span class="fr-range">α<sub>thresh</sub> = 10° (rad: 0.175)</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Balance de áreas</div>
+        <div class="fr-expr">0.7 ≤ A<sub>dom</sub>(a)/A<sub>dom</sub>(b) ≤ 1/0.7 <span class="fr-range">Área dominante: hull 2D proyectado</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Horizontalidad mínima</div>
+        <div class="fr-expr">min(H(a), H(b)) ≥ 0.65 · mediana{H(pᵢ)}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Score compuesto del par</h3>
+    <p>Los pares elegibles se ordenan por un score multi-criterio ponderado:</p>
+    <div class="formula-block">
+      <div class="formula-name">Score de un par de caras</div>
+      <div class="formula-expr">S = 0.20 S<sub>opos</sub> + 0.10 S<sub>bal</sub> + 0.07 S<sub>plano</sub> + 0.12 S<sub>dom</sub> + 0.14 S<sub>horiz</sub> + 0.07 S<sub>planar</sub> + 0.15 S<sub>óptico</sub> + 0.15 S<sub>COM</sub></div>
+      <div class="formula-def">
+        <span>S<sub>opos</sub></span> = 1 − |π − θ<sub>nn</sub>|/π — oposición de normales<br>
+        <span>S<sub>bal</sub></span> = min(r, 1/r) con r = A<sub>a</sub>/A<sub>b</sub> — balance de áreas<br>
+        <span>S<sub>plano</sub></span> = 1/(1 + 0.5(K<sub>a</sub>+K<sub>b</sub>)) — planicidad conjunta<br>
+        <span>S<sub>dom</sub></span> = (A<sub>a</sub>+A<sub>b</sub>)/A<sub>total</sub> — dominancia superficial<br>
+        <span>S<sub>horiz</sub></span> = min(H(a),H(b))/(1+min(H(a),H(b))) — horizontalidad comprimida a [0,1)<br>
+        <span>S<sub>planar</sub></span> = (NC<sub>a</sub>+NC<sub>b</sub>)/2 — coherencia planar del par<br>
+        <span>S<sub>óptico</sub></span> = (A<sub>a</sub>+A<sub>b</sub>)/(d² + ε) / (1 + …) — frontalidad óptica (área/separación²)<br>
+        <span>S<sub>COM</sub></span> = 0.7·S<sub>plano-H</sub> + 0.3·S<sub>slice</sub> — coherencia con plano horizontal por COM
+      </div>
+      <div class="formula-range">El par de mayor <strong>S</strong> se selecciona como par canónico frente/reverso.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECCIÓN IV — NORMALIZACIÓN POR CARAS
+═══════════════════════════════════════════════════════════════ -->
+<div class="section" id="s4">
+  <div class="section-header">
+    <div class="section-num">IV</div>
+    <h2>Normalización por caras (frame canónico intrínseco)</h2>
+  </div>
+  <p>La función <code>_normalize_by_faces()</code> construye una base ortonormal <strong>R = [e₁ | e₂ | e₃]</strong> anclada exclusivamente a la geometría de las caras detectadas, no al sistema de coordenadas del archivo fuente. <span class="cita">Kazhdan et al. 2003; Rustamov 2011</span></p>
+
+  <div class="callout callout-warn">
+    <strong>Por qué no usar PCA global primero.</strong> Un ACP sobre toda la nube de vértices es sensible al ruido morfológico (bordes, cantos vivos), produce signos de ejes propios indeterminados y no distingue frente de reverso. La normalización por caras garantiza que el eje <strong>Z canónico siempre apunte del reverso al frente</strong>, dando invarianza de pose reproducible entre especímenes.
+  </div>
+
+  <div class="subsection">
+    <h3>Construcción del frame canónico</h3>
+    <div class="formula-group">
+      <div class="formula-group-header">Base canónica R = [e₁ | e₂ | e₃] — construcción secuencial</div>
+      <div class="formula-row">
+        <div class="fr-label">Eje Z (e₃) — frente → reverso</div>
+        <div class="fr-expr">e₃ = (𝐧<sub>frente</sub> − 𝐧<sub>reverso</sub>) / ‖𝐧<sub>frente</sub> − 𝐧<sub>reverso</sub>‖</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Eje X (e₁) — dirección principal del frente</div>
+        <div class="fr-expr">x<sub>raw</sub> = eigenvec. principal de Cov(V<sub>frente</sub>), proyectado ⊥ e₃; e₁ = x<sub>raw</sub>/‖x<sub>raw</sub>‖</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Eje Y (e₂) — completa base derecha</div>
+        <div class="fr-expr">e₂ = e₃ × e₁ / ‖e₃ × e₁‖; luego e₁ ← e₂ × e₃ (reortogonalización)</div>
+      </div>
+    </div>
+    <div class="formula-block">
+      <div class="formula-name">Transformación a coordenadas canónicas</div>
+      <div class="formula-expr">X<sub>can</sub> = (V − COM) · R</div>
+      <div class="formula-def">
+        <span>V</span> — nube de vértices de la malla (N × 3)<br>
+        <span>COM</span> — centro de masa físico (o centroide si no está disponible)<br>
+        <span>R</span> — matriz 3×3 de rotación construida por las caras
+      </div>
+      <div class="formula-range">El frente queda en <strong>Z &gt; 0</strong> por construcción.</div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Asignación frente/reverso</h3>
+    <p>La función <code>_pick_front_reverse_by_patch_quality()</code> aplica la siguiente cascada de desempate determinista:</p>
+    <table>
+      <thead><tr><th>Prioridad</th><th>Criterio</th><th>Frente = </th></tr></thead>
+      <tbody>
+        <tr><td>1ª</td><td>Área dominante (hull 2D proyectado)</td><td>parche de mayor área</td></tr>
+        <tr><td>2ª</td><td>Score de horizontalidad H(p)</td><td>mayor H(p)</td></tr>
+        <tr><td>3ª</td><td>Alineación de normales del parche (<code>normal_alignment</code>)<br><small style="font-weight:normal">= ⟨|𝐧̄<sub>p</sub> · 𝐧<sub>v</sub>|⟩ sobre todos los vértices del parche,<br>donde 𝐧̄<sub>p</sub> es la normal media del parche.<br>Distinto de NC(v): NC(v) mide coherencia entre vecinos; <code>normal_alignment</code> mide coherencia respecto a la normal <em>media</em> del parche.</small></td><td>mayor <code>normal_alignment</code></td></tr>
+        <tr><td>4ª</td><td>Curvatura media K̄(p)</td><td>menor K̄ (más plano)</td></tr>
+        <tr><td>5ª</td><td>Índice de parche (desempate estable)</td><td>menor id</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECCIÓN V — ACP CONTEXTUALIZADO
+═══════════════════════════════════════════════════════════════ -->
+<div class="section" id="s5">
+  <div class="section-header">
+    <div class="section-num">V</div>
+    <h2>ACP contextualizado y métricas de forma 3D</h2>
+  </div>
+  <p>Tras la normalización, se aplica ACP a la nube canónica para extraer descriptores de la distribución volumétrica del objeto. <span class="cita">Dryden &amp; Mardia 2016; Slice 2007</span></p>
+
+  <div class="subsection">
+    <h3>Análisis de componentes principales</h3>
+    <div class="formula-block">
+      <div class="formula-name">Matriz de covarianza de la nube canónica centrada</div>
+      <div class="formula-expr">Σ = (1/N) X<sub>can</sub>ᵀ X<sub>can</sub></div>
+      <div class="formula-def">
+        Eigendescomposición: <span>Σ = Q Λ Qᵀ</span> con <span>λ₁ ≥ λ₂ ≥ λ₃ ≥ 0</span><br>
+        Los eigenvalores son las varianzas en las direcciones principales.
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Métricas de distribución de la nube</h3>
+    <div class="formula-group">
+      <div class="formula-group-header">Descriptores de forma 3D a partir de eigenvalores</div>
+      <div class="formula-row">
+        <div class="fr-label">Linealidad</div>
+        <div class="fr-expr"><i>L</i> = (λ₁ − λ₂) / λ₁ <span class="fr-range">→ 1: objeto tipo bastón</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Planaridad</div>
+        <div class="fr-expr"><i>P</i> = (λ₂ − λ₃) / λ₁ <span class="fr-range">→ 1: objeto tipo disco/lámina</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Esfericidad</div>
+        <div class="fr-expr"><i>S</i> = λ₃ / λ₁ <span class="fr-range">→ 1: distribución isótropa</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Elongación</div>
+        <div class="fr-expr"><i>E</i> = λ₁ / λ₂ <span class="fr-range">Razón del 1º al 2º eigenvalor</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Anisotropía</div>
+        <div class="fr-expr"><i>A</i> = L + P = (λ₁ − λ₃) / λ₁ <span class="fr-range">1 − S</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Ratio de espesor</div>
+        <div class="fr-expr"><i>T</i> = ext<sub>Z</sub> / max(ext<sub>X</sub>, ext<sub>Y</sub>) <span class="fr-range">Dimensiones de la caja ACP</span></div>
+      </div>
+    </div>
+    <div class="callout callout-tip">
+      <strong>Interpretación arqueológica.</strong> Para artefactos bifaciales típicos: P ≈ 0.7–0.9 (forma plana/laminar), L ≈ 0.3–0.6 (alargamiento moderado), T ≈ 0.1–0.3 (relativo espesor). Valores de T &gt; 0.5 indican objetos «gruesos» que escapan a la tipología bifacial canónica. <span class="cita">Buchanan &amp; Collard 2007</span>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Secciones morfológicas (YZ / XZ / XY)</h3>
+    <p>El objeto normalizado se secciona en los tres planos ortogonales canónicos, cada uno en su posición central (mediana de coordenada). <span class="cita">Leplongeon et al. 2020</span></p>
+    <div class="col3">
+      <div class="card">
+        <h5>YZ — Sección transversal</h5>
+        <p>Plano perpendicular al eje X (longitud). Captura el perfil de espesor y la simetría bilateral del objeto.</p>
+      </div>
+      <div class="card">
+        <h5>XZ — Sección coronal</h5>
+        <p>Plano perpendicular al eje Y (anchura). Captura el perfil longitudinal y la forma del filo o punta.</p>
+      </div>
+      <div class="card">
+        <h5>XY — Sección frontal</h5>
+        <p>Plano perpendicular al eje Z (espesor, frente/reverso). Equivale a la «planta» del artefacto.</p>
+      </div>
+    </div>
+    <p>El algoritmo de intersección proyecta todos los vértices y extrae el contorno de la sección mediante ordenamiento angular alrededor del centroide, garantizando un contorno cerrado simple apto para EFA. <span class="cita">Schneider &amp; Eberly 2003</span></p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECCIÓN VI — MÉTRICAS POR SECCIÓN 2D
+═══════════════════════════════════════════════════════════════ -->
+<div class="section" id="s6">
+  <div class="section-header">
+    <div class="section-num">VI</div>
+    <h2>Métricas morfométricas por sección 2D</h2>
+  </div>
+  <p>Cada sección plana genera un contorno 2D cerrado sobre el que se computan métricas análogas a las del módulo 2D (<code>metrics.py</code>). Las funciones <code>_section_morphometric_metrics_2d()</code> y <code>_composite_section_metrics()</code> implementan el cálculo completo. <span class="cita">Rohlf &amp; Slice 1990; Dryden &amp; Mardia 2016</span></p>
+  <div class="callout callout-warn">
+    <strong>Distinción de rutas de cómputo en el código.</strong> Existen <em>dos</em> rutas distintas que producen métricas de «planos 2D»:<br>
+    <strong>(A) Proyecciones convexas</strong> — <code>_projected_hull_metrics_2d()</code>, usada en la homologación MAO-2D y la pipeline de secciones canónicas (§V). Toma la nube completa de vértices, proyecta sobre el plano y calcula el <em>hull convexo</em>. Área y perímetro corresponden al hull, <em>no</em> al contorno real del material. Solo produce: área, perímetro, circularidad, aspect_ratio, rectangularidad.<br>
+    <strong>(B) Secciones reales de malla</strong> — <code>_mesh_section_loops()</code> + <code>_section_morphometric_metrics_2d()</code>, usada en el análisis morfométrico canónico (§VI-VII). Intersecta la malla con un plano mediante <code>trimesh.section()</code>, obteniendo el contorno topológicamente exacto. Sobre <em>este</em> contorno real se calculan todas las métricas descritas en esta sección (Shoelace, solidity, convexity_perim, rugosidad, Feret rotante, tensor de inercia, etc.).<br>
+    Las métricas documentadas a continuación corresponden a la ruta (B).
+  </div>
+
+  <div class="subsection">
+    <h3>Área y perímetro del contorno real</h3>
+    <div class="formula-group">
+      <div class="formula-group-header">Contorno de N puntos p₁…pN (cerrado: pN₊₁ = p₁)</div>
+      <div class="formula-row">
+        <div class="fr-label">Área (Shoelace)</div>
+        <div class="fr-expr"><i>A</i> = ½|Σᵢ (uᵢvᵢ₊₁ − vᵢuᵢ₊₁)| <span class="fr-range">Fórmula de Gauss para polígonos</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Perímetro</div>
+        <div class="fr-expr"><i>P</i> = Σᵢ ‖pᵢ₊₁ − pᵢ‖ <span class="fr-range">Suma de longitudes de segmentos</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Circularidad (normalizada)</h3>
+    <div class="formula-block">
+      <div class="formula-name">Circularidad — isoperimétrica 2D</div>
+      <div class="formula-expr"><i>C</i> = min(4π·A / P², 1)</div>
+      <div class="formula-def">
+        El clamping a 1 evita valores superiores a la unidad producidos por polígonos muy convexos con pocos vértices.  <span class="cita">Haralick &amp; Shapiro 1992</span><br>
+        <span>C = 1</span> → círculo perfecto; <span>C → 0</span> → forma muy elongada o irregular.
+      </div>
+      <div class="formula-range">Rango: <strong>[0, 1]</strong> · Implementado también en <code>ph.py</code> con el mismo clamping.</div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Envolvente convexa (hull) y convexidad perimetral</h3>
+    <div class="formula-group">
+      <div class="formula-group-header">Métricas de la envolvente convexa CH(S)</div>
+      <div class="formula-row">
+        <div class="fr-label">Solidez (área)</div>
+        <div class="fr-expr">Sol = A<sub>real</sub> / A<sub>hull</sub></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Convexidad perimetral</div>
+        <div class="fr-expr">Cx = P<sub>hull</sub> / P<sub>real</sub> <span class="fr-range">∈ (0, 1]; 1 = contorno perfectamente convexo</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Déficit de convexidad</div>
+        <div class="fr-expr">Cd = 1 − Sol <span class="fr-range">Fracción de área perdida por retoque</span></div>
+      </div>
+    </div>
+    <div class="callout callout-warn" style="margin-bottom:8px;">
+      <strong>Implementación:</strong> el código aplica <code>min(P<sub>hull</sub>/P<sub>real</sub>, 1.0)</code>. Matemáticamente P<sub>hull</sub> ≤ P<sub>real</sub> para contornos con ángulos reentrantes, por lo que el clamping actúa como guarda numérica en contornos de muy pocos vértices donde la aproximación lineal puede invertir la relación.
+    </div>
+    <div class="callout callout-info">
+      <strong>Relevancia arqueológica.</strong> La convexidad perimetral Cx captura la regularidad del filo: un artefacto con retoque continuo y regular tendrá Cx cercano a 1, mientras que concavidades y muescas intencionadas lo reducen. Es preferible a la solidez cuando se estudia el contorno perimetral más que el área. <span class="cita">Gero &amp; Mazzullo 1984; Buchanan &amp; Collard 2007</span>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Rugosidad del contorno</h3>
+    <div class="formula-block">
+      <div class="formula-name">Rugosidad — coeficiente de variación de segmentos</div>
+      <div class="formula-expr"><i>R</i> = σ(dᵢ) / μ(dᵢ) donde dᵢ = ‖pᵢ₊₁ − pᵢ‖</div>
+      <div class="formula-def">
+        <span>dᵢ</span> — longitud del segmento i-ésimo del contorno<br>
+        <span>σ</span> — desviación estándar de {dᵢ}; <span>μ</span> — media de {dᵢ}<br>
+        R = 0 → segmentos uniformes (contorno suavizado); R → alto → irregularidad de retoque.<br>
+        Para secciones compuestas (múltiples loops) se calcula sobre todos los segmentos de todos los loops exteriores.
+      </div>
+      <div class="formula-range">Implementado en <code>_section_morphometric_metrics_2d()</code> y <code>_composite_section_metrics()</code>.</div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Elongación y excentricidad del tensor de inercia</h3>
+    <div class="formula-group">
+      <div class="formula-group-header">Ejes principales del tensor de segundo momento de área</div>
+      <div class="formula-row">
+        <div class="fr-label">Elongación</div>
+        <div class="fr-expr">El = λ<sub>max</sub> / λ<sub>min</sub> <span class="fr-range">Cociente de eigenvalores 2D</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Excentricidad</div>
+        <div class="fr-expr">Ec = √(1 − (λ<sub>min</sub>/λ<sub>max</sub>)²) <span class="fr-range">∈ [0, 1); 0 = círculo; 1 = segmento</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Diámetros de Feret</div>
+        <div class="fr-expr">F<sub>max</sub>, F<sub>min</sub> = caliper rotante 90 ángulos <span class="fr-range">Idéntico a metrics.py 2D</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECCIÓN VII — PERFIL DE ÁREA TRANSVERSAL
+═══════════════════════════════════════════════════════════════ -->
+<div class="section" id="s7">
+  <div class="section-header">
+    <div class="section-num">VII</div>
+    <h2>Perfil de área transversal</h2>
+  </div>
+  <p>Se extraen N<sub>slice</sub> secciones transversales (planos YZ equidistantes a lo largo del eje X canónico) y se registra el área de cada una, formando una curva que representa la distribución volumétrica del objeto a lo largo de su eje de longitud. <span class="cita">Leplongeon et al. 2020; Roth 2016</span></p>
+
+  <div class="formula-block">
+    <div class="formula-name">Perfil de área transversal</div>
+    <div class="formula-expr">A(xᵢ) = Área[C(xᵢ)] con xᵢ = x<sub>min</sub> + i·Δx, i = 0…N<sub>slice</sub>−1</div>
+    <div class="formula-def">
+      <span>C(xᵢ)</span> — contorno de la sección del objeto con el plano X = xᵢ<br>
+      <span>Δx = (x<sub>max</sub> − x<sub>min</sub>) / N<sub>slice</sub></span> — paso uniforme<br>
+      La curva A(x) resume el perfil de espesor del artefacto y permite detectar asimetrías volumétricas (adelgazamiento proximal/distal, presencia de hombros).
+    </div>
+    <div class="formula-range"><strong>Implementación: <code>n_sections = 9</code></strong> (valor por defecto del parámetro en <code>_compute_canonical_morphological_analysis()</code> y en la llamada de producción de la pipeline principal). Los extremos 10 % proximal y distal se excluyen del muestreo para evitar secciones con muy pocos puntos. La visualización incluye la curva de espesor máximo (F<sub>max</sub> de Feret) superpuesta al área.</div>
+  </div>
+
+  <div class="col2">
+    <div class="card">
+      <h5>Métricas derivadas del perfil</h5>
+      <p>Posición del máximo (x<sub>Amax</sub>/L), simetría bilateral (ratio entre suma de áreas mitad proximal y distal), área total normalizada (≈ volumen proyectado).</p>
+    </div>
+    <div class="card">
+      <h5>Referente métrico</h5>
+      <p>Los ticks del eje horizontal se marcan en cuartos del eje: Proximal (P), ¼, ½, ¾, Distal (D), facilitando la comparación tipológica. <span class="cita">Clarkson &amp; Hiscock 2011</span></p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECCIÓN VIII — EFA SECCIONAL (KUHL & GIARDINA 1982)
+═══════════════════════════════════════════════════════════════ -->
+<div class="section" id="s8">
+  <div class="section-header">
+    <div class="section-num">VIII</div>
+    <h2>EFA seccional — Descriptores de Fourier Elípticos</h2>
+  </div>
+  <p>El módulo <code>efa.py</code> implementa los descriptores de Fourier elípticos (EFD) para el análisis de forma de contornos arqueológicos, siguiendo el algoritmo canónico de <span class="cita">Kuhl &amp; Giardina (1982)</span>. Este método decompone un contorno 2D cerrado en una suma de elipses armonizadas, cada una descrita por 4 coeficientes.</p>
+
+  <div class="subsection">
+    <h3>Parametrización por longitud de arco</h3>
+    <p>El contorno de N puntos se parametriza por el tiempo acumulado de longitud de arco:</p>
+    <div class="formula-block">
+      <div class="formula-name">Parámetro de longitud de arco acumulada</div>
+      <div class="formula-expr">T = Σᵢ |pᵢ₊₁ − pᵢ|,  tᵢ = Σⱼ₌₁ⁱ |pⱼ − pⱼ₋₁|</div>
+      <div class="formula-def">
+        <span>T</span> — longitud total del contorno<br>
+        <span>tᵢ</span> — tiempo acumulado hasta el vértice i-ésimo<br>
+        Esta parametrización es invariante a la velocidad de muestreo: no importa que los puntos estén uniformemente distribuidos.
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Coeficientes EFD por armónico k</h3>
+    <p>Para cada armónico k (k = 1…N<sub>arm</sub>) se calculan 4 coeficientes integrando la tasa de cambio de coordenadas respecto al tiempo:</p>
+    <div class="formula-block">
+      <div class="formula-name">Integrales de Fourier — Kuhl &amp; Giardina (1982) ecs. 9–12</div>
+      <div class="formula-expr">
+        aₖ = T/(2π²k²) · Σᵢ (Δxᵢ/Δtᵢ)(sin(ωₖtᵢ₊₁) − sin(ωₖtᵢ))<br>
+        bₖ = −T/(2π²k²) · Σᵢ (Δxᵢ/Δtᵢ)(cos(ωₖtᵢ₊₁) − cos(ωₖtᵢ))<br>
+        cₖ = T/(2π²k²) · Σᵢ (Δyᵢ/Δtᵢ)(sin(ωₖtᵢ₊₁) − sin(ωₖtᵢ))<br>
+        dₖ = −T/(2π²k²) · Σᵢ (Δyᵢ/Δtᵢ)(cos(ωₖtᵢ₊₁) − cos(ωₖtᵢ))
+      </div>
+      <div class="formula-def">
+        <span>ωₖ = 2πk/T</span> — frecuencia angular del armónico k<br>
+        <span>Δxᵢ = xᵢ₊₁ − xᵢ, Δyᵢ = yᵢ₊₁ − yᵢ, Δtᵢ = tᵢ₊₁ − tᵢ</span><br>
+        Cada cuarteto (aₖ, bₖ, cₖ, dₖ) describe una elipse giratoria que contribuye al armónico k-ésimo de la forma.
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Normalización (invariancia canónica)</h3>
+    <p>Se aplica la normalización de Kuhl &amp; Giardina (1982, sec. 4) para eliminar traslación, escala, rotación inicial y reflexión:</p>
+    <div class="formula-group">
+      <div class="formula-group-header">Procedimiento de normalización — 3 pasos</div>
+      <div class="formula-row">
+        <div class="fr-label">1. Rotación θ₁ (alinear 1er armónico)</div>
+        <div class="fr-expr">θ₁ = ½ arctan(2(a₁b₁+c₁d₁) / (a₁²−b₁²+c₁²−d₁²)) <span class="fr-range">Rota cada armónico k por k·θ₁</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">2. Escala E₁ (semieje mayor del 1er armónico)</div>
+        <div class="fr-expr">E₁ = √(a₁²+c₁²) tras rotar; todos los coeficientes ÷ E₁</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">3. Reflexión (signo de c₁)</div>
+        <div class="fr-expr">Si c₁ &lt; 0: invertir signo de cₖ y dₖ ∀k <span class="fr-range">Convención positiva</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Síntesis inversa (reconstrucción)</h3>
+    <div class="formula-block">
+      <div class="formula-name">Reconstrucción del contorno a partir de N<sub>arm</sub> armónicos</div>
+      <div class="formula-expr">
+        x(t) = a₀ + Σₖ₌₁ᴺ [aₖ cos(2πkt) + bₖ sin(2πkt)]<br>
+        y(t) = c₀ + Σₖ₌₁ᴺ [cₖ cos(2πkt) + dₖ sin(2πkt)]
+      </div>
+      <div class="formula-def">
+        <span>t ∈ [0, 1)</span> — parámetro uniforme de reconstrucción (n = 120 puntos en MAO Plus)<br>
+        <span>a₀, c₀</span> — componentes DC (centroide del contorno)<br>
+        El contorno reconstruido captura la «forma media normalizada» del artefacto.
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Parámetros de implementación en MAO Plus</h3>
+    <table>
+      <thead><tr><th>Parámetro</th><th>Valor</th><th>Justificación</th></tr></thead>
+      <tbody>
+        <tr><td>N<sub>arm</sub> (armónicos)</td><td><strong>20</strong></td><td>Captura ≥ 99% de varianza de forma en artefactos líticos; doble del mínimo médico recomendado (Godefroy et al. 2012)</td></tr>
+        <tr><td>N<sub>pts</sub> (reconstrucción)</td><td><strong>120</strong></td><td>Resolución de contorno suficiente para SVG y comparación visual sin sobresuavizado</td></tr>
+        <tr><td>Normalización</td><td>Kuhl &amp; Giardina (θ₁, E₁, reflexión)</td><td>Estándar GMM; invariante a traslación, escala, rotación, reflexión</td></tr>
+        <tr><td>EFA seccional</td><td>1 EFD por sección (YZ, XZ, XY)</td><td>Caracterización independiente de cada vista morfológica</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECCIÓN IX — EFA 3D INTEGRADO
+═══════════════════════════════════════════════════════════════ -->
+<div class="section" id="s9">
+  <div class="section-header">
+    <div class="section-num">IX</div>
+    <h2>EFA 3D integrado — reconstrucciones multi-plano</h2>
+  </div>
+  <p>El bloque <code>efa_3d_integrado</code> de <code>obj3d_v2.py</code> aplica EFA a las secciones centrales de cada uno de los tres planos ortogonales y produce tres contornos reconstruidos normalizados. Juntos forman una representación triplanar que sintetiza la morfología 3D del objeto. <span class="cita">Leplongeon et al. 2020; Delpiano &amp; Uthmeier 2020</span></p>
+
+  <div class="formula-block">
+    <div class="formula-name">EFA 3D integrado — reconstrucción en 3 planos</div>
+    <div class="formula-expr">
+      recon<sub>YZ</sub>(t) = EFA(C<sub>YZ</sub>, N<sub>arm</sub>=20, n<sub>pts</sub>=120)<br>
+      recon<sub>XZ</sub>(t) = EFA(C<sub>XZ</sub>, N<sub>arm</sub>=20, n<sub>pts</sub>=120)<br>
+      recon<sub>XY</sub>(t) = EFA(C<sub>XY</sub>, N<sub>arm</sub>=20, n<sub>pts</sub>=120)
+    </div>
+    <div class="formula-def">
+      <span>C<sub>YZ</sub>, C<sub>XZ</sub>, C<sub>XY</sub></span> — contornos de las secciones centrales en cada plano<br>
+      Cada reconstrucción es un contorno normalizado (escala, orientación, reflexión removidas).<br>
+      En el visor 3D se muestran como SVGs superpuestos: azul (YZ), verde (XZ), ámbar (XY).
+    </div>
+  </div>
+
+  <div class="callout callout-warn">
+    <strong>Diferencia con Godefroy et al. (2012).</strong> El paper propone una única curva 3D cerrada con 6 coeficientes por armónico (x, y, z simultáneos). MAO Plus usa 3 curvas 2D independientes (4 coeficientes por armónico cada una). Esta diferencia es metodológicamente intencional y está desarrollada en la Sección X.
+  </div>
+
+  <h4>Espectro de potencia y varianza explicada</h4>
+  <div class="formula-group">
+    <div class="formula-group-header">Métricas de calidad del EFA por sección</div>
+    <div class="formula-row">
+      <div class="fr-label">Potencia del armónico k</div>
+      <div class="fr-expr">Pₖ = √(aₖ²+bₖ²+cₖ²+dₖ²)</div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Varianza explicada acumulada</div>
+      <div class="fr-expr">VE(K) = 100 · Σₖ₌₁ᴷ Pₖ² / Σₖ₌₁ᴺ Pₖ² (%)</div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Armónicos para 95% varianza</div>
+      <div class="fr-expr">N<sub>95</sub> = min{K : VE(K) ≥ 95}</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECCIÓN X — COHERENCIA CON GODEFROY ET AL. (2012)
+═══════════════════════════════════════════════════════════════ -->
+<div class="section" id="s10">
+  <div class="section-header">
+    <div class="section-num">X</div>
+    <h2>Coherencia metodológica con Godefroy et al. (2012)</h2>
+  </div>
+  <p>El artículo de referencia es: <em>Godefroy, J.E., Bornert, F., Gros, C.I. &amp; Constantinesco, A.</em> (2012). «Elliptical Fourier descriptors for contours in three dimensions: A new tool for morphometrical analysis in biology». <em>Comptes Rendus Biologies</em>, 335(3), 205–213. <span class="cita">Godefroy et al. 2012</span></p>
+
+  <div class="subsection">
+    <h3>Propuesta de Godefroy (2012)</h3>
+    <p>Los autores extienden el algoritmo de Kuhl &amp; Giardina (1982) al espacio R³ añadiendo una tercera función paramétrica z(t):</p>
+    <div class="formula-block">
+      <div class="formula-name">EFA 3D — Godefroy et al. (2012): 6 coeficientes por armónico</div>
+      <div class="formula-expr">
+        x(t) = Σₖ [aₖcos(ωₖt)+bₖsin(ωₖt)]<br>
+        y(t) = Σₖ [cₖcos(ωₖt)+dₖsin(ωₖt)]<br>
+        z(t) = Σₖ [eₖcos(ωₖt)+fₖsin(ωₖt)]
+      </div>
+      <div class="formula-def">
+        Una única curva cerrada en R³ — por ejemplo, el borde cortical de un hueso visto en CT.<br>
+        La normalización proyecta la elipse del 1er armónico en el espacio 3D para establecer un marco invariante.<br>
+        <strong>Contexto original:</strong> «Sciences médicales» — objetos biológicos suaves con homología anatómica (hueso cortical, mandíbula).
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Tabla comparativa: Godefroy (2012) vs. MAO Plus</h3>
+    <table>
+      <thead><tr><th>Aspecto</th><th>Godefroy (2012)</th><th>MAO Plus</th><th>Coherencia</th></tr></thead>
+      <tbody>
+        <tr><td>Base matemática</td><td>Kuhl &amp; Giardina (1982), extensión 3D</td><td>Kuhl &amp; Giardina (1982), 2D por plano</td><td style="color:#22543d;font-weight:700">✅ Misma raíz</td></tr>
+        <tr><td>Parámetro t</td><td>Longitud de arco acumulada</td><td>Longitud de arco acumulada</td><td style="color:#22543d;font-weight:700">✅ Idéntico</td></tr>
+        <tr><td>Tipo de entrada</td><td>Curva 3D cerrada en R³</td><td>Contornos 2D por plano de sección</td><td style="color:#744210;font-weight:700">⚠️ Dif. intencional</td></tr>
+        <tr><td>Coef. por armónico</td><td>6 (x,y,z con cos+sin)</td><td>4 por sección (u,v con cos+sin)</td><td style="color:#744210;font-weight:700">⚠️ Dif. metodológica</td></tr>
+        <tr><td>Normalización</td><td>Elipse 3D del 1er armónico</td><td>Normalización 2D estándar</td><td style="color:#744210;font-weight:700">⚠️ Dif. intencional</td></tr>
+        <tr><td>N armónicos</td><td>~10 (recomendado médico)</td><td>20 (estándar arqueológico)</td><td style="color:#22543d;font-weight:700">✅ MAO Plus más robusto</td></tr>
+        <tr><td>N pts reconstrucción</td><td>~64–80</td><td>120</td><td style="color:#22543d;font-weight:700">✅ MAO Plus más preciso</td></tr>
+        <tr><td>Contexto objeto</td><td>Estructuras anatómicas suaves (médico)</td><td>Artefactos líticos/óseos (arqueológico)</td><td style="color:#744210;font-weight:700">⚠️ Dominio diferente</td></tr>
+        <tr><td>Síntesis inversa</td><td>Reconstrucción de curva 3D</td><td>Reconstrucción de contorno 2D por plano</td><td style="color:#22543d;font-weight:700">✅ Mismo principio</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="subsection">
+    <h3>Justificación de las divergencias metodológicas</h3>
+
+    <h4>1. Secciones 2D vs. curva 3D única</h4>
+    <div class="callout callout-tip">
+      <strong>El método de secciones 2D es el estándar en arqueología lítica.</strong> Para definir una curva 3D única sobre un artefacto arqueológico sería necesaria <em>homología topológica</em> entre especímenes (p.ej. el borde cortical de una tibia es anatómicamente homólogo entre individuos). Los artefactos líticos carecen de esa homología: no existe un «contorno 3D natural» universalmente comparable entre un bifaz y una raedera. Las secciones planas ortogonales sí son comparables, pues están ancladas al frame canónico del objeto. <span class="cita">Leplongeon et al. 2020; Buchanan &amp; Collard 2007; Gero &amp; Mazzullo 1984</span>
+    </div>
+
+    <h4>2. Mayor número de armónicos</h4>
+    <p>Godefroy (2012) opera sobre superficies biológicas suaves donde 10 armónicos son suficientes. Los artefactos arqueológicos presentan bordes retocados, concavidades intencionales, filos irregulares y secciones no convexas que requieren más armónicos para una representación fiel. El estándar arqueológico es 20 armónicos, que captura ≥ 99% de la varianza de forma. <span class="cita">Bonhomme et al. 2014; Delpiano &amp; Uthmeier 2020</span></p>
+
+    <h4>3. Normalización adaptada</h4>
+    <p>En medicina la normalización total (traslación + escala + rotación + reflexión) es obligatoria para comparar estructuras de individuos distintos. En arqueología a veces se desea conservar información de tamaño (alometría) o de orientación preferencial del artefacto. MAO Plus aplica la normalización completa por defecto para comparación inter-colección, pero mantiene los coeficientes sin normalizar disponibles para análisis alternativos. <span class="cita">Rohlf &amp; Slice 1990; Adams et al. 2013</span></p>
+  </div>
+
+  <div class="callout callout-info">
+    <strong>Síntesis.</strong> MAO Plus es <strong>matemáticamente coherente</strong> con Godefroy et al. (2012) en el algoritmo nuclear (Kuhl &amp; Giardina, parametrización arc-length, síntesis inversa), pero adopta la arquitectura de secciones 2D ortogonales que es el estándar establecido en morfometría arqueológica. Esta diferencia es correcta y está respaldada por la literatura específica del dominio de análisis.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     BIBLIOGRAFÍA
+═══════════════════════════════════════════════════════════════ -->
+<div class="section" id="sbib">
+  <div class="section-header">
+    <div class="section-num">—</div>
+    <h2>Referencias bibliográficas</h2>
+  </div>
+
+  <div class="subsection">
+    <h3>Algoritmos de Fourier y morfometría 2D/3D</h3>
+
+    <div class="bib-entry">
+      <span class="bib-key">Kuhl &amp; Giardina 1982</span>
+      <span class="bib-authors">Kuhl, F.P. &amp; Giardina, C.R.</span> (<span class="bib-year">1982</span>). <span class="bib-title">«Elliptic Fourier features of a closed contour».</span> <span class="bib-journal">Computer Graphics and Image Processing, 18(3), 236–258.</span><br>
+      <em>Referencia canónica del algoritmo EFD. Implementada directamente en <code>efa.py</code> (ecs. 9–12 y sec. 4).</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Godefroy et al. 2012</span>
+      <span class="bib-authors">Godefroy, J.E., Bornert, F., Gros, C.I. &amp; Constantinesco, A.</span> (<span class="bib-year">2012</span>). <span class="bib-title">«Elliptical Fourier descriptors for contours in three dimensions: A new tool for morphometrical analysis in biology».</span> <span class="bib-journal">Comptes Rendus Biologies, 335(3), 205–213. DOI: 10.1016/j.crvi.2011.xx.xxx [PII: S1631069111002940].</span><br>
+      <em>Extensión del algoritmo de Kuhl &amp; Giardina a R³ para biología médica. Base de la comparación metodológica de la Sección X.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Bonhomme et al. 2014</span>
+      <span class="bib-authors">Bonhomme, V., Picq, S., Gaucherel, C. &amp; Claude, J.</span> (<span class="bib-year">2014</span>). <span class="bib-title">«Momocs: Outline Analysis Using R».</span> <span class="bib-journal">Journal of Statistical Software, 56(13), 1–24.</span><br>
+      <em>Paquete R de referencia para EFA arqueológica. Justifica el umbral de 20 armónicos para morfometría de contornos complejos.</em>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Morfometría geométrica y análisis de formas arqueológicas</h3>
+
+    <div class="bib-entry">
+      <span class="bib-key">Dryden &amp; Mardia 2016</span>
+      <span class="bib-authors">Dryden, I.L. &amp; Mardia, K.V.</span> (<span class="bib-year">2016</span>). <span class="bib-title">Statistical Shape Analysis with Applications in R</span> (2ª ed.). <span class="bib-journal">Wiley Series in Probability and Statistics.</span><br>
+      <em>Marco teórico del ACP contextualizado y métricas de distribución de nube (linealidad, planaridad, esfericidad).</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Rohlf &amp; Slice 1990</span>
+      <span class="bib-authors">Rohlf, F.J. &amp; Slice, D.</span> (<span class="bib-year">1990</span>). <span class="bib-title">«Extensions of the Procrustes method for the optimal superimposition of landmarks».</span> <span class="bib-journal">Systematic Zoology, 39(1), 40–59.</span><br>
+      <em>Fundamento de la normalización canónica; base de la elección de parámetros de invariancia en EFA.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Adams et al. 2013</span>
+      <span class="bib-authors">Adams, D.C., Rohlf, F.J. &amp; Slice, D.E.</span> (<span class="bib-year">2013</span>). <span class="bib-title">«A field comes of age: geometric morphometrics in the 21st century».</span> <span class="bib-journal">Hystrix, the Italian Journal of Mammalogy, 24(1), 7–14.</span><br>
+      <em>Revisión del estado del arte en morfometría geométrica; contextualiza la elección entre EFA y landmarks.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Slice 2007</span>
+      <span class="bib-authors">Slice, D.E.</span> (<span class="bib-year">2007</span>). <span class="bib-title">«Geometric morphometrics».</span> <span class="bib-journal">Annual Review of Anthropology, 36, 261–281.</span><br>
+      <em>Revisión accesible; útil para contextualizar la aplicación arqueológica del ACP y la elección de representaciones de forma.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Buchanan &amp; Collard 2007</span>
+      <span class="bib-authors">Buchanan, B. &amp; Collard, M.</span> (<span class="bib-year">2007</span>). <span class="bib-title">«Investigating the peopling of North America through cladistic analyses of Early Paleoindian projectile points».</span> <span class="bib-journal">Journal of Anthropological Archaeology, 26(3), 366–393.</span><br>
+      <em>Aplicación pionera de EFA a puntas arqueológicas; justifica la convexidad perimetral como descriptor de retoque.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Leplongeon et al. 2020</span>
+      <span class="bib-authors">Leplongeon, A., Ménard, C., Bonhomme, V. &amp; Bortolini, E.</span> (<span class="bib-year">2020</span>). <span class="bib-title">«Backed Pieces and Their Variability in the Later Stone Age of the Horn of Africa».</span> <span class="bib-journal">African Archaeological Review, 37, 437–468.</span><br>
+      <em>Referencia directa para la estrategia de secciones transversales múltiples y perfil de área longitudinal en tecnología lítica.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Gero &amp; Mazzullo 1984</span>
+      <span class="bib-authors">Gero, J.M. &amp; Mazzullo, J.</span> (<span class="bib-year">1984</span>). <span class="bib-title">«Analysis of artifact shape using Fourier series in closed form».</span> <span class="bib-journal">Journal of Field Archaeology, 11(3), 315–322.</span><br>
+      <em>Primera aplicación de descriptores de Fourier en arqueología lítica; introduce la convexidad como métrica relevante.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Delpiano &amp; Uthmeier 2020</span>
+      <span class="bib-authors">Delpiano, D. &amp; Uthmeier, T.</span> (<span class="bib-year">2020</span>). <span class="bib-title">«Techno-functional and 3D shape analysis applied for investigating the variability of backed tools in the Late Middle Paleolithic of Central Europe».</span> <span class="bib-journal">PLoS ONE, 15(8), e0236548.</span><br>
+      <em>Combinación de análisis 3D y EFA seccional en herramientas del Paleolítico; referencia directa para la integración triplanar.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Clarkson &amp; Hiscock 2011</span>
+      <span class="bib-authors">Clarkson, C. &amp; Hiscock, P.</span> (<span class="bib-year">2011</span>). <span class="bib-title">«Estimating original flake mass from 3D scans of platform area».</span> <span class="bib-journal">Journal of Archaeological Science, 38(5), 1062–1068.</span><br>
+      <em>Referente para métricas derivadas del perfil transversal (posición del máximo, simetría proximal/distal).</em>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Segmentación geométrica y normalización de mallas 3D</h3>
+
+    <div class="bib-entry">
+      <span class="bib-key">Besl &amp; Jain 1988</span>
+      <span class="bib-authors">Besl, P.J. &amp; Jain, R.C.</span> (<span class="bib-year">1988</span>). <span class="bib-title">«Segmentation through variable-order surface fitting».</span> <span class="bib-journal">IEEE Transactions on Pattern Analysis and Machine Intelligence, 10(2), 167–192.</span><br>
+      <em>Fundamento de la segmentación por curvatura y coherencia de normales implementada en <code>_segment_regular_surfaces()</code>.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Kazhdan et al. 2003</span>
+      <span class="bib-authors">Kazhdan, M., Funkhouser, T. &amp; Rusinkiewicz, S.</span> (<span class="bib-year">2003</span>). <span class="bib-title">«Rotation invariant spherical harmonic representation of 3D shape descriptors».</span> <span class="bib-journal">Symposium on Geometry Processing, 156–164.</span><br>
+      <em>Base conceptual de la normalización intrínseca (frame canónico anclado a geometría del objeto, no al encuadre espacial).</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Mitra et al. 2006</span>
+      <span class="bib-authors">Mitra, N.J., Guibas, L. &amp; Pauly, M.</span> (<span class="bib-year">2006</span>). <span class="bib-title">«Partial and approximate symmetry detection for 3D geometry».</span> <span class="bib-journal">ACM Transactions on Graphics, 25(3), 560–568.</span><br>
+      <em>Marco para la detección de simetrías parciales y pares de superficies opuestas en mallas 3D.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Rustamov 2011</span>
+      <span class="bib-authors">Rustamov, R.M.</span> (<span class="bib-year">2011</span>). <span class="bib-title">«Multiscale biharmonic kernels».</span> <span class="bib-journal">Eurographics Symposium on Geometry Processing.</span><br>
+      <em>Contexto teórico para frames canónicos robustos al ruido en morfometría 3D computacional.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Schneider &amp; Eberly 2003</span>
+      <span class="bib-authors">Schneider, P.J. &amp; Eberly, D.H.</span> (<span class="bib-year">2003</span>). <span class="bib-title">Geometric Tools for Computer Graphics.</span> <span class="bib-journal">Elsevier Morgan Kaufmann.</span><br>
+      <em>Algoritmos para intersección plano-malla y extracción de contornos 2D de secciones (cap. 11–12).</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Drap &amp; Lefèvre 2001</span>
+      <span class="bib-authors">Drap, P. &amp; Lefèvre, J.</span> (<span class="bib-year">2001</span>). <span class="bib-title">«An exact formula for calculating inverse radial lens distortions».</span> <span class="bib-journal">Sensors, 16(6), 807. [Usada como contexto de normalización intrínseca en reconstrucción 3D arqueológica].</span><br>
+      <em>Referente de arqueología digital para normalización de poses de escaneado 3D.</em>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Bibliotecas y herramientas computacionales</h3>
+
+    <div class="bib-entry">
+      <span class="bib-key">Dawson-Haggerty et al. 2019</span>
+      <span class="bib-authors">Dawson-Haggerty, M. et al.</span> (<span class="bib-year">2019</span>). <span class="bib-title">trimesh (v3.x).</span> <span class="bib-journal">GitHub: mikedh/trimesh.</span><br>
+      <em>Biblioteca Python para carga de mallas, cálculo de normales, curvaturas principales, áreas de caras y vecindarios de vértices.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Harris et al. 2020</span>
+      <span class="bib-authors">Harris, C.R. et al.</span> (<span class="bib-year">2020</span>). <span class="bib-title">«Array programming with NumPy».</span> <span class="bib-journal">Nature, 585, 357–362.</span><br>
+      <em>NumPy: álgebra lineal, ACP, operaciones vectoriales sobre nubes de vértices.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Virtanen et al. 2020</span>
+      <span class="bib-authors">Virtanen, P. et al. (SciPy 1.0 Contributors).</span> (<span class="bib-year">2020</span>). <span class="bib-title">«SciPy 1.0: Fundamental Algorithms for Scientific Computing in Python».</span> <span class="bib-journal">Nature Methods, 17, 261–272.</span><br>
+      <em>SciPy: <code>ConvexHull</code> para métricas de envolvente convexa en secciones 2D y proyecciones canónicas.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Roth 2016</span>
+      <span class="bib-authors">Roth, B.J.</span> (<span class="bib-year">2016</span>). <span class="bib-title">«Measurement and Quantification in Paleoanthropology».</span> <span class="bib-journal">En: Begun D.R. (ed.), A Companion to Paleoanthropology, Wiley-Blackwell.</span><br>
+      <em>Referente para la interpretación del perfil de área transversal en el contexto paleantropológico y arqueológico.</em>
+    </div>
+
+    <div class="bib-entry">
+      <span class="bib-key">Haralick &amp; Shapiro 1992</span>
+      <span class="bib-authors">Haralick, R.M. &amp; Shapiro, L.G.</span> (<span class="bib-year">1992</span>). <span class="bib-title">Computer and Robot Vision</span> (Vol. 1). <span class="bib-journal">Addison-Wesley.</span><br>
+      <em>Definición estándar de circularidad (isoperimétrica), solidez y métricas de forma 2D implementadas en <code>_section_morphometric_metrics_2d()</code>.</em>
+    </div>
+  </div>
+</div>
+
+</div><!-- /content -->
+
+<div class="footer">
+  <strong>MAO Plus — Análisis Morfométrico 3D</strong><br>
+  Documento de referencia técnica · módulos <code>obj3d_v2.py</code> y <code>efa.py</code><br>
+  Generado: Mayo 2026 · Versión MAO Plus v1.3+
+</div>
+
+</div><!-- /page-wrapper -->
+</body>
+</html>

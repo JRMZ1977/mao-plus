@@ -128,6 +128,7 @@ const PythonBridge = (() => {
       if (data && data.status === 'ok') {
         // ── Servidor disponible: reset contador de fallos ──────────────────
         _failCount = 0;
+        const wasUnavailable = !_serverAvailable;
         if (!_serverAvailable) {
           console.log(
             `%c[MAO Plus] Servidor Python disponible v${data.version}`,
@@ -154,6 +155,9 @@ const PythonBridge = (() => {
         if (!_slowTimer) {
           _slowTimer = setInterval(() => _healthCheck().catch(() => {}), HEALTH_TTL);
         }
+        if (wasUnavailable) {
+          try { _notifyStatus({ state: 'ready', health: data }); } catch {}
+        }
       } else {
         // ── Fallo: incrementar contador ────────────────────────────────────
         _failCount++;
@@ -164,6 +168,7 @@ const PythonBridge = (() => {
           );
         } else {
           // Fallos consecutivos suficientes: declarar desconexión
+          const wasAvailable = _serverAvailable;
           if (_serverAvailable) {
             console.warn('[PythonBridge] Servidor Python desconectado — usando motor JS completo');
             // Invalidar caché de SAM: el servidor puede reiniciar con otro modo
@@ -176,6 +181,9 @@ const PythonBridge = (() => {
           _stopSlow();
           if (!_retryTimer) {
             _retryTimer = setInterval(() => _healthCheck().catch(() => {}), RETRY_MS);
+          }
+          if (wasAvailable) {
+            try { _notifyStatus({ state: 'down' }); } catch {}
           }
         }
       }
@@ -203,6 +211,68 @@ const PythonBridge = (() => {
   function isAvailable() { return _serverAvailable; }
   function getCapabilities() { return { ..._capabilities }; }
   function isModuleActive(name) { return !!_capabilities[name]; }
+
+  // ── Subsistema de suscriptores de estado ──────────────────────────────────
+  const _statusSubscribers = new Set();
+
+  /** Notifica a todos los suscriptores con el estado actual. */
+  function _notifyStatus(extra = {}) {
+    const snap = {
+      available: _serverAvailable,
+      capabilities: { ..._capabilities },
+      failCount: _failCount,
+      ...extra,
+    };
+    for (const cb of _statusSubscribers) {
+      try { cb(snap); } catch {}
+    }
+  }
+
+  /**
+   * Suscribirse a cambios de disponibilidad del backend. Devuelve función
+   * `unsubscribe()`. El callback recibe `{available, capabilities, failCount,
+   *  state?, restarts?, lastError?}`.
+   */
+  function onStatusChange(cb) {
+    if (typeof cb !== 'function') return () => {};
+    _statusSubscribers.add(cb);
+    // Disparar inmediatamente con el estado actual
+    try { cb({ available: _serverAvailable, capabilities: { ..._capabilities }, failCount: _failCount }); } catch {}
+    return () => _statusSubscribers.delete(cb);
+  }
+
+  /**
+   * Espera a que el backend esté listo, hasta `timeoutMs`. Útil antes de
+   * ejecutar operaciones críticas que requieren Python.
+   * Resuelve `true` si está disponible, `false` si expira.
+   */
+  async function ensureReady({ timeoutMs = 8000, pollMs = 250 } = {}) {
+    if (_serverAvailable) return true;
+    // Disparar un health check inmediato fuera del ciclo
+    _healthCheck().catch(() => {});
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (_serverAvailable) return true;
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
+    return _serverAvailable;
+  }
+
+  // Puente con Electron: si está disponible electronAPI.onBackendStatus,
+  // re-emitir los eventos del main a los suscriptores JS.
+  try {
+    if (typeof window !== 'undefined' && window.electronAPI &&
+        typeof window.electronAPI.onBackendStatus === 'function') {
+      window.electronAPI.onBackendStatus((payload) => {
+        // Si Electron dice 'ready' adelantamos health check para refrescar
+        // capabilities sin esperar al próximo tick.
+        if (payload && payload.state === 'ready' && !_serverAvailable) {
+          _healthCheck().catch(() => {});
+        }
+        _notifyStatus(payload || {});
+      });
+    }
+  } catch { /* electronAPI no disponible en entorno test */ }
 
   // ── Subsistemas ────────────────────────────────────────────────────────────
 
@@ -306,6 +376,38 @@ const PythonBridge = (() => {
   };
 
   /**
+   * Módulo EFA (Elliptic Fourier Analysis).
+   * Retorna null si no está implementado o el servidor no está disponible.
+   */
+  const efa = {
+    async calculate(contourPoints, { nHarmonics = 20, scalePxMm = 1.0, normalize = true } = {}) {
+      if (!_serverAvailable || !isModuleActive('efa')) return null;
+      if (!Array.isArray(contourPoints) || contourPoints.length < 8) return null;
+      return _fetch('/efa', {
+        method: 'POST',
+        body: _formData({
+          contour_json: JSON.stringify(contourPoints),
+          n_harmonics: nHarmonics,
+          scale_px_mm: scalePxMm,
+          normalize,
+        }),
+      });
+    },
+
+    async compare(coeffsA, coeffsB) {
+      if (!_serverAvailable || !isModuleActive('efa')) return null;
+      if (!Array.isArray(coeffsA) || !Array.isArray(coeffsB)) return null;
+      return _fetch('/efa/compare', {
+        method: 'POST',
+        body: _formData({
+          coeffs_a_json: JSON.stringify(coeffsA),
+          coeffs_b_json: JSON.stringify(coeffsB),
+        }),
+      });
+    },
+  };
+
+  /**
    * Módulo de morfometría 3D (.obj) orientada por PCA.
    * Retorna null si no está implementado → fallback local/JS.
    */
@@ -314,10 +416,13 @@ const PythonBridge = (() => {
       objFile,
       {
         nSamples = 20000,
+        nSections = 9,
         normalizeMode = 'none',
         analysisLevel = 'hybrid_v1',
         orientationMode = 'auto',
         userMorphAnchor = null,
+        mmPerUnit = 1.0,
+        comparatorReady = false,
       } = {}
     ) {
       if (!_serverAvailable || !isModuleActive('obj3d')) return null;
@@ -325,9 +430,12 @@ const PythonBridge = (() => {
       const fields = {
         obj_file: objFile,
         n_samples: nSamples,
+        n_sections: nSections,
         normalize_mode: normalizeMode,
         analysis_level: analysisLevel,
         orientation_mode: orientationMode,
+        mm_per_unit: Number.isFinite(Number(mmPerUnit)) && Number(mmPerUnit) > 0 ? Number(mmPerUnit) : 1.0,
+        comparator_ready: !!comparatorReady,
       };
 
       if (userMorphAnchor && Number.isFinite(Number(userMorphAnchor.x)) && Number.isFinite(Number(userMorphAnchor.y)) && Number.isFinite(Number(userMorphAnchor.z))) {
@@ -505,6 +613,33 @@ const PythonBridge = (() => {
         }),
       });
     },
+
+    /**
+     * Detecta múltiples candidatos P/H en una sola request backend.
+     * @param {string} imageDataURL
+     * @param {Array<{x:number,y:number}|[number,number]>} seeds
+     * @param {{tolerance?:number,minAreaPx?:number,maxAreaRatio?:number,maxCandidates?:number}} [opts]
+     */
+    async detectAuto(imageDataURL, seeds, opts = {}) {
+      if (!_serverAvailable) return null;
+      const {
+        tolerance = 26,
+        minAreaPx = 24,
+        maxAreaRatio = 0.35,
+        maxCandidates = 24,
+      } = opts || {};
+      return _fetch('/ph/detect-auto', {
+        method: 'POST',
+        body: _formData({
+          image: _dataURLtoBlob(imageDataURL),
+          seeds_json: JSON.stringify(Array.isArray(seeds) ? seeds : []),
+          tolerance,
+          min_area_px: minAreaPx,
+          max_area_ratio: maxAreaRatio,
+          max_candidates: maxCandidates,
+        }),
+      });
+    },
   };
 
   /**
@@ -535,13 +670,40 @@ const PythonBridge = (() => {
      * @returns {Promise<{tipo, subtipo, confianza, descripcion, color, icono}|null>}
      */
     async classify(metricsDict) {
-      if (!_serverAvailable) return null;
+      if (!_serverAvailable || !isModuleActive('classifier')) return null;
       if (!metricsDict || typeof metricsDict !== 'object') return null;
+
+      // Preparar contorno compacto para que backend pueda calcular EFA
+      // sin transferir objetos pesados de geometría.
+      let _contourForEfa = null;
+      const _candidates = [
+        metricsDict._contour_points_for_efa,
+        metricsDict.contour_points,
+        metricsDict._contour_data?.points,
+        metricsDict._contour_data?.points_visual,
+      ];
+      for (const cand of _candidates) {
+        if (Array.isArray(cand) && cand.length >= 8) {
+          _contourForEfa = cand;
+          break;
+        }
+      }
+
+      // Submuestreo defensivo para mantener payload estable.
+      if (Array.isArray(_contourForEfa) && _contourForEfa.length > 256) {
+        const step = _contourForEfa.length / 256;
+        const reduced = [];
+        for (let i = 0; i < 256; i++) {
+          reduced.push(_contourForEfa[Math.floor(i * step)]);
+        }
+        _contourForEfa = reduced;
+      }
 
       // Filtrar campos pesados que no son necesarios para la clasificación:
       // arrays densos de puntos (puntos_contorno, radios, etc.), base64 y strings largos.
       const _slim = {};
       for (const [k, v] of Object.entries(metricsDict)) {
+        if (k === '_contour_data' || k === 'contour_points') continue;
         if (Array.isArray(v) && v.length > 50) continue;        // arrays densos
         if (typeof v === 'string' && v.startsWith('data:')) continue; // base64
         if (typeof v === 'string' && v.length > 2000) continue;       // strings grandes
@@ -551,6 +713,10 @@ const PythonBridge = (() => {
           if (subKeys.length > 20) continue;
         }
         _slim[k] = v;
+      }
+
+      if (Array.isArray(_contourForEfa) && _contourForEfa.length >= 8) {
+        _slim._contour_points_for_efa = _contourForEfa;
       }
 
       return _fetch('/classify', {
@@ -698,9 +864,12 @@ const PythonBridge = (() => {
     isAvailable,
     getCapabilities,
     isModuleActive,
+    ensureReady,
+    onStatusChange,
     detection,
     contour,
     metrics,
+    efa,
     obj3d,
     morphology,
     scale,

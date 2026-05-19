@@ -148,3 +148,113 @@ def test_statistics_missing_keys_json_422(client):
     r = client.post("/api/statistics",
                     data={"objects_json": json.dumps(OBJECTS_5)})
     assert r.status_code == 422
+
+
+# ── Bifacial CI/CMS (Sección XIII) ─────────────────────────────────────────
+
+@pytest.fixture(autouse=False)
+def enable_ci_cms(monkeypatch):
+    """Habilita CI/CMS para los tests que lo requieren (MAO_ENABLE_CI_CMS=1)."""
+    monkeypatch.setenv("MAO_ENABLE_CI_CMS", "1")
+    yield
+    monkeypatch.delenv("MAO_ENABLE_CI_CMS", raising=False)
+
+def _cara_base(metricas_override=None):
+    m = {
+        "area": 1000,
+        "perimetro": 140,
+        "eje_mayor": 60,
+        "eje_menor": 40,
+        "feret_max": 62,
+        "feret_min": 38,
+        "circularity": 0.82,
+        "solidity": 0.93,
+        "elongation": 1.50,
+        "rectangularidad": 0.78,
+        "simetria_bilateral": 0.85,
+        "convexity": 0.96,
+        "excentricidad": 0.55,
+        "radio_medio": 21,
+        "ratio_radios": 0.72,
+        "coeficiente_variacion_radial": 0.12,
+        "regularidad_radial": 0.84,
+        "indice_estrellamiento": 1.08,
+        "rugosidad_borde": 0.19,
+        "ici": 0.90,
+        "curvatura_media": 0.18,
+        "varianza_tonal_interna": 280,
+        "entropia_superficie": 5.1,
+        "gradiente_medio": 14,
+        "centroide": [100, 80],
+        "angulo_eje_mayor": 12,
+        "radio_maximo": 30,
+        "radio_minimo": 18,
+    }
+    if metricas_override:
+        m.update(metricas_override)
+    return {
+        "metricas": m,
+        "perforaciones": [],
+        "horadaciones": [],
+        "clasificacion_forma": "Lanceolada",
+    }
+
+
+def test_bifacial_ci_cms_identicas_altas(client, enable_ci_cms):
+    cara_a = _cara_base()
+    cara_b = _cara_base({"angulo_eje_mayor": -12})  # reflejo esperado
+
+    r = client.post(
+        "/api/bifacial",
+        data={
+            "cara_a_json": json.dumps(cara_a),
+            "cara_b_json": json.dumps(cara_b),
+        },
+    )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["CI"] is not None and body["CI"] >= 0.95
+    assert body["CMS"] is not None and body["CMS"] >= 0.95
+    assert body["interpretacionCI_CMS"]["categoria"] == "Correspondencia máxima"
+
+
+def test_bifacial_ci_alto_cms_bajo_diferenciacion_natural(client, enable_ci_cms):
+    cara_a = _cara_base()
+    # Mantener dimensiones casi idénticas (CI alto), degradar fuertemente forma/radial/contorno (CMS bajo)
+    cara_b = _cara_base({
+        "angulo_eje_mayor": -12,
+        "circularity": 0.35,
+        "solidity": 0.55,
+        "elongation": 2.60,
+        "rectangularidad": 0.30,
+        "simetria_bilateral": 0.30,
+        "convexity": 0.60,
+        "excentricidad": 0.90,
+        "radio_medio": 32,
+        "ratio_radios": 0.28,
+        "coeficiente_variacion_radial": 0.72,
+        "regularidad_radial": 0.25,
+        "indice_estrellamiento": 1.95,
+        "rugosidad_borde": 0.88,
+        "ici": 0.35,
+        "curvatura_media": 0.85,
+        "varianza_tonal_interna": 2200,
+        "entropia_superficie": 7.8,
+        "gradiente_medio": 52,
+    })
+
+    r = client.post(
+        "/api/bifacial",
+        data={
+            "cara_a_json": json.dumps(cara_a),
+            "cara_b_json": json.dumps(cara_b),
+        },
+    )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["CI"] is not None and body["CI"] >= 0.78
+    assert body["CMS"] is not None and body["CMS"] < 0.62
+    assert body["interpretacionCI_CMS"]["categoria"] == "Diferenciación natural"
+    assert body["interpretacionCI_CMS"]["diferenciacionNatural"] is True

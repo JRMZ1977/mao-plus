@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mao-plus.local/schemas/mao-canonico-v1.schema.json",
+  "title": "MAO Canonical Contract v1",
+  "description": "Contrato canónico compartido para interoperabilidad MAO_Plus y MAO_A.",
+  "type": "object",
+  "required": ["schemaVersion", "status"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "mao-canonico-v1"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "warning", "error", "not_implemented", "completed", "failed"]
+    },
+    "metricas": {
+      "type": "object",
+      "properties": {
+        "area": { "type": "number" },
+        "perimeter": { "type": "number" },
+        "circularity": { "type": "number" },
+        "elongation": { "type": "number" },
+        "solidity": { "type": "number" }
+      },
+      "required": ["area", "perimeter", "circularity"],
+      "additionalProperties": true
+    },
+    "perforaciones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {},
+          "area": { "type": "number" },
+          "perimetro": { "type": "number" },
+          "circularidad": { "type": "number" },
+          "convexidad": { "type": "number" },
+          "feret_ratio": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "required": ["area", "perimetro", "circularidad"],
+        "additionalProperties": true
+      }
+    },
+    "horadaciones": {
+      "$ref": "#/$defs/ph_list"
+    },
+    "area_efectiva": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "count_perforaciones": { "type": "integer", "minimum": 0 },
+    "count_horadaciones": { "type": "integer", "minimum": 0 },
+    "CI": { "type": "number", "minimum": 0, "maximum": 1 },
+    "CMS": { "type": "number", "minimum": 0, "maximum": 1 },
+    "subindicesCMS": {
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
+    "interpretacionCI_CMS": {
+      "type": "object",
+      "properties": {
+        "categoria": { "type": "string" },
+        "diferenciacionNatural": { "type": "boolean" }
+      },
+      "required": ["categoria"],
+      "additionalProperties": true
+    },
+    "indiceSimetriaGeneral": { "type": "number" },
+    "scale_px_mm": { "type": "number", "exclusiveMinimum": 0 },
+    "error_optico": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "trazabilidadMetricas": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "type": "string" },
+        "modulos": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "incluyeCI_CMS": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "ph_list": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {},
+          "area": { "type": "number" },
+          "perimetro": { "type": "number" },
+          "circularidad": { "type": "number" }
+        },
+        "required": ["area", "perimetro", "circularidad"],
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

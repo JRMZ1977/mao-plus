@@ -15,6 +15,8 @@
   const secEscala = document.getElementById('sectionEscala');
   const secObj3d = document.getElementById('sectionObj3D');
   const secResultados = document.getElementById('resultadosPanel');
+  const canvas2dArea = document.getElementById('canvasMonofacial');
+  const canvas2dScaleLine = document.getElementById('canvas2dScaleLine');
 
   const navModo = document.querySelector('.mao-nav-item[data-target="sectionModo"]');
   const navImagenParent = document.querySelector('.mao-nav-item[data-target="sectionImagen"]');
@@ -59,6 +61,9 @@
     setDisplay(secImagen, !is3d);
     setDisplay(secEscala, !is3d);
     setDisplay(secObj3d, is3d);
+    // Canvas 2D y línea de escala: innecesarios en modo 3D
+    setDisplay(canvas2dArea, !is3d);
+    setDisplay(canvas2dScaleLine, !is3d);
 
     // Evitar ruido de resultados 2D al entrar en 3D
     if (is3d) {

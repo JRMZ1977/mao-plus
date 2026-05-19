@@ -118,6 +118,59 @@
   let maoIaLastObjects   = [];
   let maoIaObjectsByFace = { A: [], B: [] };  // resultados persistentes por cara
   let selectedFace       = 'A';
+  let serverHealthy      = false;            // flag de salud del servidor
+
+  // ── SISTEMA DE REINTENTOS AUTOMÁTICO PARA EL SERVIDOR ───────────────────
+  // Si el servidor no responde al cargar la app, reintenta automáticamente
+  // cada segundo sin bloquear la UI. Permite que el usuario inicie análisis
+  // cuando el servidor finalmente esté listo.
+  async function ensureServerHealth(maxRetries = 30, intervalMs = 1000) {
+    if (serverHealthy) return true;
+
+    console.log('[MAO IA] Verificando salud del servidor...');
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const res = await fetch(PYTHON_URL + '/api/health', { 
+          signal: AbortSignal.timeout(1500),
+          cache: 'no-store'
+        });
+        if (res.ok) {
+          serverHealthy = true;
+          console.log(`[MAO IA] ✓ Servidor listo (intento ${attempt}/${maxRetries})`);
+          if (serverStatus) serverStatus.textContent = '🟢 Servidor listo';
+          if (serverStatus) serverStatus.style.color = '#28a745';
+          return true;
+        }
+      } catch (err) {
+        // Servidor aún no responde — esperar e intentar de nuevo
+        if (attempt === 1) {
+          console.log('[MAO IA] Servidor no responde — esperando...');
+          if (serverStatus) serverStatus.textContent = '🟡 Conectando...';
+          if (serverStatus) serverStatus.style.color = '#ffc107';
+        }
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, intervalMs));
+        }
+      }
+    }
+
+    console.warn('[MAO IA] ❌ Servidor no disponible tras', maxRetries, 'reintentos');
+    if (serverStatus) serverStatus.textContent = '🔴 Servidor no disponible';
+    if (serverStatus) serverStatus.style.color = '#dc3545';
+    return false;
+  }
+
+  // Llamar al inicio de modal para verificar servidor
+  async function updateServerStatus() {
+    const healthy = await ensureServerHealth(30, 1000);
+    return healthy;
+  }
+
+  // Verificar estado del servidor cuando el usuario abre el modal
+  maoIaBtn && maoIaBtn.addEventListener('click', async () => {
+    await updateServerStatus();
+  });
   let iaZoom           = 1.0;
   let iaBgVisible      = true;   // true = con fotografía, false = solo contornos
   let iaFocusedId      = null;   // object_id del contorno activo (selección por clic)
@@ -834,12 +887,32 @@
 
   // ── Ejecutar análisis ─────────────────────────────────────────────────────
   btnRun.addEventListener('click', async () => {
+    // ✓ Verificar que el servidor esté listo
+    showSpinner(true);
+    if (inlineError) {
+      inlineError.style.display = 'none';
+      inlineError.textContent = '';
+    }
+    
+    console.log('[MAO IA] Verificando disponibilidad del servidor...');
+    const serverReady = await ensureServerHealth(5, 500); // 5 intentos rápidos = máx 2.5s
+    
+    if (!serverReady) {
+      showSpinner(false);
+      if (inlineError) {
+        inlineError.textContent = '🔴 Servidor Python no disponible. Reinicia la aplicación.';
+        inlineError.style.display = 'block';
+      }
+      btnRun.disabled = false;
+      btnRun.textContent = '\u25b6\u2002 Ejecutar análisis';
+      return;
+    }
+
     btnRun.disabled    = true;
     btnRun.textContent = 'Analizando\u2026';
     iaFocusedId = null; _syncCenterBtn();
     if (placeholderEl) placeholderEl.style.display = 'none';
     resultsPanel.style.display = 'none';
-    showSpinner(true);
     try {
       // Obtener imagen activa y recortar según ROI (si existe)
       const _img = getActiveImage();
@@ -917,7 +990,7 @@
       ['centroide_x','Cx'],['centroide_y','Cy'],
       ['circularity','Circularidad'],['solidity','Solidez'],
       ['excentricidad','Excentricidad'],['equivalent_diameter','Diam_equiv_px'],
-      ['aspect_ratio','Aspect_ratio'],['compactness','Compacidad'],
+      ['aspect_ratio','Relacion_aspecto_AR'],['compactness','Compacidad'],
       ['elongation','Elongacion'],['forma_detectada','Forma'],
       ['convex_hull_area','Hull_area_px2'],
     ];
@@ -1481,8 +1554,12 @@
       const bg    = i % 2 ? '#faf9ff' : '#fff';
       const circ  = Number(obj.circularity || 0);
       const circW = Math.round(circ * 100);
-      const forma = obj.forma_detectada
-        ? '<span style="font-size:9px;background:' + color + '18;color:' + color + ';border:1px solid ' + color + '40;border-radius:10px;padding:1px 7px;font-weight:600;">' + obj.forma_detectada + '</span>'
+      const formaMostrada = obj.forma_detectada_mostrada ||
+        ((obj.forma_tipologica_inferida && obj.forma_requiere_reinterpretacion_tipologica)
+          ? (obj.forma_tipologica_inferida || obj.forma_detectada_tipologica)
+          : obj.forma_detectada);
+      const forma = formaMostrada
+        ? '<span style="font-size:9px;background:' + color + '18;color:' + color + ';border:1px solid ' + color + '40;border-radius:10px;padding:1px 7px;font-weight:600;">' + formaMostrada + '</span>'
         : '\u2014';
       return '<tr style="background:' + bg + ';border-bottom:1px solid #f0edff;">' +
         '<td style="padding:6px 10px;white-space:nowrap;">' +
@@ -1531,8 +1608,12 @@
       const nDef     = def.num_defectos || 0;
       const defColor = nDef === 0 ? '#276749' : nDef < 3 ? '#744210' : '#9b2c2c';
       const circPct  = Math.round((obj.circularity || 0) * 100);
-      const formaTag = obj.forma_detectada
-        ? '<span style="font-size:9px;background:' + color + '18;color:' + color + ';border:1px solid ' + color + '40;border-radius:10px;padding:1px 7px;font-weight:600;">' + obj.forma_detectada + '</span>'
+      const formaMostrada = obj.forma_detectada_mostrada ||
+        ((obj.forma_tipologica_inferida && obj.forma_requiere_reinterpretacion_tipologica)
+          ? (obj.forma_tipologica_inferida || obj.forma_detectada_tipologica)
+          : obj.forma_detectada);
+      const formaTag = formaMostrada
+        ? '<span style="font-size:9px;background:' + color + '18;color:' + color + ';border:1px solid ' + color + '40;border-radius:10px;padding:1px 7px;font-weight:600;">' + formaMostrada + '</span>'
         : '';
       const cx = obj.centroide_x != null ? obj.centroide_x : obj.centroid_x;
       const cy = obj.centroide_y != null ? obj.centroide_y : obj.centroid_y;
@@ -1911,6 +1992,89 @@
       } : null,
     };
 
+    // Fallback de completitud para convergencia Manual/IA:
+    // si IA no devuelve completitud_estimada pero sí pérdida de área,
+    // derivar completitud = 100 - pérdida y tipificar el fragmento.
+    const _compActual = parseFloat(metricas.completitud_estimada);
+    if (isNaN(_compActual)) {
+      const _lossArea = parseFloat(metricas.perdida_area_fragmentacion_percent);
+      if (!isNaN(_lossArea)) {
+        const _compDer = Math.max(0, Math.min(100, 100 - _lossArea));
+        metricas.completitud_estimada = +_compDer.toFixed(2);
+        if (!metricas.completitud_tipo_fragmento) {
+          metricas.completitud_tipo_fragmento = _compDer > 80
+            ? 'Completo/casi completo'
+            : (_compDer > 50 ? 'Parcial' : 'Fragmento');
+        }
+      }
+    }
+
+    // ── 🔭 CALCULAR ERROR ÓPTICO POSICIONAL EN FLUJO IA ─────────────────────
+    // Este cálculo FALTABA en el flujo IA (solo existía en análisis manual).
+    // Sin este paso, la sección IX (Error Óptico) no se renderizaba en fichas de IA.
+    try {
+      // Obtener parámetros de cámara: primero desde inputs, luego desde localStorage
+      const focalVal = parseFloat(document.getElementById('focalInput')?.value) ||
+                       parseFloat(localStorage.getItem('focalLength') || '') || 0;
+      const swVal    = parseFloat(document.getElementById('sensorWidthInput')?.value) ||
+                       parseFloat(localStorage.getItem('sensorWidth') || '') || 0;
+      const shVal    = parseFloat(document.getElementById('sensorHeightInput')?.value) ||
+                       parseFloat(localStorage.getItem('sensorHeight') || '') || 0;
+      const distVal  = parseFloat(document.getElementById('distanciaInput')?.value) ||
+                       parseFloat(localStorage.getItem('distancia') || '') || 0;
+      
+      // Obtener dimensiones de imagen desde la imagen actual
+      // (los getters no exponen imageHeightCaraA, etc., así que se obtiene desde la imagen)
+      let imgW = 0, imgH = 0;
+      const modo = callGetter('_maoGetModo') || 'monofacial';
+      const imgActiva = getActiveImage();
+      if (imgActiva) {
+        imgW = imgActiva.naturalWidth  || imgActiva.width  || 0;
+        imgH = imgActiva.naturalHeight || imgActiva.height || 0;
+      }
+      
+      // Centroide desde contorno real (prefer hull centroid for ROI safety)
+      const cxObj = hcx || cx;
+      const cyObj = hcy || cy;
+      
+      // Log de parámetros para debugging
+      console.log(`[IA→ErrorOptico] Parámetros: focal=${focalVal}mm | sensor=${swVal}×${shVal}mm | dist=${distVal}mm | img=${imgW}×${imgH}px | centro=(${cxObj.toFixed(0)},${cyObj.toFixed(0)})`);
+      
+      const errorOptico = window.estimarErrorOptico && typeof window.estimarErrorOptico === 'function'
+        ? window.estimarErrorOptico({
+            objCentroide: { x: cxObj, y: cyObj },
+            imgW: imgW, imgH: imgH,
+            focalMM: focalVal,
+            sensorW: swVal,
+            sensorH: shVal,
+            distanciaObjMM: distVal
+          })
+        : null;
+      if (errorOptico) {
+        // Asignar campos de error óptico a métricas para renderización posterior
+        metricas.error_optico_lineal_percent  = errorOptico.error_lineal_percent;
+        metricas.error_optico_area_percent    = errorOptico.error_area_percent;
+        metricas.error_perspectiva_percent    = errorOptico.error_perspectiva_percent;
+        metricas.error_distorsion_percent     = errorOptico.error_distorsion_percent;
+        metricas.posicion_radial_norm         = errorOptico.posicion_radial_norm;
+        metricas.posicion_radial_px           = errorOptico.posicion_radial_px;
+        metricas.angulo_optico_deg            = errorOptico.angulo_optico_deg;
+        metricas.k1_estimado                  = errorOptico.k1_estimado;
+        metricas.fov_diagonal_deg             = errorOptico.fovDiagDeg;
+        metricas.confianza_optica             = errorOptico.confianza_optica;
+        metricas.nota_error_optico            = errorOptico.nota;
+        // Aplicar incertidumbre a métricas inmediatamente
+        if (typeof window.aplicarIncertidumbreOptica === 'function') {
+          window.aplicarIncertidumbreOptica(metricas, errorOptico);
+        }
+        console.log(`[IA→ErrorOptico] ✓ Calculado: ±${errorOptico.error_lineal_percent}% lineal | ±${errorOptico.error_area_percent}% área | ${errorOptico.confianza_optica}`);
+      } else if (focalVal === 0 || swVal === 0 || distVal === 0) {
+        console.log(`[IA→ErrorOptico] ⚠️ Parámetros de cámara incompletos - error óptico NO calculado`);
+      }
+    } catch (eoErr) {
+      console.warn('[IA→ErrorOptico] ❌ No se pudo calcular error óptico:', eoErr.message);
+    }
+
     // ── Cerrar modal inmediatamente para dar feedback visual al usuario ───────
     // DESACTIVADO: el modal debe permanecer abierto para que el usuario pueda
     // generar tarjetas de múltiples objetos (ambas caras) sin perder el contexto.
@@ -1920,7 +2084,7 @@
     // ── Enriquecer métricas con el pipeline estándar Python (igual que análisis manual) ────
     // Llama a /api/metrics con la escala real del proyecto, obteniendo los 124+ indicadores
     // morfométricos, GLCM de textura e incertidumbre posicional, igual que la detección manual.
-    let metricasFinal = metricas; // fallback si Python falla
+    let metricasFinal = JSON.parse(JSON.stringify(metricas)); // fallback: copia profunda de metricas (incluye error_optico)
     try {
       const _bridgeOk = window.PythonBridge &&
                         PythonBridge.isModuleActive('metrics') &&
@@ -2027,7 +2191,10 @@
             forma_detectada:              metricas.forma_detectada,
             solidity_class:               metricas.solidity_class,
             shape_class_circularity:      metricas.shape_class_circularity,
+            completitud_estimada:         metricas.completitud_estimada,
             completitud_tipo_fragmento:   metricas.completitud_tipo_fragmento,
+            perdida_area_fragmentacion_percent:      metricas.perdida_area_fragmentacion_percent,
+            perdida_perimetro_fragmentacion_percent: metricas.perdida_perimetro_fragmentacion_percent,
             bounding_area_px:             metricas.bounding_area_px,
             bounding_area_mm2:            metricas.bounding_area_mm2,
 
@@ -2036,6 +2203,22 @@
             convex_hull_points: Array.isArray(pyM.convex_hull_points)
               ? pyM.convex_hull_points.length
               : (pyM.convex_hull_points || null),
+
+            // ── 🔭 INCLUIR CAMPOS DE ERROR ÓPTICO POSICIONAL ─────────────────────
+            // CRÍTICO: Estos campos se calculan al inicio en `metricas` pero NO se 
+            // incluían en metricasFinal, causando que la Sección IX no se renderice.
+            // Se preservan TODOS los campos para que la renderización sea completa.
+            error_optico_lineal_percent:  metricas.error_optico_lineal_percent,
+            error_optico_area_percent:    metricas.error_optico_area_percent,
+            error_perspectiva_percent:    metricas.error_perspectiva_percent,
+            error_distorsion_percent:     metricas.error_distorsion_percent,
+            posicion_radial_norm:         metricas.posicion_radial_norm,
+            posicion_radial_px:           metricas.posicion_radial_px,
+            angulo_optico_deg:            metricas.angulo_optico_deg,
+            k1_estimado:                  metricas.k1_estimado,
+            fov_diagonal_deg:             metricas.fov_diagonal_deg,
+            confianza_optica:             metricas.confianza_optica,
+            nota_error_optico:            metricas.nota_error_optico,
           };
 
           // Fusionar GLCM de textura si llegó
@@ -2045,19 +2228,37 @@
               metricasFinal.textura_interpretacion = pyTexRes.value.interpretation;
           }
 
-          // Re-aplicar incertidumbre óptica sobre valores mm finales de Python.
-          // La fusión sobreescribe area/perimeter/etc. con los valores Python,
-          // por lo que _rango_min/_rango_max calculados sobre los valores JS previos
-          // quedarían desactualizados. Se reconstruye el objeto errorOptico desde los
-          // porcentajes ya almacenados en metricasFinal (heredados del objeto JS initial).
+          // ── PRESERVAR Y RE-APLICAR INCERTIDUMBRE ÓPTICA DESPUÉS DE FUSIÓN PYTHON ────
+          // La fusión sobreescribe area/perimeter/etc. con los valores Python finales,
+          // por lo que la incertidumbre calculada sobre valores JS previos se vuelve obsoleta.
+          // Se reconstruyen los rangos (min/max) con los valores finales Python.
+          // IMPORTANTE: Preservar TODOS los campos de error óptico (no solo porcentajes)
+          // para que la sección IX se renderice correctamente en fichas.
           if (typeof window.aplicarIncertidumbreOptica === 'function') {
             const _eL = parseFloat(metricasFinal.error_optico_lineal_percent);
             const _eA = parseFloat(metricasFinal.error_optico_area_percent);
+            const _ePerspectiva = parseFloat(metricasFinal.error_perspectiva_percent);
+            const _eDistorsion = parseFloat(metricasFinal.error_distorsion_percent);
+            const _posRadial = parseFloat(metricasFinal.posicion_radial_norm);
+            const _anguloOptico = parseFloat(metricasFinal.angulo_optico_deg);
+            
             if (!isNaN(_eL) && !isNaN(_eA) && (_eL > 0 || _eA > 0)) {
-              window.aplicarIncertidumbreOptica(metricasFinal, {
+              // Reconstruir objeto errorOptico con todos los campos
+              const errorOpticoCompleto = {
                 error_lineal_percent: _eL,
-                error_area_percent:   _eA,
-              });
+                error_area_percent: _eA,
+                error_perspectiva_percent: !isNaN(_ePerspectiva) ? _ePerspectiva : 0,
+                error_distorsion_percent: !isNaN(_eDistorsion) ? _eDistorsion : 0,
+                posicion_radial_norm: !isNaN(_posRadial) ? _posRadial : 0,
+                angulo_optico_deg: !isNaN(_anguloOptico) ? _anguloOptico : 0,
+                k1_estimado: metricasFinal.k1_estimado || 0,
+                fovDiagDeg: metricasFinal.fov_diagonal_deg || 0,
+                confianza_optica: metricasFinal.confianza_optica || 'Sin datos',
+                nota: metricasFinal.nota_error_optico || ''
+              };
+              // Re-aplicar con objeto completo (no solo recalcular ranges)
+              window.aplicarIncertidumbreOptica(metricasFinal, errorOpticoCompleto);
+              console.log(`[IA→ErrorOptico/Final] Re-aplicado tras Python: ±${_eL}% | ${metricasFinal.confianza_optica}`);
             }
           }
 
@@ -2069,8 +2270,167 @@
       console.warn('[IA→Morf] PythonBridge.metrics falló, usando métricas JS:', err.message);
     }
 
+    // ── Clasificación tipológica Python (reglas + EFA) en flujo IA ─────────
+    // No sustituye la meta-clasificación geométrica JS; la complementa.
+    if (window.PythonBridge && PythonBridge.isAvailable()) {
+      try {
+        const _tipologia = await PythonBridge.classifier.classify(metricasFinal);
+        if (_tipologia && _tipologia.tipo) {
+          metricasFinal.tipologia           = _tipologia;
+          metricasFinal.tipo_artefacto      = _tipologia.tipo;
+          metricasFinal.subtipo_artefacto   = _tipologia.subtipo || '';
+          metricasFinal.confianza_tipologia = _tipologia.confianza || 0;
+          console.log(`[IA Fase 2] Tipología IA: ${_tipologia.tipo} (${(_tipologia.confianza * 100).toFixed(0)}%)`);
+        }
+      } catch (_eTip) {
+        console.warn('[IA Fase 2] classify falló en modo IA:', _eTip.message);
+      }
+    }
+
+    // ── Meta-clasificación JS: mismo árbol de votación ponderada que el análisis manual ──
+    // Ejecutar simplificarAFormaRegular → distribucionRadialAngular → metaClasificarForma
+    // garantiza que fragmentación, completitud y categoría base se calculen con
+    // las mismas matemáticas en ambos modos, eliminando la divergencia de etiquetas.
+    const aplicarFallbackTipologicoIA = (m) => {
+      const rr = parseFloat(m.ratio_radios);
+      const cc = parseFloat(m.circularity || m.circularity_real);
+      const ss = parseFloat(m.solidity || m.solidez);
+      const cp = parseFloat(m.completitud_estimada);
+      const esFrag = !isNaN(cp) ? cp < 95 : (ss < 0.92);
+      const geoBase = m.forma_geometrica_observada || m.forma_detectada_meta || m.forma_detectada || '';
+      const tipBase = m.forma_tipologica_inferida || m.forma_detectada_tipologica || geoBase;
+      const tipNoReint = !tipBase || tipBase === geoBase || /\boval\b/i.test(tipBase);
+      const toroideSevero =
+        esFrag &&
+        !isNaN(rr) && rr < 0.50 &&
+        !isNaN(cc) && cc >= 0.74 && cc < 0.88 &&
+        !isNaN(ss) && ss >= 0.45 && ss < 0.75;
+
+      if (!toroideSevero || !tipNoReint) return false;
+
+      const pct = Number.isFinite(cp) ? Math.round(cp) : null;
+      const tip = pct != null ? `Fragmento Media Luna (${pct}% completo)` : 'Fragmento Media Luna';
+      m.forma_geometrica_observada = geoBase;
+      m.forma_tipologica_inferida = tip;
+      m.forma_detectada_tipologica = tip;
+      m.forma_requiere_reinterpretacion_tipologica = true;
+      m.forma_razon_tipologica = m.forma_razon_tipologica ||
+        `Fallback IA: lectura lunar por Rmin/Rmax=${rr.toFixed(3)}, circ=${cc.toFixed(3)}, solidez=${ss.toFixed(3)}.`;
+      return true;
+    };
+    if (typeof window.metaClasificarFormaIA === 'function' &&
+        metricasFinal._contour_data?.points?.length >= 3) {
+      try {
+        const _mc = window.metaClasificarFormaIA(metricasFinal);
+        const _formaFinal = _mc.clasificacion_final;
+        if (_formaFinal && _formaFinal !== 'Forma Indeterminada') {
+          metricasFinal.forma_detectada_meta       = _formaFinal;
+          metricasFinal.forma_confianza_global     = (_mc.confianza_global * 100).toFixed(1);
+          metricasFinal.forma_razonamiento         = _mc.razonamiento?.join(' | ') || '';
+          metricasFinal.forma_metodos_coincidentes = `${_mc.metodos_coincidentes}/${_mc.total_metodos}`;
+          metricasFinal.forma_geometrica_observada = _mc.forma_geometrica_observada || _formaFinal;
+          metricasFinal.forma_tipologica_inferida  = _mc.forma_tipologica_inferida || metricasFinal.forma_geometrica_observada;
+          metricasFinal.forma_razon_tipologica     = _mc.razon_tipologica || '';
+          metricasFinal.forma_requiere_reinterpretacion_tipologica = !!_mc.requiere_reinterpretacion_tipologica;
+          metricasFinal.forma_detectada_tipologica = metricasFinal.forma_tipologica_inferida;
+          const _formaMostrada = (metricasFinal.forma_tipologica_inferida && metricasFinal.forma_requiere_reinterpretacion_tipologica)
+            ? metricasFinal.forma_tipologica_inferida
+            : _formaFinal;
+          metricasFinal.forma_detectada = _formaMostrada;
+          metricasFinal.forma_detectada_mostrada = _formaMostrada;
+          if (!metricasFinal.forma_categoria_base && _mc.categoria_base)
+            metricasFinal.forma_categoria_base = _mc.categoria_base;
+          console.log('[IA→Meta] forma unificada por árbol JS:', _formaFinal,
+            '(conf:', metricasFinal.forma_confianza_global + '%)');
+          if (typeof window._maoLog === 'function') window._maoLog(`[IA] meta-clasif="${_formaFinal}" tipologia="${metricasFinal.forma_tipologica_inferida || _formaFinal}" reinterpretada=${!!metricasFinal.forma_requiere_reinterpretacion_tipologica} conf=${metricasFinal.forma_confianza_global}% metodos=${metricasFinal.forma_metodos_coincidentes} completitud=${metricasFinal.completitud_estimada ?? 'n/a'}`);
+        }
+      } catch (_emc) {
+        console.warn('[IA→Meta] metaClasificarFormaIA falló:', _emc.message);
+      }
+    }
+
+    // Red de seguridad para discrepancias de cache/render en IA.
+    aplicarFallbackTipologicoIA(metricasFinal);
+
+    const _tipologiaEfaLabel = metricasFinal.tipo_artefacto
+      ? `${metricasFinal.tipo_artefacto}${metricasFinal.subtipo_artefacto ? ` (${metricasFinal.subtipo_artefacto})` : ''}`
+      : '';
+
+    // Si el árbol JS no reinterpretó tipológicamente la forma, conservar la
+    // forma geométrica como principal pero exponer la lectura tipológica EFA.
+    if (_tipologiaEfaLabel && !metricasFinal.forma_requiere_reinterpretacion_tipologica) {
+      metricasFinal.forma_tipologia_asistida_efa = true;
+      metricasFinal.forma_tipologica_inferida = _tipologiaEfaLabel;
+      metricasFinal.forma_detectada_tipologica = _tipologiaEfaLabel;
+      if (!metricasFinal.forma_razon_tipologica ||
+          /sin reinterpretación tipológica adicional/i.test(metricasFinal.forma_razon_tipologica)) {
+        metricasFinal.forma_razon_tipologica = `Tipología asistida por clasificador EFA: ${_tipologiaEfaLabel}. La forma geométrica observada se conserva como salida principal.`;
+      }
+    }
+
+    const _canonIA = (typeof window.aplicarReglaCanonicaInterpretacion === 'function')
+      ? window.aplicarReglaCanonicaInterpretacion(metricasFinal)
+      : null;
+    const _formaMostradaIA = _canonIA?.forma_detectada_mostrada ||
+      ((metricasFinal.forma_tipologica_inferida && metricasFinal.forma_requiere_reinterpretacion_tipologica)
+        ? metricasFinal.forma_tipologica_inferida
+        : (metricasFinal.forma_detectada_meta || metricasFinal.forma_detectada));
+    metricasFinal.forma_detectada = _formaMostradaIA;
+    metricasFinal.forma_detectada_mostrada = _formaMostradaIA;
+
+    // Sincronizar el objeto del modal IA para que tabla/fichas reflejen la misma salida.
+    maoObj.forma_geometrica_observada = metricasFinal.forma_geometrica_observada || maoObj.forma_geometrica_observada;
+    maoObj.forma_tipologia_asistida_efa = !!metricasFinal.forma_tipologia_asistida_efa;
+    maoObj.forma_tipologica_inferida = metricasFinal.forma_tipologica_inferida || maoObj.forma_tipologica_inferida;
+    maoObj.forma_detectada_tipologica = metricasFinal.forma_detectada_tipologica || maoObj.forma_detectada_tipologica;
+    maoObj.forma_requiere_reinterpretacion_tipologica = !!metricasFinal.forma_requiere_reinterpretacion_tipologica;
+    maoObj.forma_razon_tipologica = metricasFinal.forma_razon_tipologica || maoObj.forma_razon_tipologica;
+    maoObj.forma_detectada_mostrada = _formaMostradaIA;
+    maoObj.forma_detectada = _formaMostradaIA;
+
+    const emitirMonitorAnalisisIA = (objMonitor, metricasMonitor) => {
+      const payload = {
+        objeto: objMonitor.id || objMonitor.nombreObjeto || null,
+        cara: objMonitor.cara || 'mono',
+        modo: 'ia',
+        metodoDeteccion: 'mao_ia',
+        analysis_method: metricasMonitor.analysis_method || null,
+        forma: metricasMonitor.forma_detectada || metricasMonitor.forma_detectada_meta || null,
+        forma_meta: metricasMonitor.forma_detectada_meta || null,
+        forma_geometrica: metricasMonitor.forma_geometrica_observada || metricasMonitor.forma_detectada || null,
+        forma_tipologica: metricasMonitor.forma_tipologica_inferida || metricasMonitor.forma_detectada_tipologica || null,
+        forma_tipologica_reinterpretada: !!metricasMonitor.forma_requiere_reinterpretacion_tipologica,
+        razon_tipologica: metricasMonitor.forma_razon_tipologica || null,
+        tipo_artefacto: metricasMonitor.tipo_artefacto || null,
+        subtipo_artefacto: metricasMonitor.subtipo_artefacto || null,
+        confianza_tipologia: metricasMonitor.confianza_tipologia ?? null,
+        area_fragmentada_px: metricasMonitor.area_fragmentada_px ?? null,
+        area_px: metricasMonitor.area_px ?? null,
+        centroid_hull_x: metricasMonitor.centroide_hull_x ?? null,
+        centroid_hull_y: metricasMonitor.centroide_hull_y ?? null,
+        radio_maximo_px: metricasMonitor.radio_maximo_px ?? null,
+        radio_minimo_px: metricasMonitor.radio_minimo_px ?? null,
+        ratio_radios: metricasMonitor.ratio_radios ?? null,
+        regularidad_radial: metricasMonitor.regularidad_radial ?? null,
+        circularity: metricasMonitor.circularity ?? null,
+        solidity: metricasMonitor.solidity ?? null,
+        timestamp: new Date().toISOString(),
+      };
+      console.info(`[MONITOR_ANALISIS] ${JSON.stringify(payload)}`);
+    };
+
     // ── Crear tarjeta en panel de resultados ────────────────────────────────
     try {
+      // 🔭 DEBUG: Verificar que error_optico llegó a metricasFinal antes de mostrar
+      console.log(`[IA→Card] Error óptico en metricasFinal:`, {
+        error_optico_lineal_percent: metricasFinal.error_optico_lineal_percent,
+        error_optico_area_percent: metricasFinal.error_optico_area_percent,
+        confianza_optica: metricasFinal.confianza_optica,
+        posicion_radial_norm: metricasFinal.posicion_radial_norm,
+        angulo_optico_deg: metricasFinal.angulo_optico_deg,
+      });
+
+      emitirMonitorAnalisisIA(objMorf, metricasFinal);
       if (typeof window.mostrarCardObjetoIA === 'function') {
         // Flujo normal: crear tarjeta en la grilla, igual que otros modos de análisis
         window.mostrarCardObjetoIA(objMorf, metricasFinal, imagen);
@@ -2192,6 +2552,141 @@
     });
   });
 
+  function _normalizeEfaContourPoints(points = []) {
+    if (!Array.isArray(points)) return [];
+    return points
+      .map((p) => {
+        if (Array.isArray(p) && p.length >= 2) return [Number(p[0]), Number(p[1])];
+        if (p && typeof p === 'object' && p.x != null && p.y != null) return [Number(p.x), Number(p.y)];
+        return null;
+      })
+      .filter((p) => p && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  }
+
+  function _resampleByArcForLandmarks(pts, nSamples) {
+    if (!Array.isArray(pts) || pts.length < 3) return [];
+    const n = pts.length;
+    const arc = [0];
+    for (let i = 1; i < n; i++) {
+      const dx = pts[i][0] - pts[i - 1][0];
+      const dy = pts[i][1] - pts[i - 1][1];
+      arc.push(arc[i - 1] + Math.hypot(dx, dy));
+    }
+    const dx0 = pts[0][0] - pts[n - 1][0];
+    const dy0 = pts[0][1] - pts[n - 1][1];
+    const totalLen = arc[n - 1] + Math.hypot(dx0, dy0);
+    if (totalLen <= 0) return [];
+
+    const step = totalLen / nSamples;
+    const out = [];
+    let j = 0;
+    for (let i = 0; i < nSamples; i++) {
+      const target = i * step;
+      while (j < n - 1 && arc[j + 1] < target) j++;
+      const a0 = arc[j];
+      const a1 = j + 1 < n ? arc[j + 1] : totalLen;
+      const t = a1 > a0 ? (target - a0) / (a1 - a0) : 0;
+      const p0 = pts[j];
+      const p1 = pts[(j + 1) % n];
+      out.push([p0[0] + t * (p1[0] - p0[0]), p0[1] + t * (p1[1] - p0[1])]);
+    }
+    return out;
+  }
+
+  function _generateSemiAutoLandmarks(points, nLandmarks = 32) {
+    const pts = _normalizeEfaContourPoints(points);
+    if (pts.length < 8) return [];
+    return _resampleByArcForLandmarks(pts, nLandmarks);
+  }
+
+  function _buildTpsText(landmarks, obj) {
+    const lines = [];
+    lines.push(`LM=${landmarks.length}`);
+    landmarks.forEach((p) => lines.push(`${Number(p[0]).toFixed(6)} ${Number(p[1]).toFixed(6)}`));
+    lines.push(`ID=${String(obj?.id || `IA_OBJ_${obj?.object_id || 'X'}`)}`);
+    lines.push('COMMENT=MAO Plus IA semi-landmarks (arc-length)');
+    return lines.join('\n') + '\n';
+  }
+
+  async function _appendMaoEfaPanel(obj) {
+    if (!metricsModalBody) return;
+
+    const section = document.createElement('div');
+    section.className = 'mao-mgroup';
+    section.style.marginBottom = '10px';
+    section.innerHTML =
+      '<div style="font-weight:700;font-size:10px;color:#0d4f9a;border-bottom:1.5px solid #0d4f9a30;padding-bottom:2px;margin-bottom:3px;">EFA (Fourier Eliptico)</div>' +
+      '<div style="font-size:10px;color:#64748b;padding:4px 6px;">Calculando descriptores...</div>';
+    metricsModalBody.appendChild(section);
+
+    const bridgeOk = window.PythonBridge && PythonBridge.isModuleActive('efa') && PythonBridge.efa;
+    if (!bridgeOk) {
+      section.innerHTML =
+        '<div style="font-weight:700;font-size:10px;color:#0d4f9a;border-bottom:1.5px solid #0d4f9a30;padding-bottom:2px;margin-bottom:3px;">EFA (Fourier Eliptico)</div>' +
+        '<div style="font-size:10px;color:#64748b;padding:4px 6px;">Modulo EFA no disponible en backend.</div>';
+      return;
+    }
+
+    const points = _normalizeEfaContourPoints(obj?.contour_points || obj?.points || obj?._contour_data?.points);
+    if (points.length < 8) {
+      section.innerHTML =
+        '<div style="font-weight:700;font-size:10px;color:#0d4f9a;border-bottom:1.5px solid #0d4f9a30;padding-bottom:2px;margin-bottom:3px;">EFA (Fourier Eliptico)</div>' +
+        '<div style="font-size:10px;color:#b45309;padding:4px 6px;">Contorno insuficiente (minimo 8 puntos).</div>';
+      return;
+    }
+
+    try {
+      const scalePxMm = Number(callGetter('_maoGetScale') || 1.0) || 1.0;
+      const efa = await PythonBridge.efa.calculate(points, {
+        nHarmonics: 20,
+        scalePxMm,
+        normalize: true,
+      });
+
+      if (!efa || efa.status !== 'ok') {
+        throw new Error(efa?.message || 'Respuesta invalida');
+      }
+
+      obj._efa_data = efa;
+      const landmarks = _generateSemiAutoLandmarks(points, 32);
+      obj._landmarks_semiauto = landmarks;
+      const ps = Array.isArray(efa.power_spectrum) ? efa.power_spectrum.slice(0, 5).map(v => Number(v).toFixed(4)).join(', ') : 'N/A';
+      const btnId = `maoIaEfaTpsBtn_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+      section.innerHTML =
+        '<div style="font-weight:700;font-size:10px;color:#0d4f9a;border-bottom:1.5px solid #0d4f9a30;padding-bottom:2px;margin-bottom:3px;">EFA (Fourier Eliptico)</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:10px;">' +
+          '<tr><td style="padding:2px 6px;color:#718096;">Armónicos</td><td style="padding:2px 6px;text-align:right;font-weight:600;">' + efa.n_harmonics + '</td></tr>' +
+          '<tr><td style="padding:2px 6px;color:#718096;">h para 95% var</td><td style="padding:2px 6px;text-align:right;font-weight:600;">' + efa.harmonics_for_95pct + '</td></tr>' +
+          '<tr><td style="padding:2px 6px;color:#718096;">h para 99% var</td><td style="padding:2px 6px;text-align:right;font-weight:600;">' + efa.harmonics_for_99pct + '</td></tr>' +
+          '<tr><td style="padding:2px 6px;color:#718096;">Landmarks semi-auto</td><td style="padding:2px 6px;text-align:right;font-weight:600;">' + landmarks.length + '</td></tr>' +
+        '</table>' +
+        '<div style="margin-top:4px;padding:4px 6px;background:#f8fbff;border:1px solid #dbeafe;border-radius:4px;font-size:9px;color:#334155;line-height:1.4;">' +
+          '<b>Power spectrum (1..5):</b> ' + ps +
+        '</div>' +
+        '<button id="' + btnId + '" style="margin-top:6px;padding:5px 8px;border:1px solid #0d6efd;background:#fff;color:#0d6efd;border-radius:5px;cursor:pointer;font-size:10px;font-weight:600;">Exportar landmarks TPS</button>';
+
+      const tpsBtn = document.getElementById(btnId);
+      if (tpsBtn) {
+        tpsBtn.addEventListener('click', () => {
+          const text = _buildTpsText(landmarks, obj);
+          const fileBase = String(obj?.id || `ia_obj_${obj?.object_id || 'x'}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+          const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(blob);
+          link.download = `${fileBase}_landmarks.tps`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(link.href);
+        });
+      }
+    } catch (err) {
+      section.innerHTML =
+        '<div style="font-weight:700;font-size:10px;color:#0d4f9a;border-bottom:1.5px solid #0d4f9a30;padding-bottom:2px;margin-bottom:3px;">EFA (Fourier Eliptico)</div>' +
+        '<div style="font-size:10px;color:#b91c1c;padding:4px 6px;">Error EFA: ' + String(err?.message || err) + '</div>';
+    }
+  }
+
   function showMaoMetrics(obj) {
     const color = iaColor(obj.object_id);
     metricsModalTitle.innerHTML =
@@ -2237,8 +2732,8 @@
           ['compactness','Compacidad'],['rectangularity','Rectangularidad'],
           ['shape_factor','Factor forma'],['bounding_box_efficiency','Efic. bbox'],
           ['elongation','Elongación'],['extent','Extensión'],
-          ['aspect_ratio','Aspect ratio'],['aspect_ratio_tight','Aspect ratio ajust.'],
-          ['aspect_ratio_original','Aspect ratio orig.'],
+          ['aspect_ratio','Relación de aspecto (AR)'],['aspect_ratio_tight','Relación de aspecto (AR) ajust.'],
+          ['aspect_ratio_original','Relación de aspecto (AR) original'],
           ['contour_complexity_index','Índice compl. contorno'],
         ]},
         { title: 'Ejes e Inercia', keys: [
@@ -2284,6 +2779,12 @@
         ]},
         { title: 'Clasificación', keys: [
           ['forma_detectada','Forma detectada'],
+          ['forma_detectada_mostrada','Forma mostrada'],
+          ['forma_geometrica_observada','Forma geométrica observada'],
+          ['forma_tipologica_inferida','Interpretación tipológica'],
+          ['forma_detectada_tipologica','Forma tipológica (alias)'],
+          ['forma_requiere_reinterpretacion_tipologica','Reinterpretación tipológica'],
+          ['forma_razon_tipologica','Razón tipológica'],
           ['completitud_estimada','Completitud estim.'],
           ['simetria_bilateral','Simetría bilateral'],
         ]},
@@ -2385,6 +2886,9 @@
 
       metricsModalBody.innerHTML = '';
       metricsModalBody.appendChild(frag);
+      _appendMaoEfaPanel(obj).catch((e) => {
+        console.warn('[MAO-IA] Error al renderizar panel EFA:', e?.message || e);
+      });
     }, 0); // setTimeout 0 — cede el hilo antes de construir el DOM
   }
 

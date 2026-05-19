@@ -92,9 +92,10 @@ def _morpho_from_contour(contour: np.ndarray, object_id: int) -> dict:
     # Extent: fracción del bbox cubierta por el contorno
     extent = round(area / (w * h), 4) if (w * h) > 0 else 0.0
 
-    # Convex hull → solidity + puntos del polígono convexo
+    # Convex hull sobre el contorno COMPLETO → solidity + hull geométrico real
     hull   = cv2.convexHull(contour)
     hull_a = float(cv2.contourArea(hull))
+    hull_p = float(cv2.arcLength(hull, True))
     solidity = round(area / hull_a, 4) if hull_a > 0 else 0.0
 
     # Diámetro equivalente
@@ -103,16 +104,14 @@ def _morpho_from_contour(contour: np.ndarray, object_id: int) -> dict:
     # Defectos de convexidad
     defects_info = _convexity_defects_raw(contour)
 
-    # Contorno real simplificado → [[x,y], ...]  (Douglas-Peucker ε=1.5 px)
-    approx = cv2.approxPolyDP(contour, epsilon=1.5, closed=True)
-    contour_pts = approx.reshape(-1, 2).tolist()
+    # Contorno real completo → [[x,y], ...]  (sin simplificar, para métricas morfológicas)
+    contour_pts = contour.reshape(-1, 2).tolist()
 
-    # Convex hull sobre el contorno simplificado → [[x,y], ...]
-    hull_of_approx = cv2.convexHull(approx)
-    hull_pts = hull_of_approx.reshape(-1, 2).tolist()
+    # Convex hull del contorno completo → [[x,y], ...]
+    hull_pts = hull.reshape(-1, 2).tolist()
 
-    # Centroide del convex hull
-    hm = cv2.moments(hull_of_approx)
+    # Centroide del convex hull real
+    hm = cv2.moments(hull)
     if hm["m00"] != 0:
         hull_cx = round(hm["m10"] / hm["m00"], 2)
         hull_cy = round(hm["m01"] / hm["m00"], 2)
@@ -120,22 +119,29 @@ def _morpho_from_contour(contour: np.ndarray, object_id: int) -> dict:
         hull_cx, hull_cy = round(cx, 2), round(cy, 2)
 
     return {
-        "object_id":           object_id,
-        "area":                round(area, 2),
-        "perimeter":           round(perimeter, 2),
-        "centroid_x":          round(cx, 2),
-        "centroid_y":          round(cy, 2),
-        "hull_centroid_x":     hull_cx,
-        "hull_centroid_y":     hull_cy,
+        "object_id":                 object_id,
+        # ── área/perímetro del contorno real (para fragmentación y métricas reales)
+        "area":                      round(area, 2),
+        "perimeter":                 round(perimeter, 2),
+        "area_fragmentada_px":       round(area, 2),
+        "perimeter_fragmentado_px":  round(perimeter, 2),
+        # ── área/perímetro del convex hull real (separados para que JS los asigne
+        #    correctamente a convex_hull_area / convex_hull_perimeter en contornoData)
+        "area_px":                   round(hull_a, 2),
+        "perimeter_px":              round(hull_p, 2),
+        "centroid_x":                round(cx, 2),
+        "centroid_y":                round(cy, 2),
+        "hull_centroid_x":           hull_cx,
+        "hull_centroid_y":           hull_cy,
         "bbox_x": x, "bbox_y": y, "bbox_w": w, "bbox_h": h,
-        "circularity":         round(circularity, 4),
-        "aspect_ratio":        aspect_ratio,
-        "extent":              extent,
-        "solidity":            solidity,
-        "equivalent_diameter": eq_diam,
-        "convexity_defects":   defects_info,
-        "contour_points":      contour_pts,   # contorno real simplificado
-        "hull_points":         hull_pts,       # convex hull como polígono
+        "circularity":               round(circularity, 4),
+        "aspect_ratio":              aspect_ratio,
+        "extent":                    extent,
+        "solidity":                  solidity,
+        "equivalent_diameter":       eq_diam,
+        "convexity_defects":         defects_info,
+        "contour_points":            contour_pts,   # contorno real completo (sin simplificar)
+        "hull_points":               hull_pts,       # convex hull del contorno completo
     }
 
 

@@ -21,8 +21,8 @@ contextBridge.exposeInMainWorld('electronInfo', {
 contextBridge.exposeInMainWorld('electronAPI', {
 
   // —— Selector de carpeta ————————————————————————————————————————————————————
-  selectFolder: () =>
-    ipcRenderer.invoke('select-folder'),
+  selectFolder: (options = {}) =>
+    ipcRenderer.invoke('select-folder', options),
 
   // —— Operaciones de sistema de archivos (IPC → main process) ————————————————
   saveFile: (filePath, content) =>
@@ -77,6 +77,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // —— Estado servidor Python ——————————————————————————————————————————————————
   getPythonServerStatus: () =>
     ipcRenderer.invoke('python-server-status'),
+
+  // —— Estado del backend para badge UI ————————————————————————————————————————
+  getBackendStatus: () =>
+    ipcRenderer.invoke('mao:backend-status:get'),
+
+  /** Suscripción a cambios de estado del backend. Devuelve `unsubscribe()`. */
+  onBackendStatus: (cb) => {
+    if (typeof cb !== 'function') return () => {};
+    const handler = (_evt, payload) => { try { cb(payload); } catch {} };
+    ipcRenderer.on('mao:backend-status', handler);
+    return () => ipcRenderer.removeListener('mao:backend-status', handler);
+  },
 });
 
 console.log('📱 Plataforma:', process.platform);
