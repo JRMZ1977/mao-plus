@@ -548,11 +548,18 @@ function generarSeccionOrientacion(metricas, estiloTabla, estiloTh, estiloTd) {
         </tbody>
       </table>
     `;
-        </h3>
-        <div style="padding: 20px; background: #f0f2f5; border-left: 4px solid #0066cc; border-radius: 4px; text-align: center;">
-          <strong>No se detectaron perforaciones en este objeto</strong>
-        </div>
-      `;
+}
+
+function generarSeccionPerforaciones(obj, metricas, estiloTabla, estiloTh, estiloTd) {
+    if (!obj.perforaciones || obj.perforaciones.length === 0) {
+        return `
+            <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #0066cc;">
+              20. PERFORACIONES (Orificios Pasantes)
+            </h3>
+            <div style="padding: 20px; background: #f0f2f5; border-left: 4px solid #0066cc; border-radius: 4px; text-align: center;">
+              <strong>No se detectaron perforaciones en este objeto</strong>
+            </div>
+          `;
     }
     
     let html = `
@@ -2843,13 +2850,5 @@ function generarSeccionMetricasComplementarias(obj, metricas, estiloTabla, estil
     `;
 }
 
-function contarMetricas(metricas, obj) {
-    let count = 0;
-    // Contar todas las propiedades de métricas (aproximación)
-    count += Object.keys(metricas).length;
-    // Agregar perforaciones y horadaciones
-    if (obj.perforaciones) count += obj.perforaciones.length * 5; // 5 métricas por perforación
-    if (obj.horadaciones) count += obj.horadaciones.length * 5; // 5 métricas por horadación
-    return count;
-}
+// contarMetricas ya exportada en línea 186 — duplicado eliminado
 
