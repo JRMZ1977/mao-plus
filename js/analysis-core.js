@@ -8,6 +8,8 @@ import * as ShapeClassification from './modules/shape-classification.js';
 import * as ContourExtraction from './modules/contour-extraction.js';
 import * as ClassificationEngine from './modules/classification-engine.js';
 import * as UtilityHelpers from './modules/utility-helpers.js';
+import * as MetricsOrchestrator from './modules/metrics-orchestrator.js';
+import * as VisualizationExport from './modules/visualization-export.js';
 
 (() => {
   // ── Producción: console.log silenciado; warn/error siempre activos ────────
@@ -1694,7 +1696,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
       if (currentObjectForComponentSelection && window.getEscalaPixelMm) {
         const escalaFactor = window.getEscalaPixelMm();
         if (escalaFactor && escalaFactor > 0) {
-          const metricas = calcularMetricasMorfologicas(currentObjectForComponentSelection, escalaFactor);
+          const metricas = MetricsOrchestrator.calcularMetricasMorfologicas(currentObjectForComponentSelection, escalaFactor);
           if (metricas) {
             currentObjectForComponentSelection.metrics = metricas;
             console.log(`✅ Métricas morfométricas recalculadas para objeto ${currentObjectForComponentSelection.id}`);
@@ -1771,7 +1773,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
     
     for (const obj of objects) {
       try {
-        const metricas = calcularMetricasMorfologicas(obj, scale);
+        const metricas = MetricsOrchestrator.calcularMetricasMorfologicas(obj, scale);
         if (metricas) {
           obj.metrics = metricas;
           procesados++;
@@ -10084,7 +10086,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
         imageWidth: imageWidth,
         imageHeight: imageHeight
       });
-      return calcularMetricasConBoundingBox(obj, escalaFactor);
+      return MetricsOrchestrator.calcularMetricasConBoundingBox(obj, escalaFactor);
     }
 
     const metrics = {};
@@ -11599,10 +11601,10 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
             (!metricasCached._forma_idealizada ||
              (!metricasCached._forma_idealizada.distribucionRadialAngular && !metricasCached._formaIAFixed))) {
           let _jsForma = null;
-          if (typeof calcularMetricasMorfologicas === 'function') {
+          if (typeof MetricsOrchestrator.calcularMetricasMorfologicas === 'function') {
             try {
               const _escala = obj.analisisCached?.escalaUsada || 1.0;
-              const _jsMets = calcularMetricasMorfologicas(obj, _escala);
+              const _jsMets = MetricsOrchestrator.calcularMetricasMorfologicas(obj, _escala);
               if (_jsMets?._forma_idealizada) {
                 _jsForma = _jsMets._forma_idealizada;
                 // Complementar con campos de clasificación JS que Python no calcula
@@ -11694,7 +11696,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
         // Mostrar análisis con datos cacheados (ahora obj tiene P/H)
         // Para objetos 3D, pasar la imagen rasterizada de la cara como imagenEspecifica
         // para que mostrarAnalisisMorfologico pueda dibujar sin imageCaraA/B del pipeline 2D.
-        mostrarAnalisisMorfologico(obj, metricasCached, obj._imagen3d || null);
+        VisualizationExport.mostrarAnalisisMorfologico(obj, metricasCached, obj._imagen3d || null);
 
         // Restaurar canvas desde backup SÓLO cuando la imagen fuente NO estaba disponible.
         // Si la imagen era válida, mostrarAnalisisMorfologico ya dibujó correctamente;
@@ -11904,9 +11906,9 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
             // (equivalente al pipeline Manual), usando el contorno correcto del objeto IA.
             if (!metricas._forma_idealizada) {
               let _jsFormaNC = null;
-              if (obj.contour_points?.length >= 3 && typeof calcularMetricasMorfologicas === 'function') {
+              if (obj.contour_points?.length >= 3 && typeof MetricsOrchestrator.calcularMetricasMorfologicas === 'function') {
                 try {
-                  const _jsMetsNC = calcularMetricasMorfologicas(obj, scale || 1.0);
+                  const _jsMetsNC = MetricsOrchestrator.calcularMetricasMorfologicas(obj, scale || 1.0);
                   if (_jsMetsNC?._forma_idealizada) {
                     _jsFormaNC = _jsMetsNC._forma_idealizada;
                     if (!metricas.geometria_vertices && _jsMetsNC.geometria_vertices)
@@ -12009,7 +12011,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
         }
       }
       // ── Fallback JS ─────────────────────────────────────────────────────────
-      if (!metricas) metricas = calcularMetricasMorfologicas(obj, scale);
+      if (!metricas) metricas = MetricsOrchestrator.calcularMetricasMorfologicas(obj, scale);
 
       // ── Si Python suministró métricas (sin _contour_data), reconstruir _contour_data
       // desde obj.contour_points para que geometria.json guarde el contorno correctamente.
@@ -12082,7 +12084,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
         console.log(`✅ Métricas calculadas para objeto ${obj.id}:`, metricas);
         
         // Mostrar el análisis morfológico solo si no está en modo silencioso
-        mostrarAnalisisMorfologico(obj, metricas);
+        VisualizationExport.mostrarAnalisisMorfologico(obj, metricas);
         
         // COMPARACIÓN ESPECÍFICA: CONTORNO REAL vs CAJA CONTENEDORA
         compararGeometriaReal(obj, metricas);
@@ -12977,8 +12979,8 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
   }
 
   // Exponer globalmente para recálculo retroactivo desde el visor de colección
-  window.estimarErrorOptico        = estimarErrorOptico;
-  window.aplicarIncertidumbreOptica = aplicarIncertidumbreOptica;
+  window.estimarErrorOptico        = MetricsOrchestrator.estimarErrorOptico;
+  window.aplicarIncertidumbreOptica = MetricsOrchestrator.aplicarIncertidumbreOptica;
 
   function calcularEscala() {
     // ============================================================================
@@ -13071,7 +13073,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
     // Estimar error óptico en esquina (peor caso) para orientar al usuario
     let errorEsquinaTxt = '';
     try {
-      const errorEsquina = estimarErrorOptico({
+      const errorEsquina = MetricsOrchestrator.estimarErrorOptico({
         objCentroide: { x: anchoImagen, y: altoImagen }, // esquina = peor caso
         imgW: anchoImagen, imgH: altoImagen,
         focalMM: focal, sensorW: sensorWidth,
@@ -14488,7 +14490,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
     applySchematicBtn.addEventListener('click', () => {
       if (currentAnalyzedObject && currentAnalyzedObject.obj && currentAnalyzedObject.metricas) {
         console.log('🔄 Redibujando canvas esquemático con nueva configuración...');
-        generarCanvasEsquematico(currentAnalyzedObject.obj, currentAnalyzedObject.metricas);
+        VisualizationExport.generarCanvasEsquematico(currentAnalyzedObject.obj, currentAnalyzedObject.metricas);
         UtilityHelpers.setStatus('Canvas esquemático actualizado', false);
       } else {
         console.warn('⚠️ No hay objeto analizado para redibujar');
@@ -19581,7 +19583,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
     }
     
     // Llamar a la función completa para regenerar las métricas HTML
-    mostrarAnalisisMorfologico(obj, metricas);
+    VisualizationExport.mostrarAnalisisMorfologico(obj, metricas);
     
     // Restaurar el canvas inmediatamente
     if (canvasBackup && morphologicalCanvas) {
@@ -19646,7 +19648,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
     timestamp.textContent = new Date().toLocaleString('es-ES');
     
     // Generar tabla completa
-    contenido.innerHTML = generarTablaMetricasCompleta(obj, metricas);
+    contenido.innerHTML = VisualizationExport.generarTablaMetricasCompleta(obj, metricas);
     
     // Actualizar contador
     const totalMetricas = contarMetricas(metricas, obj);
@@ -19664,193 +19666,10 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
    * @param {Object} metricas - Métricas calculadas
    * @returns {string} - HTML de la tabla
    */
-  window.generarTablaMetricasCompleta = function(obj, metricas) {
-    let html = '<div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;">';
-    
-    // Estilo de tabla común
-    const estiloTabla = `
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 30px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      font-size: 13px;
-    `;
-    
-    const estiloTh = `
-      background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
-      color: white;
-      padding: 12px;
-      text-align: left;
-      font-weight: 600;
-      border: 1px solid #dee2e6;
-    `;
-    
-    const estiloTd = `
-      padding: 10px 12px;
-      border: 1px solid #dee2e6;
-    `;
-    
-    // ========================================================================
-    // 1. IDENTIFICACIÓN Y CLASIFICACIÓN
-    // ========================================================================
-    html += `
-      <h3 style="color: #495057; margin: 0 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #4a5568;">
-        I. CLASIFICACIÓN MORFOLÓGICA
-      </h3>
-      <table style="${estiloTabla}">
-        <thead>
-          <tr>
-            <th style="${estiloTh}; width: 40%;">Métrica</th>
-            <th style="${estiloTh}; width: 30%;">Valor</th>
-            <th style="${estiloTh}; width: 30%;">Descripción</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">ID del Objeto</td>
-            <td style="${estiloTd}; color: #0066cc; font-weight: 700;">${obj.id || 'N/A'}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Identificador único${obj.cara ? ' (incluye cara analizada)' : ''}</td>
-          </tr>
-          ${obj.numeroObjeto ? `
-          <tr>
-            <td style="${estiloTd}; font-weight: 600;">Número de Objeto</td>
-            <td style="${estiloTd}; font-size: 16px; font-weight: 600;">${obj.numeroObjeto}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Objeto bifacial (ambas caras comparten este número)</td>
-          </tr>` : ''}
-          ${obj.cara ? `
-          <tr style="background: ${obj.cara === 'A' ? '#f0f2f5' : '#d4edda'};">
-            <td style="${estiloTd}; font-weight: 600;">${obj.cara === 'A'? '': ''} Cara Analizada</td>
-            <td style="${estiloTd}; font-size: 15px; font-weight: 700; color: ${obj.cara === 'A' ? '#0066cc' : '#28a745'};">${obj.cara === 'A' ? 'Anverso (Cara A)' : 'Reverso (Cara B)'}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Este análisis corresponde a la ${obj.cara === 'A' ? 'cara frontal' : 'cara posterior'} del objeto</td>
-          </tr>` : ''}
-          <tr ${obj.cara ? '' : 'style="background: #f8f9fa;"'}>
-            <td style="${estiloTd}; font-weight: 600;">Meta-Clasificación Geométrica</td>
-            <td style="${estiloTd}; color: ${(metricas.forma_tipologica_inferida && metricas.forma_requiere_reinterpretacion_tipologica) ? '#ef6c00' : '#28a745'}; font-weight: 700; font-size: 14px;">${(metricas.forma_tipologica_inferida && metricas.forma_requiere_reinterpretacion_tipologica) ? metricas.forma_tipologica_inferida : (metricas.forma_detectada || 'No clasificada')}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">${(metricas.forma_tipologica_inferida && metricas.forma_requiere_reinterpretacion_tipologica) ? 'Se prioriza lectura tipológica para interpretación arqueológica' : 'Síntesis de 6 métodos de clasificación'}</td>
-          </tr>
-          <tr>
-            <td style="${estiloTd}; font-weight: 600;">Interpretación Tipológica</td>
-            <td style="${estiloTd}; color: ${(metricas.forma_tipologica_inferida && metricas.forma_tipologica_inferida !== (metricas.forma_geometrica_observada || metricas.forma_detectada)) ? '#ef6c00' : '#37474f'}; font-weight: 700; font-size: 14px;">${metricas.forma_tipologica_inferida || metricas.forma_detectada_tipologica || metricas.forma_detectada || 'N/A'}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Lectura arqueológica/semántica complementaria</td>
-          </tr>
-          ${metricas.forma_razon_tipologica ? `
-          <tr style="background: #fff8e1;">
-            <td style="${estiloTd}; font-weight: 600;">Razón Tipológica</td>
-            <td style="${estiloTd}; font-size: 12px;" colspan="2">${metricas.forma_razon_tipologica}</td>
-          </tr>` : ''}
-          <tr>
-            <td style="${estiloTd}; font-weight: 600;">Confianza de Clasificación</td>
-            <td style="${estiloTd}; font-weight: 600;">${metricas.forma_confianza_global || ((metricas.forma_confianza || 0) * 100).toFixed(1)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Nivel de certeza de la clasificación</td>
-          </tr>
-          <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Métodos Coincidentes</td>
-            <td style="${estiloTd}">${metricas.forma_metodos_coincidentes || 'N/A'}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Número de métodos que coinciden</td>
-          </tr>
-          <tr>
-            <td style="${estiloTd}; font-weight: 600;">Categoría de Forma</td>
-            <td style="${estiloTd}">${metricas.forma_categoria_base || 'N/A'}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Categoría morfológica general</td>
-          </tr>
-          ${metricas.patron_agrupamiento && metricas.patron_agrupamiento !== 'N/A' ? `
-          <tr style="background: #fff3e0; border-left: 4px solid #ff9800;">
-            <td style="${estiloTd}; font-weight: 600;">Patrón de Agrupamiento</td>
-            <td style="${estiloTd}; color: #ef6c00; font-weight: 700;">${metricas.patron_agrupamiento}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">${metricas.patron_agrupamiento_detalles || 'Patrón de perforaciones/horadaciones'}</td>
-          </tr>
-          <tr style="background: #e1f5fe; border-left: 4px solid #0288d1;">
-            <td style="${estiloTd}; font-weight: 600;">Clasificación Síntesis Final</td>
-            <td style="${estiloTd}; color: #0277bd; font-weight: 700; font-size: 14px;" colspan="2">${metricas.clasificacion_sintesis_final || metricas.forma_detectada || 'N/A'}</td>
-          </tr>` : ''}
-        </tbody>
-      </table>
-    `;
-    
-    // ========================================================================
-    // II. DIMENSIONES MÉTRICAS DEL OBJETO
-    // ========================================================================
-    html += generarSeccionDimensiones(obj, metricas, estiloTabla, estiloTh, estiloTd);
-    
-    // ========================================================================
-    // III. PROPORCIONES Y FORMA GLOBAL
-    // ========================================================================
-    html += generarSeccionIndicesForma(metricas, estiloTabla, estiloTh, estiloTd);
-    html += generarSeccionForma3D(metricas, estiloTabla, estiloTh, estiloTd);
-    
-    // ========================================================================
-    // IV. REGULARIDAD DEL CONTORNO
-    // ========================================================================
-    html += generarSeccionAnalisisRadial(metricas, estiloTabla, estiloTh, estiloTd);
-    html += generarSeccionConvexHull(metricas, estiloTabla, estiloTh, estiloTd);
-    
-    // ========================================================================
-    // V. RUGOSIDAD Y COMPLEJIDAD DEL BORDE
-    // ========================================================================
-    html += generarSeccionPropiedadesContorno(metricas, estiloTabla, estiloTh, estiloTd);
-    html += generarSeccionCurvatura(metricas, estiloTabla, estiloTh, estiloTd);
-    
-    // ========================================================================
-    // VI. ORIENTACIÓN Y POSICIÓN ESPACIAL
-    // ========================================================================
-    html += generarSeccionEjesOrientacion(metricas, estiloTabla, estiloTh, estiloTd);
-    html += generarSeccionSimetria(metricas, estiloTabla, estiloTh, estiloTd);
-    html += generarSeccionCentroide(metricas, estiloTabla, estiloTh, estiloTd);
-    
-    // ========================================================================
-    // VII. GEOMETRÍA DE VÉRTICES
-    // ========================================================================
-    html += generarSeccionVerticesAngulos(metricas, estiloTabla, estiloTh, estiloTd);
-    
-    // ========================================================================
-    // VIII. ESTADO DE CONSERVACIÓN Y FRAGMENTACIÓN
-    // ========================================================================
-    html += generarSeccionFragmentacion(metricas, estiloTabla, estiloTh, estiloTd);
-    html += generarSeccionEstadoConservacion(metricas, estiloTabla, estiloTh, estiloTd);
-    
-    // ========================================================================
-    // IX. ERROR ÓPTICO POSICIONAL (condicional)
-    // ========================================================================
-    if (metricas.error_optico_lineal_percent !== undefined) {
-      html += generarSeccionErrorOptico(metricas, estiloTabla, estiloTh, estiloTd);
-    }
-    
-    // ========================================================================
-    // X. PERFORACIONES Y HORADACIONES (condicional)
-    // ========================================================================
-    if (obj.perforaciones && obj.perforaciones.length > 0) {
-      html += generarSeccionPerforaciones(obj, metricas, estiloTabla, estiloTh, estiloTd);
-    }
-    if (obj.horadaciones && obj.horadaciones.length > 0) {
-      html += generarSeccionHoradaciones(obj, metricas, estiloTabla, estiloTh, estiloTd);
-    }
-    
-    // ========================================================================
-    // XI. ANÁLISIS COMPARATIVO OBJETO–P/H (condicional)
-    // ========================================================================
-    if (metricas.patron_agrupamiento && metricas.patron_agrupamiento !== 'N/A') {
-      html += generarSeccionPatronAgrupamiento(metricas, estiloTabla, estiloTh, estiloTd);
-    }
-    html += generarSeccionMetricasComplementarias(obj, metricas, estiloTabla, estiloTh, estiloTd);
-    
-    // ========================================================================
-    // XII. SÍNTESIS FINAL
-    // ========================================================================
-    html += generarSeccionMetricasAvanzadas(metricas, estiloTabla, estiloTh, estiloTd);
-    html += generarSeccionClasificacion(metricas, estiloTabla, estiloTh, estiloTd);
-    html += generarSeccionClasificaciones(metricas, estiloTabla, estiloTh, estiloTd);
-    html += generarSeccionSintesisFinal(metricas, estiloTabla, estiloTh, estiloTd);
-    
-    // ========================================================================
-    // COMPARACIÓN BIFACIAL (solo si es objeto bifacial)
-    // ========================================================================
-    if (obj.numeroObjeto && obj.cara && (obj.cara === 'A' || obj.cara === 'B')) {
-      html += generarSeccionComparacionBifacial(obj, metricas, estiloTabla, estiloTh, estiloTd);
-    }
-    
-    html += '</div>';
-    return html;
-  }
+  window.generarTablaMetricasCompleta = VisualizationExport.generarTablaMetricasCompleta;
+
+  // Nota: La definición de función ha sido movida a visualization-export.js
+  // Para mantener compatibilidad con el closure, se expone como referencia al módulo.
 
   // ============================================================================
   // FUNCIONES AUXILIARES PARA GENERAR CADA SECCIÓN
@@ -23294,7 +23113,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
   }
 
   // Función para mostrar análisis morfológico en la interfaz
-  function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = null) {
+  function VisualizationExport.mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = null) {
     console.log(`📊 DEBUG mostrarAnalisisMorfologico - Iniciando visualización:`);
     console.log(`   - Objeto ID: ${obj?.id}`);
     console.log(`   - Dimensiones obj: ${obj?.width}x${obj?.height}`);
@@ -23435,7 +23254,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
       // La imagen existe pero todavía está cargando — programar reintento único
       console.warn(`⚠️ [mostrarAnalisis] Imagen aún no cargada para ${obj?.id}. Reintentar al completar carga.`);
       imagenAUsar.addEventListener('load', () => {
-        mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica);
+        VisualizationExport.mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica);
       }, { once: true });
     }
 
@@ -25593,7 +25412,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
     // ============================================================================
     // 🆕 GENERAR CANVAS ESQUEMÁTICO - VISTA MORFOMÉTRICA SIN IMAGEN
     // ============================================================================
-    generarCanvasEsquematico(obj, metricas);
+    VisualizationExport.generarCanvasEsquematico(obj, metricas);
     
     // ============================================================================
     // 💾 AUTO-GUARDAR CANVAS EN OBJ — disponible para PDF sin acceder al DOM
@@ -25619,7 +25438,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
    * @param {Object} obj - Objeto analizado
    * @param {Object} metricas - Métricas morfológicas calculadas
    */
-  function generarCanvasEsquematico(obj, metricas) {
+  function VisualizationExport.generarCanvasEsquematico(obj, metricas) {
     console.log(`📐 Generando canvas esquemático para ${obj.id}...`);
     
     const schematicContainer = document.getElementById('schematicCanvasContainer');
@@ -26055,7 +25874,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
   }
 
   // Función para exportar análisis morfológico a archivo
-  function exportarAnalisisMorfologico(obj, metricas) {
+  function VisualizationExport.exportarAnalisisMorfologico(obj, metricas) {
     try {
       // Dimensiones de imagen según cara (accesibles en todo el scope de la función)
       let _iW = 0, _iH = 0;
@@ -26096,7 +25915,7 @@ import * as UtilityHelpers from './modules/utility-helpers.js';
             cx = (bb[0] || 0) + (bb[2] || 100) / 2;
             cy = (bb[1] || 0) + (bb[3] || 100) / 2;
           }
-          const eo = estimarErrorOptico({
+          const eo = MetricsOrchestrator.estimarErrorOptico({
             objCentroide: { x: cx, y: cy },
             imgW: _iW, imgH: _iH,
             focalMM: focal, sensorW: sensor,
@@ -26580,7 +26399,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   // ============================================================================
   // 🔐 VALIDAR COHERENCIA DATOS ANTES DE EXPORTAR PDF
   // ============================================================================
-  async function validarCoherenciaPreexportacion(obj, metricas, modo = 'monofacial') {
+  async function VisualizationExport.validarCoherenciaPreexportacion(obj, metricas, modo = 'monofacial') {
     const validaciones = {
       modo: modo,
       errores: [],
@@ -26693,7 +26512,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       // � NUEVO: VALIDAR COHERENCIA ANTES DE EXPORTAR PDF
       if (formato === 'pdf') {
         console.log('🔐 Iniciando validación pre-exportación...');
-        const validacion = await validarCoherenciaPreexportacion(obj, metricas, 'monofacial');
+        const validacion = await VisualizationExport.validarCoherenciaPreexportacion(obj, metricas, 'monofacial');
         
         if (!validacion.integridad) {
           const erroresFormulados = validacion.errores.join('\n• ');
@@ -26775,7 +26594,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       if (canvasIncompleto || esOtraCara) {
         console.log(`📐 Preparando canvas antes de exportar (incompleto: ${canvasIncompleto}, otraCara: ${esOtraCara})...`);
         try {
-          mostrarAnalisisMorfologico(obj, metricas);
+          VisualizationExport.mostrarAnalisisMorfologico(obj, metricas);
           // Dar tiempo a que el DOM/canvas se dibuje antes de capturar
           await new Promise(resolve => setTimeout(resolve, 150));
         } catch (prepErr) {
@@ -28545,6 +28364,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   // ============================================================================
   // 🆕 FUNCIÓN PARA GENERAR REPORTE PDF INTEGRAL CON TODAS LAS MÉTRICAS
   // ============================================================================
+  window.generarReportePDFIntegral = VisualizationExport.generarReportePDFIntegral;
+
+  // Nota: La definición completa de esta función ha sido movida a visualization-export.js
+  // La versión anterior inline estaba aquí y ha sido reemplazada por una referencia al módulo.
+  /*
+  ---- CÓDIGO REMOVIDO: Se encontraba aquí en líneas 28372-29269
   function generarReportePDFIntegral(obj) {
     try {
       // Obtener datos y validar
@@ -29273,7 +29098,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
             cxObj = (obj.minX || 0) + (obj.width  || 0) / 2;
             cyObj = (obj.minY || 0) + (obj.height || 0) / 2;
           }
-          const errorOpticoRecalc = estimarErrorOptico({
+          const errorOpticoRecalc = MetricsOrchestrator.estimarErrorOptico({
             objCentroide: { x: cxObj, y: cyObj },
             imgW: iW, imgH: iH,
             focalMM: focalVal, sensorW: swVal, sensorH: shVal,
@@ -29443,6 +29268,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       throw error;
     }
   } // FIN función generarReportePDFIntegral
+  */
   
   // ============================================================================
   // 🆕 FUNCIONES PARA GENERACIÓN DE PDF BIFACIAL
@@ -32063,7 +31889,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       console.log('🔙 Restaurando estado de UI anterior...');
       if (vistaAnterior && vistaAnterior.obj) {
         try {
-          mostrarAnalisisMorfologico(vistaAnterior.obj, vistaAnterior.metricas);
+          VisualizationExport.mostrarAnalisisMorfologico(vistaAnterior.obj, vistaAnterior.metricas);
           console.log(`   ✅ UI restaurada: Objeto ${vistaAnterior.obj.id} (Cara ${vistaAnterior.obj.cara || 'mono'})`);
           await new Promise(resolve => setTimeout(resolve, 100));
         } catch (restoreErr) {
@@ -32103,7 +31929,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       console.log('🔙 Restaurando estado de UI tras error...');
       if (vistaAnterior && vistaAnterior.obj) {
         try {
-          mostrarAnalisisMorfologico(vistaAnterior.obj, vistaAnterior.metricas);
+          VisualizationExport.mostrarAnalisisMorfologico(vistaAnterior.obj, vistaAnterior.metricas);
           console.log(`   ✅ UI restaurada tras error: Objeto ${vistaAnterior.obj.id}`);
         } catch (restoreErr) {
           console.warn('⚠️ No se pudo restaurar la vista previa tras error:', restoreErr);
@@ -33439,7 +33265,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   } // FIN función generarPDFDesdeHTML
   
   // Exportar JSON como archivo
-  function exportarJSON(obj, metricas) {
+  function VisualizationExport.exportarJSON(obj, metricas) {
     try {
       const jsonData = generarJSON(obj, metricas);
       const jsonString = JSON.stringify(jsonData, null, 2);
@@ -35193,7 +35019,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
               _cx = (obj.minX || 0) + (obj.width  || 0) / 2;
               _cy = (obj.minY || 0) + (obj.height || 0) / 2;
             }
-            const _eo = estimarErrorOptico({ objCentroide: { x: _cx, y: _cy }, imgW: _iW, imgH: _iH, focalMM: _fv, sensorW: _sw, sensorH: _sh, distanciaObjMM: _dv });
+            const _eo = MetricsOrchestrator.estimarErrorOptico({ objCentroide: { x: _cx, y: _cy }, imgW: _iW, imgH: _iH, focalMM: _fv, sensorW: _sw, sensorH: _sh, distanciaObjMM: _dv });
             if (_eo) {
               metricas.error_optico_lineal_percent = _eo.error_lineal_percent;
               metricas.error_optico_area_percent   = _eo.error_area_percent;
@@ -35236,7 +35062,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           // Pasar la imagen de cara correcta explícitamente para evitar que use la imagen global
           const imagenCara = obj.cara === 'A' ? imageCaraA : (obj.cara === 'B' ? imageCaraB : null);
 
-          mostrarAnalisisMorfologico(objParaRender, metricas, imagenCara);
+          VisualizationExport.mostrarAnalisisMorfologico(objParaRender, metricas, imagenCara);
           await new Promise(resolve => setTimeout(resolve, 500));
 
           // Capturar canvas post-render y persistir en obj.canvasImgenes para el PDF
@@ -35257,7 +35083,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         // GENERAR PDF CON DATOS + MÉTRICAS COMPLETAS (mismo motor que PDF Integral)
         try {
           console.log('🎨 Generando PDF con métricas completas y P/H...');
-          const htmlContent = generarReportePDFIntegral(obj);
+          const htmlContent = VisualizationExport.generarReportePDFIntegral(obj);
           const nombreBase = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `OBJ_${obj.numeroObjeto}`;
           const filename = `${nombreBase}_reporte`;
           await generarPDFDesdeHTML(htmlContent, filename, obj, metricas, { integral: true });
@@ -35287,7 +35113,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
 
         // Restaurar vista morfológica del objeto original
         if (estadoUIAnterior.objActual && estadoUIAnterior.metricasActuales) {
-          mostrarAnalisisMorfologico(estadoUIAnterior.objActual, estadoUIAnterior.metricasActuales);
+          VisualizationExport.mostrarAnalisisMorfologico(estadoUIAnterior.objActual, estadoUIAnterior.metricasActuales);
           console.log('   ✅ Vista morfológica restaurada');
         }
 
@@ -35453,7 +35279,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
               _cx = (obj.minX || 0) + (obj.width  || 0) / 2;
               _cy = (obj.minY || 0) + (obj.height || 0) / 2;
             }
-            const _eo = estimarErrorOptico({ objCentroide: { x: _cx, y: _cy }, imgW: _iW, imgH: _iH, focalMM: _fv, sensorW: _sw, sensorH: _sh, distanciaObjMM: _dv });
+            const _eo = MetricsOrchestrator.estimarErrorOptico({ objCentroide: { x: _cx, y: _cy }, imgW: _iW, imgH: _iH, focalMM: _fv, sensorW: _sw, sensorH: _sh, distanciaObjMM: _dv });
             if (_eo) {
               metricas.error_optico_lineal_percent = _eo.error_lineal_percent;
               metricas.error_optico_area_percent   = _eo.error_area_percent;
@@ -35495,7 +35321,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           // Pasar la imagen de cara correcta explícitamente para evitar que use la imagen global
           const imagenCara = obj.cara === 'A' ? imageCaraA : (obj.cara === 'B' ? imageCaraB : null);
 
-          mostrarAnalisisMorfologico(objParaRender, metricas, imagenCara);
+          VisualizationExport.mostrarAnalisisMorfologico(objParaRender, metricas, imagenCara);
           // Esperar renderizado completo (canvas 2D es sync, pero layout/compositing necesita frame)
           await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -35521,7 +35347,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           console.log('🎨 Generando PDF INTEGRAL con todas las métricas, P/H y análisis comparativo...');
           
           // Generar HTML del reporte integral
-          const htmlContent = generarReportePDFIntegral(obj);
+          const htmlContent = VisualizationExport.generarReportePDFIntegral(obj);
           
           // Crear nombre de archivo para el PDF
           const nombreBase = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `OBJ_${obj.numeroObjeto}`;
@@ -35556,7 +35382,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
 
         // Restaurar vista morfológica del objeto original
         if (estadoUIAnterior.objActual && estadoUIAnterior.metricasActuales) {
-          mostrarAnalisisMorfologico(estadoUIAnterior.objActual, estadoUIAnterior.metricasActuales);
+          VisualizationExport.mostrarAnalisisMorfologico(estadoUIAnterior.objActual, estadoUIAnterior.metricasActuales);
           console.log('   ✅ Vista morfológica restaurada');
         }
 
@@ -43720,7 +43546,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         const metricas = calcularMetricasMorfologicas(obj, scale);
         if (metricas) {
           metricas._contour_data = { points: obj.contour_points, points_visual: obj.contour_points };
-          mostrarAnalisisMorfologico(obj, metricas, imagenCara);
+          VisualizationExport.mostrarAnalisisMorfologico(obj, metricas, imagenCara);
           guardarAnalisisEnCache(obj, metricas);
         }
       }
@@ -43748,7 +43574,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
       // Mostrar el análisis restaurado directamente
       if (obj.metricas) {
-        mostrarAnalisisMorfologico(obj, obj.metricas, imagenCara);
+        VisualizationExport.mostrarAnalisisMorfologico(obj, obj.metricas, imagenCara);
         
         // Comparación geométrica
         compararGeometriaReal(obj, obj.metricas);
@@ -43883,7 +43709,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
       // Mostrar análisis morfológico usando la función existente
       // IMPORTANTE: Pasar la imagen específica de la cara
-      mostrarAnalisisMorfologico(objParaAnalisis, metricas, imagenCara);
+      VisualizationExport.mostrarAnalisisMorfologico(objParaAnalisis, metricas, imagenCara);
       
       // Comparación geométrica
       compararGeometriaReal(objParaAnalisis, metricas);
@@ -54751,10 +54577,10 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
     // DOM ya está listo
     inicializarMAO();
   }
-  
+
   // 🔧 EXPONER FUNCIONES CRÍTICAS GLOBALMENTE
   // Necesarias para recuperación de análisis desde modal de colección
-  window.mostrarAnalisisMorfologico = mostrarAnalisisMorfologico;
+  window.mostrarAnalisisMorfologico = VisualizationExport.mostrarAnalisisMorfologico;
   window.restaurarCanvasDesdeCache = restaurarCanvasDesdeCache;
   window.calcularEscala = calcularEscala; // Expuesto para exportarSVGMorfologicoActual
   // Getter vivo sobre la variable `scale` del closure — siempre refleja el valor actual
