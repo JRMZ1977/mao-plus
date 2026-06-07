@@ -1,6 +1,11 @@
 // MAO Plus — Motor de análisis morfométrico (IIFE principal)
 // ============================================================================
 
+import * as GeometryPrimitives from './modules/geometry-primitives.js';
+import * as ContourQuality from './modules/contour-quality.js';
+import * as MorphometricMetrics from './modules/morphometric-metrics.js';
+import * as ShapeClassification from './modules/shape-classification.js';
+
 (() => {
   // ── Producción: console.log silenciado; warn/error siempre activos ────────
   // Para depuración local: window._MAO_DEBUG = true → recarga la página.
@@ -1450,7 +1455,7 @@
           
           try {
             // Calcular Convex Hull usando algoritmo Graham Scan
-            const convexHull = calcularConvexHull(contornoParaHull);
+            const convexHull = GeometryPrimitives.calcularConvexHull(contornoParaHull);
             console.log(`   ✅ Convex Hull calculado:`, convexHull ? `${convexHull.length} vértices` : 'null');
             
             if (convexHull && convexHull.length >= 3) {
@@ -1710,7 +1715,7 @@
     // Aplicar las mismas validaciones y correcciones que en extraerContornoReal
     
     // Validación y corrección
-    contorno = validarYCorregirContorno(contorno, {
+    contorno = ContourQuality.validarYCorregirContorno(contorno, {
       maxSaltoPx: 10,
       eliminarDuplicados: true,
       suavizarZigzag: true,
@@ -3293,7 +3298,7 @@
       // VALIDACIÓN Y CORRECCIÓN - Elimina anomalías
       // ============================================================================
       // Detecta y corrige problemas comunes: saltos, duplicados, zigzag, etc.
-      contorno = validarYCorregirContorno(contorno, {
+      contorno = ContourQuality.validarYCorregirContorno(contorno, {
         maxSaltoPx: 10,           // Interpolar si distancia > 10px
         eliminarDuplicados: true, // Eliminar puntos duplicados
         suavizarZigzag: true,     // Suavizar oscilaciones
@@ -3303,7 +3308,7 @@
       // Post-procesamiento y optimización del contorno
       updateProgress(2, 3, 'Extracción de contorno');
       
-      const calidadContorno = evaluarCalidadContorno(contorno, obj);
+      const calidadContorno = ContourQuality.evaluarCalidadContorno(contorno, obj);
       console.log(`🔍 Contorno ${metodoDeteccion}: ${contorno.length} puntos, calidad ${calidadContorno.score.toFixed(2)} (${calidadContorno.nivel})`);
       
       // C3 — SEPARAR CONTORNO MÉTRICO DEL VISUAL:
@@ -3347,8 +3352,8 @@
 
       // Calcular métricas SIEMPRE sobre contorno completo
       const metricsContorno = calcularMetricasContorno(contorno, obj);
-      const calidadFinal = evaluarCalidadContorno(contorno, obj);
-      const validacionSuperficie = validarSuperficieReal(contorno, binaryMask, obj.width, obj.height);
+      const calidadFinal = ContourQuality.evaluarCalidadContorno(contorno, obj);
+      const validacionSuperficie = ContourQuality.validarSuperficieReal(contorno, binaryMask, obj.width, obj.height);
 
       // Generar contorno visual simplificado (ε adaptativo, solo para dibujo)
       let contornoVisual;
@@ -4695,7 +4700,7 @@
       for (let y = 1; y < height - 1; y++) {
         const idx = y * width + x;
         if (componentLabels[idx] === largestComponent.id) {
-          if (esPuntoBorde(binaryMask, x, y, width, height)) {
+          if (ContourQuality.esPuntoBorde(binaryMask, x, y, width, height)) {
             startX = x;
             startY = y;
             break;
@@ -4778,9 +4783,9 @@
             }
             
             // Calcular puntuación del candidato
-            const connectionQuality = calcularCalidadConexion(binaryMask, currentX, currentY, nextX, nextY, width, height);
+            const connectionQuality = ContourQuality.calcularCalidadConexion(binaryMask, currentX, currentY, nextX, nextY, width, height);
             const directionBonus = 1.0 / directionWeights[checkDir]; // Preferir direcciones ortogonales
-            const borderBonus = esPuntoBorde(binaryMask, nextX, nextY, width, height) ? 1.2 : 0.8;
+            const borderBonus = ContourQuality.esPuntoBorde(binaryMask, nextX, nextY, width, height) ? 1.2 : 0.8;
             
             const score = connectionQuality * directionBonus * borderBonus;
             
@@ -4873,7 +4878,7 @@
     }
 
     // 4. Convex Hull usando algoritmo de Graham Scan
-    const convexHull = calcularConvexHull(contorno);
+    const convexHull = GeometryPrimitives.calcularConvexHull(contorno);
     let areaConvexHull = 0;
     let perimetroConvexHull = 0;
     let centroidHullX = 0, centroidHullY = 0;
@@ -5039,7 +5044,7 @@
     for (let i = 1; i < uniquePoints.length; i++) {
       // Eliminar puntos que crean giro a la derecha o son colineales
       while (hull.length > 1 && 
-             orientacion(hull[hull.length - 2], hull[hull.length - 1], uniquePoints[i]) <= 0) {
+             GeometryPrimitives.orientacion(hull[hull.length - 2], hull[hull.length - 1], uniquePoints[i]) <= 0) {
         hull.pop();
       }
       hull.push(uniquePoints[i]);
@@ -5056,14 +5061,14 @@
       const centroidY = pointsCopy.reduce((sum, p) => sum + p[1], 0) / pointsCopy.length;
       
       // MÉTODO ALTERNATIVO: Barrido radial desde el centroide
-      const radialHull = calcularConvexHullRadial(pointsCopy, centroidX, centroidY);
+      const radialHull = GeometryPrimitives.calcularConvexHullRadial(pointsCopy, centroidX, centroidY);
       
       if (radialHull && radialHull.length >= 3) {
         console.log(`   ✅ Método radial exitoso: ${radialHull.length} vértices`);
         
         // 🆕 SIMPLIFICAR si tiene demasiados vértices
         if (radialHull.length > 12) {
-          const hullSimplificado = simplificarConvexHull(radialHull, 5.0);
+          const hullSimplificado = GeometryPrimitives.simplificarConvexHull(radialHull, 5.0);
           return hullSimplificado;
         }
         
@@ -5082,7 +5087,7 @@
     
     // 🆕 SIMPLIFICAR Graham Scan si tiene demasiados vértices
     if (hull.length > 12) {
-      const hullSimplificado = simplificarConvexHull(hull, 5.0);
+      const hullSimplificado = GeometryPrimitives.simplificarConvexHull(hull, 5.0);
       return hullSimplificado;
     }
     
@@ -5377,7 +5382,7 @@
       
       if (x >= 0 && x < width && y >= 0 && y < height) {
         const pixelValue = binaryMask[y * width + x];
-        if (pixelValue === 1 || esPuntoBorde(binaryMask, x, y, width, height)) {
+        if (pixelValue === 1 || ContourQuality.esPuntoBorde(binaryMask, x, y, width, height)) {
           puntosValidosContorno++;
         } else {
           puntosInvalidosContorno++;
@@ -5388,7 +5393,7 @@
     const ratioValidezContorno = puntosValidosContorno / contorno.length;
     
     // 2. Calcular área por contorno vs área real de píxeles de objeto
-    const areaPorContorno = calcularAreaShoelace(contorno);
+    const areaPorContorno = GeometryPrimitives.calcularAreaShoelace(contorno);
     const areaRealPixeles = binaryMask.reduce((sum, pixel) => sum + pixel, 0);
     const errorArea = Math.abs(areaPorContorno - areaRealPixeles) / areaRealPixeles;
     
@@ -5448,7 +5453,7 @@
     const getY = (p) => p.y !== undefined ? p.y : p[1];
     
     // 1. Área usando Shoelace
-    const area = calcularAreaShoelace(vertices);
+    const area = GeometryPrimitives.calcularAreaShoelace(vertices);
     
     // 2. Perímetro (suma de distancias entre puntos consecutivos)
     let perimeter = 0;
@@ -5705,8 +5710,8 @@
       
       // Si la distancia máxima es mayor que epsilon, simplificar recursivamente
       if (maxDist > epsilon) {
-        const left = douglasPeucker(points.slice(0, maxIndex + 1), epsilon);
-        const right = douglasPeucker(points.slice(maxIndex), epsilon);
+        const left = ShapeClassification.douglasPeucker(points.slice(0, maxIndex + 1), epsilon);
+        const right = ShapeClassification.douglasPeucker(points.slice(maxIndex), epsilon);
         
         // Combinar resultados eliminando el punto duplicado
         return left.slice(0, -1).concat(right);
@@ -5717,7 +5722,7 @@
     }
     
     // Aplicar simplificación con ε adaptativo
-    const simplified = douglasPeucker([...puntos, puntos[0]], epsilonAdaptativo);
+    const simplified = ShapeClassification.douglasPeucker([...puntos, puntos[0]], epsilonAdaptativo);
     
     // Remover el último punto duplicado y asegurar mínimo de puntos
     const result = simplified.slice(0, -1);
@@ -6734,8 +6739,8 @@
     const ejeMenorP2 = [cx + projMax2 * (-sin_a), cy + projMax2 * cos_a   ];
     
     // Recortar al interior del contorno (robustez ante proyecciones marginales)
-    const ejeMayorRecortado = recortarLineaDentroDeContorno(ejeMayorP1, ejeMayorP2, contourPoints);
-    const ejeMenorRecortado = recortarLineaDentroDeContorno(ejeMenorP1, ejeMenorP2, contourPoints);
+    const ejeMayorRecortado = MorphometricMetrics.recortarLineaDentroDeContorno(ejeMayorP1, ejeMayorP2, contourPoints);
+    const ejeMenorRecortado = MorphometricMetrics.recortarLineaDentroDeContorno(ejeMenorP1, ejeMenorP2, contourPoints);
     
     return {
       angulo_eje_principal: anguloGrados,
@@ -8265,7 +8270,7 @@
     // Si el filtrado es muy agresivo, usar threshold más permisivo
     if (filtered.length < contourPoints.length * 0.3) {
       console.warn(`   ⚠️ Filtrado muy agresivo (${filtered.length} puntos), ajustando threshold...`);
-      return filtrarRuidoEstadistico(contourPoints, continuityScores, threshold * 0.8);
+      return ShapeClassification.filtrarRuidoEstadistico(contourPoints, continuityScores, threshold * 0.8);
     }
     
     return filtered;
@@ -8342,7 +8347,7 @@
     const end = points.length - 1;
     
     for (let i = 1; i < end; i++) {
-      const d = distanciaPerpendicularALinea(points[i], points[0], points[end], getX, getY);
+      const d = ShapeClassification.distanciaPerpendicularALinea(points[i], points[0], points[end], getX, getY);
       if (d > dmax) {
         index = i;
         dmax = d;
@@ -8350,8 +8355,8 @@
     }
     
     if (dmax > epsilon) {
-      const recResults1 = douglasPeucker(points.slice(0, index + 1), epsilon);
-      const recResults2 = douglasPeucker(points.slice(index), epsilon);
+      const recResults1 = ShapeClassification.douglasPeucker(points.slice(0, index + 1), epsilon);
+      const recResults2 = ShapeClassification.douglasPeucker(points.slice(index), epsilon);
       return recResults1.slice(0, -1).concat(recResults2);
     } else {
       return [points[0], points[end]];
@@ -9031,14 +9036,14 @@
       
       if (arValido && aspectRatio >= 0.85 && aspectRatio <= 1.15) {
         // AR ≈ 1 → CUADRADO
-        vertices = generarCuadradoIdeal(centroid[0], centroid[1], area);
+        vertices = ShapeClassification.generarCuadradoIdeal(centroid[0], centroid[1], area);
         tipo = "Cuadrado";
         numPuntos = 4;
         console.log(`      ✅ CUADRADO generado: área=${area.toFixed(1)}px², 4 puntos`);
         
       } else if (arValido) {
         // AR ≠ 1 → RECTÁNGULO
-        vertices = generarRectanguloIdeal(centroid[0], centroid[1], ancho, alto);
+        vertices = ShapeClassification.generarRectanguloIdeal(centroid[0], centroid[1], ancho, alto);
         tipo = "Rectángulo";
         numPuntos = 4;
         console.log(`      ✅ RECTÁNGULO generado: ${ancho.toFixed(1)}×${alto.toFixed(1)}px, 4 puntos`);
@@ -9046,7 +9051,7 @@
       } else {
         // Sin AR válido, asumir polígono regular genérico
         const radioEquiv = Math.sqrt(area / Math.PI);
-        vertices = generarPoligonoRegularIdeal(centroid[0], centroid[1], radioEquiv, 6);
+        vertices = ShapeClassification.generarPoligonoRegularIdeal(centroid[0], centroid[1], radioEquiv, 6);
         tipo = "Polígono Regular (6 lados)";
         numPuntos = 6;
         console.log(`      ✅ HEXÁGONO generado: radio=${radioEquiv.toFixed(1)}px, 6 puntos`);
@@ -9060,7 +9065,7 @@
       
       if (!arValido || (aspectRatio >= 0.80 && aspectRatio <= 1.20)) {
         // AR ≈ 1 o no disponible → CÍRCULO
-        vertices = generarCirculoIdeal(centroid[0], centroid[1], radioPromedio, 32);
+        vertices = ShapeClassification.generarCirculoIdeal(centroid[0], centroid[1], radioPromedio, 32);
         tipo = esFragmento ? `Fragmento Circular (${porcentajeCompletitud.toFixed(0)}%)` : "Círculo";
         numPuntos = 32;
         console.log(`      ✅ CÍRCULO generado: radio=${radioPromedio.toFixed(1)}px, 32 puntos`);
@@ -9070,7 +9075,7 @@
         const rMayor = Math.max(ancho, alto) / 2;
         const rMenor = Math.min(ancho, alto) / 2;
         const angulo = 0; // Simplificado - podría calcular ángulo de rotación
-        vertices = generarElipseIdeal(centroid[0], centroid[1], rMayor, rMenor, angulo, 32);
+        vertices = ShapeClassification.generarElipseIdeal(centroid[0], centroid[1], rMayor, rMenor, angulo, 32);
         tipo = esFragmento ? `Fragmento Elíptico (${porcentajeCompletitud.toFixed(0)}%)` : "Elipse";
         numPuntos = 32;
         console.log(`      ✅ ELIPSE generada: ${rMayor.toFixed(1)}×${rMenor.toFixed(1)}px, 32 puntos`);
@@ -9088,14 +9093,14 @@
       
       if (arValido && aspectRatio >= 0.85 && aspectRatio <= 1.15) {
         // AR ≈ 1 → CUADRADO
-        vertices = generarCuadradoIdeal(centroid[0], centroid[1], area);
+        vertices = ShapeClassification.generarCuadradoIdeal(centroid[0], centroid[1], area);
         tipo = "Cuadrado";
         numPuntos = 4;
         console.log(`      ✅ CUADRADO generado: área=${area.toFixed(1)}px², 4 puntos`);
         
       } else if (arValido && (aspectRatio < 0.85 || aspectRatio > 1.15)) {
         // AR ≠ 1 → RECTÁNGULO
-        vertices = generarRectanguloIdeal(centroid[0], centroid[1], ancho, alto);
+        vertices = ShapeClassification.generarRectanguloIdeal(centroid[0], centroid[1], ancho, alto);
         tipo = "Rectángulo";
         numPuntos = 4;
         console.log(`      ✅ RECTÁNGULO generado: ${ancho.toFixed(1)}×${alto.toFixed(1)}px, 4 puntos`);
@@ -9103,7 +9108,7 @@
       } else {
         // Sin AR válido, asumir polígono regular genérico
         const radioEquiv = Math.sqrt(area / Math.PI);
-        vertices = generarPoligonoRegularIdeal(centroid[0], centroid[1], radioEquiv, 6);
+        vertices = ShapeClassification.generarPoligonoRegularIdeal(centroid[0], centroid[1], radioEquiv, 6);
         tipo = "Polígono Regular (6 lados)";
         numPuntos = 6;
         console.log(`      ✅ HEXÁGONO generado: radio=${radioEquiv.toFixed(1)}px, 6 puntos`);
@@ -9112,7 +9117,7 @@
     } else if (uniformidadRadial >= 0.45) {
       // BAJA UNIFORMIDAD → TRIÁNGULO
       const radioEquiv = Math.sqrt(area / Math.PI);
-      vertices = generarTrianguloIdeal(centroid[0], centroid[1], area);
+      vertices = ShapeClassification.generarTrianguloIdeal(centroid[0], centroid[1], area);
       tipo = "Triángulo Equilátero";
       numPuntos = 3;
       console.log(`      ✅ TRIÁNGULO generado: área=${area.toFixed(1)}px², 3 puntos`);
@@ -9244,7 +9249,7 @@
     // Identifica qué puntos son geometría real vs artefactos de píxeles
     // ============================================================================
     console.log(`   📊 PASO 1: Análisis estadístico de continuidad geométrica...`);
-    const continuityScores = analizarContinuidadGeometrica(contourPoints, 11);
+    const continuityScores = ShapeClassification.analizarContinuidadGeometrica(contourPoints, 11);
     
     // Estadísticas de continuidad
     const avgContinuity = continuityScores.reduce((a, b) => a + b, 0) / continuityScores.length;
@@ -9258,7 +9263,7 @@
     // ============================================================================
     console.log(`   📊 PASO 2: Filtrado de artefactos de digitalización...`);
     const umbralContinuidad = Math.max(0.70, avgContinuity * 0.85); // Adaptativo
-    const contornoFiltrado = filtrarRuidoEstadistico(contourPoints, continuityScores, umbralContinuidad);
+    const contornoFiltrado = ShapeClassification.filtrarRuidoEstadistico(contourPoints, continuityScores, umbralContinuidad);
     const eliminados = contourPoints.length - contornoFiltrado.length;
     console.log(`   ✅ Artefactos eliminados: ${eliminados} puntos (${((eliminados/contourPoints.length)*100).toFixed(1)}%)`);
     
@@ -9267,7 +9272,7 @@
     // Atenúa micro-variaciones residuales sin perder esquinas/vértices
     // ============================================================================
     console.log(`   📊 PASO 3: Suavizado Gaussiano (preservar vértices)...`);
-    const contornoSuavizado = suavizarContorno(contornoFiltrado, 7);
+    const contornoSuavizado = ContourQuality.suavizarContorno(contornoFiltrado, 7);
     console.log(`   ✅ Contorno suavizado: ${contornoSuavizado.length} puntos`);
     
     // ============================================================================
@@ -9275,7 +9280,7 @@
     // Análisis de curvatura: identifica cambios geométricos reales
     // ============================================================================
     console.log(`   📊 PASO 4: Detección de vértices significativos (análisis de curvatura)...`);
-    const verticesSignificativos = detectarVerticesSignificativos(contornoSuavizado, 0.12);
+    const verticesSignificativos = ShapeClassification.detectarVerticesSignificativos(contornoSuavizado, 0.12);
     console.log(`   ✅ Vértices detectados: ${verticesSignificativos.length} puntos de alta curvatura`);
     
     // ============================================================================
@@ -9293,7 +9298,7 @@
     
     console.log(`   � Epsilon adaptativo: ${epsilonAdaptativo.toFixed(2)} px (basado en perímetro=${perimetro.toFixed(1)} px)`);
     
-    const contornoSimplificado = douglasPeucker(contornoSuavizado, epsilonAdaptativo);
+    const contornoSimplificado = ShapeClassification.douglasPeucker(contornoSuavizado, epsilonAdaptativo);
     const reduccion = ((1 - contornoSimplificado.length / contourPoints.length) * 100).toFixed(1);
     console.log(`   ✅ Simplificación completa: ${contornoSimplificado.length} puntos (reducción del ${reduccion}%)`);
     
@@ -9339,7 +9344,7 @@
     const radioEquivalente = Math.sqrt(area / Math.PI);
     
     // Calcular excentricidad usando PCA sobre el contorno
-    const excentricidadData = calcularExcentricidad(contornoSimplificado);
+    const excentricidadData = MorphometricMetrics.calcularExcentricidad(contornoSimplificado);
     const excentricidad = excentricidadData?.excentricidad || 0;
     
     // ============================================================================
@@ -9377,13 +9382,13 @@
       console.warn(`\n   ⚠️ Convex Hull no disponible - usando contorno filtrado para análisis`);
     }
     
-    const distribucionRadialAngular = analizarDistribucionRadialAngular(puntosParaAnalisis, centroid);
+    const distribucionRadialAngular = ShapeClassification.analizarDistribucionRadialAngular(puntosParaAnalisis, centroid);
     
     // ============================================================================
     // 🆕 PASO 7B: GENERACIÓN DE FORMA IDEAL BASADA EN ANÁLISIS RADIAL
     // Genera la forma geométrica ideal inferida desde el análisis radial-angular
     // ============================================================================
-    const formaIdealInferida = generarFormaIdealDesdeAnalisisRadial(
+    const formaIdealInferida = ShapeClassification.generarFormaIdealDesdeAnalisisRadial(
       distribucionRadialAngular,
       centroid,
       ancho,
@@ -9398,7 +9403,7 @@
     // Compara el contorno real con la forma ideal mediante análisis radial
     // Si la desviación es baja → usar ideal, si es alta → usar depurado
     // ============================================================================
-    const validacionIdeal = validarFormaIdealContraReal(
+    const validacionIdeal = ShapeClassification.validarFormaIdealContraReal(
       contornoFiltrado,
       formaIdealInferida.vertices,
       centroid
@@ -9414,7 +9419,7 @@
     // ============================================================================
     // ANÁLISIS DE REGULARIDAD RADIAL (para métricas adicionales)
     // ============================================================================
-    const regularidad = analizarRegularidadGeometrica(contornoFiltrado, centroid, area, perimetro);
+    const regularidad = ShapeClassification.analizarRegularidadGeometrica(contornoFiltrado, centroid, area, perimetro);
     
     let verticesFinales = contornoSimplificado; // Por defecto: contorno depurado
     let esFormaIdealizada = false;
@@ -9961,7 +9966,7 @@
       } else if (_cPts.length >= 3) {
         // No hay hull precalculado: calcularlo desde el contorno (coords absolutas)
         if (typeof calcularConvexHull === 'function') {
-          _convexHullAbsoluto = calcularConvexHull(_cPts);
+          _convexHullAbsoluto = GeometryPrimitives.calcularConvexHull(_cPts);
         }
       }
 
@@ -10012,8 +10017,8 @@
       // ⚡ OPTIMIZACIÓN: Pasar máscara guardada si existe (detección manual rápida)
       // ── TEXTURA PRE-CONTORNO: calcular antes de extraer contorno para
       //    poder ofrecer una refined_mask si hay zonas brillantes sospechosas ──
-      const _texturaPreContorno = calcularTexturaSuperficie(obj);
-      const _refinedMask = refinarMascaraPorTextura(obj, _texturaPreContorno);
+      const _texturaPreContorno = MorphometricMetrics.calcularTexturaSuperficie(obj);
+      const _refinedMask = MorphometricMetrics.refinarMascaraPorTextura(obj, _texturaPreContorno);
 
       const opcionesExtraccion = {};
       if (_refinedMask) {
@@ -10217,7 +10222,7 @@
 
     // Pre-cálculo de ejes principales — adelantado aquí para uso en elongación y simetría bilateral.
     // La llamada es idempotente; los resultados se referencian también en el bloque 10.
-    const excentricidadData = calcularExcentricidad(contornoData.points, contornoMetrics.centroid);
+    const excentricidadData = MorphometricMetrics.calcularExcentricidad(contornoData.points, contornoMetrics.centroid);
 
     // 5. Elongación — eje_menor/eje_mayor del eje de inercia (caliper real).
     // Reemplaza min/max(bbox.width, bbox.height) que sobreestima elongación en objetos rotados.
@@ -10291,7 +10296,7 @@
     }
     
     // 11. Número de vértices aproximados (simplificación de contorno)
-    const vertices = aproximarVertices(contornoData.points);
+    const vertices = ShapeClassification.aproximarVertices(contornoData.points);
     metrics.vertices_aproximados = vertices.count;
     metrics.vertices_coords = vertices.points;
     
@@ -10304,7 +10309,7 @@
     metrics.contour_complexity_index = (contornoMetrics.perimeter_real / perimetroCirculoEquivalente).toFixed(4);
     
     // === CLASIFICACIÓN AUTOMÁTICA DE FORMA GEOMÉTRICA ===
-    const formaClasificada = clasificarFormaGeometrica(metrics, vertices.count);
+    const formaClasificada = ShapeClassification.clasificarFormaGeometrica(metrics, vertices.count);
     metrics.forma_detectada = formaClasificada.nombre;
     metrics.forma_confianza = formaClasificada.confianza;
     metrics.forma_razon = formaClasificada.razon;
@@ -10317,7 +10322,7 @@
     console.log(`📐 Calculando métricas arqueológicas avanzadas...`);
     
     // 14. Simetría Bilateral — medida respecto al eje mayor real del objeto
-    const simetriaData = calcularSimetriaBilateral(contornoData.points, contornoMetrics.centroid, parseFloat(excentricidadData?.angulo_eje_principal || 0));
+    const simetriaData = MorphometricMetrics.calcularSimetriaBilateral(contornoData.points, contornoMetrics.centroid, parseFloat(excentricidadData?.angulo_eje_principal || 0));
     metrics.simetria_bilateral = safeToFixed(simetriaData.simetria_bilateral, 4, '0.0000');
     
     // Guardar distancia de asimetría en píxeles como referencia
@@ -10333,7 +10338,7 @@
     metrics.simetria_clasificacion = simetriaData.clasificacion_simetria;
     
     // 15. Curvatura Local y Puntos de Inflexión
-    const curvaturaData = calcularCurvaturaLocal(contornoData.points);
+    const curvaturaData = MorphometricMetrics.calcularCurvaturaLocal(contornoData.points);
     metrics.curvatura_media = safeToFixed(curvaturaData.curvatura_media, 6);
     metrics.curvatura_maxima = safeToFixed(curvaturaData.curvatura_maxima, 6);
     metrics.curvatura_desviacion = safeToFixed(curvaturaData.desviacion_curvatura, 6);
@@ -10361,12 +10366,12 @@
     metrics.rugosidad_clasificacion = rugosidadData.clasificacion_rugosidad;
     
     // §VIII — Dimensión fractal box-counting
-    metrics.fractal_dimension = calcularDimensionFractal(contornoData.points);
+    metrics.fractal_dimension = MorphometricMetrics.calcularDimensionFractal(contornoData.points);
     
     // 17. Eje Principal y Orientación
     // Usar centroide del Convex Hull (forma completa) para mayor precisión arqueológica
     const centroidParaCalculo = contornoMetrics.centroid_hull || contornoMetrics.centroid;
-    const ejePrincipalData = calcularEjePrincipal(contornoData.points, centroidParaCalculo);
+    const ejePrincipalData = MorphometricMetrics.calcularEjePrincipal(contornoData.points, centroidParaCalculo);
     metrics.eje_principal_angulo = safeToFixed(ejePrincipalData.angulo_eje_principal, 2);
     metrics.eje_principal_orientacion = ejePrincipalData.orientacion;
     metrics.eje_principal_anisotropia = safeToFixed(ejePrincipalData.anisotropia, 4);
@@ -10411,7 +10416,7 @@
     const convexHullArray = contornoMetrics.convex_hull || [];
     // Se pasa también contornoData.points para que las estadísticas (radio_medio, desviación, CV)
     // se calculen sobre el contorno completo (muestreo uniforme) en lugar de los escasos vértices del hull.
-    const radiosData = calcularRadiosExtremos(convexHullArray, centroidParaCalculo, contornoData.points);
+    const radiosData = MorphometricMetrics.calcularRadiosExtremos(convexHullArray, centroidParaCalculo, contornoData.points);
     
     // Guardar valores en píxeles como referencia
     metrics.radio_maximo_px = radiosData.radio_maximo;
@@ -10535,7 +10540,7 @@
     // Ancho máximo y mínimo del objeto en todas las direcciones
     // Útil para mediciones robustas y comparaciones estandarizadas
     if (contornoMetrics.convex_hull && contornoMetrics.convex_hull.length >= 3) {
-      const feretData = calcularDiametroFeret(contornoMetrics.convex_hull);
+      const feretData = MorphometricMetrics.calcularDiametroFeret(contornoMetrics.convex_hull);
       
       // Guardar valores en píxeles como referencia
       metrics.feret_max_px = safeToFixed(feretData.feret_max, 2);
@@ -10590,7 +10595,7 @@
         })();
 
     if (_puntosAngulos) {
-      const angulosData = calcularAngulosVertices(_puntosAngulos);
+      const angulosData = ShapeClassification.calcularAngulosVertices(_puntosAngulos);
       
       metrics.angulo_medio_vertices = safeToFixed(angulosData.angulo_medio, 1);
       metrics.angulo_predominante = safeToFixed(angulosData.angulo_predominante, 1);
@@ -10873,7 +10878,7 @@
     // ============================================================================
     // Generar forma geométrica idealizada del contorno complejo
     console.log(`🔺 Generando forma geométrica idealizada...`);
-    const formaIdealizada = simplificarAFormaRegular(contornoData.points, metrics, contornoMetrics);
+    const formaIdealizada = ShapeClassification.simplificarAFormaRegular(contornoData.points, metrics, contornoMetrics);
     
     if (formaIdealizada) {
       metrics._forma_idealizada = formaIdealizada;
@@ -10895,7 +10900,7 @@
       // 🆕 CALCULAR COMPLETITUD DE FRAGMENTO
       if (formaIdealizada.distribucionRadialAngular) {
         console.log(`📊 Calculando completitud de fragmento...`);
-        const completitudData = calcularCompletitudFragmento(
+        const completitudData = MorphometricMetrics.calcularCompletitudFragmento(
           contornoData.points,
           contornoMetrics.centroid,
           formaIdealizada.distribucionRadialAngular
@@ -11119,7 +11124,7 @@
         const centroidReal = metrics._contour_data.metrics.centroid_real;
         // Pasar centroidReal para que excentricidad, elongación y simetría usen el mismo
         // centroide Shoelace del contorno real — coherencia con calcularSimetriaBilateral.
-        const excentricidadIdealizada = calcularExcentricidad(formaIdealizada.vertices, centroidReal);
+        const excentricidadIdealizada = MorphometricMetrics.calcularExcentricidad(formaIdealizada.vertices, centroidReal);
         metrics.excentricidad = safeToFixed(excentricidadIdealizada?.excentricidad, 4, '0.0000');
         // Los ejes del contorno idealizado vienen en px → convertir a mm si hay escala
         if (escalaFactor && escalaFactor > 0) {
@@ -11143,14 +11148,14 @@
         
         // Simetría Bilateral (usa CONTORNO IDEALIZADO pero CENTROIDE REAL)
         // Medida respecto al eje mayor real (excentricidadIdealizada.angulo_eje_principal)
-        const simetriaIdealizada = calcularSimetriaBilateral(formaIdealizada.vertices, centroidReal, parseFloat(excentricidadIdealizada?.angulo_eje_principal || 0));
+        const simetriaIdealizada = MorphometricMetrics.calcularSimetriaBilateral(formaIdealizada.vertices, centroidReal, parseFloat(excentricidadIdealizada?.angulo_eje_principal || 0));
         metrics.simetria_bilateral = safeToFixed(simetriaIdealizada.simetria_bilateral, 4, '0.0000');
         metrics.simetria_distancia_asimetria_px = safeToFixed(simetriaIdealizada.distancia_asimetria_px, 2);
         metrics.simetria_clasificacion = simetriaIdealizada.clasificacion_simetria;
         
         // Curvatura Local (usa solo CONTORNO IDEALIZADO)
         // Esta métrica es independiente del centroide
-        const curvaturaIdealizada = calcularCurvaturaLocal(formaIdealizada.vertices);
+        const curvaturaIdealizada = MorphometricMetrics.calcularCurvaturaLocal(formaIdealizada.vertices);
         metrics.curvatura_media = safeToFixed(curvaturaIdealizada.curvatura_media, 6);
         metrics.curvatura_maxima = safeToFixed(curvaturaIdealizada.curvatura_maxima, 6);
         metrics.curvatura_desviacion = safeToFixed(curvaturaIdealizada.desviacion_curvatura, 6);
@@ -11167,11 +11172,11 @@
         metrics.rugosidad_clasificacion = rugosidadIdealizada.clasificacion_rugosidad;
         
         // §VIII — Dimensión fractal (contorno idealizado)
-        metrics.fractal_dimension = calcularDimensionFractal(formaIdealizada.vertices);
+        metrics.fractal_dimension = MorphometricMetrics.calcularDimensionFractal(formaIdealizada.vertices);
         
         // Eje Principal (usa CONTORNO IDEALIZADO pero CENTROIDE REAL)
         // CRÍTICO: Los ejes deben calcularse respecto al centro real del objeto
-        const ejePrincipalIdealizada = calcularEjePrincipal(formaIdealizada.vertices, centroidReal);
+        const ejePrincipalIdealizada = MorphometricMetrics.calcularEjePrincipal(formaIdealizada.vertices, centroidReal);
         metrics.eje_principal_angulo = safeToFixed(ejePrincipalIdealizada.angulo_eje_principal, 2);
         metrics.eje_principal_orientacion = ejePrincipalIdealizada.orientacion;
         metrics.eje_principal_anisotropia = safeToFixed(ejePrincipalIdealizada.anisotropia, 4);
@@ -11293,7 +11298,7 @@
         // Guardar como forma_idealizada_nombre, forma_idealizada_confianza
         // ============================================================================
         console.log(`   🔄 Clasificando forma idealizada (depurada estadísticamente)...`);
-        const formaReclasificada = clasificarFormaGeometrica(metrics, formaIdealizada.vertices.length);
+        const formaReclasificada = ShapeClassification.clasificarFormaGeometrica(metrics, formaIdealizada.vertices.length);
         metrics.forma_idealizada_nombre = formaReclasificada.nombre;
         metrics.forma_idealizada_confianza = formaReclasificada.confianza;
         metrics.forma_idealizada_razon = formaReclasificada.razon;
@@ -11325,7 +11330,7 @@
     // realizado antes de extraerContornoReal (_texturaPreContorno); de lo contrario, calcular ahora.
     const texturaData = (typeof _texturaPreContorno !== 'undefined' && _texturaPreContorno)
       ? _texturaPreContorno
-      : calcularTexturaSuperficie(obj);
+      : MorphometricMetrics.calcularTexturaSuperficie(obj);
     if (texturaData.varianza_interna    !== null) metrics.varianza_interna     = safeToFixed(texturaData.varianza_interna,    4);
     if (texturaData.entropia_superficie !== null) metrics.entropia_superficie  = safeToFixed(texturaData.entropia_superficie,  4);
     if (texturaData.gradiente_medio     !== null) metrics.gradiente_medio      = safeToFixed(texturaData.gradiente_medio,      4);
@@ -11503,7 +11508,7 @@
             const _chx = parseFloat(metricasCached.centroide_hull_x || metricasCached.centroide_x) || 0;
             const _chy = parseFloat(metricasCached.centroide_hull_y || metricasCached.centroide_y) || 0;
             if (_chx !== 0 || _chy !== 0) {
-              const _radios = calcularRadiosExtremos(_hullAbs, [_chx, _chy], obj.contour_points);
+              const _radios = MorphometricMetrics.calcularRadiosExtremos(_hullAbs, [_chx, _chy], obj.contour_points);
               if (_radios.radio_maximo > 0) {
                 metricasCached.punto_radio_maximo = _radios.punto_radio_maximo;
                 metricasCached.punto_radio_minimo = _radios.punto_radio_minimo;
@@ -11525,7 +11530,7 @@
           const _cy2  = parseFloat(metricasCached.centroide_y)  || _chy2;
           const _hullAbs2 = obj.convexHull
             ? obj.convexHull.map(([rx, ry]) => [rx + obj.minX, ry + obj.minY])
-            : (typeof calcularConvexHull === 'function' ? calcularConvexHull(obj.contour_points) : []);
+            : (typeof calcularConvexHull === 'function' ? GeometryPrimitives.calcularConvexHull(obj.contour_points) : []);
           metricasCached._contour_data = {
             points: obj.contour_points,
             metrics: {
@@ -11556,7 +11561,7 @@
           const _cy3 = parseFloat(metricasCached.centroide_hull_y || metricasCached.centroide_y) || 0;
           if (_cx3 !== 0 || _cy3 !== 0) {
             try {
-              const _eje = calcularEjePrincipal(obj.contour_points, [_cx3, _cy3]);
+              const _eje = MorphometricMetrics.calcularEjePrincipal(obj.contour_points, [_cx3, _cy3]);
               if (_eje.eje_mayor_p1_recortado) {
                 // Canvas morfológico
                 metricasCached.eje_mayor_p1_recortado = _eje.eje_mayor_p1_recortado;
@@ -14625,7 +14630,7 @@
             });
             
             // Calcular Convex Hull
-            const convexHull = calcularConvexHull(contornoRelativo);
+            const convexHull = GeometryPrimitives.calcularConvexHull(contornoRelativo);
             
             if (convexHull && convexHull.length >= 3) {
               obj.convexHull = convexHull;
@@ -23316,7 +23321,7 @@
       });
       
       // Calcular Convex Hull
-      const convexHull = calcularConvexHull(contornoRelativo);
+      const convexHull = GeometryPrimitives.calcularConvexHull(contornoRelativo);
       
       if (convexHull && convexHull.length >= 3) {
         obj.convexHull = convexHull;
@@ -37148,7 +37153,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         return {
           id: perf.id || idx + 1,
           puntos: perf.puntos,
-          area: perf.metricas?.area || perf.area || (perf.puntos ? calcularAreaShoelace(perf.puntos) : 0),
+          area: perf.metricas?.area || perf.area || (perf.puntos ? GeometryPrimitives.calcularAreaShoelace(perf.puntos) : 0),
           perimetro: perf.metricas?.perimeter || perf.perimetro || (perf.puntos ? calcularPerimetroPoligono(perf.puntos) : 0),
           centroide: centPH,
           distanciaAlCentro: parseFloat((distPx * scale).toFixed(2)), // mm desde centroide del objeto
@@ -37166,7 +37171,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         return {
           id: horad.id || idx + 1,
           puntos: horad.puntos,
-          area: horad.metricas?.area || horad.area || (horad.puntos ? calcularAreaShoelace(horad.puntos) : 0),
+          area: horad.metricas?.area || horad.area || (horad.puntos ? GeometryPrimitives.calcularAreaShoelace(horad.puntos) : 0),
           perimetro: horad.metricas?.perimeter || horad.perimetro || (horad.puntos ? calcularPerimetroPoligono(horad.puntos) : 0),
           centroide: centPH,
           distanciaAlCentro: parseFloat((distPx * scale).toFixed(2)), // mm desde centroide del objeto
@@ -50256,7 +50261,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     const getY = (p) => p.y !== undefined ? p.y : p[1];
     
     // 1. MÉTRICAS BÁSICAS (Área, Perímetro, Centroide) - EN PÍXELES PRIMERO
-    const areaPx = calcularAreaShoelace(puntos);
+    const areaPx = GeometryPrimitives.calcularAreaShoelace(puntos);
     const area = areaPx * scale * scale; // Convertir a mm²
     
     let perimeterPx = 0;
@@ -50308,8 +50313,8 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     // 3. ANÁLISIS RADIAL (desde centroide Shoelace) — sobre puntos del polígono
     // radio_maximo y radio_minimo: calcula sobre el Convex Hull para que sean geométricamente exactos.
     // estadísticas (medio, desviación, CV): sobre los puntos del polígono (muestreo uniforme).
-    const hullForRadios = calcularConvexHull(puntos);
-    const radiosData = calcularRadiosExtremos(hullForRadios, centroid, puntos);
+    const hullForRadios = GeometryPrimitives.calcularConvexHull(puntos);
+    const radiosData = MorphometricMetrics.calcularRadiosExtremos(hullForRadios, centroid, puntos);
     const radioMaximoPx = radiosData.radio_maximo;
     const radioMinimoPx = radiosData.radio_minimo;
     const radioMedioPx  = radiosData.radio_medio;
@@ -50334,7 +50339,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     const regularidadRadial    = radiosData.regularidad_radial;
 
     // 4. CONVEX HULL (ya calculado arriba para radios)
-    const convexHullAreaPx = calcularAreaShoelace(hullForRadios);
+    const convexHullAreaPx = GeometryPrimitives.calcularAreaShoelace(hullForRadios);
     const convexHullArea = convexHullAreaPx * scale * scale; // Convertir a mm²
     const hullPoints = hullForRadios; // alias para compatibilidad con código posterior
     
@@ -50348,7 +50353,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     // 6. EJES PRINCIPALES — momentos de inercia de área (PCA real, no bounding box)
     // El bounding box alineado con los ejes de imagen da resultados erróneos para objetos rotados.
     // Se usan los mismos momentos de Green's theorem que calcularEjePrincipal.
-    const ejePerfData = calcularExcentricidad(puntos, centroid);
+    const ejePerfData = MorphometricMetrics.calcularExcentricidad(puntos, centroid);
     const ejeMayor = ejePerfData.eje_mayor * scale; // caliper sobre eje principal (mm)
     const ejeMenor = ejePerfData.eje_menor * scale; // caliper sobre eje secundario (mm)
     const excentricidad = ejePerfData.excentricidad;
@@ -50359,7 +50364,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     const elongation     = Math.abs(1 - (Math.min(widthPx, heightPx) / Math.max(widthPx, heightPx)));
 
     // 8. DIÁMETROS DE FERET (sobre Convex Hull en px → convertir a mm)
-    const feretData      = calcularDiametroFeret(hullPoints);
+    const feretData      = MorphometricMetrics.calcularDiametroFeret(hullPoints);
     const feretMax       = feretData.feret_max  * scale;
     const feretMin       = feretData.feret_min  * scale;
     const feretRatio     = feretData.feret_ratio;
@@ -50518,7 +50523,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         return parseFloat(ph.area) || 0;
       // Prioridad 4: calcular Shoelace desde puntos del polígono (px²) → convertir a mm²
       const pts = ph.puntos || ph.contorno || ph.poligonoTrazado;
-      return (pts && pts.length > 2) ? calcularAreaShoelace(pts) * _scaleSq : 0;
+      return (pts && pts.length > 2) ? GeometryPrimitives.calcularAreaShoelace(pts) * _scaleSq : 0;
     };
 
     const _enPoligono = (px, py, poly) => {
@@ -50609,7 +50614,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         return parseFloat(ph.area);
       // Prioridad 4: calcular desde puntos (ph.puntos o ph.contorno según ruta)
       const pts = ph.puntos || ph.contorno || ph.poligonoTrazado;
-      if (pts && pts.length > 2) return calcularAreaShoelace(pts);
+      if (pts && pts.length > 2) return GeometryPrimitives.calcularAreaShoelace(pts);
       return 0;
     };
     
@@ -51406,7 +51411,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         metricas.perimetro = metricas.perimeter; // Alias para compatibilidad
         if (metricas.convex_hull && metricas.convex_hull.length >= 3) {
           try {
-            const _fd = calcularDiametroFeret(metricas.convex_hull);
+            const _fd = MorphometricMetrics.calcularDiametroFeret(metricas.convex_hull);
             metricas.feret_max       = parseFloat((_fd.feret_max       * _sc).toFixed(2));
             metricas.feret_min       = parseFloat((_fd.feret_min       * _sc).toFixed(2));
             metricas.feret_ratio     = parseFloat((_fd.feret_ratio          ).toFixed(4));
@@ -52041,7 +52046,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         metricas.perimetro = metricas.perimeter; // Alias para compatibilidad
         if (metricas.convex_hull && metricas.convex_hull.length >= 3) {
           try {
-            const _fd = calcularDiametroFeret(metricas.convex_hull);
+            const _fd = MorphometricMetrics.calcularDiametroFeret(metricas.convex_hull);
             metricas.feret_max       = parseFloat((_fd.feret_max       * _sc).toFixed(2));
             metricas.feret_min       = parseFloat((_fd.feret_min       * _sc).toFixed(2));
             metricas.feret_ratio     = parseFloat((_fd.feret_ratio          ).toFixed(4));
@@ -54800,7 +54805,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
     // (distribucionRadialAngular, fragmentación, completitud) si aún no está calculado.
     if (metricasFinal._contour_data?.points?.length >= 3) {
       try {
-        const _formaJS = simplificarAFormaRegular(
+        const _formaJS = ShapeClassification.simplificarAFormaRegular(
           metricasFinal._contour_data.points,
           metricasFinal,
           metricasFinal._contour_data.metrics
@@ -55109,7 +55114,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       if (contourPts.length >= 3 && typeof calcularConvexHullRadial === 'function') {
         const _cxH = contourPts.reduce((s, p) => s + (Array.isArray(p) ? p[0] : (p.x ?? 0)), 0) / contourPts.length;
         const _cyH = contourPts.reduce((s, p) => s + (Array.isArray(p) ? p[1] : (p.y ?? 0)), 0) / contourPts.length;
-        const _hullAbs = calcularConvexHullRadial(contourPts, _cxH, _cyH);
+        const _hullAbs = GeometryPrimitives.calcularConvexHullRadial(contourPts, _cxH, _cyH);
         if (_hullAbs && _hullAbs.length >= 3) {
           _convexHullRel = _hullAbs.map(([ax, ay]) => [ax - minX, ay - minY]);
         }
