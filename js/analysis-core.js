@@ -5,6 +5,9 @@ import * as GeometryPrimitives from './modules/geometry-primitives.js';
 import * as ContourQuality from './modules/contour-quality.js';
 import * as MorphometricMetrics from './modules/morphometric-metrics.js';
 import * as ShapeClassification from './modules/shape-classification.js';
+import * as ContourExtraction from './modules/contour-extraction.js';
+import * as ClassificationEngine from './modules/classification-engine.js';
+import * as UtilityHelpers from './modules/utility-helpers.js';
 
 (() => {
   // ── Producción: console.log silenciado; warn/error siempre activos ────────
@@ -519,7 +522,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   // FUNCIONES DE CONVERSIÓN DE COORDENADAS
   // =====================================================================================
 
-  function canvasToImageCoords(canvasX, canvasY) {
+  function UtilityHelpers.canvasToImageCoords(canvasX, canvasY) {
     if (!image) {
       console.warn('⚠️ canvasToImageCoords: No hay imagen cargada');
       return { x: 0, y: 0 };
@@ -576,7 +579,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     }
   }
 
-  function imageToCanvasCoords(imageX, imageY) {
+  function UtilityHelpers.imageToCanvasCoords(imageX, imageY) {
     if (!image) return { x: 0, y: 0 };
     
     if (isManualSelectionMode && window.manualModeScale) {
@@ -621,7 +624,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   // FUNCIÓN DE ACTUALIZACIÓN DE DISPLAYS
   // =====================================================================================
   
-  function updateDisplays() {
+  function UtilityHelpers.updateDisplays() {
     // Actualizar contador de objetos
     let displayText = `Objetos detectados: ${objects.length}`;
     
@@ -681,8 +684,8 @@ import * as ShapeClassification from './modules/shape-classification.js';
     
     // Limpiar objetos automáticos (preservar objetos de AIA)
     objects = objects.filter(o => o._fromIA);
-    redrawCanvas();
-    updateDisplays();
+    UtilityHelpers.redrawCanvas();
+    UtilityHelpers.updateDisplays();
     
     console.log('✅ Modo selección manual activado');
   }
@@ -748,10 +751,10 @@ import * as ShapeClassification from './modules/shape-classification.js';
       }
     } else {
       // Modo monofacial normal: redibujar canvas
-      redrawCanvas();
+      UtilityHelpers.redrawCanvas();
     }
     
-    updateDisplays();
+    UtilityHelpers.updateDisplays();
     
     console.log('✅ Selección manual cancelada');
   }
@@ -771,7 +774,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     });
     
     // Convertir coordenadas del canvas a coordenadas de imagen
-    const imgCoords = canvasToImageCoords(mouseX, mouseY);
+    const imgCoords = UtilityHelpers.canvasToImageCoords(mouseX, mouseY);
     
     console.log('   🎯 Coordenadas convertidas:', {
       canvas: { x: mouseX, y: mouseY },
@@ -791,7 +794,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     if (!isManualSelectionMode || !isSelectingArea) return;
     
     // Convertir coordenadas del canvas a coordenadas de imagen
-    const imgCoords = canvasToImageCoords(mouseX, mouseY);
+    const imgCoords = UtilityHelpers.canvasToImageCoords(mouseX, mouseY);
     
     selectionEndX = imgCoords.x;
     selectionEndY = imgCoords.y;
@@ -803,8 +806,8 @@ import * as ShapeClassification from './modules/shape-classification.js';
       console.log(`🔄 Redibujando Cara ${cara} con selección en progreso`);
       redrawCanvasBifacial(cara);
     } else {
-      // Modo monofacial: redrawCanvas() ya llama a redraw() que dibuja el área de selección
-      redrawCanvas();
+      // Modo monofacial: UtilityHelpers.redrawCanvas() ya llama a redraw() que dibuja el área de selección
+      UtilityHelpers.redrawCanvas();
     }
   }
 
@@ -868,8 +871,8 @@ import * as ShapeClassification from './modules/shape-classification.js';
       let area;
       if (isSelectingArea) {
         // Área en proceso de selección - convertir a coordenadas canvas
-        const canvasStart = imageToCanvasCoords(selectionStartX, selectionStartY);
-        const canvasEnd = imageToCanvasCoords(selectionEndX, selectionEndY);
+        const canvasStart = UtilityHelpers.imageToCanvasCoords(selectionStartX, selectionStartY);
+        const canvasEnd = UtilityHelpers.imageToCanvasCoords(selectionEndX, selectionEndY);
         
         area = {
           x: Math.min(canvasStart.x, canvasEnd.x),
@@ -879,8 +882,8 @@ import * as ShapeClassification from './modules/shape-classification.js';
         };
       } else if (manualSelectedArea) {
         // Área ya seleccionada - convertir a coordenadas canvas
-        const canvasStart = imageToCanvasCoords(manualSelectedArea.x, manualSelectedArea.y);
-        const canvasEnd = imageToCanvasCoords(manualSelectedArea.x + manualSelectedArea.width, manualSelectedArea.y + manualSelectedArea.height);
+        const canvasStart = UtilityHelpers.imageToCanvasCoords(manualSelectedArea.x, manualSelectedArea.y);
+        const canvasEnd = UtilityHelpers.imageToCanvasCoords(manualSelectedArea.x + manualSelectedArea.width, manualSelectedArea.y + manualSelectedArea.height);
         
         area = {
           x: canvasStart.x,
@@ -927,7 +930,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       const tipoTexto = perforationSelectionType === 'perforacion' ? 'PERFORACIÓN' : 'HORADACIÓN';
       
       // Convertir puntos a coordenadas canvas
-      const canvasPoints = perforationPolygonPoints.map(p => imageToCanvasCoords(p.x, p.y));
+      const canvasPoints = perforationPolygonPoints.map(p => UtilityHelpers.imageToCanvasCoords(p.x, p.y));
       
       // Dibujar líneas entre puntos
       ctx.strokeStyle = color;
@@ -1042,8 +1045,8 @@ import * as ShapeClassification from './modules/shape-classification.js';
       ctx.setLineDash([10, 5]);
       
       if (isManualSelectionMode) {
-        const canvasTopLeft = imageToCanvasCoords(obj.minX, obj.minY);
-        const canvasBottomRight = imageToCanvasCoords(obj.maxX, obj.maxY);
+        const canvasTopLeft = UtilityHelpers.imageToCanvasCoords(obj.minX, obj.minY);
+        const canvasBottomRight = UtilityHelpers.imageToCanvasCoords(obj.maxX, obj.maxY);
         ctx.strokeRect(canvasTopLeft.x, canvasTopLeft.y, canvasBottomRight.x - canvasTopLeft.x, canvasBottomRight.y - canvasTopLeft.y);
       } else {
         ctx.strokeRect(obj.minX, obj.minY, obj.maxX - obj.minX, obj.maxY - obj.minY);
@@ -1057,7 +1060,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
         ctx.font = 'bold 14px Arial';
         const texto = 'OBJETO SELECCIONADO - Haga clic para trazar polígono';
         if (isManualSelectionMode) {
-          const canvasPos = imageToCanvasCoords(obj.minX, obj.minY);
+          const canvasPos = UtilityHelpers.imageToCanvasCoords(obj.minX, obj.minY);
           ctx.fillText(texto, canvasPos.x, canvasPos.y - 10);
         } else {
           ctx.fillText(texto, obj.minX, obj.minY - 10/zoom);
@@ -1135,7 +1138,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   function ejecutarDeteccionEnAreaManual() {
     if (!manualSelectedArea || !image) {
       console.error('❌ No hay área seleccionada o imagen cargada');
-      setStatus('Error: No hay área seleccionada o imagen cargada', true);
+      UtilityHelpers.setStatus('Error: No hay área seleccionada o imagen cargada', true);
       return;
     }
     
@@ -1246,7 +1249,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       
       // Actualización visual inmediata
       redraw();
-      updateDisplays();
+      UtilityHelpers.updateDisplays();
       actualizarObjetosIndividuales();
       
       // Feedback inmediato
@@ -1256,14 +1259,14 @@ import * as ShapeClassification from './modules/shape-classification.js';
       if (window.deteccionBifacialActiva) {
         const cara = window.deteccionBifacialActiva.cara;
         const totalObjetos = objects.length;
-        setStatus(`${objetosConID.length} objetos detectados en Cara ${cara} (Total: ${totalObjetos}) - ${tiempo}ms - Área: ${areaInfo}`, false);
+        UtilityHelpers.setStatus(`${objetosConID.length} objetos detectados en Cara ${cara} (Total: ${totalObjetos}) - ${tiempo}ms - Área: ${areaInfo}`, false);
         console.log(`✅ Detección bifacial Cara ${cara}: ${objetosConID.length} nuevos, ${totalObjetos} total en ${tiempo}ms`);
       } else {
-        setStatus(`${objetosConID.length} objetos detectados en ${tiempo}ms - Área: ${areaInfo}`, false);
+        UtilityHelpers.setStatus(`${objetosConID.length} objetos detectados en ${tiempo}ms - Área: ${areaInfo}`, false);
         console.log(`✅ Detección manual exitosa: ${objetosConID.length} objetos en ${tiempo}ms`);
       }
     } else {
-      setStatus('No se detectaron objetos en el área seleccionada', false);
+      UtilityHelpers.setStatus('No se detectaron objetos en el área seleccionada', false);
       console.log('⚠️ No se encontraron objetos en área manual');
     }
     
@@ -1594,7 +1597,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     
     // Convertir coordenadas de canvas a coordenadas de imagen del objeto
     const obj = detectedComponents.obj;
-    const imgCoords = canvasToImageCoords(canvasX, canvasY);
+    const imgCoords = UtilityHelpers.canvasToImageCoords(canvasX, canvasY);
     
     // Coordenadas relativas al objeto (región extraída)
     const relX = Math.floor(imgCoords.x - obj.minX);
@@ -1605,7 +1608,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     // Verificar límites
     if (relX < 0 || relX >= detectedComponents.width || relY < 0 || relY >= detectedComponents.height) {
       console.warn('⚠️ Clic fuera del área del objeto');
-      setStatus('Haz clic dentro del área del objeto', false);
+      UtilityHelpers.setStatus('Haz clic dentro del área del objeto', false);
       return;
     }
     
@@ -1615,7 +1618,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     
     if (componentId === 0) {
       console.warn('⚠️ Clic en área de fondo (no hay objeto)');
-      setStatus('Haz clic sobre uno de los objetos resaltados', false);
+      UtilityHelpers.setStatus('Haz clic sobre uno de los objetos resaltados', false);
       return;
     }
     
@@ -1645,14 +1648,14 @@ import * as ShapeClassification from './modules/shape-classification.js';
     }
     
     console.log(`🔍 Extrayendo contorno del componente ${componentId}...`);
-    setStatus(`Extrayendo contorno del componente seleccionado...`, false);
+    UtilityHelpers.setStatus(`Extrayendo contorno del componente seleccionado...`, false);
     
     // Extraer contorno del componente seleccionado
-    const contorno = trazarContornoMoore(binaryMask, detectedComponents.width, detectedComponents.height);
+    const contorno = ContourExtraction.trazarContornoMoore(binaryMask, detectedComponents.width, detectedComponents.height);
     
     if (!contorno || contorno.length < 3) {
       console.error('❌ No se pudo extraer contorno del componente seleccionado');
-      setStatus('Error: No se pudo extraer contorno del componente', true);
+      UtilityHelpers.setStatus('Error: No se pudo extraer contorno del componente', true);
       detectedComponents = null;
       return;
     }
@@ -1699,11 +1702,11 @@ import * as ShapeClassification from './modules/shape-classification.js';
         }
       }
       
-      redrawCanvas();
-      updateDisplays();
+      UtilityHelpers.redrawCanvas();
+      UtilityHelpers.updateDisplays();
       actualizarObjetosIndividuales();
       
-      setStatus(`Contorno extraído exitosamente: ${resultado.points.length} puntos`, false);
+      UtilityHelpers.setStatus(`Contorno extraído exitosamente: ${resultado.points.length} puntos`, false);
       
       // Limpiar referencia
       currentObjectForComponentSelection = null;
@@ -1807,10 +1810,10 @@ import * as ShapeClassification from './modules/shape-classification.js';
     manualSelectionInstructions.textContent = mensajeFinal;
     
     // Actualizar displays finales
-    updateDisplays();
-    redrawCanvas();
+    UtilityHelpers.updateDisplays();
+    UtilityHelpers.redrawCanvas();
     
-    setStatus(`Análisis morfométrico completado: ${procesados} objetos procesados`, false);
+    UtilityHelpers.setStatus(`Análisis morfométrico completado: ${procesados} objetos procesados`, false);
   }
 
   function aplicarAnalisisMorfometricoAreaManual() {
@@ -2605,7 +2608,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     console.log(`   ✅ Usando imagen: ${imagenAUsar === imageCaraA ? 'Cara A' : (imagenAUsar === imageCaraB ? 'Cara B' : 'Global')}`);
 
     // OPTIMIZACIÓN: Verificar caché primero
-    const cachedContour = getCachedContour(obj);
+    const cachedContour = UtilityHelpers.getCachedContour(obj);
     if (cachedContour && !mascaraAdaptativa) {
       console.log(`✅ Usando contorno en caché para ${obj.id}`);
       return cachedContour;
@@ -2874,7 +2877,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       // IMPORTANTE: Esto mejora significativamente la calidad del contorno
       // en imágenes reales con gradientes y sombras suaves
       const startMorf = performance.now();
-      binaryMask = suavizarMascaraMorfologica(binaryMask, obj.width, obj.height, {
+      binaryMask = ContourExtraction.suavizarMascaraMorfologica(binaryMask, obj.width, obj.height, {
         usarCierre: true,    // Cerrar huecos pequeños en el objeto
         usarApertura: true,  // Eliminar ruido y píxeles aislados
         // En fondos cromáticos, los píxeles espurios de borde son más frecuentes:
@@ -2889,8 +2892,8 @@ import * as ShapeClassification from './modules/shape-classification.js';
       if (esObjetoPequeno && esDeteccionManual) {
         console.log(`🔧 Objeto pequeño detectado (${obj.width}x${obj.height}) - aplicando erosión adicional para limpiar ruido`);
         // Aplicar erosión adicional para objetos pequeños (elimina ruido fino)
-        const maskTemp = erosionarMascara(binaryMask, obj.width, obj.height, 1);
-        binaryMask = cerrarMascara(maskTemp, obj.width, obj.height, 1);
+        const maskTemp = ContourExtraction.erosionarMascara(binaryMask, obj.width, obj.height, 1);
+        binaryMask = ContourExtraction.cerrarMascara(maskTemp, obj.width, obj.height, 1);
       }
       
       // OPTIMIZACIÓN: Si el objeto ocupa >80% del área Y NO es detección manual, usar aproximación rectangular
@@ -3163,7 +3166,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       console.log(`🎯 Extrayendo contorno directo desde máscara binaria...`);
       updateProgress(1, 3, 'Extracción de contorno');
       const startTrace = performance.now();
-      let contorno = extraerContornoDesdeMascara(binaryMask, obj.width, obj.height, imageData);
+      let contorno = ContourExtraction.extraerContornoDesdeMascara(binaryMask, obj.width, obj.height, imageData);
       console.log(`✅ Contorno extraído en ${(performance.now() - startTrace).toFixed(0)}ms: ${contorno ? contorno.length : 0} puntos`);
       
       if (!contorno || contorno.length < 3) {
@@ -3221,7 +3224,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
         if (!desactivarRefinamiento) {
           console.log(`🔬 Refinando contorno con sub-píxel (coordenadas locales)...`);
           const startRefine = performance.now();
-          contorno = refinarContornoSubPixel(contorno, imageData, binaryMask, obj.width, obj.height, {
+          contorno = ContourExtraction.refinarContornoSubPixel(contorno, imageData, binaryMask, obj.width, obj.height, {
             ventana: 1,           // Ventana 3x3 para análisis local
             umbralGradiente: 8    // Más sensible en fondos cromáticos (era 10)
           });
@@ -3344,7 +3347,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
 
       if (imageData && imageData.data && contorno.length >= 6) {
         const t0snap = performance.now();
-        contorno = refinarContornoGradiente(contorno, imageData, obj.width, obj.height);
+        contorno = ContourExtraction.refinarContornoGradiente(contorno, imageData, obj.width, obj.height);
         console.log(`🎯 M4-lite gradient snap: contorno refinado en ${(performance.now() - t0snap).toFixed(1)}ms`);
       }
 
@@ -3386,7 +3389,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       }
       
       if (!mascaraAdaptativa) {
-        setCachedContour(obj, resultado);
+        UtilityHelpers.setCachedContour(obj, resultado);
       }
       
       return resultado;
@@ -3411,7 +3414,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
    * Expande las regiones de objeto (1) hacia el fondo (0)
    * Útil para cerrar pequeños huecos y conectar regiones cercanas
    */
-  function dilatarMascara(binaryMask, width, height, iterations = 1) {
+  function ContourExtraction.dilatarMascara(binaryMask, width, height, iterations = 1) {
     // Dos buffers reutilizados (ping-pong) — evita N allocaciones de Uint8Array
     let src = new Uint8Array(binaryMask);
     let dst = new Uint8Array(binaryMask.length);
@@ -3440,7 +3443,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
    * Reduce las regiones de objeto (1) hacia adentro
    * Útil para eliminar ruido y protuberancias pequeñas
    */
-  function erosionarMascara(binaryMask, width, height, iterations = 1) {
+  function ContourExtraction.erosionarMascara(binaryMask, width, height, iterations = 1) {
     // Dos buffers reutilizados (ping-pong) — evita N allocaciones de Uint8Array
     let src = new Uint8Array(binaryMask);
     let dst = new Uint8Array(binaryMask.length);
@@ -3469,12 +3472,12 @@ import * as ShapeClassification from './modules/shape-classification.js';
    * Útil para CERRAR pequeños huecos en el objeto
    * Ideal para imágenes reales con ruido fotográfico
    */
-  function cerrarMascara(binaryMask, width, height, iterations = 1) {
+  function ContourExtraction.cerrarMascara(binaryMask, width, height, iterations = 1) {
     if (DEBUG_LOGS.masks) {
       console.log(`🔧 Cierre morfológico (${iterations} iter) - suavizando máscara...`);
     }
-    let mask = dilatarMascara(binaryMask, width, height, iterations);
-    mask = erosionarMascara(mask, width, height, iterations);
+    let mask = ContourExtraction.dilatarMascara(binaryMask, width, height, iterations);
+    mask = ContourExtraction.erosionarMascara(mask, width, height, iterations);
     return mask;
   }
   
@@ -3483,12 +3486,12 @@ import * as ShapeClassification from './modules/shape-classification.js';
    * Útil para ELIMINAR ruido y pequeños artefactos
    * Ideal para limpiar la máscara antes de trazar contorno
    */
-  function abrirMascara(binaryMask, width, height, iterations = 1) {
+  function ContourExtraction.abrirMascara(binaryMask, width, height, iterations = 1) {
     if (DEBUG_LOGS.masks) {
       console.log(`🔧 Apertura morfológica (${iterations} iter) - eliminando ruido...`);
     }
-    let mask = erosionarMascara(binaryMask, width, height, iterations);
-    mask = dilatarMascara(mask, width, height, iterations);
+    let mask = ContourExtraction.erosionarMascara(binaryMask, width, height, iterations);
+    mask = ContourExtraction.dilatarMascara(mask, width, height, iterations);
     return mask;
   }
   
@@ -3497,7 +3500,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
    * Combina cierre (para huecos) y apertura (para ruido)
    * RECOMENDADO para imágenes fotográficas reales
    */
-  function suavizarMascaraMorfologica(binaryMask, width, height, options = {}) {
+  function ContourExtraction.suavizarMascaraMorfologica(binaryMask, width, height, options = {}) {
     const {
       usarCierre = true,       // Cerrar huecos pequeños
       usarApertura = true,     // Eliminar ruido
@@ -3512,12 +3515,12 @@ import * as ShapeClassification from './modules/shape-classification.js';
     
     // Primero cerrar huecos (si está habilitado)
     if (usarCierre) {
-      mask = cerrarMascara(mask, width, height, iteraciones);
+      mask = ContourExtraction.cerrarMascara(mask, width, height, iteraciones);
     }
     
     // Luego eliminar ruido (si está habilitado)
     if (usarApertura) {
-      mask = abrirMascara(mask, width, height, iteraciones);
+      mask = ContourExtraction.abrirMascara(mask, width, height, iteraciones);
     }
     
     // Calcular estadísticas de cambios
@@ -3539,7 +3542,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   // M4-LITE: GRADIENT SNAP — REFINAMIENTO DE CONTORNO POR MÁXIMO DE GRADIENTE
   // ============================================================================
   /**
-   * refinarContornoGradiente(contorno, imageData, width, height)
+   * ContourExtraction.refinarContornoGradiente(contorno, imageData, width, height)
    *
    * Desplaza cada punto del contorno al lugar donde el gradiente de intensidad
    * es máximo a lo largo de la dirección normal al contorno.
@@ -3564,7 +3567,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
    *   MIN_GRAD    = 8     → gradiente mínimo para hacer snap (evita ruido plano)
    *   SMOOTH_ITER = 1     → iteraciones de suavizado post-snap
    */
-  function refinarContornoGradiente(contorno, imageData, width, height) {
+  function ContourExtraction.refinarContornoGradiente(contorno, imageData, width, height) {
     const SNAP_RANGE  = 6;   // px máximo de desplazamiento en cada dirección
     const MIN_GRAD    = 8;   // umbral mínimo de gradiente para activar snap
     const SMOOTH_ITER = 1;   // iteraciones de suavizado final
@@ -3684,7 +3687,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
    * IMPORTANTE: Mejora significativamente la precisión de mediciones,
    * especialmente en objetos pequeños donde cada fracción de píxel cuenta.
    */
-  function refinarContornoSubPixel(contorno, imageData, binaryMask, width, height, options = {}) {
+  function ContourExtraction.refinarContornoSubPixel(contorno, imageData, binaryMask, width, height, options = {}) {
     const {
       ventana = 1,          // Tamaño de ventana de análisis (1 = 3x3, 2 = 5x5)
       umbralGradiente = 10  // Gradiente mínimo para considerar refinamiento
@@ -3946,7 +3949,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   // que están en el borde entre objeto (blanco) y fondo (negro)
   // CON DEPURACIÓN INTELIGENTE para eliminar píxeles de sombra/fondo
   // ============================================================================
-  function extraerContornoDesdeMascara(binaryMask, width, height, imageData = null) {
+  function ContourExtraction.extraerContornoDesdeMascara(binaryMask, width, height, imageData = null) {
     const startTime = performance.now();
     console.log(`🎯 Extrayendo contorno directo desde máscara binaria (${width}x${height})...`);
 
@@ -4618,7 +4621,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   }
 
   // Algoritmo de Moore Neighborhood Tracing MEJORADO para contornos más precisos
-  function trazarContornoMoore(binaryMask, width, height) {
+  function ContourExtraction.trazarContornoMoore(binaryMask, width, height) {
     const startTime = performance.now();
     const MAX_EXECUTION_TIME = 5000; // 5 segundos máximo
     
@@ -5529,16 +5532,16 @@ import * as ShapeClassification from './modules/shape-classification.js';
   
   const contourCache = new Map();
   
-  function generateCacheKey(obj) {
+  function UtilityHelpers.generateCacheKey(obj) {
     // Generar clave única basada en posición, tamaño y checksum del área
     const checksum = `${obj.minX}_${obj.minY}_${obj.width}_${obj.height}_${obj.area}`;
     return checksum;
   }
   
-  function getCachedContour(obj) {
+  function UtilityHelpers.getCachedContour(obj) {
     if (!PERFORMANCE_CONFIG.CACHE_ENABLED) return null;
     
-    const key = generateCacheKey(obj);
+    const key = UtilityHelpers.generateCacheKey(obj);
     if (contourCache.has(key)) {
       console.log(`💾 Contorno recuperado del caché para objeto ${obj.id}`);
       return contourCache.get(key);
@@ -5546,7 +5549,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     return null;
   }
   
-  function setCachedContour(obj, contourData) {
+  function UtilityHelpers.setCachedContour(obj, contourData) {
     if (!PERFORMANCE_CONFIG.CACHE_ENABLED) return;
     
     // Limpiar caché si está lleno
@@ -5556,19 +5559,19 @@ import * as ShapeClassification from './modules/shape-classification.js';
       console.log('🗑️ Caché de contornos limpiado (LRU)');
     }
     
-    const key = generateCacheKey(obj);
+    const key = UtilityHelpers.generateCacheKey(obj);
     contourCache.set(key, contourData);
     console.log(`💾 Contorno almacenado en caché para objeto ${obj.id}`);
   }
   
-  function clearContourCache() {
+  function UtilityHelpers.clearContourCache() {
     contourCache.clear();
     console.log('🗑️ Caché de contornos limpiado completamente');
   }
 
   // === UTILIDAD: VALIDACIÓN SEGURA PARA .toFixed() ===
   
-  function safeToFixed(value, decimals = 4, defaultValue = 'N/A') {
+  function UtilityHelpers.safeToFixed(value, decimals = 4, defaultValue = 'N/A') {
     if (typeof value === 'number' && !isNaN(value) && isFinite(value)) {
       return value.toFixed(decimals);
     }
@@ -5586,20 +5589,20 @@ import * as ShapeClassification from './modules/shape-classification.js';
     }
     
     const percent = total > 0 ? (current / total * 100).toFixed(1) : 0;
-    setStatus(`${operation}: ${percent}% completado (${current}/${total})`, false);
+    UtilityHelpers.setStatus(`${operation}: ${percent}% completado (${current}/${total})`, false);
     progressState.lastUpdate = now;
   }
   
   function startProgress(operation) {
     progressState.active = true;
     progressState.lastUpdate = 0;
-    setStatus(`Iniciando ${operation}...`, false);
+    UtilityHelpers.setStatus(`Iniciando ${operation}...`, false);
   }
   
   function endProgress(operation, itemsProcessed = null) {
     progressState.active = false;
     const summary = itemsProcessed ? ` - ${itemsProcessed} elementos procesados` : '';
-    setStatus(`${operation} completado${summary}`, false);
+    UtilityHelpers.setStatus(`${operation} completado${summary}`, false);
   }
   
   // === FUNCIÓN PARA MOSTRAR MENSAJE DE SELECCIÓN DE COMPONENTE ===
@@ -5643,7 +5646,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     ctx.restore();
     
     // Actualizar barra de estado
-    setStatus(`${numComponentes} objetos detectados. Haz clic en el objeto que deseas medir.`, false);
+    UtilityHelpers.setStatus(`${numComponentes} objetos detectados. Haz clic en el objeto que deseas medir.`, false);
     
     // Activar modo de selección
     isComponentSelectionMode = true;
@@ -7012,7 +7015,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
    * Esfericidad, oblongación, aplanamiento (inferidos desde 2D)
    * Útil para: núcleos líticos, cerámica globular, objetos metálicos
    */
-  function calcularIndicesForma3D(area, perimetro, aspectRatio, excentricidad) {
+  function ClassificationEngine.calcularIndicesForma3D(area, perimetro, aspectRatio, excentricidad) {
     // Índice de esfericidad (Isoperimetric quotient)
     const esfericidad = perimetro > 0 ? (4 * Math.PI * area) / (perimetro * perimetro) : 0;
     
@@ -7082,7 +7085,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   /**
    * Mapear clasificación específica a categoría base
    */
-  function mapearACategoria(clasificacion) {
+  function ClassificationEngine.mapearACategoria(clasificacion) {
     if (!clasificacion) return "Irregular";
     
     const c = clasificacion.toLowerCase();
@@ -7151,7 +7154,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   /**
    * Convertir categoría base a nombre formal
    */
-  function convertirCategoriaANombre(categoria, metrics) {
+  function ClassificationEngine.convertirCategoriaANombre(categoria, metrics) {
     const AR = parseFloat(metrics.aspect_ratio_tight) || 1.0;
     
     const nombres = {
@@ -7179,7 +7182,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     return nombres[categoria] || "Forma Indeterminada";
   }
 
-  function extraerContextoMorfologico(metrics, formaIdealizada = null) {
+  function ClassificationEngine.extraerContextoMorfologico(metrics, formaIdealizada = null) {
     const radialAngular = formaIdealizada?.distribucionRadialAngular || null;
     const solidez = parseFloat(metrics.solidity || metrics.solidez) || 1.0;
     const circularidad = parseFloat(metrics.circularidad || metrics.circularity) || 0;
@@ -7187,7 +7190,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     const aspectRatio = parseFloat(metrics.aspect_ratio_tight) || 1.0;
     const arNorm = Math.min(aspectRatio, 1.0 / (aspectRatio || 0.001));
     const clasificacionRadial = formaIdealizada?.nombre || radialAngular?.geometriaInferida || "Irregular";
-    const categoriaRadial = mapearACategoria(clasificacionRadial);
+    const categoriaRadial = ClassificationEngine.mapearACategoria(clasificacionRadial);
     const categoriasCurvilineas = new Set(["Circular", "Elipsoidal", "Oval", "Lanceolada", "Amigdaloide", "Laminar", "Lunar"]);
     const categoriasAngulares = new Set(["Triangular", "Cuadrangular", "Pentagonal", "Hexagonal", "Poligonal", "Trapezoidal", "Romboidal"]);
     const categoriasTopologicas = new Set(["Lunar", "Lobulado", "Estrellado", "Anular"]);
@@ -7216,7 +7219,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     return contexto;
   }
 
-  function aplicarContextoAEvidencias(evidencias, contexto, metrics) {
+  function ClassificationEngine.aplicarContextoAEvidencias(evidencias, contexto, metrics) {
     const ajustadas = Object.fromEntries(
       Object.entries(evidencias).map(([clave, datos]) => [clave, { ...datos }])
     );
@@ -7249,31 +7252,31 @@ import * as ShapeClassification from './modules/shape-classification.js';
     return { evidencias: ajustadas, notas };
   }
 
-  function construirEtiquetaTipologica(base, esFragmento, completitud) {
+  function ClassificationEngine.construirEtiquetaTipologica(base, esFragmento, completitud) {
     if (!base) return null;
     if (!esFragmento) return base;
     const prefijo = base.toLowerCase().startsWith('fragmento ') ? '' : 'Fragmento ';
     return `${prefijo}${base}${Number.isFinite(completitud) ? ` (${completitud}% completo)` : ''}`;
   }
 
-  function inferirInterpretacionTipologica(clasificacionGeometrica, categoriaBase, contexto, esFragmento, completitud) {
-    const categoriaGeom = mapearACategoria(clasificacionGeometrica || categoriaBase || 'Irregular');
+  function ClassificationEngine.inferirInterpretacionTipologica(clasificacionGeometrica, categoriaBase, contexto, esFragmento, completitud) {
+    const categoriaGeom = ClassificationEngine.mapearACategoria(clasificacionGeometrica || categoriaBase || 'Irregular');
     const valorCompletitud = Number.isFinite(completitud) ? completitud : 100;
     const resultado = {
-      forma_geometrica_observada: clasificacionGeometrica || convertirCategoriaANombre(categoriaBase, {}),
-      forma_tipologica_inferida: clasificacionGeometrica || convertirCategoriaANombre(categoriaBase, {}),
+      forma_geometrica_observada: clasificacionGeometrica || ClassificationEngine.convertirCategoriaANombre(categoriaBase, {}),
+      forma_tipologica_inferida: clasificacionGeometrica || ClassificationEngine.convertirCategoriaANombre(categoriaBase, {}),
       razon_tipologica: 'Sin reinterpretación tipológica adicional: la lectura geométrica observada se conserva como salida principal.',
       requiere_reinterpretacion: false
     };
 
     if (categoriaGeom === 'Lunar' || contexto.categoriaRadial === 'Lunar') {
-      resultado.forma_tipologica_inferida = construirEtiquetaTipologica('Media Luna', esFragmento, valorCompletitud);
+      resultado.forma_tipologica_inferida = ClassificationEngine.construirEtiquetaTipologica('Media Luna', esFragmento, valorCompletitud);
       resultado.razon_tipologica = 'La geometría radial ya identifica un morfotipo lunar; la lectura tipológica coincide con la forma observada.';
       return resultado;
     }
 
     if (contexto.lunarSuave && (categoriaGeom === 'Oval' || categoriaGeom === 'Elipsoidal' || categoriaGeom === 'Irregular')) {
-      resultado.forma_tipologica_inferida = construirEtiquetaTipologica('Media Luna', esFragmento, valorCompletitud);
+      resultado.forma_tipologica_inferida = ClassificationEngine.construirEtiquetaTipologica('Media Luna', esFragmento, valorCompletitud);
       resultado.razon_tipologica = `Compatible con media luna por asimetría radial fuerte (Rmin/Rmax=${contexto.ratioRadios != null ? contexto.ratioRadios.toFixed(3) : 'n/a'}), curvatura curvilínea (circ=${contexto.circularidad.toFixed(3)}) y lectura semántica de fragmento de toroide.`;
       resultado.requiere_reinterpretacion = true;
       return resultado;
@@ -7289,14 +7292,14 @@ import * as ShapeClassification from './modules/shape-classification.js';
       contexto.solidez >= 0.45 && contexto.solidez < 0.75;
 
     if (toroideSevero && (categoriaGeom === 'Oval' || categoriaGeom === 'Elipsoidal' || categoriaGeom === 'Irregular')) {
-      resultado.forma_tipologica_inferida = construirEtiquetaTipologica('Media Luna', esFragmento, valorCompletitud);
+      resultado.forma_tipologica_inferida = ClassificationEngine.construirEtiquetaTipologica('Media Luna', esFragmento, valorCompletitud);
       resultado.razon_tipologica = `Lectura tipológica lunar para fragmento toroidal severo: Rmin/Rmax=${contexto.ratioRadios.toFixed(3)}, circ=${contexto.circularidad.toFixed(3)}, solidez=${contexto.solidez.toFixed(3)}.`;
       resultado.requiere_reinterpretacion = true;
       return resultado;
     }
 
     if (contexto.topologiaBase === 'concava' && categoriaGeom === 'Anular') {
-      resultado.forma_tipologica_inferida = construirEtiquetaTipologica('Fragmento de Toroide', esFragmento, valorCompletitud);
+      resultado.forma_tipologica_inferida = ClassificationEngine.construirEtiquetaTipologica('Fragmento de Toroide', esFragmento, valorCompletitud);
       resultado.razon_tipologica = 'La topología anular/perforada sugiere lectura tipológica de fragmento de toroide sobre la geometría observada.';
       resultado.requiere_reinterpretacion = true;
       return resultado;
@@ -7309,7 +7312,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
    * Regla canónica de salida semántica (geometría observada, tipología inferida y forma mostrada).
    * Se usa en manual e IA para evitar divergencias por campos desfasados en cache o rutas parciales.
    */
-  function aplicarReglaCanonicaInterpretacion(metricas) {
+  function ClassificationEngine.aplicarReglaCanonicaInterpretacion(metricas) {
     if (!metricas || typeof metricas !== 'object') {
       return {
         forma_geometrica_observada: '',
@@ -7362,7 +7365,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   /**
    * Calcular confianza de clasificación tradicional
    */
-  function calcularConfianzaTradicional(metrics) {
+  function ClassificationEngine.calcularConfianzaTradicional(metrics) {
     const circularidad = parseFloat(metrics.circularidad) || 0;
     const solidez = parseFloat(metrics.solidity) || 0;
     
@@ -7378,7 +7381,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   /**
    * Calcular confianza de análisis de ángulos
    */
-  function calcularConfianzaAngulos(metrics) {
+  function ClassificationEngine.calcularConfianzaAngulos(metrics) {
     const num_vertices = parseInt(metrics.vertices_aproximados) || 0;
     const desviacion = parseFloat(metrics.desviacion_angulos) || 100;
     
@@ -7393,7 +7396,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   /**
    * Clasificar por complejidad
    */
-  function clasificarComplejidad(metrics) {
+  function ClassificationEngine.clasificarComplejidad(metrics) {
     const indice = parseFloat(metrics.contour_complexity_index) || 1.0;
     const vertices = parseInt(metrics.vertices_aproximados) || 0;
     
@@ -7411,7 +7414,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
    * espacial de perforaciones y horadaciones
    * ============================================================================
    */
-  function analizarPatronAgrupamiento(obj) {
+  function ClassificationEngine.analizarPatronAgrupamiento(obj) {
     const perforaciones = obj.perforaciones || [];
     const horadaciones = obj.horadaciones || [];
     const total = perforaciones.length + horadaciones.length;
@@ -7623,7 +7626,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
    * META-CLASIFICACIÓN PRINCIPAL
    * Sintetiza todas las clasificaciones y genera clasificación definitiva
    */
-  function metaClasificarForma(metrics, obj = null) {
+  function ClassificationEngine.metaClasificarForma(metrics, obj = null) {
     
     console.log("\n" + "═".repeat(70));
     console.log("🔍 META-CLASIFICACIÓN JERÁRQUICA: Síntesis de Múltiples Métodos");
@@ -7635,7 +7638,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     
     const formaIdealizada = metrics._forma_idealizada;
     const radialAngular = formaIdealizada?.distribucionRadialAngular;
-    const contextoMorfologico = extraerContextoMorfologico(metrics, formaIdealizada);
+    const contextoMorfologico = ClassificationEngine.extraerContextoMorfologico(metrics, formaIdealizada);
     
     // 🆕 CLASIFICAR CONVEXIDAD (Solo para mostrar en UI, NO participa en votación)
     const convexidad = parseFloat(metrics.convexidad) || 1.0;
@@ -7647,7 +7650,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     const evidenciasBase = {
       tradicional: {
         clasificacion: metrics.forma_detectada || "Indeterminada",
-        confianza: calcularConfianzaTradicional(metrics),
+        confianza: ClassificationEngine.calcularConfianzaTradicional(metrics),
         peso: 1.5,
         descripcion: "Clasificación basada en circularidad y aspect ratio"
       },
@@ -7661,7 +7664,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       
       angulos_vertices: {
         clasificacion: metrics.geometria_vertices || "No calculado",
-        confianza: calcularConfianzaAngulos(metrics),
+        confianza: ClassificationEngine.calcularConfianzaAngulos(metrics),
         peso: 2.5,
         descripcion: "Distribución de ángulos en vértices"
       },
@@ -7681,7 +7684,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       },
       
       complejidad: {
-        clasificacion: clasificarComplejidad(metrics),
+        clasificacion: ClassificationEngine.clasificarComplejidad(metrics),
         confianza: 0.75,
         peso: 0.0, // VALIDADOR: sus outputs no mapean a categorías geométricas — no vota
         descripcion: "Complejidad del contorno (validador de suavidad, no vota)"
@@ -7695,7 +7698,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       }
     };
 
-    const ajusteContextual = aplicarContextoAEvidencias(evidenciasBase, contextoMorfologico, metrics);
+    const ajusteContextual = ClassificationEngine.aplicarContextoAEvidencias(evidenciasBase, contextoMorfologico, metrics);
     const evidencias = ajusteContextual.evidencias;
     
     console.log("\n📊 EVIDENCIAS RECOLECTADAS:");
@@ -7752,7 +7755,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
         continue;
       }
       
-      const categoria = mapearACategoria(datos.clasificacion);
+      const categoria = ClassificationEngine.mapearACategoria(datos.clasificacion);
       const voto_ponderado = datos.peso * datos.confianza;
       votos[categoria] += voto_ponderado;
       
@@ -7808,7 +7811,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     // REGLA 1: Si hay empate, priorizar Radial-Angular
     if (segundo_lugar && Math.abs(votos_ganador - segundo_lugar[1]) < 0.3) {
       console.log("   ⚠️  EMPATE DETECTADO (diferencia < 0.3 votos)");
-      const radial_categoria = mapearACategoria(evidencias.radial_angular.clasificacion);
+      const radial_categoria = ClassificationEngine.mapearACategoria(evidencias.radial_angular.clasificacion);
       if (radial_categoria !== categoria_ganadora) {
         console.log(`   → Aplicando REGLA DE PRIORIDAD: Radial-Angular prevalece`);
         console.log(`   → Cambio: "${categoria_ganadora}" → "${radial_categoria}"`);
@@ -7837,7 +7840,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       console.log(`   → Preservando: "${clasificacion_final}"`);
     } else {
       // Convertir categoría a nombre formal
-      clasificacion_final = convertirCategoriaANombre(categoria_ganadora, metrics);
+      clasificacion_final = ClassificationEngine.convertirCategoriaANombre(categoria_ganadora, metrics);
       console.log(`   ✓ Objeto completo: "${clasificacion_final}"`);
     }
     
@@ -7862,7 +7865,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     // Si radial_angular dice Irregular, confiar en él (analiza la distribución radial real).
     if ((categoria_ganadora === "Cuadrangular" || categoria_ganadora === "Poligonal") &&
         (parseFloat(metrics.solidity || metrics.solidez) || 1.0) < 0.65) {
-      const _radialCat5 = mapearACategoria(evidencias.radial_angular.clasificacion);
+      const _radialCat5 = ClassificationEngine.mapearACategoria(evidencias.radial_angular.clasificacion);
       if (_radialCat5 === "Irregular") {
         console.log(`   ⚠️  REGLA 5: solidity=${parseFloat(metrics.solidity||metrics.solidez||0).toFixed(2)} < 0.65 + ganador ${categoria_ganadora} + radial=Irregular`);
         console.log(`   → Ángulos son de FRACTURA, no de forma → reclasificando como Irregular`);
@@ -7894,7 +7897,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
         const _catCurv = (_arNorm6 >= 0.82 && _circ6 >= 0.78 && _sol6 >= 0.80)
           ? "Elipsoidal"
           : "Oval";
-        const _nombreCurv = convertirCategoriaANombre(_catCurv, metrics);
+        const _nombreCurv = ClassificationEngine.convertirCategoriaANombre(_catCurv, metrics);
         categoria_ganadora = _catCurv;
         clasificacion_final = es_fragmento
           ? `Fragmento ${_nombreCurv} (${completitud}% completo)`
@@ -7949,7 +7952,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       }
     }
     
-    const interpretacionTipologica = inferirInterpretacionTipologica(
+    const interpretacionTipologica = ClassificationEngine.inferirInterpretacionTipologica(
       clasificacion_final,
       categoria_ganadora,
       contextoMorfologico,
@@ -7982,7 +7985,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       
       total_metodos_validos++;
       suma_pesos += datos.peso;
-      const categoria = mapearACategoria(datos.clasificacion);
+      const categoria = ClassificationEngine.mapearACategoria(datos.clasificacion);
       
       if (categoria === categoria_ganadora) {
         suma_confianzas_ponderadas += datos.peso * datos.confianza;
@@ -8052,7 +8055,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       if (datos.clasificacion === "No calculado" || datos.clasificacion === "Indeterminada") {
         continue;
       }
-      const categoria = mapearACategoria(datos.clasificacion);
+      const categoria = ClassificationEngine.mapearACategoria(datos.clasificacion);
       if (categoria === categoria_ganadora) {
         razonamiento.push(`${nombre}: "${datos.clasificacion}"(confianza ${(datos.confianza*100).toFixed(0)}%)`);
       } else {
@@ -10047,13 +10050,13 @@ import * as ShapeClassification from './modules/shape-classification.js';
       // CASO ESPECIAL: Múltiples componentes detectados - esperar selección del usuario
       if (contornoData && contornoData.multipleComponentsDetected) {
         console.log(`🖱️ Múltiples componentes detectados (${contornoData.componentCount}). Esperando selección del usuario...`);
-        setStatus(`${contornoData.componentCount} objetos detectados. Haz clic en el que deseas medir.`, false);
+        UtilityHelpers.setStatus(`${contornoData.componentCount} objetos detectados. Haz clic en el que deseas medir.`, false);
         
         // Guardar el objeto para procesarlo después de la selección
         currentObjectForComponentSelection = obj;
         
         // Redibujar canvas para mostrar los componentes
-        redrawCanvas();
+        UtilityHelpers.redrawCanvas();
         
         // Retornar sin calcular métricas - se calculará después de la selección
         return null;
@@ -10268,10 +10271,10 @@ import * as ShapeClassification from './modules/shape-classification.js';
     // === NUEVAS VARIABLES GEOMÉTRICAS AVANZADAS ===
     
     // 9. Centroide (Cx, Cy) - Dual: Real (fragmentado) y Hull (forma completa)
-    metrics.centroide_x = safeToFixed(contornoMetrics.centroid?.[0], 2);
-    metrics.centroide_y = safeToFixed(contornoMetrics.centroid?.[1], 2);
-    metrics.centroide_hull_x = safeToFixed(contornoMetrics.centroid_hull?.[0], 2);
-    metrics.centroide_hull_y = safeToFixed(contornoMetrics.centroid_hull?.[1], 2);
+    metrics.centroide_x = UtilityHelpers.safeToFixed(contornoMetrics.centroid?.[0], 2);
+    metrics.centroide_y = UtilityHelpers.safeToFixed(contornoMetrics.centroid?.[1], 2);
+    metrics.centroide_hull_x = UtilityHelpers.safeToFixed(contornoMetrics.centroid_hull?.[0], 2);
+    metrics.centroide_hull_y = UtilityHelpers.safeToFixed(contornoMetrics.centroid_hull?.[1], 2);
     // Array de centroide real — necesario para calcularComparacionBifacial que lee caraX.metricas.centroide
     metrics.centroide = [
       contornoMetrics.centroid?.[0] ?? 0,
@@ -10280,7 +10283,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     
     // 10. Excentricidad (E) - basada en los ejes de la elipse ajustada
     // (excentricidadData ya fue calculado antes del bloque 5 para uso en elongación y simetría)
-    metrics.excentricidad = safeToFixed(excentricidadData?.excentricidad, 4, '0.0000');
+    metrics.excentricidad = UtilityHelpers.safeToFixed(excentricidadData?.excentricidad, 4, '0.0000');
     
     // Guardar ejes en píxeles como referencia
     metrics.eje_mayor_px = excentricidadData?.eje_mayor;
@@ -10288,11 +10291,11 @@ import * as ShapeClassification from './modules/shape-classification.js';
     
     // Convertir ejes a milímetros si hay escala, sino usar píxeles
     if (escalaFactor && escalaFactor > 0) {
-      metrics.eje_mayor = safeToFixed(excentricidadData?.eje_mayor * escalaFactor, 2);
-      metrics.eje_menor = safeToFixed(excentricidadData?.eje_menor * escalaFactor, 2);
+      metrics.eje_mayor = UtilityHelpers.safeToFixed(excentricidadData?.eje_mayor * escalaFactor, 2);
+      metrics.eje_menor = UtilityHelpers.safeToFixed(excentricidadData?.eje_menor * escalaFactor, 2);
     } else {
-      metrics.eje_mayor = safeToFixed(excentricidadData?.eje_mayor, 2);
-      metrics.eje_menor = safeToFixed(excentricidadData?.eje_menor, 2);
+      metrics.eje_mayor = UtilityHelpers.safeToFixed(excentricidadData?.eje_mayor, 2);
+      metrics.eje_menor = UtilityHelpers.safeToFixed(excentricidadData?.eje_menor, 2);
     }
     
     // 11. Número de vértices aproximados (simplificación de contorno)
@@ -10323,14 +10326,14 @@ import * as ShapeClassification from './modules/shape-classification.js';
     
     // 14. Simetría Bilateral — medida respecto al eje mayor real del objeto
     const simetriaData = MorphometricMetrics.calcularSimetriaBilateral(contornoData.points, contornoMetrics.centroid, parseFloat(excentricidadData?.angulo_eje_principal || 0));
-    metrics.simetria_bilateral = safeToFixed(simetriaData.simetria_bilateral, 4, '0.0000');
+    metrics.simetria_bilateral = UtilityHelpers.safeToFixed(simetriaData.simetria_bilateral, 4, '0.0000');
     
     // Guardar distancia de asimetría en píxeles como referencia
-    metrics.simetria_distancia_asimetria_px = safeToFixed(simetriaData.distancia_asimetria_px, 2);
+    metrics.simetria_distancia_asimetria_px = UtilityHelpers.safeToFixed(simetriaData.distancia_asimetria_px, 2);
     
     // Convertir a milímetros si hay escala
     if (escalaFactor && escalaFactor > 0) {
-      metrics.simetria_distancia_asimetria = safeToFixed(simetriaData.distancia_asimetria_px * escalaFactor, 2);
+      metrics.simetria_distancia_asimetria = UtilityHelpers.safeToFixed(simetriaData.distancia_asimetria_px * escalaFactor, 2);
     } else {
       metrics.simetria_distancia_asimetria = metrics.simetria_distancia_asimetria_px;
     }
@@ -10339,25 +10342,25 @@ import * as ShapeClassification from './modules/shape-classification.js';
     
     // 15. Curvatura Local y Puntos de Inflexión
     const curvaturaData = MorphometricMetrics.calcularCurvaturaLocal(contornoData.points);
-    metrics.curvatura_media = safeToFixed(curvaturaData.curvatura_media, 6);
-    metrics.curvatura_maxima = safeToFixed(curvaturaData.curvatura_maxima, 6);
-    metrics.curvatura_desviacion = safeToFixed(curvaturaData.desviacion_curvatura, 6);
+    metrics.curvatura_media = UtilityHelpers.safeToFixed(curvaturaData.curvatura_media, 6);
+    metrics.curvatura_maxima = UtilityHelpers.safeToFixed(curvaturaData.curvatura_maxima, 6);
+    metrics.curvatura_desviacion = UtilityHelpers.safeToFixed(curvaturaData.desviacion_curvatura, 6);
     metrics.curvatura_puntos_inflexion = curvaturaData.puntos_inflexion;
     metrics.curvatura_puntos_esquina = curvaturaData.puntos_esquina;
     metrics.curvatura_clasificacion = curvaturaData.clasificacion_suavidad;
     
     // 16. Rugosidad del Contorno
     const rugosidadData = calcularRugosidadContorno(contornoData.points);
-    metrics.rugosidad_contorno = safeToFixed(rugosidadData.rugosidad, 4);
+    metrics.rugosidad_contorno = UtilityHelpers.safeToFixed(rugosidadData.rugosidad, 4);
     
     // Guardar longitudes de rugosidad en píxeles como referencia
-    metrics.rugosidad_longitud_segmento_media_px = safeToFixed(rugosidadData.longitud_segmento_media_px, 2);
-    metrics.rugosidad_desviacion_px = safeToFixed(rugosidadData.desviacion_segmentos_px, 2);
+    metrics.rugosidad_longitud_segmento_media_px = UtilityHelpers.safeToFixed(rugosidadData.longitud_segmento_media_px, 2);
+    metrics.rugosidad_desviacion_px = UtilityHelpers.safeToFixed(rugosidadData.desviacion_segmentos_px, 2);
     
     // Convertir a milímetros si hay escala
     if (escalaFactor && escalaFactor > 0) {
-      metrics.rugosidad_longitud_segmento_media = safeToFixed(rugosidadData.longitud_segmento_media_px * escalaFactor, 2);
-      metrics.rugosidad_desviacion = safeToFixed(rugosidadData.desviacion_segmentos_px * escalaFactor, 2);
+      metrics.rugosidad_longitud_segmento_media = UtilityHelpers.safeToFixed(rugosidadData.longitud_segmento_media_px * escalaFactor, 2);
+      metrics.rugosidad_desviacion = UtilityHelpers.safeToFixed(rugosidadData.desviacion_segmentos_px * escalaFactor, 2);
     } else {
       metrics.rugosidad_longitud_segmento_media = metrics.rugosidad_longitud_segmento_media_px;
       metrics.rugosidad_desviacion = metrics.rugosidad_desviacion_px;
@@ -10372,17 +10375,17 @@ import * as ShapeClassification from './modules/shape-classification.js';
     // Usar centroide del Convex Hull (forma completa) para mayor precisión arqueológica
     const centroidParaCalculo = contornoMetrics.centroid_hull || contornoMetrics.centroid;
     const ejePrincipalData = MorphometricMetrics.calcularEjePrincipal(contornoData.points, centroidParaCalculo);
-    metrics.eje_principal_angulo = safeToFixed(ejePrincipalData.angulo_eje_principal, 2);
+    metrics.eje_principal_angulo = UtilityHelpers.safeToFixed(ejePrincipalData.angulo_eje_principal, 2);
     metrics.eje_principal_orientacion = ejePrincipalData.orientacion;
-    metrics.eje_principal_anisotropia = safeToFixed(ejePrincipalData.anisotropia, 4);
+    metrics.eje_principal_anisotropia = UtilityHelpers.safeToFixed(ejePrincipalData.anisotropia, 4);
     metrics.eje_principal_forma_dominante = ejePrincipalData.forma_dominante;
     // Descriptores derivados de eigenvalores (§IV)
-    metrics.elongacion_inercia     = ejePrincipalData.elongacion_inercia     !== null ? safeToFixed(ejePrincipalData.elongacion_inercia, 4)     : null;
-    metrics.excentricidad_eliptica = ejePrincipalData.excentricidad_eliptica !== null ? safeToFixed(ejePrincipalData.excentricidad_eliptica, 4) : null;
-    metrics.isotropia_inercial     = ejePrincipalData.isotropia_inercial     !== null ? safeToFixed(ejePrincipalData.isotropia_inercial, 4)     : null;
-    metrics.radio_giro_mayor_px    = safeToFixed(ejePrincipalData.radio_giro_mayor, 4);
+    metrics.elongacion_inercia     = ejePrincipalData.elongacion_inercia     !== null ? UtilityHelpers.safeToFixed(ejePrincipalData.elongacion_inercia, 4)     : null;
+    metrics.excentricidad_eliptica = ejePrincipalData.excentricidad_eliptica !== null ? UtilityHelpers.safeToFixed(ejePrincipalData.excentricidad_eliptica, 4) : null;
+    metrics.isotropia_inercial     = ejePrincipalData.isotropia_inercial     !== null ? UtilityHelpers.safeToFixed(ejePrincipalData.isotropia_inercial, 4)     : null;
+    metrics.radio_giro_mayor_px    = UtilityHelpers.safeToFixed(ejePrincipalData.radio_giro_mayor, 4);
     metrics.radio_giro_mayor       = (escalaFactor && escalaFactor > 0)
-      ? safeToFixed(ejePrincipalData.radio_giro_mayor * escalaFactor, 4)
+      ? UtilityHelpers.safeToFixed(ejePrincipalData.radio_giro_mayor * escalaFactor, 4)
       : metrics.radio_giro_mayor_px;
     
     // 🆕 Guardar coordenadas de ejes REALES para visualización
@@ -10397,11 +10400,11 @@ import * as ShapeClassification from './modules/shape-classification.js';
     
     // Convertir longitudes a milímetros si hay escala, sino usar píxeles
     if (escalaFactor && escalaFactor > 0) {
-      metrics.eje_mayor_real_longitud = safeToFixed(ejePrincipalData.eje_mayor_longitud * escalaFactor, 2);
-      metrics.eje_menor_real_longitud = safeToFixed(ejePrincipalData.eje_menor_longitud * escalaFactor, 2);
+      metrics.eje_mayor_real_longitud = UtilityHelpers.safeToFixed(ejePrincipalData.eje_mayor_longitud * escalaFactor, 2);
+      metrics.eje_menor_real_longitud = UtilityHelpers.safeToFixed(ejePrincipalData.eje_menor_longitud * escalaFactor, 2);
     } else {
-      metrics.eje_mayor_real_longitud = safeToFixed(ejePrincipalData.eje_mayor_longitud, 2);
-      metrics.eje_menor_real_longitud = safeToFixed(ejePrincipalData.eje_menor_longitud, 2);
+      metrics.eje_mayor_real_longitud = UtilityHelpers.safeToFixed(ejePrincipalData.eje_mayor_longitud, 2);
+      metrics.eje_menor_real_longitud = UtilityHelpers.safeToFixed(ejePrincipalData.eje_menor_longitud, 2);
     }
     
     // 🆕 Guardar coordenadas RECORTADAS para dibujar solo dentro del contorno
@@ -10426,21 +10429,21 @@ import * as ShapeClassification from './modules/shape-classification.js';
     
     // Convertir a milímetros si hay escala, sino usar píxeles
     if (escalaFactor && escalaFactor > 0) {
-      metrics.radio_maximo = safeToFixed(radiosData.radio_maximo * escalaFactor, 2);
-      metrics.radio_minimo = safeToFixed(radiosData.radio_minimo * escalaFactor, 2);
-      metrics.radio_medio = safeToFixed(radiosData.radio_medio * escalaFactor, 2);
-      metrics.desviacion_radial = safeToFixed(radiosData.desviacion_radial * escalaFactor, 2);
+      metrics.radio_maximo = UtilityHelpers.safeToFixed(radiosData.radio_maximo * escalaFactor, 2);
+      metrics.radio_minimo = UtilityHelpers.safeToFixed(radiosData.radio_minimo * escalaFactor, 2);
+      metrics.radio_medio = UtilityHelpers.safeToFixed(radiosData.radio_medio * escalaFactor, 2);
+      metrics.desviacion_radial = UtilityHelpers.safeToFixed(radiosData.desviacion_radial * escalaFactor, 2);
     } else {
-      metrics.radio_maximo = safeToFixed(radiosData.radio_maximo, 2);
-      metrics.radio_minimo = safeToFixed(radiosData.radio_minimo, 2);
-      metrics.radio_medio = safeToFixed(radiosData.radio_medio, 2);
-      metrics.desviacion_radial = safeToFixed(radiosData.desviacion_radial, 2);
+      metrics.radio_maximo = UtilityHelpers.safeToFixed(radiosData.radio_maximo, 2);
+      metrics.radio_minimo = UtilityHelpers.safeToFixed(radiosData.radio_minimo, 2);
+      metrics.radio_medio = UtilityHelpers.safeToFixed(radiosData.radio_medio, 2);
+      metrics.desviacion_radial = UtilityHelpers.safeToFixed(radiosData.desviacion_radial, 2);
     }
     
     // Métricas adimensionales (no requieren conversión)
-    metrics.ratio_radios = safeToFixed(radiosData.ratio_radios, 4);
-    metrics.regularidad_radial = safeToFixed(radiosData.regularidad_radial, 2);
-    metrics.coeficiente_variacion_radial = safeToFixed(radiosData.coeficiente_variacion_radial, 2);
+    metrics.ratio_radios = UtilityHelpers.safeToFixed(radiosData.ratio_radios, 4);
+    metrics.regularidad_radial = UtilityHelpers.safeToFixed(radiosData.regularidad_radial, 2);
+    metrics.coeficiente_variacion_radial = UtilityHelpers.safeToFixed(radiosData.coeficiente_variacion_radial, 2);
     
     // Guardar puntos extremos para visualización
     metrics.punto_radio_maximo = radiosData.punto_radio_maximo;
@@ -10457,7 +10460,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     // Valores altos (>0.5) = forma estrellada, valores bajos (<0.2) = forma redondeada
     if (radiosData && radiosData.radio_medio > 0) {
       const estrellamiento = (radiosData.radio_maximo - radiosData.radio_minimo) / radiosData.radio_medio;
-      metrics.indice_estrellamiento = safeToFixed(estrellamiento, 4);
+      metrics.indice_estrellamiento = UtilityHelpers.safeToFixed(estrellamiento, 4);
       
       // Clasificación
       if (estrellamiento > 0.6) {
@@ -10496,7 +10499,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       const perimetroCirculoEquiv = MATH_CONSTANTS.TWO_PI * radioEquiv;
       
       const lobularidad = perimetroHull / perimetroCirculoEquiv;
-      metrics.indice_lobularidad = safeToFixed(lobularidad, 4);
+      metrics.indice_lobularidad = UtilityHelpers.safeToFixed(lobularidad, 4);
       
       // Clasificación
       if (lobularidad > 1.3) {
@@ -10519,7 +10522,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     if (curvaturaData && curvaturaData.curvaturas && curvaturaData.curvaturas.length > 0) {
       const sumaCuadrados = curvaturaData.curvaturas.reduce((sum, k) => sum + k * k, 0);
       const energiaCurvatura = sumaCuadrados / curvaturaData.curvaturas.length;
-      metrics.energia_curvatura = safeToFixed(energiaCurvatura, 4);
+      metrics.energia_curvatura = UtilityHelpers.safeToFixed(energiaCurvatura, 4);
       
       // Clasificación
       if (energiaCurvatura > 0.1) {
@@ -10543,21 +10546,21 @@ import * as ShapeClassification from './modules/shape-classification.js';
       const feretData = MorphometricMetrics.calcularDiametroFeret(contornoMetrics.convex_hull);
       
       // Guardar valores en píxeles como referencia
-      metrics.feret_max_px = safeToFixed(feretData.feret_max, 2);
-      metrics.feret_min_px = safeToFixed(feretData.feret_min, 2);
+      metrics.feret_max_px = UtilityHelpers.safeToFixed(feretData.feret_max, 2);
+      metrics.feret_min_px = UtilityHelpers.safeToFixed(feretData.feret_min, 2);
       
       // Convertir a milímetros si hay escala
       if (escalaFactor && escalaFactor > 0) {
-        metrics.feret_max = safeToFixed(feretData.feret_max * escalaFactor, 2);
-        metrics.feret_min = safeToFixed(feretData.feret_min * escalaFactor, 2);
+        metrics.feret_max = UtilityHelpers.safeToFixed(feretData.feret_max * escalaFactor, 2);
+        metrics.feret_min = UtilityHelpers.safeToFixed(feretData.feret_min * escalaFactor, 2);
       } else {
-        metrics.feret_max = safeToFixed(feretData.feret_max, 2);
-        metrics.feret_min = safeToFixed(feretData.feret_min, 2);
+        metrics.feret_max = UtilityHelpers.safeToFixed(feretData.feret_max, 2);
+        metrics.feret_min = UtilityHelpers.safeToFixed(feretData.feret_min, 2);
       }
       
-      metrics.feret_ratio = safeToFixed(feretData.feret_ratio, 4);
-      metrics.feret_angulo_max = safeToFixed(feretData.angulo_feret_max, 1);
-      metrics.feret_angulo_min = safeToFixed(feretData.angulo_feret_min, 1);
+      metrics.feret_ratio = UtilityHelpers.safeToFixed(feretData.feret_ratio, 4);
+      metrics.feret_angulo_max = UtilityHelpers.safeToFixed(feretData.angulo_feret_max, 1);
+      metrics.feret_angulo_min = UtilityHelpers.safeToFixed(feretData.angulo_feret_min, 1);
       
       // Clasificación basada en el ratio
       if (feretData.feret_ratio > 0.9) {
@@ -10597,9 +10600,9 @@ import * as ShapeClassification from './modules/shape-classification.js';
     if (_puntosAngulos) {
       const angulosData = ShapeClassification.calcularAngulosVertices(_puntosAngulos);
       
-      metrics.angulo_medio_vertices = safeToFixed(angulosData.angulo_medio, 1);
-      metrics.angulo_predominante = safeToFixed(angulosData.angulo_predominante, 1);
-      metrics.desviacion_angulos = safeToFixed(angulosData.desviacion_angulos, 1);
+      metrics.angulo_medio_vertices = UtilityHelpers.safeToFixed(angulosData.angulo_medio, 1);
+      metrics.angulo_predominante = UtilityHelpers.safeToFixed(angulosData.angulo_predominante, 1);
+      metrics.desviacion_angulos = UtilityHelpers.safeToFixed(angulosData.desviacion_angulos, 1);
       metrics.num_angulos_rectos = angulosData.num_angulos_rectos;
       metrics.num_angulos_agudos = angulosData.num_angulos_agudos;
       metrics.num_angulos_obtusos = angulosData.num_angulos_obtusos;
@@ -10645,7 +10648,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     console.log(`   ✅ Geometría de Vértices: ${metrics.geometria_vertices}`);
     
     // 19. Índices de Forma 3D Inferida
-    const forma3DData = calcularIndicesForma3D(
+    const forma3DData = ClassificationEngine.calcularIndicesForma3D(
       contornoMetrics.area_real,
       contornoMetrics.perimeter_real,
       // Usar ratio eje_mayor/eje_menor (caliper real del eje de inercia) en lugar del
@@ -10654,9 +10657,9 @@ import * as ShapeClassification from './modules/shape-classification.js';
       (excentricidadData?.eje_mayor > 0 && excentricidadData?.eje_menor > 0) ? excentricidadData.eje_mayor / excentricidadData.eje_menor : parseFloat(metrics.aspect_ratio_tight),
       parseFloat(metrics.excentricidad)
     );
-    metrics.esfericidad = safeToFixed(forma3DData.esfericidad, 4);
+    metrics.esfericidad = UtilityHelpers.safeToFixed(forma3DData.esfericidad, 4);
     metrics.forma_3d_inferida = forma3DData.forma_3d_inferida;
-    metrics.oblongacion = safeToFixed(forma3DData.oblongacion, 4);
+    metrics.oblongacion = UtilityHelpers.safeToFixed(forma3DData.oblongacion, 4);
     metrics.oblongacion_clasificacion = forma3DData.clasificacion_oblongacion;
     metrics.aplanamiento_inferido = forma3DData.aplanamiento_inferido;
     
@@ -10715,13 +10718,13 @@ import * as ShapeClassification from './modules/shape-classification.js';
       const convexity = contornoMetrics.area_real / areaHull;
       
       // Guardar métricas del Convex Hull
-      metrics.hull_area_px = safeToFixed(areaHull, 2);
-      metrics.hull_perimeter_px = safeToFixed(perimeterHull, 2);
-      metrics.hull_width_px = safeToFixed(hullWidth, 2);
-      metrics.hull_height_px = safeToFixed(hullHeight, 2);
-      metrics.hull_circularity = safeToFixed(circularityHull, 4);
-      metrics.hull_aspect_ratio = safeToFixed(hullWidth / hullHeight, 4);
-      metrics.convexity = safeToFixed(convexity, 4); // Qué tan "lleno" está el hull (1.0 = completamente convexo)
+      metrics.hull_area_px = UtilityHelpers.safeToFixed(areaHull, 2);
+      metrics.hull_perimeter_px = UtilityHelpers.safeToFixed(perimeterHull, 2);
+      metrics.hull_width_px = UtilityHelpers.safeToFixed(hullWidth, 2);
+      metrics.hull_height_px = UtilityHelpers.safeToFixed(hullHeight, 2);
+      metrics.hull_circularity = UtilityHelpers.safeToFixed(circularityHull, 4);
+      metrics.hull_aspect_ratio = UtilityHelpers.safeToFixed(hullWidth / hullHeight, 4);
+      metrics.convexity = UtilityHelpers.safeToFixed(convexity, 4); // Qué tan "lleno" está el hull (1.0 = completamente convexo)
       
       // Clasificación de convexidad
       if (convexity >= 0.95) {
@@ -10740,8 +10743,8 @@ import * as ShapeClassification from './modules/shape-classification.js';
       const areaDiff = ((areaHull - contornoMetrics.area_real) / contornoMetrics.area_real * 100);
       const perimeterDiff = ((perimeterHull - contornoMetrics.perimeter_real) / contornoMetrics.perimeter_real * 100);
       
-      metrics.hull_area_difference_percent = safeToFixed(areaDiff, 1);
-      metrics.hull_perimeter_difference_percent = safeToFixed(perimeterDiff, 1);
+      metrics.hull_area_difference_percent = UtilityHelpers.safeToFixed(areaDiff, 1);
+      metrics.hull_perimeter_difference_percent = UtilityHelpers.safeToFixed(perimeterDiff, 1);
       
       console.log(`   ✅ Área Hull: ${metrics.hull_area_px} px² (${metrics.hull_area_difference_percent}% mayor que real)`);
       console.log(`   ✅ Perímetro Hull: ${metrics.hull_perimeter_px} px (${metrics.hull_perimeter_difference_percent}% diferente que real)`);
@@ -10906,12 +10909,12 @@ import * as ShapeClassification from './modules/shape-classification.js';
           formaIdealizada.distribucionRadialAngular
         );
         
-        metrics.completitud_estimada = safeToFixed(completitudData.completitud_estimada, 1);
-        metrics.completitud_metodo_angular = safeToFixed(completitudData.metodo_angular, 1);
-        metrics.completitud_metodo_convexidad = safeToFixed(completitudData.metodo_convexidad, 1);
+        metrics.completitud_estimada = UtilityHelpers.safeToFixed(completitudData.completitud_estimada, 1);
+        metrics.completitud_metodo_angular = UtilityHelpers.safeToFixed(completitudData.metodo_angular, 1);
+        metrics.completitud_metodo_convexidad = UtilityHelpers.safeToFixed(completitudData.metodo_convexidad, 1);
         metrics.completitud_es_fragmento = completitudData.es_fragmento;
         metrics.completitud_tipo_fragmento = completitudData.tipo_fragmento;
-        metrics.completitud_cobertura_grados = safeToFixed(completitudData.cobertura_angular_grados, 1);
+        metrics.completitud_cobertura_grados = UtilityHelpers.safeToFixed(completitudData.cobertura_angular_grados, 1);
         
         console.log(`   ✅ Completitud estimada: ${metrics.completitud_estimada}%`);
         console.log(`   ✅ Tipo: ${metrics.completitud_tipo_fragmento}`);
@@ -10922,7 +10925,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       // Sintetiza todas las clasificaciones individuales para determinar
       // la clasificación definitiva con mayor certeza
       // ============================================================================
-      const metaClasificacion = metaClasificarForma(metrics, obj);
+      const metaClasificacion = ClassificationEngine.metaClasificarForma(metrics, obj);
       
       // Actualizar métricas con resultado de meta-clasificación
       metrics.forma_detectada_meta = metaClasificacion.clasificacion_final;
@@ -10936,7 +10939,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       metrics.forma_requiere_reinterpretacion_tipologica = !!metaClasificacion.requiere_reinterpretacion_tipologica;
       metrics.forma_detectada_tipologica = metrics.forma_tipologica_inferida;
       // Resolver salida final con la regla canónica compartida Manual/IA.
-      aplicarReglaCanonicaInterpretacion(metrics);
+      ClassificationEngine.aplicarReglaCanonicaInterpretacion(metrics);
       metrics.forma_confianza = metaClasificacion.confianza_global;
       
       // Guardar clasificaciones individuales para referencia
@@ -10956,7 +10959,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       // ============================================================================
       
       // Analizar patrón de agrupamiento de perforaciones/horadaciones
-      const patronAgrupamiento = analizarPatronAgrupamiento(obj);
+      const patronAgrupamiento = ClassificationEngine.analizarPatronAgrupamiento(obj);
       
       console.log('🔍 DEBUG patronAgrupamiento retornado:', patronAgrupamiento);
       console.log('🔍 Confianza original:', patronAgrupamiento.confianza);
@@ -11125,14 +11128,14 @@ import * as ShapeClassification from './modules/shape-classification.js';
         // Pasar centroidReal para que excentricidad, elongación y simetría usen el mismo
         // centroide Shoelace del contorno real — coherencia con calcularSimetriaBilateral.
         const excentricidadIdealizada = MorphometricMetrics.calcularExcentricidad(formaIdealizada.vertices, centroidReal);
-        metrics.excentricidad = safeToFixed(excentricidadIdealizada?.excentricidad, 4, '0.0000');
+        metrics.excentricidad = UtilityHelpers.safeToFixed(excentricidadIdealizada?.excentricidad, 4, '0.0000');
         // Los ejes del contorno idealizado vienen en px → convertir a mm si hay escala
         if (escalaFactor && escalaFactor > 0) {
-          metrics.eje_mayor = safeToFixed(excentricidadIdealizada?.eje_mayor * escalaFactor, 2, '0.00');
-          metrics.eje_menor = safeToFixed(excentricidadIdealizada?.eje_menor * escalaFactor, 2, '0.00');
+          metrics.eje_mayor = UtilityHelpers.safeToFixed(excentricidadIdealizada?.eje_mayor * escalaFactor, 2, '0.00');
+          metrics.eje_menor = UtilityHelpers.safeToFixed(excentricidadIdealizada?.eje_menor * escalaFactor, 2, '0.00');
         } else {
-          metrics.eje_mayor = safeToFixed(excentricidadIdealizada?.eje_mayor, 2, '0.00');
-          metrics.eje_menor = safeToFixed(excentricidadIdealizada?.eje_menor, 2, '0.00');
+          metrics.eje_mayor = UtilityHelpers.safeToFixed(excentricidadIdealizada?.eje_mayor, 2, '0.00');
+          metrics.eje_menor = UtilityHelpers.safeToFixed(excentricidadIdealizada?.eje_menor, 2, '0.00');
         }
         
         console.log(`   ✅ Excentricidad: ${metrics.excentricidad}`);
@@ -11149,16 +11152,16 @@ import * as ShapeClassification from './modules/shape-classification.js';
         // Simetría Bilateral (usa CONTORNO IDEALIZADO pero CENTROIDE REAL)
         // Medida respecto al eje mayor real (excentricidadIdealizada.angulo_eje_principal)
         const simetriaIdealizada = MorphometricMetrics.calcularSimetriaBilateral(formaIdealizada.vertices, centroidReal, parseFloat(excentricidadIdealizada?.angulo_eje_principal || 0));
-        metrics.simetria_bilateral = safeToFixed(simetriaIdealizada.simetria_bilateral, 4, '0.0000');
-        metrics.simetria_distancia_asimetria_px = safeToFixed(simetriaIdealizada.distancia_asimetria_px, 2);
+        metrics.simetria_bilateral = UtilityHelpers.safeToFixed(simetriaIdealizada.simetria_bilateral, 4, '0.0000');
+        metrics.simetria_distancia_asimetria_px = UtilityHelpers.safeToFixed(simetriaIdealizada.distancia_asimetria_px, 2);
         metrics.simetria_clasificacion = simetriaIdealizada.clasificacion_simetria;
         
         // Curvatura Local (usa solo CONTORNO IDEALIZADO)
         // Esta métrica es independiente del centroide
         const curvaturaIdealizada = MorphometricMetrics.calcularCurvaturaLocal(formaIdealizada.vertices);
-        metrics.curvatura_media = safeToFixed(curvaturaIdealizada.curvatura_media, 6);
-        metrics.curvatura_maxima = safeToFixed(curvaturaIdealizada.curvatura_maxima, 6);
-        metrics.curvatura_desviacion = safeToFixed(curvaturaIdealizada.desviacion_curvatura, 6);
+        metrics.curvatura_media = UtilityHelpers.safeToFixed(curvaturaIdealizada.curvatura_media, 6);
+        metrics.curvatura_maxima = UtilityHelpers.safeToFixed(curvaturaIdealizada.curvatura_maxima, 6);
+        metrics.curvatura_desviacion = UtilityHelpers.safeToFixed(curvaturaIdealizada.desviacion_curvatura, 6);
         metrics.curvatura_puntos_inflexion = curvaturaIdealizada.puntos_inflexion;
         metrics.curvatura_puntos_esquina = curvaturaIdealizada.puntos_esquina;
         metrics.curvatura_clasificacion = curvaturaIdealizada.clasificacion_suavidad;
@@ -11166,9 +11169,9 @@ import * as ShapeClassification from './modules/shape-classification.js';
         // Rugosidad (usa solo CONTORNO IDEALIZADO)
         // Esta métrica es independiente del centroide
         const rugosidadIdealizada = calcularRugosidadContorno(formaIdealizada.vertices);
-        metrics.rugosidad_contorno = safeToFixed(rugosidadIdealizada.rugosidad, 4);
-        metrics.rugosidad_longitud_segmento_media_px = safeToFixed(rugosidadIdealizada.longitud_segmento_media_px, 2);
-        metrics.rugosidad_desviacion_px = safeToFixed(rugosidadIdealizada.desviacion_segmentos_px, 2);
+        metrics.rugosidad_contorno = UtilityHelpers.safeToFixed(rugosidadIdealizada.rugosidad, 4);
+        metrics.rugosidad_longitud_segmento_media_px = UtilityHelpers.safeToFixed(rugosidadIdealizada.longitud_segmento_media_px, 2);
+        metrics.rugosidad_desviacion_px = UtilityHelpers.safeToFixed(rugosidadIdealizada.desviacion_segmentos_px, 2);
         metrics.rugosidad_clasificacion = rugosidadIdealizada.clasificacion_rugosidad;
         
         // §VIII — Dimensión fractal (contorno idealizado)
@@ -11177,17 +11180,17 @@ import * as ShapeClassification from './modules/shape-classification.js';
         // Eje Principal (usa CONTORNO IDEALIZADO pero CENTROIDE REAL)
         // CRÍTICO: Los ejes deben calcularse respecto al centro real del objeto
         const ejePrincipalIdealizada = MorphometricMetrics.calcularEjePrincipal(formaIdealizada.vertices, centroidReal);
-        metrics.eje_principal_angulo = safeToFixed(ejePrincipalIdealizada.angulo_eje_principal, 2);
+        metrics.eje_principal_angulo = UtilityHelpers.safeToFixed(ejePrincipalIdealizada.angulo_eje_principal, 2);
         metrics.eje_principal_orientacion = ejePrincipalIdealizada.orientacion;
-        metrics.eje_principal_anisotropia = safeToFixed(ejePrincipalIdealizada.anisotropia, 4);
+        metrics.eje_principal_anisotropia = UtilityHelpers.safeToFixed(ejePrincipalIdealizada.anisotropia, 4);
         metrics.eje_principal_forma_dominante = ejePrincipalIdealizada.forma_dominante;
         // Descriptores derivados de eigenvalores (§IV)
-        metrics.elongacion_inercia     = ejePrincipalIdealizada.elongacion_inercia     !== null ? safeToFixed(ejePrincipalIdealizada.elongacion_inercia, 4)     : null;
-        metrics.excentricidad_eliptica = ejePrincipalIdealizada.excentricidad_eliptica !== null ? safeToFixed(ejePrincipalIdealizada.excentricidad_eliptica, 4) : null;
-        metrics.isotropia_inercial     = ejePrincipalIdealizada.isotropia_inercial     !== null ? safeToFixed(ejePrincipalIdealizada.isotropia_inercial, 4)     : null;
-        metrics.radio_giro_mayor_px    = safeToFixed(ejePrincipalIdealizada.radio_giro_mayor, 4);
+        metrics.elongacion_inercia     = ejePrincipalIdealizada.elongacion_inercia     !== null ? UtilityHelpers.safeToFixed(ejePrincipalIdealizada.elongacion_inercia, 4)     : null;
+        metrics.excentricidad_eliptica = ejePrincipalIdealizada.excentricidad_eliptica !== null ? UtilityHelpers.safeToFixed(ejePrincipalIdealizada.excentricidad_eliptica, 4) : null;
+        metrics.isotropia_inercial     = ejePrincipalIdealizada.isotropia_inercial     !== null ? UtilityHelpers.safeToFixed(ejePrincipalIdealizada.isotropia_inercial, 4)     : null;
+        metrics.radio_giro_mayor_px    = UtilityHelpers.safeToFixed(ejePrincipalIdealizada.radio_giro_mayor, 4);
         metrics.radio_giro_mayor       = (escalaFactor && escalaFactor > 0)
-          ? safeToFixed(ejePrincipalIdealizada.radio_giro_mayor * escalaFactor, 4)
+          ? UtilityHelpers.safeToFixed(ejePrincipalIdealizada.radio_giro_mayor * escalaFactor, 4)
           : metrics.radio_giro_mayor_px;
         
         // 🆕 IMPORTANTE: NO actualizar las coordenadas de ejes reales
@@ -11195,15 +11198,15 @@ import * as ShapeClassification from './modules/shape-classification.js';
         console.log(`   ⚠️ Ejes REALES preservados del contorno original (no se recalculan con idealización)`);
         
         // Índices 3D (idealizados)
-        const forma3DIdealizada = calcularIndicesForma3D(
+        const forma3DIdealizada = ClassificationEngine.calcularIndicesForma3D(
           metricasIdealizadas.area,
           metricasIdealizadas.perimeter,
           (excentricidadIdealizada?.eje_mayor > 0 && excentricidadIdealizada?.eje_menor > 0) ? excentricidadIdealizada.eje_mayor / excentricidadIdealizada.eje_menor : parseFloat(metrics.aspect_ratio_tight),
           parseFloat(metrics.excentricidad)
         );
-        metrics.esfericidad = safeToFixed(forma3DIdealizada.esfericidad, 4);
+        metrics.esfericidad = UtilityHelpers.safeToFixed(forma3DIdealizada.esfericidad, 4);
         metrics.forma_3d_inferida = forma3DIdealizada.forma_3d_inferida;
-        metrics.oblongacion = safeToFixed(forma3DIdealizada.oblongacion, 4);
+        metrics.oblongacion = UtilityHelpers.safeToFixed(forma3DIdealizada.oblongacion, 4);
         metrics.oblongacion_clasificacion = forma3DIdealizada.clasificacion_oblongacion;
         metrics.aplanamiento_inferido = forma3DIdealizada.aplanamiento_inferido;
         
@@ -11331,9 +11334,9 @@ import * as ShapeClassification from './modules/shape-classification.js';
     const texturaData = (typeof _texturaPreContorno !== 'undefined' && _texturaPreContorno)
       ? _texturaPreContorno
       : MorphometricMetrics.calcularTexturaSuperficie(obj);
-    if (texturaData.varianza_interna    !== null) metrics.varianza_interna     = safeToFixed(texturaData.varianza_interna,    4);
-    if (texturaData.entropia_superficie !== null) metrics.entropia_superficie  = safeToFixed(texturaData.entropia_superficie,  4);
-    if (texturaData.gradiente_medio     !== null) metrics.gradiente_medio      = safeToFixed(texturaData.gradiente_medio,      4);
+    if (texturaData.varianza_interna    !== null) metrics.varianza_interna     = UtilityHelpers.safeToFixed(texturaData.varianza_interna,    4);
+    if (texturaData.entropia_superficie !== null) metrics.entropia_superficie  = UtilityHelpers.safeToFixed(texturaData.entropia_superficie,  4);
+    if (texturaData.gradiente_medio     !== null) metrics.gradiente_medio      = UtilityHelpers.safeToFixed(texturaData.gradiente_medio,      4);
     const _refinedMaskUsed = (typeof _refinedMask !== 'undefined') ? _refinedMask : null;
     if (_refinedMaskUsed) metrics._contorno_refinado_por_textura = true;
     console.log(`   ✅ Textura superficie: varianza=${metrics.varianza_interna ?? 'N/D'} entropía=${metrics.entropia_superficie ?? 'N/D'} gradiente=${metrics.gradiente_medio ?? 'N/D'}${_refinedMaskUsed ? ' 🔬 (contorno refinado)' : ''}`);
@@ -11438,7 +11441,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       const error = 'Error: Array de objetos no inicializado.';
       if (!silencioso) {
         console.error(error);
-        if (typeof setStatus === 'function') setStatus(error, true);
+        if (typeof setStatus === 'function') UtilityHelpers.setStatus(error, true);
       }
       return false;
     }
@@ -11447,7 +11450,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       const error = `Error: Índice de objeto inválido (${objectIndex}/${objects.length}).`;
       if (!silencioso) {
         console.error(error);
-        if (typeof setStatus === 'function') setStatus(error, true);
+        if (typeof setStatus === 'function') UtilityHelpers.setStatus(error, true);
       }
       return false;
     }
@@ -11587,7 +11590,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
         }
 
         // ── Reconstruir _forma_idealizada para objetos IA con análisis JS completo ──
-        // Los objetos IA tienen contorno real correcto; para que metaClasificarForma()
+        // Los objetos IA tienen contorno real correcto; para que ClassificationEngine.metaClasificarForma()
         // use distribucionRadialAngular real (y no el valor por defecto 0.85 del voter
         // radial_angular con peso 3.0), ejecutar calcularMetricasMorfologicas sobre el
         // contorno IA. Condición: no hay _forma_idealizada, o la existente no tiene
@@ -11655,12 +11658,12 @@ import * as ShapeClassification from './modules/shape-classification.js';
         // ── Meta-clasificación para objetos AIA (solo si faltan los campos JS) ──
         // Los objetos AIA llegan con forma_detectada de Python, pero sin
         // forma_confianza_global / _clasificaciones_individuales / forma_razonamiento,
-        // que son computadas por metaClasificarForma() en el flujo estándar.
+        // que son computadas por ClassificationEngine.metaClasificarForma() en el flujo estándar.
         // Se calcula aquí una sola vez y se persiste en analisisCached.
         if (!metricasCached.forma_confianza_global && metricasCached.forma_detectada &&
             typeof metaClasificarForma === 'function') {
           try {
-            const _mc = metaClasificarForma(metricasCached, obj);
+            const _mc = ClassificationEngine.metaClasificarForma(metricasCached, obj);
             metricasCached.forma_detectada_meta          = _mc.clasificacion_final;
             metricasCached.forma_confianza_global        = (_mc.confianza_global * 100).toFixed(1);
             metricasCached.forma_metodos_coincidentes    = `${_mc.metodos_coincidentes}/${_mc.total_metodos}`;
@@ -11716,7 +11719,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
         }
         
         if (typeof setStatus === 'function') {
-          setStatus(`Análisis morfológico recuperado para objeto ${obj.id}`, false);
+          UtilityHelpers.setStatus(`Análisis morfológico recuperado para objeto ${obj.id}`, false);
         }
       }
       
@@ -11957,7 +11960,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
 
             // Meta-clasificación con información Python disponible
             try {
-              const _metaClassif = metaClasificarForma(metricas, obj);
+              const _metaClassif = ClassificationEngine.metaClasificarForma(metricas, obj);
               metricas.forma_detectada_meta          = _metaClassif.clasificacion_final;
               if (typeof window._maoLog === 'function') window._maoLog(`[MANUAL] meta-clasif="${_metaClassif.clasificacion_final}" tipologia="${_metaClassif.forma_tipologica_inferida || _metaClassif.clasificacion_final}" reinterpretada=${!!_metaClassif.requiere_reinterpretacion_tipologica} conf=${(_metaClassif.confianza_global*100).toFixed(1)}% metodos=${_metaClassif.metodos_coincidentes}/${_metaClassif.total_metodos} completitud=${metricas.completitud_estimada ?? 'n/a'}`);
               metricas.forma_confianza_global        = (_metaClassif.confianza_global * 100).toFixed(1);
@@ -11989,7 +11992,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
             }
             // Patrón de agrupamiento P/H
             try {
-              const _patronAg = analizarPatronAgrupamiento(obj);
+              const _patronAg = ClassificationEngine.analizarPatronAgrupamiento(obj);
               metricas.patron_agrupamiento           = _patronAg.clasificacion;
               metricas.patron_agrupamiento_patron    = _patronAg.patron;
               metricas.patron_agrupamiento_detalles  = _patronAg.detalles;
@@ -12020,7 +12023,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       if (!metricas) {
         const error = `Error: No se pudieron calcular las métricas morfológicas para objeto ${obj.id}.`;
         console.error(error);
-        setStatus(error, true);
+        UtilityHelpers.setStatus(error, true);
         return false;
       }
       
@@ -12093,7 +12096,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
         });
         
         if (typeof setStatus === 'function') {
-          setStatus(`Análisis morfológico completado para objeto ${obj.id}`, false);
+          UtilityHelpers.setStatus(`Análisis morfológico completado para objeto ${obj.id}`, false);
         }
       }
       
@@ -12102,7 +12105,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     } catch (error) {
       const errorMsg = `Error durante análisis morfológico de objeto ${obj.id}: ${error.message}`;
       console.error(errorMsg, error);
-      setStatus(errorMsg, true);
+      UtilityHelpers.setStatus(errorMsg, true);
       return false;
     }
   }
@@ -12135,7 +12138,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     
     if (!objetoEncontrado) {
       console.log('ℹ️ No se encontró ningún objeto en la posición del click');
-      setStatus('No hay objeto en esa posición. Use Alt+Click sobre un objeto detectado.', false);
+      UtilityHelpers.setStatus('No hay objeto en esa posición. Use Alt+Click sobre un objeto detectado.', false);
       return;
     }
     
@@ -12144,7 +12147,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     // Verificar si tiene análisis guardado
     if (objetoEncontrado.analisisCached) {
       console.log(`📦 Recuperando análisis guardado para ${objetoEncontrado.id}`);
-      setStatus(`Recuperando análisis de ${objetoEncontrado.id} desde caché...`, false);
+      UtilityHelpers.setStatus(`Recuperando análisis de ${objetoEncontrado.id} desde caché...`, false);
       
       // Llamar a la función de análisis (que detectará el caché y lo recuperará)
       analizarObjetoMorfologicamente(indexEncontrado, false);
@@ -12544,7 +12547,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       
       // Notificar al usuario
       if (typeof setStatus === 'function') {
-        setStatus('Limpieza de memoria ejecutada. Considere usar imágenes más pequeñas.', true);
+        UtilityHelpers.setStatus('Limpieza de memoria ejecutada. Considere usar imágenes más pequeñas.', true);
       }
     }
     
@@ -12725,7 +12728,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     'LEICA SL2-S': { width: 35.9, height: 24.0 }
   };
 
-  function setStatus(msg, isError=false){
+  function UtilityHelpers.setStatus(msg, isError=false){
     statusDiv.textContent = msg;
     statusDiv.style.color = isError ? '#777' : '#555';
   }
@@ -12774,7 +12777,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
 
   function validarEntradas(){
     if(!image) {
-      setStatus('Error: Cargue primero la imagen JPG o archivo RAW.', true);
+      UtilityHelpers.setStatus('Error: Cargue primero la imagen JPG o archivo RAW.', true);
       return false;
     }
     const focal = parseFloat(focalInput.value);
@@ -12782,18 +12785,18 @@ import * as ShapeClassification from './modules/shape-classification.js';
     const sensorWidth = parseFloat(sensorWidthInput.value);
     
     if(isNaN(focal) || focal <= 0) {
-      setStatus('Error: Distancia focal inválida.', true);
+      UtilityHelpers.setStatus('Error: Distancia focal inválida.', true);
       return false;
     }
     if(isNaN(distancia) || distancia <= 0){
-      setStatus('Error: Distancia lente-objeto inválida.', true);
+      UtilityHelpers.setStatus('Error: Distancia lente-objeto inválida.', true);
       return false;
     }
     if(isNaN(sensorWidth) || sensorWidth <= 0){
-      setStatus('Error: Dimensiones del sensor no disponibles.', true);
+      UtilityHelpers.setStatus('Error: Dimensiones del sensor no disponibles.', true);
       return false;
     }
-    setStatus('Datos válidos.', false);
+    UtilityHelpers.setStatus('Datos válidos.', false);
     return true;
   }
 
@@ -13043,9 +13046,9 @@ import * as ShapeClassification from './modules/shape-classification.js';
     if (!focal || !distancia || !sensorWidth || !anchoImagen) {
       scale = null;
       scaleDisplay.textContent = '-';
-      if (!focal) setStatus('Falta: Distancia focal', true);
-      else if (!distancia) setStatus('Falta: Distancia lente-objeto', true);
-      else if (!sensorWidth) setStatus('Falta: Ancho del sensor', true);
+      if (!focal) UtilityHelpers.setStatus('Falta: Distancia focal', true);
+      else if (!distancia) UtilityHelpers.setStatus('Falta: Distancia lente-objeto', true);
+      else if (!sensorWidth) UtilityHelpers.setStatus('Falta: Ancho del sensor', true);
       console.error('❌ Faltan parámetros para cálculo de escala:', {
         focal,
         distancia,
@@ -13081,7 +13084,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     } catch(_) { /* no crítico */ }
 
     const mensaje = `Escala${modoTexto}: ${scale.toFixed(6)} mm/píxel | Resolución: ${pixelsPorMM.toFixed(2)} px/mm | Campo: ${campoVisionW}×${campoVisionH}mm${errorEsquinaTxt}`;
-    setStatus(mensaje, false);
+    UtilityHelpers.setStatus(mensaje, false);
     
     // Log detallado
     console.log(`=== CÁLCULO DE ESCALA DETALLADO ===
@@ -13130,7 +13133,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     if (!metadatos) {
       scale = null;
       scaleDisplay.textContent = '-';
-      setStatus('Error: No hay metadatos disponibles para análisis híbrido', true);
+      UtilityHelpers.setStatus('Error: No hay metadatos disponibles para análisis híbrido', true);
       return;
     }
     
@@ -13146,8 +13149,8 @@ import * as ShapeClassification from './modules/shape-classification.js';
     if (!focalRAW || !distancia || !imageWidth) {
       scale = null;
       scaleDisplay.textContent = '-';
-      if (!focalRAW) setStatus('Error: No se encontró distancia focal en metadatos RAW', true);
-      else if (!distancia) setStatus('Falta: Distancia lente-objeto', true);
+      if (!focalRAW) UtilityHelpers.setStatus('Error: No se encontró distancia focal en metadatos RAW', true);
+      else if (!distancia) UtilityHelpers.setStatus('Falta: Distancia lente-objeto', true);
       return;
     }
     
@@ -13189,7 +13192,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       if (!sensorWidth) {
         scale = null;
         scaleDisplay.textContent = '-';
-        setStatus('Error: Dimensiones del sensor no encontradas para modelo RAW', true);
+        UtilityHelpers.setStatus('Error: Dimensiones del sensor no encontradas para modelo RAW', true);
         return;
       }
     }
@@ -13209,7 +13212,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     const campoVisionH = (imageHeight * scale).toFixed(1);
     
     const mensaje = `HÍBRIDO: ${scale.toFixed(6)} mm/px | ${pixelsPorMM.toFixed(2)} px/mm | Campo: ${campoVisionW}×${campoVisionH}mm | RAW: f/${apertureRAW}`;
-    setStatus(mensaje, false);
+    UtilityHelpers.setStatus(mensaje, false);
     
     // Log detallado del análisis híbrido
     if (DEBUG_LOGS.detection) {
@@ -13236,7 +13239,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     }
   }
 
-  function cargarMetadatos(file){
+  function UtilityHelpers.cargarMetadatos(file){
     // Detectar tipo de archivo para configuración optimizada
     const formatoRAW = detectarFormatoRAW(file);
     const esRAW = ['nef', 'cr2', 'cr3', 'arw', 'orf', 'raf', 'dng', 'rw2', 'pef', 'srw', '3fr', 'fff', 'erf', 'mef', 'mos', 'crw', 'x3f', 'rwl', 'iiq'].includes(formatoRAW);
@@ -13332,10 +13335,10 @@ import * as ShapeClassification from './modules/shape-classification.js';
     });
   }
 
-  function procesarMetadatos(exifData, esArchivoRAW = false) {
+  function UtilityHelpers.procesarMetadatos(exifData, esArchivoRAW = false) {
     if(!exifData) {
       const tipoArchivo = esArchivoRAW ? 'RAW' : 'JPG';
-      setStatus(`Error: No se pudieron procesar los metadatos del archivo ${tipoArchivo}`, true);
+      UtilityHelpers.setStatus(`Error: No se pudieron procesar los metadatos del archivo ${tipoArchivo}`, true);
       return false;
     }
     
@@ -13376,7 +13379,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
         sensorWidthInput.value = sensorData.width;
         sensorHeightInput.value = sensorData.height;
         console.log(`✓ Sensor reconocido automáticamente: ${modeloDetectado}`);
-        setStatus(`Sensor reconocido: ${sensorData.width}x${sensorData.height}mm`, false);
+        UtilityHelpers.setStatus(`Sensor reconocido: ${sensorData.width}x${sensorData.height}mm`, false);
       } else {
         console.warn(`⚠ Modelo ${modeloDetectado} no encontrado en base de datos`);
         
@@ -13485,7 +13488,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       const esErrorCritico = camposEncontrados === 0;
       
       if(esErrorCritico) {
-        setStatus(`Error: ${mensaje}. Complete los datos manualmente.`, true);
+        UtilityHelpers.setStatus(`Error: ${mensaje}. Complete los datos manualmente.`, true);
         // Hacer campos editables para entrada manual
         cameraModelInput.readOnly = false;
         focalInput.readOnly = false;
@@ -13493,7 +13496,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
         sensorWidthInput.readOnly = false;
         sensorHeightInput.readOnly = false;
       } else {
-        setStatus(`Advertencias: ${mensaje}`, false);
+        UtilityHelpers.setStatus(`Advertencias: ${mensaje}`, false);
       }
     }
     
@@ -13502,9 +13505,9 @@ import * as ShapeClassification from './modules/shape-classification.js';
       if(metadatosCompletos || camposEncontrados > 0) {
         const tipoArchivo = esArchivoRAW ? 'RAW' : 'JPG';
         const estadoCampos = camposEncontrados === 3 ? 'completos' : `parciales (${camposEncontrados}/3)`;
-        setStatus(`Metadatos ${tipoArchivo} ${estadoCampos}. Ingrese la distancia y use "Calcular Escala".`, false);
+        UtilityHelpers.setStatus(`Metadatos ${tipoArchivo} ${estadoCampos}. Ingrese la distancia y use "Calcular Escala".`, false);
       } else {
-        setStatus(`Complete los datos de cámara manualmente para calcular la escala.`, false);
+        UtilityHelpers.setStatus(`Complete los datos de cámara manualmente para calcular la escala.`, false);
       }
     }, 100);
     
@@ -13628,7 +13631,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     }
     
     // Leer primeros bytes para validar formato
-    const headerBytes = await readFileHeader(file, 16);
+    const headerBytes = await UtilityHelpers.readFileHeader(file, 16);
     
     // DEBUG: Log del header
     console.log('🔧 DEBUG - Header bytes:', {
@@ -13637,7 +13640,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       headerString: Array.from(headerBytes).map(b => String.fromCharCode(b)).join('').replace(/[^\x20-\x7E]/g, '.')
     });
     
-    const isValidImage = validateImageHeader(headerBytes, file.type, file.name);
+    const isValidImage = UtilityHelpers.validateImageHeader(headerBytes, file.type, file.name);
     
     console.log('🔧 DEBUG - Validación header:', {
       nombre: file.name,
@@ -13656,7 +13659,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   /**
    * Lee los primeros bytes del archivo para validación
    */
-  function readFileHeader(file, bytesToRead) {
+  function UtilityHelpers.readFileHeader(file, bytesToRead) {
     return new Promise((resolve, reject) => {
       const slice = file.slice(0, bytesToRead);
       const reader = new FileReader();
@@ -13674,7 +13677,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   /**
    * Valida el header de la imagen incluyendo formatos RAW
    */
-  function validateImageHeader(bytes, mimeType, fileName = '') {
+  function UtilityHelpers.validateImageHeader(bytes, mimeType, fileName = '') {
     const view = new DataView(bytes.buffer);
     const extension = fileName ? fileName.split('.').pop().toLowerCase() : '';
     
@@ -13925,7 +13928,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     } = options;
     
     // PASO 1: Limpiar caché anterior al cargar nueva imagen
-    clearContourCache();
+    UtilityHelpers.clearContourCache();
     
     if (progressCallback) progressCallback(10, 'Validando archivo...');
     
@@ -14048,14 +14051,14 @@ import * as ShapeClassification from './modules/shape-classification.js';
     });
   }
   
-  function resetView() {
+  function UtilityHelpers.resetView() {
     zoom = 0.5;
     offsetX = 0;
     offsetY = 0;
     updateZoomDisplay();
   }
 
-  function setZoomFromPercent(percent) {
+  function UtilityHelpers.setZoomFromPercent(percent) {
     const newZoom = Math.max(0.1, Math.min(5.0, percent / 100));
     zoom = newZoom;
     updateZoomDisplay();
@@ -14078,7 +14081,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   }
 
   // Alias para redrawCanvas usado en las funciones de selección manual
-  function redrawCanvas() {
+  function UtilityHelpers.redrawCanvas() {
     redraw();
   }
 
@@ -14122,7 +14125,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     
     if (isPerforationDetectionMode && isDrawingPerforationPolygon) {
       // Mostrar línea temporal desde último punto hasta cursor
-      redrawCanvas();
+      UtilityHelpers.redrawCanvas();
     } else if (isManualSelectionMode && isSelectingArea) {
       // Modo selección manual: actualizar área de selección
       actualizarSeleccionArea(mouseX, mouseY);
@@ -14200,7 +14203,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     if (isSelectingArea) {
       // Cancelar selección si el mouse sale del canvas
       isSelectingArea = false;
-      redrawCanvas();
+      UtilityHelpers.redrawCanvas();
     }
     isPanning = false;
     canvas.style.cursor = isManualSelectionMode ? 'crosshair' : 'grab';
@@ -14226,7 +14229,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
   // });
 
   resetZoomBtn.addEventListener('click', () => {
-    resetView();
+    UtilityHelpers.resetView();
     updateZoomDisplay();
     debouncedRedraw();
   });
@@ -14269,7 +14272,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       if (!isNaN(percent)) {
         const clampedPercent = Math.max(10, Math.min(500, percent));
         this.value = clampedPercent;
-        setZoomFromPercent(clampedPercent);
+        UtilityHelpers.setZoomFromPercent(clampedPercent);
       }
     }
   });
@@ -14279,7 +14282,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     if (!isNaN(percent)) {
       const clampedPercent = Math.max(10, Math.min(500, percent));
       this.value = clampedPercent;
-      setZoomFromPercent(clampedPercent);
+      UtilityHelpers.setZoomFromPercent(clampedPercent);
     } else {
       this.value = (zoom * 100).toFixed(0);
     }
@@ -14298,11 +14301,11 @@ import * as ShapeClassification from './modules/shape-classification.js';
 
   individualizarBtn.addEventListener('click', () => {
     if(!image) {
-      setStatus('Error: Primero cargue una imagen.', true);
+      UtilityHelpers.setStatus('Error: Primero cargue una imagen.', true);
       return;
     }
     if(objects.length === 0) {
-      setStatus('Error: No se han detectado objetos en la imagen.', true);
+      UtilityHelpers.setStatus('Error: No se han detectado objetos en la imagen.', true);
       return;
     }
     individualizarObjetos();
@@ -14311,12 +14314,12 @@ import * as ShapeClassification from './modules/shape-classification.js';
   // Event listener para individualización bifacial
   individualizarBifacialBtn.addEventListener('click', () => {
     if (modoAnalisis !== 'bifacial') {
-      setStatus('Error: Este botón solo está disponible en modo bifacial.', true);
+      UtilityHelpers.setStatus('Error: Este botón solo está disponible en modo bifacial.', true);
       return;
     }
     
     if (objects.length === 0) {
-      setStatus('Error: No se han detectado objetos. Use detección manual en ambos canvas.', true);
+      UtilityHelpers.setStatus('Error: No se han detectado objetos. Use detección manual en ambos canvas.', true);
       return;
     }
     
@@ -14327,12 +14330,12 @@ import * as ShapeClassification from './modules/shape-classification.js';
   // Event listener para nuevo botón de individualización bifacial (bajo canvas A/B)
   individualizarBifacialBtn2.addEventListener('click', () => {
     if (modoAnalisis !== 'bifacial') {
-      setStatus('Error: Este botón solo está disponible en modo bifacial.', true);
+      UtilityHelpers.setStatus('Error: Este botón solo está disponible en modo bifacial.', true);
       return;
     }
     
     if (objects.length === 0) {
-      setStatus('Error: No se han detectado objetos. Use detección manual en ambos canvas.', true);
+      UtilityHelpers.setStatus('Error: No se han detectado objetos. Use detección manual en ambos canvas.', true);
       return;
     }
     
@@ -14407,7 +14410,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       try {
         if (currentAnalyzedObject.efaPromise) {
           console.log(`⏳ Esperando EFA antes de guardar ${labelCompleto}...`);
-          setStatus(`Esperando cálculo EFA de ${labelCompleto} antes de guardar...`, false);
+          UtilityHelpers.setStatus(`Esperando cálculo EFA de ${labelCompleto} antes de guardar...`, false);
           await Promise.resolve(currentAnalyzedObject.efaPromise);
         }
 
@@ -14417,7 +14420,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
           console.log('✅ Análisis guardado exitosamente');
           setBtnState('ok');
           actualizarTarjetaObjeto(obj);
-          setStatus(`Análisis ${labelCompleto} guardado. Puede cargar la siguiente imagen.`, false);
+          UtilityHelpers.setStatus(`Análisis ${labelCompleto} guardado. Puede cargar la siguiente imagen.`, false);
           await new Promise(r => setTimeout(r, 600));
           morphologicalAnalysisContainer.style.display = 'none';
           // Volver a las tarjetas de objetos tras cerrar el análisis
@@ -14486,7 +14489,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       if (currentAnalyzedObject && currentAnalyzedObject.obj && currentAnalyzedObject.metricas) {
         console.log('🔄 Redibujando canvas esquemático con nueva configuración...');
         generarCanvasEsquematico(currentAnalyzedObject.obj, currentAnalyzedObject.metricas);
-        setStatus('Canvas esquemático actualizado', false);
+        UtilityHelpers.setStatus('Canvas esquemático actualizado', false);
       } else {
         console.warn('⚠️ No hay objeto analizado para redibujar');
       }
@@ -14648,10 +14651,10 @@ import * as ShapeClassification from './modules/shape-classification.js';
             const contornoPuntos = obj.contornoReal.puntos;
             if (isManualSelectionMode) {
               // MODO MANUAL: Convertir cada punto a coordenadas canvas
-              const canvasStart = imageToCanvasCoords(contornoPuntos[0].x, contornoPuntos[0].y);
+              const canvasStart = UtilityHelpers.imageToCanvasCoords(contornoPuntos[0].x, contornoPuntos[0].y);
               ctx.moveTo(canvasStart.x, canvasStart.y);
               for (let j = 1; j < contornoPuntos.length; j++) {
-                const canvasPoint = imageToCanvasCoords(contornoPuntos[j].x, contornoPuntos[j].y);
+                const canvasPoint = UtilityHelpers.imageToCanvasCoords(contornoPuntos[j].x, contornoPuntos[j].y);
                 ctx.lineTo(canvasPoint.x, canvasPoint.y);
               }
             } else {
@@ -14669,8 +14672,8 @@ import * as ShapeClassification from './modules/shape-classification.js';
             ctx.lineWidth = isManualSelectionMode ? 1 : 1/zoom;
             
             if (isManualSelectionMode) {
-              const canvasTopLeft = imageToCanvasCoords(obj.minX, obj.minY);
-              const canvasBottomRight = imageToCanvasCoords(obj.maxX, obj.maxY);
+              const canvasTopLeft = UtilityHelpers.imageToCanvasCoords(obj.minX, obj.minY);
+              const canvasBottomRight = UtilityHelpers.imageToCanvasCoords(obj.maxX, obj.maxY);
               ctx.strokeRect(canvasTopLeft.x, canvasTopLeft.y, canvasBottomRight.x - canvasTopLeft.x, canvasBottomRight.y - canvasTopLeft.y);
             } else {
               ctx.strokeRect(obj.minX, obj.minY, obj.maxX - obj.minX, obj.maxY - obj.minY);
@@ -14700,7 +14703,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
                   x: obj.convexHull[0][0] + hullOffset.x,
                   y: obj.convexHull[0][1] + hullOffset.y
                 };
-                const canvasStart = imageToCanvasCoords(hullStart.x, hullStart.y);
+                const canvasStart = UtilityHelpers.imageToCanvasCoords(hullStart.x, hullStart.y);
                 ctx.moveTo(canvasStart.x, canvasStart.y);
                 
                 for (let j = 1; j < obj.convexHull.length; j++) {
@@ -14708,7 +14711,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
                     x: obj.convexHull[j][0] + hullOffset.x,
                     y: obj.convexHull[j][1] + hullOffset.y
                   };
-                  const canvasPoint = imageToCanvasCoords(hullPoint.x, hullPoint.y);
+                  const canvasPoint = UtilityHelpers.imageToCanvasCoords(hullPoint.x, hullPoint.y);
                   ctx.lineTo(canvasPoint.x, canvasPoint.y);
                 }
               } else {
@@ -14754,10 +14757,10 @@ import * as ShapeClassification from './modules/shape-classification.js';
             const getY = (p) => p.y !== undefined ? p.y : p[1];
             
             if (isManualSelectionMode) {
-              const canvasStart = imageToCanvasCoords(getX(contour[0]), getY(contour[0]));
+              const canvasStart = UtilityHelpers.imageToCanvasCoords(getX(contour[0]), getY(contour[0]));
               ctx.moveTo(canvasStart.x, canvasStart.y);
               for (let j = 1; j < contour.length; j++) {
-                const canvasPoint = imageToCanvasCoords(getX(contour[j]), getY(contour[j]));
+                const canvasPoint = UtilityHelpers.imageToCanvasCoords(getX(contour[j]), getY(contour[j]));
                 ctx.lineTo(canvasPoint.x, canvasPoint.y);
               }
             } else {
@@ -14774,7 +14777,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
             ctx.lineWidth = isManualSelectionMode ? 1 : 1/zoom;
             
             if (isManualSelectionMode) {
-              const canvasTopLeft = imageToCanvasCoords(obj.tight_minX, obj.tight_minY);
+              const canvasTopLeft = UtilityHelpers.imageToCanvasCoords(obj.tight_minX, obj.tight_minY);
               ctx.strokeRect(canvasTopLeft.x, canvasTopLeft.y, obj.tight_width * window.manualModeScale.scale, obj.tight_height * window.manualModeScale.scale);
             } else {
               ctx.strokeRect(obj.tight_minX, obj.tight_minY, obj.tight_width, obj.tight_height);
@@ -14803,7 +14806,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
                   x: obj.convexHull[0][0] + hullAbsOff.x,
                   y: obj.convexHull[0][1] + hullAbsOff.y
                 };
-                const canvasStart = imageToCanvasCoords(hullStart.x, hullStart.y);
+                const canvasStart = UtilityHelpers.imageToCanvasCoords(hullStart.x, hullStart.y);
                 ctx.moveTo(canvasStart.x, canvasStart.y);
                 
                 for (let j = 1; j < obj.convexHull.length; j++) {
@@ -14811,7 +14814,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
                     x: obj.convexHull[j][0] + hullAbsOff.x,
                     y: obj.convexHull[j][1] + hullAbsOff.y
                   };
-                  const canvasPoint = imageToCanvasCoords(hullPoint.x, hullPoint.y);
+                  const canvasPoint = UtilityHelpers.imageToCanvasCoords(hullPoint.x, hullPoint.y);
                   ctx.lineTo(canvasPoint.x, canvasPoint.y);
                 }
               } else {
@@ -14844,8 +14847,8 @@ import * as ShapeClassification from './modules/shape-classification.js';
             ctx.lineWidth = isManualSelectionMode ? 2 : 2/zoom;
             
             if (isManualSelectionMode) {
-              const canvasTopLeft = imageToCanvasCoords(obj.minX, obj.minY);
-              const canvasBottomRight = imageToCanvasCoords(obj.maxX, obj.maxY);
+              const canvasTopLeft = UtilityHelpers.imageToCanvasCoords(obj.minX, obj.minY);
+              const canvasBottomRight = UtilityHelpers.imageToCanvasCoords(obj.maxX, obj.maxY);
               ctx.strokeRect(canvasTopLeft.x, canvasTopLeft.y, canvasBottomRight.x - canvasTopLeft.x, canvasBottomRight.y - canvasTopLeft.y);
             } else {
               ctx.strokeRect(obj.minX, obj.minY, obj.maxX - obj.minX, obj.maxY - obj.minY);
@@ -14863,10 +14866,10 @@ import * as ShapeClassification from './modules/shape-classification.js';
                 
                 const contorno = perf.contorno;
                 if (isManualSelectionMode) {
-                  const canvasStart = imageToCanvasCoords(contorno[0][0], contorno[0][1]);
+                  const canvasStart = UtilityHelpers.imageToCanvasCoords(contorno[0][0], contorno[0][1]);
                   ctx.moveTo(canvasStart.x, canvasStart.y);
                   for (let j = 1; j < contorno.length; j++) {
-                    const canvasPoint = imageToCanvasCoords(contorno[j][0], contorno[j][1]);
+                    const canvasPoint = UtilityHelpers.imageToCanvasCoords(contorno[j][0], contorno[j][1]);
                     ctx.lineTo(canvasPoint.x, canvasPoint.y);
                   }
                 } else {
@@ -14884,7 +14887,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
                   ctx.fillStyle = '#0066cc';
                   ctx.font = `bold ${12/zoom}px Arial`;
                   if (isManualSelectionMode) {
-                    const canvasCentro = imageToCanvasCoords(centroide[0], centroide[1]);
+                    const canvasCentro = UtilityHelpers.imageToCanvasCoords(centroide[0], centroide[1]);
                     ctx.fillText('P' + perf.id, canvasCentro.x, canvasCentro.y);
                   } else {
                     ctx.fillText('P' + perf.id, centroide[0], centroide[1]);
@@ -14904,10 +14907,10 @@ import * as ShapeClassification from './modules/shape-classification.js';
                 
                 const contorno = hora.contorno;
                 if (isManualSelectionMode) {
-                  const canvasStart = imageToCanvasCoords(contorno[0][0], contorno[0][1]);
+                  const canvasStart = UtilityHelpers.imageToCanvasCoords(contorno[0][0], contorno[0][1]);
                   ctx.moveTo(canvasStart.x, canvasStart.y);
                   for (let j = 1; j < contorno.length; j++) {
-                    const canvasPoint = imageToCanvasCoords(contorno[j][0], contorno[j][1]);
+                    const canvasPoint = UtilityHelpers.imageToCanvasCoords(contorno[j][0], contorno[j][1]);
                     ctx.lineTo(canvasPoint.x, canvasPoint.y);
                   }
                 } else {
@@ -14925,7 +14928,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
                   ctx.fillStyle = '#28a745';
                   ctx.font = `bold ${12/zoom}px Arial`;
                   if (isManualSelectionMode) {
-                    const canvasCentro = imageToCanvasCoords(centroide[0], centroide[1]);
+                    const canvasCentro = UtilityHelpers.imageToCanvasCoords(centroide[0], centroide[1]);
                     ctx.fillText('H' + hora.id, canvasCentro.x, canvasCentro.y);
                   } else {
                     ctx.fillText('H' + hora.id, centroide[0], centroide[1]);
@@ -15211,7 +15214,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     updateZoomDisplay();
   }
 
-  function guardarConfiguracion(){
+  function UtilityHelpers.guardarConfiguracion(){
     localStorage.setItem('cameraModel', cameraModelInput.value);
     localStorage.setItem('focalLength', focalInput.value);
     localStorage.setItem('aperture', apertureInput.value);
@@ -15220,7 +15223,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     localStorage.setItem('distancia', distanciaInput.value);
   }
 
-  function cargarConfiguracion(){
+  function UtilityHelpers.cargarConfiguracion(){
     const savedModel = localStorage.getItem('cameraModel');
     const savedFocal = localStorage.getItem('focalLength');
     const savedAperture = localStorage.getItem('aperture');
@@ -15237,7 +15240,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
 
     // Datos guardados restaurados - calcular escala es ahora completamente manual
     if(savedSensorWidth && savedFocal && savedDistancia && image) {
-      setStatus('Datos previos restaurados. Use "Calcular Escala" para proceder.', false);
+      UtilityHelpers.setStatus('Datos previos restaurados. Use "Calcular Escala" para proceder.', false);
     }
   }
 
@@ -17970,7 +17973,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
         console.log(`   🪨 Objeto poroso detectado (solidez≈${(solidezTemporal * 100).toFixed(0)}%) → cierre morfológico preventivo (dilat→eros 2 iter)...`);
         // Cierre = dilatación(1)→erosión(1): engrosa los puentes 2-3px para superar umbral minNeighbors de FASE 2
         // 1 iteración es suficiente y ~4x más rápido que 2 iter
-        const tempCerrada = cerrarMascara(tempMask, width, height, 1);
+        const tempCerrada = ContourExtraction.cerrarMascara(tempMask, width, height, 1);
         for (let ii = 0; ii < tempMask.length; ii++) tempMask[ii] = tempCerrada[ii];
         candidatosObjeto = 0;
         for (let ii = 0; ii < tempMask.length; ii++) if (tempMask[ii] > 0) candidatosObjeto++;
@@ -18204,13 +18207,13 @@ import * as ShapeClassification from './modules/shape-classification.js';
         // Objeto poroso: cierre suave (dilat→eros, 1 iter) para cerrar poros residuales pequeños
         // SIN apertura destructiva (erosion→dilat) que destruiría los puentes conservados en FASE 1.5
         console.log(`   🧹 Fase 5: Objeto poroso → cierre morfológico suave (1 iter) para poros residuales`);
-        cleanedMask = cerrarMascara(finalMask, width, height, 1);
+        cleanedMask = ContourExtraction.cerrarMascara(finalMask, width, height, 1);
       } else {
         console.log(`   🧹 Fase 5: Aplicando limpieza morfológica (erosión→dilatación)...`);
         // Erosión suave (1 iter = 3x3) para bordes difusos sin destruir objetos finos
-        const erodedMask = erosionarMascara(finalMask, width, height, 1);
+        const erodedMask = ContourExtraction.erosionarMascara(finalMask, width, height, 1);
         // Dilatación controlada (2 iter) para restaurar tamaño y cerrar gaps
-        cleanedMask = dilatarMascara(erodedMask, width, height, 2);
+        cleanedMask = ContourExtraction.dilatarMascara(erodedMask, width, height, 2);
       }
       
       // Contar píxeles después de limpieza
@@ -18844,7 +18847,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     } catch (error) {
       console.error('❌ Error en detección de objetos:', error);
       if (typeof setStatus === 'function') {
-        setStatus(`Error en detección: ${error.message}`, true);
+        UtilityHelpers.setStatus(`Error en detección: ${error.message}`, true);
       }
       return [];
     } finally {
@@ -19491,13 +19494,13 @@ import * as ShapeClassification from './modules/shape-classification.js';
         document.body.removeChild(link);
         URL.revokeObjectURL(link.href);
         
-        setStatus(`Imagen descargada: ${fileName}`, false);
+        UtilityHelpers.setStatus(`Imagen descargada: ${fileName}`, false);
         console.log(`📁 Descarga completada: ${fileName}`);
       }, 'image/png');
       
     } catch (error) {
       console.error('❌ Error generando imagen para descarga:', error);
-      setStatus(`Error en descarga: ${error.message}`, true);
+      UtilityHelpers.setStatus(`Error en descarga: ${error.message}`, true);
     } finally {
       // Retornar canvas al pool
       if (downloadCanvas) {
@@ -19533,7 +19536,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
     // 🆕 RECALCULAR PATRÓN DE AGRUPAMIENTO si hay perforaciones/horadaciones
     if (metricas && (obj?.perforaciones?.length > 0 || obj?.horadaciones?.length > 0)) {
       console.log(`\n🔄 Recalculando patrón de agrupamiento después de trazar perforaciones/horadaciones...`);
-      const patronAgrupamiento = analizarPatronAgrupamiento(obj);
+      const patronAgrupamiento = ClassificationEngine.analizarPatronAgrupamiento(obj);
       
       if (patronAgrupamiento) {
         // Actualizar métricas con nuevo patrón
@@ -23887,7 +23890,7 @@ import * as ShapeClassification from './modules/shape-classification.js';
       }
 
       // Resolver campos mostrados con regla canónica compartida.
-      const _canonRender = aplicarReglaCanonicaInterpretacion(metricas);
+      const _canonRender = ClassificationEngine.aplicarReglaCanonicaInterpretacion(metricas);
       const _formaGeoRender = _canonRender.forma_geometrica_observada;
       const _formaTipRenderMostrada = _canonRender.forma_tipologica_inferida;
       const _formaMostradaRender = _canonRender.forma_detectada_mostrada;
@@ -25282,11 +25285,11 @@ import * as ShapeClassification from './modules/shape-classification.js';
             `;
           }, 2000);
           
-          setStatus(`Análisis guardado: ${obj.id} (Cara ${obj.cara}, Objeto ${obj.numeroObjeto})`, false);
+          UtilityHelpers.setStatus(`Análisis guardado: ${obj.id} (Cara ${obj.cara}, Objeto ${obj.numeroObjeto})`, false);
         } else {
           saveStatus.innerHTML = `Error al guardar. Verifica que el análisis esté completo.`;
           saveStatus.style.color = '#dc3545';
-          setStatus(`Error al guardar análisis de Cara ${obj.cara}`, true);
+          UtilityHelpers.setStatus(`Error al guardar análisis de Cara ${obj.cara}`, true);
         }
       };
       
@@ -26383,12 +26386,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       document.body.removeChild(csvLink);
       URL.revokeObjectURL(csvLink.href);
       
-      setStatus(`Análisis exportado: ${filename}.txt y ${filename}.csv`, false);
+      UtilityHelpers.setStatus(`Análisis exportado: ${filename}.txt y ${filename}.csv`, false);
       console.log(`📁 Análisis morfológico exportado para objeto ${obj.id}`);
       
     } catch (error) {
       console.error('Error exportando análisis morfológico:', error);
-      setStatus(`Error en exportación: ${error.message}`, true);
+      UtilityHelpers.setStatus(`Error en exportación: ${error.message}`, true);
     }
   }
 
@@ -26685,7 +26688,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   async function generarReporteMorfologico(obj, metricas, formato = 'html') {
     try {
       const formatoTexto = formato === 'pdf' ? 'PDF' : 'HTML';
-      setStatus(`Generando reporte morfológico en ${formatoTexto}...`, false);
+      UtilityHelpers.setStatus(`Generando reporte morfológico en ${formatoTexto}...`, false);
 
       // � NUEVO: VALIDAR COHERENCIA ANTES DE EXPORTAR PDF
       if (formato === 'pdf') {
@@ -28529,13 +28532,13 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
-        setStatus(`Reporte HTML descargado: ${filename}.html`, false);
+        UtilityHelpers.setStatus(`Reporte HTML descargado: ${filename}.html`, false);
         console.log('📊 Reporte morfológico HTML generado exitosamente');
       }
       
     } catch (error) {
       console.error('Error generando reporte:', error);
-      setStatus(`Error generando reporte: ${error.message}`, true);
+      UtilityHelpers.setStatus(`Error generando reporte: ${error.message}`, true);
     }
   } // FIN función generarReporteMorfologico
   
@@ -30692,7 +30695,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     let backupCanvasImage = null;
     let backupCanvasState = null;
     try {
-      setStatus('Generando reporte PDF bifacial completo (esto puede tomar 20-30 segundos)...', false);
+      UtilityHelpers.setStatus('Generando reporte PDF bifacial completo (esto puede tomar 20-30 segundos)...', false);
       console.log('📄 Iniciando generación de PDF bifacial...');
       
       // 🛡️ PRESERVACIÓN DE UI - Respaldar estado actual ANTES de cualquier cambio
@@ -32053,7 +32056,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       // 10. Limpiar DOM temporal
       document.body.removeChild(tempContainer);
       
-      setStatus(`Reporte PDF bifacial descargado: ${filenameAttr}.pdf (${pages.length} páginas)`, false);
+      UtilityHelpers.setStatus(`Reporte PDF bifacial descargado: ${filenameAttr}.pdf (${pages.length} páginas)`, false);
       toast.success(`PDF bifacial generado con ${pages.length} páginas`, 5000);
       
       // 🔙 Restaurar la vista previa anterior DESPUÉS de exportar exitosamente
@@ -32087,7 +32090,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
     } catch (error) {
       console.error('❌ Error generando PDF bifacial:', error);
-      setStatus(`Error generando PDF: ${error.message}`, true);
+      UtilityHelpers.setStatus(`Error generando PDF: ${error.message}`, true);
       toast.error(`Error: ${error.message}`, 5000);
       
       // Limpiar contenedor temporal si existe
@@ -32128,7 +32131,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   // ============================================================================
   async function generarPDFDesdeHTML(htmlContent, filename, obj, metricas, opciones = {}) {
     try {
-      setStatus('Generando PDF profesional (esto puede tomar 10-15 segundos)...', false);
+      UtilityHelpers.setStatus('Generando PDF profesional (esto puede tomar 10-15 segundos)...', false);
       console.log('📄 Iniciando generación de PDF con maquetación mejorada...');
       
       // Verificar que las bibliotecas estén cargadas
@@ -33237,7 +33240,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           const pdfBlob = pdf.output('blob');
           await saveFileWithDialog(filename, pdfBlob, 'pdf');
           
-          setStatus(`PDF INTEGRAL generado: ${filename}.pdf (${pageNumber} página${pageNumber >1 ? 's': ''})`, false);
+          UtilityHelpers.setStatus(`PDF INTEGRAL generado: ${filename}.pdf (${pageNumber} página${pageNumber >1 ? 's': ''})`, false);
           console.log(`📊 PDF INTEGRAL generado exitosamente con datos guardados`);
           return;
         } catch (integralError) {
@@ -33415,12 +33418,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       const filenameWithoutExt = filename;  // filename ya no incluye extensión
       await saveFileWithDialog(filenameWithoutExt, pdfBlobMono, 'pdf');
       
-      setStatus(`Reporte PDF descargado: ${filename}.pdf (${pageNumber} página${pageNumber >1 ? 's': ''})`, false);
+      UtilityHelpers.setStatus(`Reporte PDF descargado: ${filename}.pdf (${pageNumber} página${pageNumber >1 ? 's': ''})`, false);
       console.log(`📊 PDF morfológico generado exitosamente: ${filename}.pdf`);
       
     } catch (error) {
       console.error('Error generando PDF:', error);
-      setStatus(`Error generando PDF: ${error.message}`, true);
+      UtilityHelpers.setStatus(`Error generando PDF: ${error.message}`, true);
       
       // Limpiar el contenedor temporal si existe
       const tempContainer = document.querySelector('[style*="left: -9999px"]');
@@ -33455,12 +33458,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       
-      setStatus(`JSON exportado: ${filename}`, false);
+      UtilityHelpers.setStatus(`JSON exportado: ${filename}`, false);
       console.log('📄 Datos JSON exportados:', jsonData);
       
     } catch (error) {
       console.error('Error exportando JSON:', error);
-      setStatus(`Error exportando JSON: ${error.message}`, true);
+      UtilityHelpers.setStatus(`Error exportando JSON: ${error.message}`, true);
     }
   }
   
@@ -33471,7 +33474,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       const jsonString = JSON.stringify(jsonData, null, 2);
       
       navigator.clipboard.writeText(jsonString).then(() => {
-        setStatus(`JSON copiado al portapapeles`, false);
+        UtilityHelpers.setStatus(`JSON copiado al portapapeles`, false);
         console.log('📋 JSON copiado:', jsonData);
         
         // Cambiar temporalmente el texto del botón
@@ -33487,12 +33490,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         
       }).catch(err => {
         console.error('Error copiando al portapapeles:', err);
-        setStatus('Error copiando al portapapeles', true);
+        UtilityHelpers.setStatus('Error copiando al portapapeles', true);
       });
       
     } catch (error) {
       console.error('Error generando JSON:', error);
-      setStatus(`Error generando JSON: ${error.message}`, true);
+      UtilityHelpers.setStatus(`Error generando JSON: ${error.message}`, true);
     }
   }
 
@@ -33601,7 +33604,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       individualObjectsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
     console.log(`✅ Individualización completada: ${objects.length} objetos procesados`);
-    setStatus(`${objects.length} objetos individualizados y mostrados.`, false);
+    UtilityHelpers.setStatus(`${objects.length} objetos individualizados y mostrados.`, false);
 
     // ── Auto-análisis silencioso para objetos sin métricas cacheadas ──────────
     // Los objetos AIA ya tienen analisisCached desde inyectarObjetosDesdeIA.
@@ -35159,7 +35162,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         console.log(`   ✅ Canvas morfológico respaldado: ${morphCanvasActual.width}×${morphCanvasActual.height}px`);
       }
 
-      setStatus('Exportando PDF de cara activa (sincronizando datos)...', false);
+      UtilityHelpers.setStatus('Exportando PDF de cara activa (sincronizando datos)...', false);
 
       for (let i = 0; i < objetosExportables.length; i++) {
         const obj = objetosExportables[i];
@@ -35300,14 +35303,14 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           img.src = imagenCanvasAnterior;
         }
 
-        setStatus('PDF exportado correctamente - UI restaurada', false);
+        UtilityHelpers.setStatus('PDF exportado correctamente - UI restaurada', false);
         console.log('🎉 Exportación completada - UI completamente restaurada');
       } catch (e) {
         console.warn('⚠️ Advertencia en restauración de UI:', e.message);
-        setStatus('PDF exportado (con advertencia en restauración de UI)', false);
+        UtilityHelpers.setStatus('PDF exportado (con advertencia en restauración de UI)', false);
       }
 
-      setStatus(`PDFs monofaciales generados para ${objetosExportables.length} cara(s). Revise la carpeta de descargas.`, false);
+      UtilityHelpers.setStatus(`PDFs monofaciales generados para ${objetosExportables.length} cara(s). Revise la carpeta de descargas.`, false);
       toast.success(`Se generaron ${objetosExportables.length} reportes PDF monofaciales.`, 5000);
     } catch (error) {
       console.error('❌ Error en exportación monofacial masiva:', error);
@@ -35420,7 +35423,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         console.log(`   ✅ Canvas morfológico respaldado: ${morphCanvasActual.width}×${morphCanvasActual.height}px`);
       }
 
-      setStatus('Exportando PDF INTEGRAL de cara activa (sincronizando datos)...', false);
+      UtilityHelpers.setStatus('Exportando PDF INTEGRAL de cara activa (sincronizando datos)...', false);
 
       for (let i = 0; i < objetosExportables.length; i++) {
         const obj = objetosExportables[i];
@@ -35569,14 +35572,14 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           img.src = imagenCanvasAnterior;
         }
 
-        setStatus('PDF INTEGRAL exportado correctamente - UI restaurada', false);
+        UtilityHelpers.setStatus('PDF INTEGRAL exportado correctamente - UI restaurada', false);
         console.log('🎉 Exportación INTEGRAL completada - UI completamente restaurada');
       } catch (e) {
         console.warn('⚠️ Advertencia en restauración de UI:', e.message);
-        setStatus('PDF INTEGRAL exportado (con advertencia en restauración de UI)', false);
+        UtilityHelpers.setStatus('PDF INTEGRAL exportado (con advertencia en restauración de UI)', false);
       }
 
-      setStatus(`PDF INTEGRAL generado para ${objetosExportables.length} cara(s). Revise la carpeta de descargas.`, false);
+      UtilityHelpers.setStatus(`PDF INTEGRAL generado para ${objetosExportables.length} cara(s). Revise la carpeta de descargas.`, false);
       toast.success(`Se generó ${objetosExportables.length} reporte PDF INTEGRAL (todas las métricas).`, 5000);
     } catch (error) {
       console.error('❌ Error en exportación PDF INTEGRAL:', error);
@@ -43271,7 +43274,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         
         const texto = generarTextoTabla(currentAnalyzedObject.obj, currentAnalyzedObject.metricas);
         navigator.clipboard.writeText(texto).then(() => {
-          setStatus('Tabla copiada al portapapeles', false);
+          UtilityHelpers.setStatus('Tabla copiada al portapapeles', false);
           toast.success('Tabla copiada al portapapeles');
           console.log('✅ Tabla copiada al clipboard');
         }).catch(err => {
@@ -43606,7 +43609,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
    */
   async function analizarObjetoConIA(obj, imagenCara) {
     if (!window.PythonBridge || !PythonBridge.isAvailable()) {
-      setStatus('⚠️ Servidor Python no disponible para análisis IA.', true);
+      UtilityHelpers.setStatus('⚠️ Servidor Python no disponible para análisis IA.', true);
       return;
     }
 
@@ -43622,12 +43625,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
 
     try {
       // ── 1. Verificar modo activo (GrabCut AI o MobileSAM ONNX) ───────────
-      setStatus('🔍 Verificando motor IA…', false);
+      UtilityHelpers.setStatus('🔍 Verificando motor IA…', false);
       let samSt;
       try {
         samSt = await PythonBridge.sam.status();
       } catch (e) {
-        setStatus('⚠️ No se pudo conectar con el servidor IA.', true);
+        UtilityHelpers.setStatus('⚠️ No se pudo conectar con el servidor IA.', true);
         _btnResetok();
         return;
       }
@@ -43635,11 +43638,11 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       const modeLabel = samSt?.mode === 'mobilesam_onnx' ? 'MobileSAM ONNX' : 'GrabCut AI';
 
       // ── 2. Obtener DataURL de la imagen completa (Cara A / B / mono) ───────
-      setStatus(`🧠 Segmentando con ${modeLabel}…`, false);
+      UtilityHelpers.setStatus(`🧠 Segmentando con ${modeLabel}…`, false);
       if (iaBtn) { iaBtn.innerHTML = '🧠 Segmentando…'; }
 
       if (!imagenCara) {
-        setStatus('⚠️ Imagen de la cara no disponible.', true);
+        UtilityHelpers.setStatus('⚠️ Imagen de la cara no disponible.', true);
         _btnResetok();
         return;
       }
@@ -43657,7 +43660,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       } else if (imagenCara instanceof HTMLCanvasElement) {
         fullImageDataURL = imagenCara.toDataURL('image/png');
       } else {
-        setStatus('⚠️ Tipo de imagen no soportado para análisis IA.', true);
+        UtilityHelpers.setStatus('⚠️ Tipo de imagen no soportado para análisis IA.', true);
         _btnResetok();
         return;
       }
@@ -43675,13 +43678,13 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       try {
         samCont = await PythonBridge.sam.extractContour(fullImageDataURL, bboxAbs, { subpixel: true, simplify: 2.0 });
       } catch (e) {
-        setStatus(`❌ Error en segmentación IA: ${e.message}`, true);
+        UtilityHelpers.setStatus(`❌ Error en segmentación IA: ${e.message}`, true);
         _btnResetok();
         return;
       }
 
       if (!samCont || samCont.status !== 'ok' || !Array.isArray(samCont.points) || samCont.points.length < 3) {
-        setStatus('⚠️ El segmentador no generó un contorno válido. Intenta con el análisis estándar.', true);
+        UtilityHelpers.setStatus('⚠️ El segmentador no generó un contorno válido. Intenta con el análisis estándar.', true);
         _btnResetok();
         return;
       }
@@ -43699,7 +43702,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
 
       const metodoUsado = samCont.metodoDeteccion || modeLabel;
       console.log(`[IA] contorno ✓ → ${obj.contour_points.length} pts · método: ${metodoUsado} · quality: ${samCont.quality?.nivel}`);
-      setStatus(`🧠 Contorno IA listo (${obj.contour_points.length} pts). Calculando métricas…`, false);
+      UtilityHelpers.setStatus(`🧠 Contorno IA listo (${obj.contour_points.length} pts). Calculando métricas…`, false);
 
       // ── 5. Pipeline de métricas con contorno IA ───────────────────────────
       const objIdx = objects.findIndex(o => o.id === obj.id);
@@ -43722,11 +43725,11 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         }
       }
 
-      setStatus(`✅ Análisis IA completado para ${obj.id} (${metodoUsado})`, false);
+      UtilityHelpers.setStatus(`✅ Análisis IA completado para ${obj.id} (${metodoUsado})`, false);
 
     } catch (err) {
       console.error('[IA] Error inesperado:', err);
-      setStatus(`❌ Error IA: ${err.message}`, true);
+      UtilityHelpers.setStatus(`❌ Error IA: ${err.message}`, true);
     } finally {
       _btnResetok();
     }
@@ -43759,7 +43762,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           morphContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
         
-        setStatus(`Análisis restaurado para ${obj.id} (Cara ${obj.cara || 'Mono'})`, false);
+        UtilityHelpers.setStatus(`Análisis restaurado para ${obj.id} (Cara ${obj.cara || 'Mono'})`, false);
         return;
       }
     }
@@ -43858,7 +43861,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
       if (!metricas) {
         console.error(`❌ Error: No se pudieron calcular las métricas para objeto ${obj.id}`);
-        setStatus(`Error: No se pudieron calcular las métricas para objeto ${obj.id}`, true);
+        UtilityHelpers.setStatus(`Error: No se pudieron calcular las métricas para objeto ${obj.id}`, true);
         return;
       }
       
@@ -43906,11 +43909,11 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       const perforacionesInfo = objParaAnalisis.perforaciones.length > 0 || objParaAnalisis.horadaciones.length > 0 
         ? ` (${objParaAnalisis.perforaciones.length} perf., ${objParaAnalisis.horadaciones.length} horad.)` 
         : '';
-      setStatus(`Análisis morfológico completado para objeto ${obj.id} (Cara ${obj.cara || 'Mono'})${perforacionesInfo}`, false);
+      UtilityHelpers.setStatus(`Análisis morfológico completado para objeto ${obj.id} (Cara ${obj.cara || 'Mono'})${perforacionesInfo}`, false);
       
     } catch (error) {
       console.error(`❌ Error durante análisis morfológico de objeto ${obj.id}:`, error);
-      setStatus(`Error durante análisis: ${error.message}`, true);
+      UtilityHelpers.setStatus(`Error durante análisis: ${error.message}`, true);
     }
   }
   
@@ -44051,7 +44054,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     analyzeBtn.onmouseout = () => { analyzeBtn.style.transform = 'translateY(0)'; analyzeBtn.style.boxShadow = tieneCache ? '0 2px 4px rgba(40,167,69,0.3)' : '0 2px 4px rgba(23,162,184,0.3)'; };
     analyzeBtn.addEventListener('click', () => {
       console.log(`🖱️ Click en botón análisis para ${obj.id} (cache: ${!!obj.analisisCached})`);
-      setStatus(`Procesando análisis para ${obj.id}…`, false);
+      UtilityHelpers.setStatus(`Procesando análisis para ${obj.id}…`, false);
       const imagenCara = obj.cara === 'A' ? imageCaraA : (obj.cara === 'B' ? imageCaraB : image);
       
       if (obj.analisisCached) {
@@ -44060,10 +44063,10 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         const objectIndex = objects.findIndex(o => o.id === obj.id);
         if (objectIndex >= 0) {
           analizarObjetoMorfologicamente(objectIndex, false);
-          setStatus(`Análisis recuperado desde caché para ${obj.id}`, false);
+          UtilityHelpers.setStatus(`Análisis recuperado desde caché para ${obj.id}`, false);
         } else {
           console.warn(`⚠️ Objeto ${obj.id} no encontrado en objects. Total: ${objects.length}`);
-          setStatus(`Error: objeto ${obj.id} no encontrado en lista`, true);
+          UtilityHelpers.setStatus(`Error: objeto ${obj.id} no encontrado en lista`, true);
         }
       } else {
         // Analizar nuevo
@@ -44108,11 +44111,11 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       // needsObjectDetection = true; // DESHABILITADO - detección ahora es completamente manual
       
       // Resetear vista para ver la imagen completa
-      resetView();
+      UtilityHelpers.resetView();
       redraw();
       
       actualizarProgreso(progressContainer, 70, 'Extrayendo metadatos JPG...');
-      const exifData = await cargarMetadatos(file);
+      const exifData = await UtilityHelpers.cargarMetadatos(file);
       
       // Guardar referencia y verificar archivos complementarios (SIN procesar automáticamente)
       archivoJPGActual = file;
@@ -44120,7 +44123,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       archivosComplementarios.metadatosJPG = exifData;
       
       // Procesar metadatos solo para completar campos, sin cálculos
-      procesarMetadatos(exifData, false);
+      UtilityHelpers.procesarMetadatos(exifData, false);
       // Actualizar preview si el modo de identificación es 'fotografia'
       actualizarPreviewFotografia();
       
@@ -44564,7 +44567,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
       // Asegurar que la imagen esté visible
       if (image) {
-        resetView();
+        UtilityHelpers.resetView();
         redraw();
       }
       
@@ -44595,7 +44598,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       actualizarProgreso(progressContainer, 100, mensaje);
       setTimeout(() => removerIndicadorProgreso(progressContainer), 2000);
       
-      setStatus(mensaje, false);
+      UtilityHelpers.setStatus(mensaje, false);
       
       console.log(`🎉 === PROCESO MORFOMÉTRICO COMPLETADO ===
       • Tipo: ${tipoAnalisis}
@@ -44840,7 +44843,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       actualizarProgreso(progressContainer, 100, mensaje);
       setTimeout(() => removerIndicadorProgreso(progressContainer), 2000);
       
-      setStatus(mensaje, false);
+      UtilityHelpers.setStatus(mensaje, false);
       
       // Actualizar vista si hay imagen
       if (image) {
@@ -44905,7 +44908,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
       // Asegurar vista correcta
       if (image) {
-        resetView();
+        UtilityHelpers.resetView();
         redraw();
       }
       
@@ -45003,7 +45006,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       actualizarProgreso(progressContainer, 100, mensaje);
       setTimeout(() => removerIndicadorProgreso(progressContainer), 2000);
       
-      setStatus(mensaje, false);
+      UtilityHelpers.setStatus(mensaje, false);
       
       console.log(`🎯 === DETECCIÓN AUTOMÁTICA COMPLETADA ===
       • Objetos detectados: ${objects.length}
@@ -45273,7 +45276,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       actualizarProgreso(progressContainer, 40, `Extrayendo metadatos ${rawFormat.toUpperCase()}...`);
       
       // Extraer metadatos del archivo RAW
-      const exifData = await cargarMetadatos(file);
+      const exifData = await UtilityHelpers.cargarMetadatos(file);
       
       // Procesar metadatos RAW (SIN cálculos automáticos)
       actualizarProgreso(progressContainer, 70, 'Preparando metadatos RAW...');
@@ -45287,7 +45290,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       };
       
       // Procesar metadatos solo para completar campos, sin cálculos
-      const procesoExitoso = procesarMetadatos(exifData, true);
+      const procesoExitoso = UtilityHelpers.procesarMetadatos(exifData, true);
       
       actualizarProgreso(progressContainer, 100, `Archivo ${rawFormat.toUpperCase()} preparado para procesamiento.`);
       setTimeout(() => removerIndicadorProgreso(progressContainer), 1000);
@@ -45778,7 +45781,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         
         // Extraer metadatos
         actualizarProgreso(progressContainer, 70, `Extrayendo metadatos JPG Cara ${cara}...`);
-        metadatos = await cargarMetadatos(file);
+        metadatos = await UtilityHelpers.cargarMetadatos(file);
         
         // Guardar datos según la cara
         if (cara === 'A') {
@@ -45812,7 +45815,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         await validarArchivoImagen(file);
         
         actualizarProgreso(progressContainer, 60, `Extrayendo metadatos ${rawFormat.toUpperCase()} Cara ${cara}...`);
-        metadatos = await cargarMetadatos(file);
+        metadatos = await UtilityHelpers.cargarMetadatos(file);
         
         // Guardar datos según la cara
         if (cara === 'A') {
@@ -45830,7 +45833,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
       // Procesar metadatos (solo completar campos, sin cálculos)
       if (metadatos) {
-        procesarMetadatos(metadatos, tipo === 'raw');
+        UtilityHelpers.procesarMetadatos(metadatos, tipo === 'raw');
       }
       
       actualizarProgreso(progressContainer, 90, 'Verificando coherencia entre caras...');
@@ -45948,7 +45951,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       console.log('✅ Metadatos coherentes entre ambas caras');
       
       // Mostrar mensaje de confirmación
-      setStatus('Metadatos verificados: Ambas caras tienen parámetros coherentes', false);
+      UtilityHelpers.setStatus('Metadatos verificados: Ambas caras tienen parámetros coherentes', false);
     }
   }
   
@@ -45965,7 +45968,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     distanciaInput.addEventListener('blur', function() {
       // Solo validar entrada - cálculo ahora es manual
       if (this.value && parseFloat(this.value) > 0) {
-        setStatus('Distancia ingresada. Use "Calcular Escala" para proceder.', false);
+        UtilityHelpers.setStatus('Distancia ingresada. Use "Calcular Escala" para proceder.', false);
       }
     });
   }
@@ -46000,7 +46003,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     localStorage.setItem('sensorWidth', sensorWidthInput.value);
     localStorage.setItem('sensorHeight', sensorHeightInput.value);
     localStorage.setItem('distancia', distanciaInput.value);
-    setStatus('Configuración guardada. Use "Calcular Escala"para aplicar cambios.', false);
+    UtilityHelpers.setStatus('Configuración guardada. Use "Calcular Escala"para aplicar cambios.', false);
     // Cálculo automático eliminado - ahora completamente manual
   });
 
@@ -46031,7 +46034,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       scale = null;
       scaleDisplay.textContent = '-';
       
-      setStatus('Metadatos automáticos limpiados. Cargue una nueva imagen para obtener datos frescos.', false);
+      UtilityHelpers.setStatus('Metadatos automáticos limpiados. Cargue una nueva imagen para obtener datos frescos.', false);
     }
   });
 
@@ -46089,7 +46092,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           console.log('   ✅ Esta escala se aplicará automáticamente a AMBAS caras');
           console.log('   💡 Justificación: Metadatos coherentes verificados al cargar imágenes');
           
-          setStatus(`Escala bifacial calculada: ${scale.toFixed(6)} mm/píxel. Se aplica a ambas caras (metadatos coherentes).`, false);
+          UtilityHelpers.setStatus(`Escala bifacial calculada: ${scale.toFixed(6)} mm/píxel. Se aplica a ambas caras (metadatos coherentes).`, false);
           
         } else {
           // ============================================================================
@@ -46105,7 +46108,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         
       } catch (error) {
         console.error('❌ Error calculando escala:', error);
-        setStatus(`Error calculando escala: ${error.message}`, true);
+        UtilityHelpers.setStatus(`Error calculando escala: ${error.message}`, true);
         
         estadoProcesamiento.calculandoEscala = false;
         actualizarEstadoProcesamiento();
@@ -46136,7 +46139,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
       // Cambiar cursor del canvas
       canvas.style.cursor = 'crosshair';
-      setStatus('Modo verificación activo. Use botones +/- para zoom, Shift+Drag para mover imagen', false);
+      UtilityHelpers.setStatus('Modo verificación activo. Use botones +/- para zoom, Shift+Drag para mover imagen', false);
       console.log('📐 Modo verificación de escala activado - Zoom y Pan habilitados');
     });
   }
@@ -46337,7 +46340,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       // Salir del modo verificación
       cancelarModoVerificacion();
       
-      setStatus(`Escala corregida aplicada (factor: ${datos.factorCorreccion.toFixed(4)}). Nuevas mediciones usarán escala corregida.`, false);
+      UtilityHelpers.setStatus(`Escala corregida aplicada (factor: ${datos.factorCorreccion.toFixed(4)}). Nuevas mediciones usarán escala corregida.`, false);
     });
   }
   
@@ -46356,7 +46359,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         document.getElementById('botonNuevaMedicionSolo').style.display = 'none';
         medidaRealInput.value = '';
         redraw();
-        setStatus('Nueva medición: Haga clic en 2 puntos', false);
+        UtilityHelpers.setStatus('Nueva medición: Haga clic en 2 puntos', false);
       });
     }
   });
@@ -46369,14 +46372,14 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     panelVerificacionEscala.style.display = 'none';
     canvas.style.cursor = 'default';
     redraw();
-    setStatus('Modo verificación cancelado', false);
+    UtilityHelpers.setStatus('Modo verificación cancelado', false);
   }
   
   function procesarClickVerificacion(x, y) {
     puntosVerificacion.push({ x, y });
     
     if (puntosVerificacion.length === 1) {
-      setStatus('Punto 1 marcado. Haga clic en el segundo punto', false);
+      UtilityHelpers.setStatus('Punto 1 marcado. Haga clic en el segundo punto', false);
       redraw();
     } else if (puntosVerificacion.length === 2) {
       calcularDistanciaVerificacion();
@@ -46400,7 +46403,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     document.getElementById('distanciaMm').textContent = `Ingrese medida real →`;
     resultadosVerificacion.style.display = 'block';
     
-    setStatus(`Distancia medida: ${distanciaPx.toFixed(2)} píxeles. Ingrese la medida real en mm`, false);
+    UtilityHelpers.setStatus(`Distancia medida: ${distanciaPx.toFixed(2)} píxeles. Ingrese la medida real en mm`, false);
     
     console.log(`📏 Medición completada:
   • Punto 1: (${p1.x.toFixed(1)}, ${p1.y.toFixed(1)})
@@ -46431,7 +46434,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         
       } catch (error) {
         console.error('❌ Error detectando objetos:', error);
-        setStatus(`Error detectando objetos: ${error.message}`, true);
+        UtilityHelpers.setStatus(`Error detectando objetos: ${error.message}`, true);
         
         estadoProcesamiento.detectandoObjetos = false;
         actualizarEstadoProcesamiento();
@@ -46632,7 +46635,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     if (imageCaraA) redrawCanvasBifacial('A');
     if (imageCaraB) redrawCanvasBifacial('B');
     
-    setStatus('Modo detección manual bifacial activado. Haga clic en cualquier canvas (A o B) para seleccionar objetos. ESC para cancelar.', false);
+    UtilityHelpers.setStatus('Modo detección manual bifacial activado. Haga clic en cualquier canvas (A o B) para seleccionar objetos. ESC para cancelar.', false);
     console.log('✅ Detección manual bifacial simultánea activada');
   }
   
@@ -46748,7 +46751,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     if (cara === 'A') {
       // Verificar que existe imagen en Cara A
       if (!imageCaraA) {
-        setStatus('Error: Primero cargue una imagen en Cara A', true);
+        UtilityHelpers.setStatus('Error: Primero cargue una imagen en Cara A', true);
         return;
       }
       
@@ -46781,7 +46784,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       };
       if (typeof actualizarBloqueExportacion === 'function') actualizarBloqueExportacion();
       
-      setStatus('CARA A (Anverso): Haga clic y arrastre en el canvas azul para seleccionar objetos. ESC para cancelar.', false);
+      UtilityHelpers.setStatus('CARA A (Anverso): Haga clic y arrastre en el canvas azul para seleccionar objetos. ESC para cancelar.', false);
       console.log('   📷 Canvas reasignado: Cara A (Anverso)');
       console.log('   📐 Dimensiones:', imageWidthCaraA, 'x', imageHeightCaraA);
       
@@ -46791,7 +46794,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     } else if (cara === 'B') {
       // Verificar que existe imagen en Cara B
       if (!imageCaraB) {
-        setStatus('Error: Primero cargue una imagen en Cara B', true);
+        UtilityHelpers.setStatus('Error: Primero cargue una imagen en Cara B', true);
         return;
       }
       
@@ -46824,7 +46827,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       };
       if (typeof actualizarBloqueExportacion === 'function') actualizarBloqueExportacion();
       
-      setStatus('CARA B (Reverso): Haga clic y arrastre en el canvas verde para seleccionar objetos. ESC para cancelar.', false);
+      UtilityHelpers.setStatus('CARA B (Reverso): Haga clic y arrastre en el canvas verde para seleccionar objetos. ESC para cancelar.', false);
       console.log('   📷 Canvas reasignado: Cara B (Reverso)');
       console.log('   📐 Dimensiones:', imageWidthCaraB, 'x', imageHeightCaraB);
       
@@ -46834,11 +46837,11 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     } else if (cara === 'AMBAS') {
       // Modo secuencial: primero Cara A, luego Cara B
       if (!imageCaraA && !imageCaraB) {
-        setStatus('Error: Debe cargar al menos una imagen en Cara A o B', true);
+        UtilityHelpers.setStatus('Error: Debe cargar al menos una imagen en Cara A o B', true);
         return;
       }
       
-      setStatus('MODO SECUENCIAL: Primero detecte objetos en Cara A. Al finalizar, continuará con Cara B.', false);
+      UtilityHelpers.setStatus('MODO SECUENCIAL: Primero detecte objetos en Cara A. Al finalizar, continuará con Cara B.', false);
       console.log('   📷 Modo secuencial activado: Cara A → Cara B');
       
       // Guardar flag para continuar con Cara B después
@@ -46938,7 +46941,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     estadoProcesamiento.modoDeteccionManual = false;
     actualizarEstadoProcesamiento();
     
-    setStatus('Detección manual bifacial cancelada', false);
+    UtilityHelpers.setStatus('Detección manual bifacial cancelada', false);
     console.log('✅ Detección manual bifacial cancelada completamente');
   }
 
@@ -47213,7 +47216,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         'PERFORACIÓN (orificio completo)': 
         'HORADACIÓN (proceso parcial)';
       
-      setStatus(`Tipo seleccionado: ${tipoTexto}. Comience trazado en canvas ampliado.`, false);
+      UtilityHelpers.setStatus(`Tipo seleccionado: ${tipoTexto}. Comience trazado en canvas ampliado.`, false);
       
       // Actualizar título del canvas ampliado si está visible
       const titleSpan = document.getElementById('perforationCanvasTitle');
@@ -47347,9 +47350,9 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         const tipoTexto = perforationSelectionType === 'perforacion' ? 'perforación' : 'horadación';
         
         if (numPuntos === 1) {
-          setStatus(`Punto 1 marcado. Continue trazando el polígono de ${tipoTexto}. Doble clic para cerrar.`, false);
+          UtilityHelpers.setStatus(`Punto 1 marcado. Continue trazando el polígono de ${tipoTexto}. Doble clic para cerrar.`, false);
         } else {
-          setStatus(`${numPuntos} puntos. Doble clic o presione Enter para cerrar el polígono.`, false);
+          UtilityHelpers.setStatus(`${numPuntos} puntos. Doble clic o presione Enter para cerrar el polígono.`, false);
         }
         
         // Redibujar polígono en canvas ampliado
@@ -47446,7 +47449,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           phAutoProfileMode = e.target.value || 'auto';
           persistPhAutoUiSettings();
           const modoTxt = phAutoProfileMode === 'auto' ? 'Auto' : phAutoProfileMode;
-          setStatus(`Perfil IA seleccionado: ${modoTxt}.`, false);
+          UtilityHelpers.setStatus(`Perfil IA seleccionado: ${modoTxt}.`, false);
         });
       }
 
@@ -47530,7 +47533,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     
     console.log('🎯 Intentando seleccionar objeto para perforación en:', mouseX, mouseY);
     
-    const imgCoords = canvasToImageCoords(mouseX, mouseY);
+    const imgCoords = UtilityHelpers.canvasToImageCoords(mouseX, mouseY);
     
     // Buscar objeto que contenga este punto
     for (const obj of objects) {
@@ -47550,7 +47553,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         const tipoTexto = perforationSelectionType === 'perforacion' ? 
           'PERFORACIÓN' : 'HORADACIÓN';
         
-        setStatus(`Objeto ${obj.id} seleccionado. Preparando canvas ampliado...`, false);
+        UtilityHelpers.setStatus(`Objeto ${obj.id} seleccionado. Preparando canvas ampliado...`, false);
         
         // Mostrar canvas ampliado para trazado preciso
         mostrarCanvasAmpliadoParaPerforation(obj);
@@ -47560,7 +47563,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     }
     
     console.log('⚠️ No se encontró ningún objeto en estas coordenadas');
-    setStatus('Haga clic dentro de un objeto detectado.', true);
+    UtilityHelpers.setStatus('Haga clic dentro de un objeto detectado.', true);
     return null;
   }
 
@@ -47737,9 +47740,9 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     setTimeout(() => perforationCanvas.focus(), 100);
     
     if (existentes.length > 0) {
-      setStatus(`Canvas listo (Zoom 2x). Se cargaron ${existentes.length} P/H existentes para edición: puede eliminar, ajustar y volver a detectar.`, false);
+      UtilityHelpers.setStatus(`Canvas listo (Zoom 2x). Se cargaron ${existentes.length} P/H existentes para edición: puede eliminar, ajustar y volver a detectar.`, false);
     } else {
-      setStatus(`Canvas listo (Zoom 2x). Trace el polígono haciendo clic. Use el zoom para más precisión.`, false);
+      UtilityHelpers.setStatus(`Canvas listo (Zoom 2x). Trace el polígono haciendo clic. Use el zoom para más precisión.`, false);
     }
     console.log(`🎯 Modal abierto con zoom 2x por defecto`);
   }
@@ -47881,7 +47884,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     
     console.log('🎯 Seleccionando objeto para Geometría Manual:', mouseX, mouseY);
     
-    const imgCoords = canvasToImageCoords(mouseX, mouseY);
+    const imgCoords = UtilityHelpers.canvasToImageCoords(mouseX, mouseY);
     
     // Buscar objeto que contenga este punto
     for (const obj of objects) {
@@ -49709,7 +49712,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     if (perforationCanvas) {
       perforationCanvas.style.cursor = phPointDetectMode ? 'cell' : 'crosshair';
     }
-    setStatus(
+    UtilityHelpers.setStatus(
       phPointDetectMode
         ? 'Modo detección por punto activo — haga clic dentro de la P/H para detectar su contorno automáticamente.'
         : 'Modo polígono activo — haga clic para agregar puntos al contorno.',
@@ -49734,7 +49737,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     }
 
     phPointDetectActive = true;
-    setStatus('🔍 Detectando contorno automáticamente...', false);
+    UtilityHelpers.setStatus('🔍 Detectando contorno automáticamente...', false);
 
     try {
       const imageDataURL = perforationCanvas.toDataURL('image/png');
@@ -49751,7 +49754,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           result?.message ||
           'No se detectó contorno en ese punto. Haga clic más al centro de la P/H.'
         );
-        setStatus('Haga clic en el interior de la P/H para detectar su contorno.', false);
+        UtilityHelpers.setStatus('Haga clic en el interior de la P/H para detectar su contorno.', false);
         return;
       }
 
@@ -49775,7 +49778,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       redibujarPoligonoEnCanvasAmpliado();
 
       const tipoTexto = perforationSelectionType === 'perforacion' ? 'Perforación' : 'Horadación';
-      setStatus(
+      UtilityHelpers.setStatus(
         `${tipoTexto} detectada (${puntos.length} puntos). ` +
         'Puede seguir marcando o pulsar "Finalizar y Aplicar".',
         false
@@ -49784,7 +49787,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     } catch (err) {
       console.error('[detectarPhDesdeUnPunto]', err);
       toast.warning('Error al detectar contorno. Verifique que el servidor Python esté activo.');
-      setStatus('Error en detección automática.', true);
+      UtilityHelpers.setStatus('Error en detección automática.', true);
     } finally {
       phPointDetectActive = false;
     }
@@ -49871,11 +49874,11 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
 
       if (!seeds.length) {
         toast.warning('No se generaron semillas internas para detección automática.');
-        setStatus('No fue posible iniciar detección IA automática.', true);
+        UtilityHelpers.setStatus('No fue posible iniciar detección IA automática.', true);
         return;
       }
 
-      setStatus(
+      UtilityHelpers.setStatus(
         `✦ Detección IA Auto (${profileLabel}, sens ${sensitivity.toFixed(2)}x): evaluando hasta ${Math.min(autoMaxCandidates * 3, seeds.length)} semillas...`,
         false
       );
@@ -49893,7 +49896,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         // Compatibilidad: backend antiguo sin endpoint batch => usar fallback por semilla.
         if (errAuto?.status === 404) {
           console.warn('[detectarPhAutomatico] /ph/detect-auto no disponible, activando fallback por semilla.');
-          setStatus('Detección IA batch no disponible en backend actual. Usando fallback por semilla...', false);
+          UtilityHelpers.setStatus('Detección IA batch no disponible en backend actual. Usando fallback por semilla...', false);
         } else {
           throw errAuto;
         }
@@ -49955,7 +49958,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
 
       if (!candidatos.length) {
         toast.warning('No se detectaron candidatos IA. Puede usar trazado manual o detección por punto.');
-        setStatus('Detección IA Auto finalizada sin candidatos.', false);
+        UtilityHelpers.setStatus('Detección IA Auto finalizada sin candidatos.', false);
         return;
       }
 
@@ -49977,14 +49980,14 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       const nPerf = candidatos.filter(c => c.tipo === 'perforacion').length;
       const nHor = candidatos.length - nPerf;
       toast.success(`Detección IA Auto: ${candidatos.length} candidatos (${nPerf} P, ${nHor} H).`);
-      setStatus(
+      UtilityHelpers.setStatus(
         `Detección IA Auto completada: ${candidatos.length} candidatos añadidos. Revise/edite y pulse "Finalizar y Aplicar".`,
         false
       );
     } catch (err) {
       console.error('[detectarPhAutomatico]', err);
       toast.warning('Error en detección IA automática. Intente detección por punto o trazado manual.');
-      setStatus('Error en detección IA automática.', true);
+      UtilityHelpers.setStatus('Error en detección IA automática.', true);
     } finally {
       phPointDetectActive = false;
     }
@@ -49997,11 +50000,11 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       if (!obj) return;
       
       // Inicializar trazado después de seleccionar objeto
-      setStatus(`Objeto seleccionado. Haga clic para trazar puntos del polígono. Doble clic para cerrar.`, false);
+      UtilityHelpers.setStatus(`Objeto seleccionado. Haga clic para trazar puntos del polígono. Doble clic para cerrar.`, false);
       return;
     }
     
-    const imgCoords = canvasToImageCoords(mouseX, mouseY);
+    const imgCoords = UtilityHelpers.canvasToImageCoords(mouseX, mouseY);
     
     // Verificar que el punto está dentro del objeto seleccionado
     if (imgCoords.x < selectedObjectForPerforation.minX || 
@@ -50009,7 +50012,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         imgCoords.y < selectedObjectForPerforation.minY || 
         imgCoords.y > selectedObjectForPerforation.maxY) {
       
-      setStatus('El polígono debe estar dentro del objeto seleccionado.', true);
+      UtilityHelpers.setStatus('El polígono debe estar dentro del objeto seleccionado.', true);
       return;
     }
     
@@ -50021,12 +50024,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     const tipoTexto = perforationSelectionType === 'perforacion' ? 'perforación' : 'horadación';
     
     if (numPuntos === 1) {
-      setStatus(`Punto 1 marcado. Continue trazando el polígono de ${tipoTexto}. Doble clic para cerrar.`, false);
+      UtilityHelpers.setStatus(`Punto 1 marcado. Continue trazando el polígono de ${tipoTexto}. Doble clic para cerrar.`, false);
     } else {
-      setStatus(`${numPuntos} puntos. Doble clic o presione Enter para cerrar el polígono.`, false);
+      UtilityHelpers.setStatus(`${numPuntos} puntos. Doble clic o presione Enter para cerrar el polígono.`, false);
     }
     
-    redrawCanvas();
+    UtilityHelpers.redrawCanvas();
   }
 
   /**
@@ -50070,7 +50073,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     const dialog = document.getElementById('clasificarPoligonoDialog');
     if (dialog) {
       dialog.style.display = 'block';
-      setStatus(`Polígono trazado. Seleccione si es PERFORACIÓN o HORADACIÓN.`, false);
+      UtilityHelpers.setStatus(`Polígono trazado. Seleccione si es PERFORACIÓN o HORADACIÓN.`, false);
     }
     
     // Redibujar canvas para mostrar polígono temporal
@@ -50105,7 +50108,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     actualizarListaTrazados();
     redibujarPoligonoEnCanvasAmpliado();
     
-    setStatus(`Perforación agregada. Total: ${trazadosPerforaciones.length}. Puede trazar otro polígono.`, false);
+    UtilityHelpers.setStatus(`Perforación agregada. Total: ${trazadosPerforaciones.length}. Puede trazar otro polígono.`, false);
   }
 
   /**
@@ -50136,7 +50139,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     actualizarListaTrazados();
     redibujarPoligonoEnCanvasAmpliado();
     
-    setStatus(`Horadación agregada. Total: ${trazadosPerforaciones.length}. Puede trazar otro polígono.`, false);
+    UtilityHelpers.setStatus(`Horadación agregada. Total: ${trazadosPerforaciones.length}. Puede trazar otro polígono.`, false);
   }
 
   /**
@@ -50155,7 +50158,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     // Redibujar para eliminar visualización del polígono temporal
     redibujarPoligonoEnCanvasAmpliado();
     
-    setStatus(`Polígono descartado. Trace un nuevo polígono.`, false);
+    UtilityHelpers.setStatus(`Polígono descartado. Trace un nuevo polígono.`, false);
   }
 
   /**
@@ -50235,7 +50238,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
       const tipoNombre = trazado.tipo === 'perforacion' ? 'Perforación' : 'Horadación';
       const etiqueta = trazado._displayLabel || (trazado.tipo === 'perforacion' ? 'P?' : 'H?');
-      setStatus(`${tipoNombre} ${etiqueta} eliminada. Total: ${trazadosPerforaciones.length}`, false);
+      UtilityHelpers.setStatus(`${tipoNombre} ${etiqueta} eliminada. Total: ${trazadosPerforaciones.length}`, false);
     }
   }
   // C: Exponer a scope global para los onclick inlineados en actualizarListaTrazados()
@@ -51162,7 +51165,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           actualizarTablaMorfologica(selectedObjectForPerforation, currentAnalyzedObject.metricas);
         }
 
-        setStatus('Se eliminaron todas las perforaciones/horadaciones del objeto.', false);
+        UtilityHelpers.setStatus('Se eliminaron todas las perforaciones/horadaciones del objeto.', false);
         ocultarCanvasAmpliadoPerforation();
         return;
       }
@@ -51320,7 +51323,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     trazadosPerforaciones = [];
     contadorTrazados = 0;
     
-    setStatus(`${perforaciones.length} perforaciones y ${horadaciones.length} horadaciones aplicadas al objeto.`, false);
+    UtilityHelpers.setStatus(`${perforaciones.length} perforaciones y ${horadaciones.length} horadaciones aplicadas al objeto.`, false);
     
     // Ocultar canvas ampliado
     ocultarCanvasAmpliadoPerforation();
@@ -51337,7 +51340,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     // Redibujar para mostrar solo los trazados completados (sin el actual)
     redibujarPoligonoEnCanvasAmpliado();
     
-    setStatus('Trazado del polígono actual cancelado.', false);
+    UtilityHelpers.setStatus('Trazado del polígono actual cancelado.', false);
   }
 
   /**
@@ -51349,12 +51352,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
       if (perforationPolygonPoints.length === 0) {
         isDrawingPerforationPolygon = false;
-        setStatus('Polígono reiniciado. Haga clic para comenzar de nuevo.', false);
+        UtilityHelpers.setStatus('Polígono reiniciado. Haga clic para comenzar de nuevo.', false);
       } else {
-        setStatus(`${perforationPolygonPoints.length} puntos. Continúe trazando o doble clic para cerrar.`, false);
+        UtilityHelpers.setStatus(`${perforationPolygonPoints.length} puntos. Continúe trazando o doble clic para cerrar.`, false);
       }
       
-      redrawCanvas();
+      UtilityHelpers.redrawCanvas();
     }
   }
 
@@ -51496,7 +51499,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         mensaje += `La clasificación automática coincide: ${clasificacion.mensaje}`;
       }
       
-      setStatus(mensaje, false);
+      UtilityHelpers.setStatus(mensaje, false);
       
       // 10. Limpiar trazado
       limpiarTrazadoPerforacion();
@@ -51507,7 +51510,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       redibujarMorphologicalCanvasConPerforaciones(obj, metricasObjeto);
       
       // 12. Redibujar canvas principal
-      redrawCanvas();
+      UtilityHelpers.redrawCanvas();
       
     } catch (error) {
       console.error('❌ Error procesando perforación:', error);
@@ -51528,7 +51531,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     // Ocultar canvas ampliado
     ocultarCanvasAmpliadoPerforation();
     
-    redrawCanvas();
+    UtilityHelpers.redrawCanvas();
   }
 
   /**
@@ -51993,7 +51996,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       if (whitePixels < 10) {
         toast.warning('No se detectó una perforación clara. Intenta con un área con más píxeles blancos.');
         canvasPool.releaseCanvas(tempCanvas);
-        redrawCanvas();
+        UtilityHelpers.redrawCanvas();
         return;
       }
       
@@ -52002,12 +52005,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       const mascaraLimpia = eliminarComponentesPequenos(maskaCerrada, area.width, area.height, 5);
       
       // 6. Trazar contorno de la perforación usando Moore
-      const contorno = trazarContornoMoore(mascaraLimpia, area.width, area.height);
+      const contorno = ContourExtraction.trazarContornoMoore(mascaraLimpia, area.width, area.height);
       
       if (!contorno || contorno.length < 4) {
         toast.warning('No se pudo trazar el contorno. Intenta con un área más grande o con mayor contraste.');
         canvasPool.releaseCanvas(tempCanvas);
-        redrawCanvas();
+        UtilityHelpers.redrawCanvas();
         return;
       }
       
@@ -52025,7 +52028,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       if (!metricas) {
         toast.error('Error al calcular métricas de la perforación.');
         canvasPool.releaseCanvas(tempCanvas);
-        redrawCanvas();
+        UtilityHelpers.redrawCanvas();
         return;
       }
       
@@ -52089,10 +52092,10 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
       // 14. Notificar éxito
       const tipoTexto = perforationSelectionType === 'perforacion' ? 'PERFORACIÓN' : 'HORADACIÓN';
-      setStatus(`${tipoTexto} detectada correctamente. Área: ${metricas.area_real.toFixed(1)} px². ${clasificacion.mensaje}`, false);
+      UtilityHelpers.setStatus(`${tipoTexto} detectada correctamente. Área: ${metricas.area_real.toFixed(1)} px². ${clasificacion.mensaje}`, false);
       
       // 15. Redibujar canvas con la perforación
-      redrawCanvas();
+      UtilityHelpers.redrawCanvas();
       
       // 16. Limpiar selección
       selectedObjectForPerforation = null;
@@ -52100,7 +52103,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     } catch (error) {
       console.error('❌ Error procesando perforación:', error);
       toast.error('Error al procesar la perforación. Ver consola para detalles.');
-      redrawCanvas();
+      UtilityHelpers.redrawCanvas();
     }
   }
 
@@ -52258,18 +52261,18 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
 
   manualRedetectBtn.addEventListener('click', () => {
     if (!image) {
-      setStatus('Error: Primero cargue una imagen.', true);
+      UtilityHelpers.setStatus('Error: Primero cargue una imagen.', true);
       return;
     }
     
-    setStatus('Re-detectando objetos...', false);
+    UtilityHelpers.setStatus('Re-detectando objetos...', false);
     // Ejecutar detección directamente sin usar needsObjectDetection
     objects = detectarObjetos();
     redraw();
-    updateDisplays();
+    UtilityHelpers.updateDisplays();
     
     setTimeout(() => {
-      setStatus(`Detección completada: ${objects.length} objetos encontrados`, false);
+      UtilityHelpers.setStatus(`Detección completada: ${objects.length} objetos encontrados`, false);
     }, 100);
   });
 
@@ -52278,7 +52281,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   /*
   manualSelectionBtn.addEventListener('click', () => {
     if (!image) {
-      setStatus('Error: Primero cargue una imagen para usar selección manual.', true);
+      UtilityHelpers.setStatus('Error: Primero cargue una imagen para usar selección manual.', true);
       return;
     }
     
@@ -52287,7 +52290,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       manualSelectedArea = null;
       isSelectingArea = false;
       manualSelectionInstructions.textContent = 'Haga clic y arrastre en el canvas para seleccionar el área de interés';
-      redrawCanvas();
+      UtilityHelpers.redrawCanvas();
     } else {
       // Iniciar modo selección manual
       iniciarSeleccionManual();
@@ -52670,8 +52673,8 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     console.log('📝 Desarrollado por Quipus / Juan Francisco Ramírez, 2025');
     
     // Inicializar sistemas básicos
-    cargarConfiguracion();
-    resetView();
+    UtilityHelpers.cargarConfiguracion();
+    UtilityHelpers.resetView();
     redraw();
     updateZoomDisplay();
     
@@ -52747,7 +52750,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       calcularEscala();
       console.log('✅ Escala calculada automáticamente al iniciar');
     } else {
-      setStatus('MAO listo. Cargue una imagen y configure los parámetros para comenzar.', false);
+      UtilityHelpers.setStatus('MAO listo. Cargue una imagen y configure los parámetros para comenzar.', false);
     }
     
     console.log('✅ Inicialización de MAO completada con optimizaciones de memoria');
@@ -53293,7 +53296,7 @@ TOLERANCIA ESPERADA: ±2% debido a pixelización`);
         // Almacenar referencia para comparación
         window.formasPruebaTeóricas = formasPrueba;
         
-        setStatus('Imagen virtual de prueba cargada. Iniciando auto-análisis...', false);
+        UtilityHelpers.setStatus('Imagen virtual de prueba cargada. Iniciando auto-análisis...', false);
         
         // Auto-ejecutar análisis completo
         setTimeout(() => {
@@ -53313,7 +53316,7 @@ TOLERANCIA ESPERADA: ±2% debido a pixelización`);
               dimensiones: `${imageWidth}×${imageHeight}`,
               umbral: typeof pixelThreshold !== 'undefined' ? pixelThreshold : 'undefined'
             });
-            setStatus('No se detectaron objetos. Ajuste el umbral de detección.', true);
+            UtilityHelpers.setStatus('No se detectaron objetos. Ajuste el umbral de detección.', true);
             return;
           }
           
@@ -53348,7 +53351,7 @@ TOLERANCIA ESPERADA: ±2% debido a pixelización`);
               analizarSiguiente(0);
             } else {
               console.error('❌ No se detectaron objetos para analizar');
-              setStatus('Error: No se detectaron objetos en la imagen virtual', true);
+              UtilityHelpers.setStatus('Error: No se detectaron objetos en la imagen virtual', true);
             }
           }, 3000);
         }, 1500);
@@ -53356,14 +53359,14 @@ TOLERANCIA ESPERADA: ±2% debido a pixelización`);
       
       img.onerror = function() {
         console.error('❌ Error al cargar imagen virtual');
-        setStatus('Error: No se pudo cargar la imagen virtual generada', true);
+        UtilityHelpers.setStatus('Error: No se pudo cargar la imagen virtual generada', true);
       };
       
       img.src = dataURL;
       
     } catch (error) {
       console.error('❌ Error generando imagen virtual:', error);
-      setStatus('Error: Fallo al generar imagen virtual - ' + error.message, true);
+      UtilityHelpers.setStatus('Error: Fallo al generar imagen virtual - ' + error.message, true);
     }
   }
   
@@ -53425,7 +53428,7 @@ ${porcentajeExito >= 80 ?
 =====================================================`);
     
     // Mostrar resumen en la interfaz
-    setStatus(`Validación completa: ${testsPassados}/${totalTests} tests pasados (${porcentajeExito}%)`, false);
+    UtilityHelpers.setStatus(`Validación completa: ${testsPassados}/${totalTests} tests pasados (${porcentajeExito}%)`, false);
   }
   
   // === AUDITORÍA COMPLETA DEL SISTEMA MAO ===
@@ -53552,7 +53555,7 @@ MÉTRICAS DEL CÓDIGO:
 5⃣ PROGRESS FEEDBACK:
    function updateProgress(current, total, operation) {
      const percent = (current / total * 100).toFixed(1);
-     setStatus(\`\${operation}: \${percent}% completado\`, false);
+     UtilityHelpers.setStatus(\`\${operation}: \${percent}% completado\`, false);
    }
    
    Beneficio: Mejor experiencia de usuario en operaciones largas
@@ -53586,7 +53589,7 @@ TODAS ESTAS MEJORAS SON:
     console.log('📊 === GENERANDO TABLA CON OBJETOS YA ANALIZADOS ===');
     
     if (!objects || objects.length === 0) {
-      setStatus('Error: No hay objetos detectados.', true);
+      UtilityHelpers.setStatus('Error: No hay objetos detectados.', true);
       return;
     }
     
@@ -53597,13 +53600,13 @@ TODAS ESTAS MEJORAS SON:
     console.log(`📊 Objetos con métricas (ya analizados): ${objetosParaTabla.length}`);
     
     if (objetosParaTabla.length === 0) {
-      setStatus('No hay objetos analizados. Haga clic en "Analizar"en al menos un objeto individual primero.', true);
+      UtilityHelpers.setStatus('No hay objetos analizados. Haga clic en "Analizar"en al menos un objeto individual primero.', true);
       toast.warning('No hay objetos analizados. Haz clic en "Analizar" en al menos un objeto antes de generar la tabla.');
       return;
     }
     
     console.log(`✅ Generando tabla con ${objetosParaTabla.length} objeto(s) ya analizado(s)`);
-    setStatus(`Generando tabla con ${objetosParaTabla.length} objeto(s) ya analizados...`, false);
+    UtilityHelpers.setStatus(`Generando tabla con ${objetosParaTabla.length} objeto(s) ya analizados...`, false);
     
     // Definir las columnas de la tabla (categorizadas)
     const columnas = {
@@ -53725,7 +53728,7 @@ TODAS ESTAS MEJORAS SON:
     agregarEventListenersTabla();
     
     console.log(`✅ Tabla generada con ${objetosParaTabla.length} objetos y ${todasLasColumnas.length} columnas`);
-    setStatus(`Tabla generada: ${objetosParaTabla.length} objetos, ${todasLasColumnas.length} métricas`, false);
+    UtilityHelpers.setStatus(`Tabla generada: ${objetosParaTabla.length} objetos, ${todasLasColumnas.length} métricas`, false);
   }
   
   // Actualizar estadísticas de la tabla
@@ -53868,14 +53871,14 @@ TODAS ESTAS MEJORAS SON:
   // Descargar tabla como CSV completo
   async function descargarTablaCSV() {
     if (!objects || objects.length === 0) {
-      setStatus('Error: No hay datos para exportar.', true);
+      UtilityHelpers.setStatus('Error: No hay datos para exportar.', true);
       return;
     }
     
     const objetosConMetricas = objects.filter(obj => obj.metrics);
     
     if (objetosConMetricas.length === 0) {
-      setStatus('Error: No hay objetos con métricas calculadas.', true);
+      UtilityHelpers.setStatus('Error: No hay objetos con métricas calculadas.', true);
       return;
     }
     
@@ -53932,7 +53935,7 @@ TODAS ESTAS MEJORAS SON:
     await saveFileWithDialog(filename, csvContent, 'csv');
     URL.revokeObjectURL(link.href);
     
-    setStatus(`Tabla CSV exportada: ${filename}`, false);
+    UtilityHelpers.setStatus(`Tabla CSV exportada: ${filename}`, false);
     console.log(`✅ CSV exportado: ${filename} (${objetosConMetricas.length} objetos, ${columnas.length} columnas)`);
   }
   
@@ -53941,7 +53944,7 @@ TODAS ESTAS MEJORAS SON:
   
   closeTableBtn.addEventListener('click', () => {
     metricsTableContainer.style.display = 'none';
-    setStatus('Tabla cerrada.', false);
+    UtilityHelpers.setStatus('Tabla cerrada.', false);
   });
   
   // ============================================================================
@@ -54069,7 +54072,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
   if (downloadImageCaraA) {
     downloadImageCaraA.addEventListener('click', async () => {
       if (!imageCaraA) {
-        setStatus('No hay imagen cargada en Cara A', true);
+        UtilityHelpers.setStatus('No hay imagen cargada en Cara A', true);
         return;
       }
       
@@ -54080,7 +54083,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
         const _idCa = obtenerIdentificacionActual()?.valor?.replace(/[^a-zA-Z0-9_-]/g, '_') || 'imagen';
         const filename = `${_idCa}_ca`;
         await saveFileWithDialog(filename, blob, 'png');
-        setStatus('Imagen Cara A descargada', false);
+        UtilityHelpers.setStatus('Imagen Cara A descargada', false);
         console.log('✅ Imagen Cara A descargada');
       });
     });
@@ -54093,7 +54096,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
   if (downloadImageCaraB) {
     downloadImageCaraB.addEventListener('click', async () => {
       if (!imageCaraB) {
-        setStatus('No hay imagen cargada en Cara B', true);
+        UtilityHelpers.setStatus('No hay imagen cargada en Cara B', true);
         return;
       }
       
@@ -54104,7 +54107,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
         const _idCb = obtenerIdentificacionActual()?.valor?.replace(/[^a-zA-Z0-9_-]/g, '_') || 'imagen';
         const filename = `${_idCb}_cb`;
         await saveFileWithDialog(filename, blob, 'png');
-        setStatus('Imagen Cara B descargada', false);
+        UtilityHelpers.setStatus('Imagen Cara B descargada', false);
         console.log('✅ Imagen Cara B descargada');
       });
     });
@@ -54229,7 +54232,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
           const resultado = await window.electronAPI.saveFile(`${carpetaProyecto}/${nombreArchivo}`, jsonString);
           if (resultado.success) {
             console.log(`✅ Respaldo guardado en proyecto: ${nombreArchivo}`);
-            setStatus(`Respaldo guardado (${nombreArchivo})`, false);
+            UtilityHelpers.setStatus(`Respaldo guardado (${nombreArchivo})`, false);
           } else {
             console.warn('⚠️ No se pudo guardar respaldo:', resultado.error);
           }
@@ -54321,12 +54324,12 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
 
     // --- PASO 7: Resetear zoom y selección manual ---
     offsetX = 0; offsetY = 0; zoomLevel = 1;
-    if (typeof resetView === 'function') resetView();
+    if (typeof resetView === 'function') UtilityHelpers.resetView();
     isManualSelectionMode = false;
     isSelectingArea = false;
     manualSelectedArea = null;
     if (manualSelectionStatus) manualSelectionStatus.style.display = 'none';
-    if (typeof clearContourCache === 'function') clearContourCache();
+    if (typeof clearContourCache === 'function') UtilityHelpers.clearContourCache();
 
     // --- PASO 8: Limpiar inputs de archivo (no los de datos de cámara / contexto) ---
     ['jpgInput','rawInput','complementarioInput',
@@ -54365,7 +54368,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
     }
 
     // --- PASO 11: Finalizar ---
-    setStatus('Listo para nuevo análisis. Cargue la imagen del siguiente objeto.', false);
+    UtilityHelpers.setStatus('Listo para nuevo análisis. Cargue la imagen del siguiente objeto.', false);
     if (typeof redraw === 'function') redraw();
     console.log('✅ NUEVO ANÁLISIS preparado — contexto del proyecto conservado');
   }
@@ -54846,7 +54849,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
     }
 
     // Paso 2: árbol de clasificación ponderada — idéntico al flujo manual
-    return metaClasificarForma(metricasFinal, null);
+    return ClassificationEngine.metaClasificarForma(metricasFinal, null);
   };
 
   // Getter de identificación activa (usado por mao-ia.js para heredar nombre al crear tarjetas)
