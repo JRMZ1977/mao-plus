@@ -167,7 +167,7 @@ async def detect_objects(
       - cv2.watershed                     (mejora: separa objetos pegados)
       - cv2.GrabCut                       (mejora: fondo no uniforme)
 
-    Estado: PENDIENTE — stub listo para implementación.
+    Estado: IMPLEMENTADO (✅) — módulo detection.detect() funcional.
     """
     data = await _read_image(image)
     result = await modules.detection.detect(
@@ -259,7 +259,7 @@ async def extract_contour(
       - cv2.approxPolyDP (Douglas-Peucker)       → simplificación
       - shapely.Polygon                          → validación geometría
 
-    Estado: PENDIENTE — stub listo para implementación.
+    Estado: IMPLEMENTADO (✅) — módulo contour.extract() funcional.
     """
     data = await _read_image(image)
     result = await modules.contour.extract(
@@ -994,7 +994,7 @@ async def morphological_op(
       - cv2.morphologyEx          → open/close en una llamada
       - skimage.morphology        → alternativa más flexible
 
-    Estado: PENDIENTE — stub listo para implementación.
+    Estado: IMPLEMENTADO (✅) — módulo morphology.apply() funcional.
     """
     if operation not in ("dilate", "erode", "open", "close", "smooth"):
         raise HTTPException(status_code=400, detail=f"Operación desconocida: {operation}")
@@ -1037,7 +1037,7 @@ async def detect_edges(
       - cv2.Laplacian      → detección de segundo orden
       - skimage.filters.sobel / canny → alternativas
 
-    Estado: PENDIENTE — stub listo para implementación.
+    Estado: IMPLEMENTADO (✅) — módulo detection.edges() funcional.
     """
     data = await _read_image(image)
     if method not in ("canny", "sobel", "laplacian"):
@@ -1311,7 +1311,7 @@ async def analyze_color(
       - cv2.kmeans                        → agrupación de colores dominantes
       - numpy: estadísticas por canal
 
-    Estado: PENDIENTE — stub listo para implementación.
+    Estado: IMPLEMENTADO (✅) — módulo detection.color() funcional.
     """
     img_data  = await _read_image(image)
     mask_data = await mask.read() if mask else None
@@ -1349,7 +1349,7 @@ async def pca_analysis(
       - sklearn.KMeans: convergencia garantizada (Lloyd's algorithm)
       - sklearn.metrics.silhouette_score: cálculo exacto
 
-    Estado: PENDIENTE — stub listo para implementación.
+    Estado: IMPLEMENTADO (✅) — módulo comparator.pca() funcional.
     """
     import json
     objects = json.loads(objects_json)
@@ -1373,7 +1373,7 @@ async def statistical_analysis(
       - renderEstadisticos()    comparator.js
       - renderCorrelacion()     comparator.js
 
-    Estado: PENDIENTE — stub listo para implementación.
+    Estado: IMPLEMENTADO (✅) — módulo comparator.statistics() funcional.
     """
     import json
     objects = json.loads(objects_json)
