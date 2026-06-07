@@ -104,6 +104,69 @@ export function imageToCanvasCoords(imageX, imageY) {
 }
 
 // =====================================================================================
+// PERFORATION CANVAS COORDINATE CONVERSION FUNCTIONS
+// =====================================================================================
+
+/**
+ * Convertir coordenadas del canvas ampliado a coordenadas de imagen
+ * SIMPLIFICADO para escala 1:1 - solo suma el offset
+ */
+export function perforationCanvasToImageCoords(canvasX, canvasY) {
+  // Con zoom=1, la conversión es simple: sumar el offset
+  const imgX = canvasX + perforationCanvasOffsetX;
+  const imgY = canvasY + perforationCanvasOffsetY;
+
+  console.log(`🔄 Canvas (${canvasX.toFixed(1)}, ${canvasY.toFixed(1)}) → Imagen (${imgX.toFixed(1)}, ${imgY.toFixed(1)})`);
+
+  return { x: imgX, y: imgY };
+}
+
+/**
+ * Convertir coordenadas de imagen a coordenadas del canvas ampliado
+ * SIMPLIFICADO para escala 1:1 - solo resta el offset
+ */
+export function imageToPerforationCanvasCoords(imgX, imgY) {
+  // Con zoom=1, la conversión es simple: restar el offset
+  const canvasX = imgX - perforationCanvasOffsetX;
+  const canvasY = imgY - perforationCanvasOffsetY;
+
+  return { x: canvasX, y: canvasY };
+}
+
+/**
+ * Aplicar zoom visual al canvas de perforaciones
+ * Usa CSS transform para escalar visualmente sin cambiar el canvas interno
+ */
+export function aplicarZoomPerforationCanvas(zoomLevel) {
+  if (!perforationCanvas) return;
+
+  // Guardar nivel de zoom actual
+  perforationZoomLevel = zoomLevel;
+
+  // Aplicar transform CSS para zoom visual
+  perforationCanvas.style.transform = `scale(${zoomLevel})`;
+
+  // Ajustar el contenedor para el scroll
+  const container = document.getElementById('perforationCanvasScrollContainer');
+  if (container) {
+    // Calcular nuevas dimensiones aparentes
+    const apparentWidth = perforationCanvas.width * zoomLevel;
+    const apparentHeight = perforationCanvas.height * zoomLevel;
+
+    // Agregar padding para centrar mejor
+    container.style.padding = `${apparentHeight * 0.1}px ${apparentWidth * 0.1}px`;
+  }
+
+  console.log(`🔍 Zoom aplicado: ${zoomLevel}x`);
+
+  // Actualizar display de dimensiones
+  const dimensionsSpan = document.getElementById('perforationCanvasDimensions');
+  if (dimensionsSpan) {
+    dimensionsSpan.textContent = `${perforationCanvas.width}×${perforationCanvas.height}px (zoom ${zoomLevel}x)`;
+  }
+}
+
+// =====================================================================================
 // DISPLAY UPDATE FUNCTIONS
 // =====================================================================================
 

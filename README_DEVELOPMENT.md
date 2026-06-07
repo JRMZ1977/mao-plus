@@ -1,7 +1,7 @@
 # MAO Plus — Bifacial Morphometric Analysis Platform
 
-**Version:** 1.0  
-**Last Updated:** 2026-04-27  
+**Version:** 1.2.0  
+**Last Updated:** 2026-06-07  
 **Status:** Production-Ready (v1.0 contract frozen)
 
 ---
@@ -40,6 +40,8 @@ npm start
 ```
 
 The application launches at `http://localhost:3000` (Electron) with backend at `http://localhost:8000` (FastAPI).
+
+> **Phase 2 note:** `js/analysis-core.js` no longer contains the analysis logic directly — it delegates to ES6 modules in `js/modules/`. See [MODULES.md](MODULES.md) for the full module reference.
 
 ---
 
@@ -155,13 +157,37 @@ When enabled, endpoints return extended bilateral metrics (CI, CMS). Default: di
 
 ---
 
+## Phase 2 Modular Architecture
+
+Phase 2 (completed 2026-06-07) refactored the frontend analysis code from a single monolithic file into 10 focused ES6 modules.
+
+- **What changed:** `js/analysis-core.js` was split into `js/modules/` — 10 modules covering geometry, contour processing, metrics, classification, orchestration, visualization, and export.
+- **What stayed the same:** All public behavior, the Python backend, and the v1 canonical schema are unchanged.
+- **References:**
+  - [MODULES.md](MODULES.md) — per-module reference, dependency matrix, load order, and extension guidelines
+  - [ARCHITECTURE.md](ARCHITECTURE.md) — overall system architecture and Phase 2 metrics
+
+---
+
 ## File Structure
 
 ```
 MAO PLUS_PY_01/
 ├── index.html              # Web UI
 ├── js/                     # Frontend modules
-│   ├── analysis-core.js    # Core UI logic
+│   ├── analysis-core.js    # Core UI logic (imports from js/modules/ since Phase 2)
+│   ├── modules/            # ES6 modules — Phase 2 modular architecture
+│   │   ├── geometry-primitives.js      # Convex hull, Shoelace area, orientation
+│   │   ├── contour-quality.js          # Contour validation and smoothing
+│   │   ├── morphometric-metrics.js     # Core metric calculations (14 functions)
+│   │   ├── shape-classification.js     # 18-morphotype geometric classification
+│   │   ├── contour-extraction.js       # Contour tracing, morphological ops
+│   │   ├── classification-engine.js    # Typological classification + canonical rules
+│   │   ├── utility-helpers.js          # Coords, cache, config, DOM helpers
+│   │   ├── metrics-orchestrator.js     # Central metrics coordinator (100+ metrics)
+│   │   ├── visualization-export.js     # Display, JSON/PDF export
+│   │   ├── tabla-metricas-completa.js  # Complete metrics table (26 sections)
+│   │   └── bifacial-analysis.js        # Bifacial symmetry math (standalone)
 │   ├── comparator.js       # Bilateral comparison UI
 │   ├── procrustes.js       # Procrustes superposition (APS)
 │   ├── collection.js       # Object collection manager
@@ -267,6 +293,13 @@ pytest tests/ -v
 ---
 
 ## Changelog
+
+### v1.2.0 (2026-06-07)
+
+- ✅ Phase 2 complete: `analysis-core.js` split into 10 ES6 modules in `js/modules/`
+- ✅ Module reference published ([MODULES.md](MODULES.md))
+- ✅ Architecture documentation updated ([ARCHITECTURE.md](ARCHITECTURE.md))
+- ✅ Zero behavioral changes — all public APIs and schema v1 preserved
 
 ### v1.0 (2026-04-27)
 
