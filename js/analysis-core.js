@@ -52104,21 +52104,29 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
 
     // Registrar métricas de boot para Fase 4 de evaluación
     const t_init_complete = Date.now();
-    if (window.electronAPI && window.electronAPI.getBootMetrics) {
+    if (window.electronAPI && typeof window.electronAPI.getBootMetrics === 'function') {
       (async () => {
         try {
           const mainMetrics = await window.electronAPI.getBootMetrics();
-          mainMetrics.t_renderer_ready = t_init_complete;
           const t_init_duration = t_init_complete - t_init_start;
           const t_total = t_init_complete - mainMetrics.t_app_start;
-          console.log('[METRICS] Boot complete:', {
-            t_electron_ready: mainMetrics.t_electron_ready - mainMetrics.t_app_start + 'ms',
-            t_python_spawn: mainMetrics.t_python_spawn - mainMetrics.t_app_start + 'ms',
-            t_python_health_ok: mainMetrics.t_python_health_ok - mainMetrics.t_python_spawn + 'ms',
-            t_window_created: mainMetrics.t_window_created - mainMetrics.t_app_start + 'ms',
-            t_init_duration: t_init_duration + 'ms',
-            t_total_boot: t_total + 'ms'
-          });
+
+          const metrics = {
+            t_electron_ready_delta: mainMetrics.t_electron_ready - mainMetrics.t_app_start,
+            t_python_spawn_delta: mainMetrics.t_python_spawn - mainMetrics.t_app_start,
+            t_python_health_ok_duration: mainMetrics.t_python_health_ok - mainMetrics.t_python_spawn,
+            t_window_created_delta: mainMetrics.t_window_created - mainMetrics.t_app_start,
+            t_init_duration,
+            t_total_boot: t_total,
+            timestamp: new Date().toISOString()
+          };
+
+          // Enviar metrics al main process
+          if (typeof window.electronAPI.reportBootMetrics === 'function') {
+            window.electronAPI.reportBootMetrics(metrics);
+          }
+
+          console.log(`✅ Boot complete: ${t_total}ms total (init: ${t_init_duration}ms)`);
         } catch (e) {
           console.warn('[METRICS] Could not retrieve boot metrics:', e);
         }

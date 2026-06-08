@@ -93,6 +93,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** Get boot metrics for Fase 4 evaluation */
   getBootMetrics: () =>
     ipcRenderer.invoke('get-boot-metrics'),
+
+  /** Send boot metrics to main process */
+  reportBootMetrics: (metrics) =>
+    ipcRenderer.send('report-boot-metrics', metrics),
 });
 
 console.log('📱 Plataforma:', process.platform);

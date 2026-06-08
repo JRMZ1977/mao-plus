@@ -1012,6 +1012,9 @@ ipcMain.handle('mao:backend-status:get', () => ({
 
 // Boot metrics para Fase 4 de evaluación
 ipcMain.handle('get-boot-metrics', () => bootMetrics);
+ipcMain.on('report-boot-metrics', (event, metrics) => {
+  console.log('[METRICS]', JSON.stringify(metrics));
+});
 
 // ============================================================================
 // IPC: mover carpeta / archivo a la Papelera del sistema
