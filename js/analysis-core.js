@@ -51995,7 +51995,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     console.log('📝 Desarrollado por Quipus / Juan Francisco Ramírez, 2025');
     
     // Inicializar sistemas básicos
-    UtilityHelpers.cargarConfiguracion();
+    UtilityHelpers.cargarConfiguracion(cameraModelInput, focalInput, apertureInput, sensorWidthInput, sensorHeightInput, distanciaInput);
     UtilityHelpers.resetView();
     redraw();
     updateZoomDisplay();

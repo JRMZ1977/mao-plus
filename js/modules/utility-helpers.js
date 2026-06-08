@@ -651,7 +651,7 @@ export function redrawCanvas() {
 /**
  * Save camera and scale configuration to localStorage
  */
-export function guardarConfiguracion() {
+export function guardarConfiguracion(cameraModelInput, focalInput, apertureInput, sensorWidthInput, sensorHeightInput, distanciaInput) {
   localStorage.setItem('cameraModel', cameraModelInput.value);
   localStorage.setItem('focalLength', focalInput.value);
   localStorage.setItem('aperture', apertureInput.value);
@@ -663,7 +663,7 @@ export function guardarConfiguracion() {
 /**
  * Load camera and scale configuration from localStorage
  */
-export function cargarConfiguracion() {
+export function cargarConfiguracion(cameraModelInput, focalInput, apertureInput, sensorWidthInput, sensorHeightInput, distanciaInput) {
   const savedModel = localStorage.getItem('cameraModel');
   const savedFocal = localStorage.getItem('focalLength');
   const savedAperture = localStorage.getItem('aperture');
