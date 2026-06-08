@@ -24,6 +24,28 @@
  * - UI elements: cameraModelInput, focalInput, apertureInput, sensorWidthInput, sensorHeightInput
  */
 
+// Internal state object — synchronizes with analysis-core.js globals
+let viewState = {
+  zoom: 0.5,
+  offsetX: 0,
+  offsetY: 0,
+  image: null,
+  canvas: null,
+  isManualSelectionMode: false,
+  zoomInput: null,
+  zoomLevelDisplay: null,
+  redraw: null,
+  redrawCanvas: null
+};
+
+export function initializeViewState(state) {
+  viewState = { ...viewState, ...state };
+}
+
+export function getViewState() {
+  return viewState;
+}
+
 // =====================================================================================
 // COORDINATE CONVERSION FUNCTIONS
 // =====================================================================================
@@ -33,12 +55,12 @@
  * Handles both normal mode (with zoom/pan) and manual selection mode
  */
 export function canvasToImageCoords(canvasX, canvasY) {
-  if (!image) {
+  if (!viewState.image) {
     console.warn('Warning: canvasToImageCoords: No image loaded');
     return { x: 0, y: 0 };
   }
 
-  if (isManualSelectionMode && window.manualModeScale) {
+  if (viewState.isManualSelectionMode && window.manualModeScale) {
     const scale = window.manualModeScale.scale;
     const offsetX = window.manualModeScale.offsetX;
     const offsetY = window.manualModeScale.offsetY;
@@ -47,27 +69,27 @@ export function canvasToImageCoords(canvasX, canvasY) {
     const imageY = (canvasY - offsetY) / scale;
 
     return {
-      x: Math.max(0, Math.min(imageX, image.naturalWidth - 1)),
-      y: Math.max(0, Math.min(imageY, image.naturalHeight - 1))
+      x: Math.max(0, Math.min(imageX, viewState.image.naturalWidth - 1)),
+      y: Math.max(0, Math.min(imageY, viewState.image.naturalHeight - 1))
     };
 
-  } else if (isManualSelectionMode && !window.manualModeScale) {
+  } else if (viewState.isManualSelectionMode && !window.manualModeScale) {
     console.error('Error: Manual mode active but window.manualModeScale NOT configured!');
     return { x: 0, y: 0 };
 
   } else {
-    const imgDisplayWidth = image.naturalWidth * zoom;
-    const imgDisplayHeight = image.naturalHeight * zoom;
+    const imgDisplayWidth = viewState.image.naturalWidth * viewState.zoom;
+    const imgDisplayHeight = viewState.image.naturalHeight * viewState.zoom;
 
-    const imgX = (canvas.width - imgDisplayWidth) / 2 + offsetX * zoom;
-    const imgY = (canvas.height - imgDisplayHeight) / 2 + offsetY * zoom;
+    const imgX = (viewState.canvas.width - imgDisplayWidth) / 2 + viewState.offsetX * viewState.zoom;
+    const imgY = (viewState.canvas.height - imgDisplayHeight) / 2 + viewState.offsetY * viewState.zoom;
 
-    const imageX = (canvasX - imgX) / zoom;
-    const imageY = (canvasY - imgY) / zoom;
+    const imageX = (canvasX - imgX) / viewState.zoom;
+    const imageY = (canvasY - imgY) / viewState.zoom;
 
     return {
-      x: Math.max(0, Math.min(imageX, image.naturalWidth - 1)),
-      y: Math.max(0, Math.min(imageY, image.naturalHeight - 1))
+      x: Math.max(0, Math.min(imageX, viewState.image.naturalWidth - 1)),
+      y: Math.max(0, Math.min(imageY, viewState.image.naturalHeight - 1))
     };
   }
 }
@@ -77,9 +99,9 @@ export function canvasToImageCoords(canvasX, canvasY) {
  * Handles both normal mode (with zoom/pan) and manual selection mode
  */
 export function imageToCanvasCoords(imageX, imageY) {
-  if (!image) return { x: 0, y: 0 };
+  if (!viewState.image) return { x: 0, y: 0 };
 
-  if (isManualSelectionMode && window.manualModeScale) {
+  if (viewState.isManualSelectionMode && window.manualModeScale) {
     const scale = window.manualModeScale.scale;
     const offsetX = window.manualModeScale.offsetX;
     const offsetY = window.manualModeScale.offsetY;
@@ -90,15 +112,15 @@ export function imageToCanvasCoords(imageX, imageY) {
     };
 
   } else {
-    const imgDisplayWidth = image.naturalWidth * zoom;
-    const imgDisplayHeight = image.naturalHeight * zoom;
+    const imgDisplayWidth = viewState.image.naturalWidth * viewState.zoom;
+    const imgDisplayHeight = viewState.image.naturalHeight * viewState.zoom;
 
-    const imgCanvasX = (canvas.width - imgDisplayWidth) / 2 + offsetX * zoom;
-    const imgCanvasY = (canvas.height - imgDisplayHeight) / 2 + offsetY * zoom;
+    const imgCanvasX = (viewState.canvas.width - imgDisplayWidth) / 2 + viewState.offsetX * viewState.zoom;
+    const imgCanvasY = (viewState.canvas.height - imgDisplayHeight) / 2 + viewState.offsetY * viewState.zoom;
 
     return {
-      x: imgCanvasX + imageX * zoom,
-      y: imgCanvasY + imageY * zoom
+      x: imgCanvasX + imageX * viewState.zoom,
+      y: imgCanvasY + imageY * viewState.zoom
     };
   }
 }
@@ -612,10 +634,11 @@ function detectarFormatoRAW(file) {
  * Reset view to initial zoom and pan state
  */
 export function resetView() {
-  zoom = 0.5;
-  offsetX = 0;
-  offsetY = 0;
+  viewState.zoom = 0.5;
+  viewState.offsetX = 0;
+  viewState.offsetY = 0;
   updateZoomDisplay();
+  return { zoom: viewState.zoom, offsetX: viewState.offsetX, offsetY: viewState.offsetY };
 }
 
 /**
@@ -623,25 +646,26 @@ export function resetView() {
  */
 export function setZoomFromPercent(percent) {
   const newZoom = Math.max(0.1, Math.min(5.0, percent / 100));
-  zoom = newZoom;
+  viewState.zoom = newZoom;
   updateZoomDisplay();
-  requestAnimationFrame(() => redraw());
+  if (viewState.redraw) requestAnimationFrame(() => viewState.redraw());
 }
 
 /**
  * Update zoom display UI
  */
 function updateZoomDisplay() {
-  const zoomPercent = (zoom*100).toFixed(0);
-  zoomLevelDisplay.textContent = `${zoomPercent}%`;
-  zoomInput.value = zoomPercent;
+  if (!viewState.zoomLevelDisplay || !viewState.zoomInput) return;
+  const zoomPercent = (viewState.zoom*100).toFixed(0);
+  viewState.zoomLevelDisplay.textContent = `${zoomPercent}%`;
+  viewState.zoomInput.value = zoomPercent;
 }
 
 /**
  * Redraw canvas (alias for redraw function)
  */
 export function redrawCanvas() {
-  redraw();
+  if (viewState.redraw) viewState.redraw();
 }
 
 // =====================================================================================

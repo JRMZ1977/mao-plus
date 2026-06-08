@@ -51993,10 +51993,27 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   function init(){
     console.log('🚀 Inicializando MAO Plus - Morfometría Arqueológica de Objetos...');
     console.log('📝 Desarrollado por Quipus / Juan Francisco Ramírez, 2025');
-    
+
+    // Sincronizar viewState con variables locales
+    UtilityHelpers.initializeViewState({
+      zoom,
+      offsetX,
+      offsetY,
+      image,
+      canvas,
+      isManualSelectionMode: false,
+      zoomInput,
+      zoomLevelDisplay,
+      redraw,
+      redrawCanvas
+    });
+
     // Inicializar sistemas básicos
     UtilityHelpers.cargarConfiguracion(cameraModelInput, focalInput, apertureInput, sensorWidthInput, sensorHeightInput, distanciaInput, image, setStatus);
-    UtilityHelpers.resetView();
+    const resetViewState = UtilityHelpers.resetView();
+    zoom = resetViewState.zoom;
+    offsetX = resetViewState.offsetX;
+    offsetY = resetViewState.offsetY;
     redraw();
     updateZoomDisplay();
     
