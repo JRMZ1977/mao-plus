@@ -44,9 +44,9 @@
       label    : 'Proyecto',
       icon     : '①',
       sections : [
-        'fieldsetGestionProyectos',
-        'sectionIdentificacion',
-        'sectionModo'
+        'fieldsetGestionProyectos',   // Gestión de proyectos
+        'sectionIdentificacion',       // Identificación del objeto
+        'sectionModo'                  // Selector monofacial / bifacial
       ],
       locked   : false
     },
@@ -55,10 +55,13 @@
       label    : 'Captura',
       icon     : '②',
       sections : [
-        'sectionImagen',
-        'sectionEscala',
-        'canvasMonofacial',
-        'canvasBifacial'
+        'sectionImagen',              // Carga de imagen(es) JPG/RAW
+        'sectionObj3D',               // Flujo OBJ 3D (visible solo en modo 3D)
+        'sectionEscala',              // Configuración, escala y detección
+        'canvasMonofacial',           // Canvas principal modo monofacial
+        'canvasBifacial',             // Canvas dual modo bifacial
+        'individualObjectsContainer', // Objetos individualizados
+        'nuevoAnalisisBtnContainer'   // Botón reset espacio de trabajo
       ],
       locked   : false
     },
@@ -67,8 +70,9 @@
       label    : 'Análisis',
       icon     : '③',
       sections : [
-        'sectionObj3D',
-        'sectionAnalisis3D'
+        'sectionAnalisis3D',               // Descriptores morfológicos 3D
+        'morphologicalAnalysisContainer',  // Panel maestro de resultados 2D
+        'bifacialComparisonsSection'       // Comparación bifacial
       ],
       locked   : false
     },
@@ -77,8 +81,8 @@
       label    : 'Resultados',
       icon     : '④',
       sections : [
-        // Secciones de resultados/exportación (a mapear según index.html)
-        'bifacialComparisonsSection'
+        'resultadosPanel',              // Panel maestro de resultados
+        'comparadorMultiObjetoSection'  // Comparador multi-objeto (CMO)
       ],
       locked   : false
     }
@@ -172,14 +176,19 @@
     prog.appendChild(progLabel);
     bar.appendChild(prog);
 
-    /* Insertar después del header (topbar) */
-    var header = document.querySelector('header.mao-header');
-    if (header && header.nextSibling) {
-      header.parentNode.insertBefore(bar, header.nextSibling);
-    } else if (header) {
-      header.parentNode.appendChild(bar);
-    } else {
-      document.body.appendChild(bar);
+    /* Insertar en el contenedor host correcto (donde están los fieldsets) */
+    var host = (
+      document.querySelector('.mao-main .container') ||  // ← Ubicación correcta de fieldsets
+      document.getElementById('mainContent') ||
+      document.getElementById('content') ||
+      document.querySelector('main') ||
+      document.body
+    );
+
+    if (host && host.firstChild) {
+      host.insertBefore(bar, host.firstChild);
+    } else if (host) {
+      host.appendChild(bar);
     }
   }
 
