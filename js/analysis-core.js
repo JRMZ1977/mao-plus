@@ -525,7 +525,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   // FUNCIONES DE CONVERSIÓN DE COORDENADAS
   // =====================================================================================
 
-  function UtilityHelpers.canvasToImageCoords(canvasX, canvasY) {
+  function canvasToImageCoords(canvasX, canvasY) {
     if (!image) {
       console.warn('⚠️ canvasToImageCoords: No hay imagen cargada');
       return { x: 0, y: 0 };
@@ -582,7 +582,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     }
   }
 
-  function UtilityHelpers.imageToCanvasCoords(imageX, imageY) {
+  function imageToCanvasCoords(imageX, imageY) {
     if (!image) return { x: 0, y: 0 };
     
     if (isManualSelectionMode && window.manualModeScale) {
@@ -627,7 +627,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   // FUNCIÓN DE ACTUALIZACIÓN DE DISPLAYS
   // =====================================================================================
   
-  function UtilityHelpers.updateDisplays() {
+  function updateDisplays() {
     // Actualizar contador de objetos
     let displayText = `Objetos detectados: ${objects.length}`;
     
@@ -3417,7 +3417,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Expande las regiones de objeto (1) hacia el fondo (0)
    * Útil para cerrar pequeños huecos y conectar regiones cercanas
    */
-  function ContourExtraction.dilatarMascara(binaryMask, width, height, iterations = 1) {
+  function dilatarMascara(binaryMask, width, height, iterations = 1) {
     // Dos buffers reutilizados (ping-pong) — evita N allocaciones de Uint8Array
     let src = new Uint8Array(binaryMask);
     let dst = new Uint8Array(binaryMask.length);
@@ -3446,7 +3446,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Reduce las regiones de objeto (1) hacia adentro
    * Útil para eliminar ruido y protuberancias pequeñas
    */
-  function ContourExtraction.erosionarMascara(binaryMask, width, height, iterations = 1) {
+  function erosionarMascara(binaryMask, width, height, iterations = 1) {
     // Dos buffers reutilizados (ping-pong) — evita N allocaciones de Uint8Array
     let src = new Uint8Array(binaryMask);
     let dst = new Uint8Array(binaryMask.length);
@@ -3475,7 +3475,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Útil para CERRAR pequeños huecos en el objeto
    * Ideal para imágenes reales con ruido fotográfico
    */
-  function ContourExtraction.cerrarMascara(binaryMask, width, height, iterations = 1) {
+  function cerrarMascara(binaryMask, width, height, iterations = 1) {
     if (DEBUG_LOGS.masks) {
       console.log(`🔧 Cierre morfológico (${iterations} iter) - suavizando máscara...`);
     }
@@ -3489,7 +3489,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Útil para ELIMINAR ruido y pequeños artefactos
    * Ideal para limpiar la máscara antes de trazar contorno
    */
-  function ContourExtraction.abrirMascara(binaryMask, width, height, iterations = 1) {
+  function abrirMascara(binaryMask, width, height, iterations = 1) {
     if (DEBUG_LOGS.masks) {
       console.log(`🔧 Apertura morfológica (${iterations} iter) - eliminando ruido...`);
     }
@@ -3503,7 +3503,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Combina cierre (para huecos) y apertura (para ruido)
    * RECOMENDADO para imágenes fotográficas reales
    */
-  function ContourExtraction.suavizarMascaraMorfologica(binaryMask, width, height, options = {}) {
+  function suavizarMascaraMorfologica(binaryMask, width, height, options = {}) {
     const {
       usarCierre = true,       // Cerrar huecos pequeños
       usarApertura = true,     // Eliminar ruido
@@ -3570,7 +3570,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    *   MIN_GRAD    = 8     → gradiente mínimo para hacer snap (evita ruido plano)
    *   SMOOTH_ITER = 1     → iteraciones de suavizado post-snap
    */
-  function ContourExtraction.refinarContornoGradiente(contorno, imageData, width, height) {
+  function refinarContornoGradiente(contorno, imageData, width, height) {
     const SNAP_RANGE  = 6;   // px máximo de desplazamiento en cada dirección
     const MIN_GRAD    = 8;   // umbral mínimo de gradiente para activar snap
     const SMOOTH_ITER = 1;   // iteraciones de suavizado final
@@ -3690,7 +3690,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * IMPORTANTE: Mejora significativamente la precisión de mediciones,
    * especialmente en objetos pequeños donde cada fracción de píxel cuenta.
    */
-  function ContourExtraction.refinarContornoSubPixel(contorno, imageData, binaryMask, width, height, options = {}) {
+  function refinarContornoSubPixel(contorno, imageData, binaryMask, width, height, options = {}) {
     const {
       ventana = 1,          // Tamaño de ventana de análisis (1 = 3x3, 2 = 5x5)
       umbralGradiente = 10  // Gradiente mínimo para considerar refinamiento
@@ -3952,7 +3952,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   // que están en el borde entre objeto (blanco) y fondo (negro)
   // CON DEPURACIÓN INTELIGENTE para eliminar píxeles de sombra/fondo
   // ============================================================================
-  function ContourExtraction.extraerContornoDesdeMascara(binaryMask, width, height, imageData = null) {
+  function extraerContornoDesdeMascara(binaryMask, width, height, imageData = null) {
     const startTime = performance.now();
     console.log(`🎯 Extrayendo contorno directo desde máscara binaria (${width}x${height})...`);
 
@@ -4624,7 +4624,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   }
 
   // Algoritmo de Moore Neighborhood Tracing MEJORADO para contornos más precisos
-  function ContourExtraction.trazarContornoMoore(binaryMask, width, height) {
+  function trazarContornoMoore(binaryMask, width, height) {
     const startTime = performance.now();
     const MAX_EXECUTION_TIME = 5000; // 5 segundos máximo
     
@@ -5535,13 +5535,13 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   
   const contourCache = new Map();
   
-  function UtilityHelpers.generateCacheKey(obj) {
+  function generateCacheKey(obj) {
     // Generar clave única basada en posición, tamaño y checksum del área
     const checksum = `${obj.minX}_${obj.minY}_${obj.width}_${obj.height}_${obj.area}`;
     return checksum;
   }
   
-  function UtilityHelpers.getCachedContour(obj) {
+  function getCachedContour(obj) {
     if (!PERFORMANCE_CONFIG.CACHE_ENABLED) return null;
     
     const key = UtilityHelpers.generateCacheKey(obj);
@@ -5552,7 +5552,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     return null;
   }
   
-  function UtilityHelpers.setCachedContour(obj, contourData) {
+  function setCachedContour(obj, contourData) {
     if (!PERFORMANCE_CONFIG.CACHE_ENABLED) return;
     
     // Limpiar caché si está lleno
@@ -5567,14 +5567,14 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     console.log(`💾 Contorno almacenado en caché para objeto ${obj.id}`);
   }
   
-  function UtilityHelpers.clearContourCache() {
+  function clearContourCache() {
     contourCache.clear();
     console.log('🗑️ Caché de contornos limpiado completamente');
   }
 
   // === UTILIDAD: VALIDACIÓN SEGURA PARA .toFixed() ===
   
-  function UtilityHelpers.safeToFixed(value, decimals = 4, defaultValue = 'N/A') {
+  function safeToFixed(value, decimals = 4, defaultValue = 'N/A') {
     if (typeof value === 'number' && !isNaN(value) && isFinite(value)) {
       return value.toFixed(decimals);
     }
@@ -7018,7 +7018,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Esfericidad, oblongación, aplanamiento (inferidos desde 2D)
    * Útil para: núcleos líticos, cerámica globular, objetos metálicos
    */
-  function ClassificationEngine.calcularIndicesForma3D(area, perimetro, aspectRatio, excentricidad) {
+  function calcularIndicesForma3D(area, perimetro, aspectRatio, excentricidad) {
     // Índice de esfericidad (Isoperimetric quotient)
     const esfericidad = perimetro > 0 ? (4 * Math.PI * area) / (perimetro * perimetro) : 0;
     
@@ -7088,7 +7088,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Mapear clasificación específica a categoría base
    */
-  function ClassificationEngine.mapearACategoria(clasificacion) {
+  function mapearACategoria(clasificacion) {
     if (!clasificacion) return "Irregular";
     
     const c = clasificacion.toLowerCase();
@@ -7157,7 +7157,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Convertir categoría base a nombre formal
    */
-  function ClassificationEngine.convertirCategoriaANombre(categoria, metrics) {
+  function convertirCategoriaANombre(categoria, metrics) {
     const AR = parseFloat(metrics.aspect_ratio_tight) || 1.0;
     
     const nombres = {
@@ -7185,7 +7185,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     return nombres[categoria] || "Forma Indeterminada";
   }
 
-  function ClassificationEngine.extraerContextoMorfologico(metrics, formaIdealizada = null) {
+  function extraerContextoMorfologico(metrics, formaIdealizada = null) {
     const radialAngular = formaIdealizada?.distribucionRadialAngular || null;
     const solidez = parseFloat(metrics.solidity || metrics.solidez) || 1.0;
     const circularidad = parseFloat(metrics.circularidad || metrics.circularity) || 0;
@@ -7222,7 +7222,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     return contexto;
   }
 
-  function ClassificationEngine.aplicarContextoAEvidencias(evidencias, contexto, metrics) {
+  function aplicarContextoAEvidencias(evidencias, contexto, metrics) {
     const ajustadas = Object.fromEntries(
       Object.entries(evidencias).map(([clave, datos]) => [clave, { ...datos }])
     );
@@ -7255,14 +7255,14 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     return { evidencias: ajustadas, notas };
   }
 
-  function ClassificationEngine.construirEtiquetaTipologica(base, esFragmento, completitud) {
+  function construirEtiquetaTipologica(base, esFragmento, completitud) {
     if (!base) return null;
     if (!esFragmento) return base;
     const prefijo = base.toLowerCase().startsWith('fragmento ') ? '' : 'Fragmento ';
     return `${prefijo}${base}${Number.isFinite(completitud) ? ` (${completitud}% completo)` : ''}`;
   }
 
-  function ClassificationEngine.inferirInterpretacionTipologica(clasificacionGeometrica, categoriaBase, contexto, esFragmento, completitud) {
+  function inferirInterpretacionTipologica(clasificacionGeometrica, categoriaBase, contexto, esFragmento, completitud) {
     const categoriaGeom = ClassificationEngine.mapearACategoria(clasificacionGeometrica || categoriaBase || 'Irregular');
     const valorCompletitud = Number.isFinite(completitud) ? completitud : 100;
     const resultado = {
@@ -7315,7 +7315,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Regla canónica de salida semántica (geometría observada, tipología inferida y forma mostrada).
    * Se usa en manual e IA para evitar divergencias por campos desfasados en cache o rutas parciales.
    */
-  function ClassificationEngine.aplicarReglaCanonicaInterpretacion(metricas) {
+  function aplicarReglaCanonicaInterpretacion(metricas) {
     if (!metricas || typeof metricas !== 'object') {
       return {
         forma_geometrica_observada: '',
@@ -7368,7 +7368,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Calcular confianza de clasificación tradicional
    */
-  function ClassificationEngine.calcularConfianzaTradicional(metrics) {
+  function calcularConfianzaTradicional(metrics) {
     const circularidad = parseFloat(metrics.circularidad) || 0;
     const solidez = parseFloat(metrics.solidity) || 0;
     
@@ -7384,7 +7384,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Calcular confianza de análisis de ángulos
    */
-  function ClassificationEngine.calcularConfianzaAngulos(metrics) {
+  function calcularConfianzaAngulos(metrics) {
     const num_vertices = parseInt(metrics.vertices_aproximados) || 0;
     const desviacion = parseFloat(metrics.desviacion_angulos) || 100;
     
@@ -7399,7 +7399,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Clasificar por complejidad
    */
-  function ClassificationEngine.clasificarComplejidad(metrics) {
+  function clasificarComplejidad(metrics) {
     const indice = parseFloat(metrics.contour_complexity_index) || 1.0;
     const vertices = parseInt(metrics.vertices_aproximados) || 0;
     
@@ -7417,7 +7417,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * espacial de perforaciones y horadaciones
    * ============================================================================
    */
-  function ClassificationEngine.analizarPatronAgrupamiento(obj) {
+  function analizarPatronAgrupamiento(obj) {
     const perforaciones = obj.perforaciones || [];
     const horadaciones = obj.horadaciones || [];
     const total = perforaciones.length + horadaciones.length;
@@ -7629,7 +7629,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * META-CLASIFICACIÓN PRINCIPAL
    * Sintetiza todas las clasificaciones y genera clasificación definitiva
    */
-  function ClassificationEngine.metaClasificarForma(metrics, obj = null) {
+  function metaClasificarForma(metrics, obj = null) {
     
     console.log("\n" + "═".repeat(70));
     console.log("🔍 META-CLASIFICACIÓN JERÁRQUICA: Síntesis de Múltiples Métodos");
@@ -12731,7 +12731,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     'LEICA SL2-S': { width: 35.9, height: 24.0 }
   };
 
-  function UtilityHelpers.setStatus(msg, isError=false){
+  function setStatus(msg, isError=false){
     statusDiv.textContent = msg;
     statusDiv.style.color = isError ? '#777' : '#555';
   }
@@ -13242,7 +13242,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     }
   }
 
-  function UtilityHelpers.cargarMetadatos(file){
+  function cargarMetadatos(file){
     // Detectar tipo de archivo para configuración optimizada
     const formatoRAW = detectarFormatoRAW(file);
     const esRAW = ['nef', 'cr2', 'cr3', 'arw', 'orf', 'raf', 'dng', 'rw2', 'pef', 'srw', '3fr', 'fff', 'erf', 'mef', 'mos', 'crw', 'x3f', 'rwl', 'iiq'].includes(formatoRAW);
@@ -13338,7 +13338,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     });
   }
 
-  function UtilityHelpers.procesarMetadatos(exifData, esArchivoRAW = false) {
+  function procesarMetadatos(exifData, esArchivoRAW = false) {
     if(!exifData) {
       const tipoArchivo = esArchivoRAW ? 'RAW' : 'JPG';
       UtilityHelpers.setStatus(`Error: No se pudieron procesar los metadatos del archivo ${tipoArchivo}`, true);
@@ -13662,7 +13662,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Lee los primeros bytes del archivo para validación
    */
-  function UtilityHelpers.readFileHeader(file, bytesToRead) {
+  function readFileHeader(file, bytesToRead) {
     return new Promise((resolve, reject) => {
       const slice = file.slice(0, bytesToRead);
       const reader = new FileReader();
@@ -13680,7 +13680,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Valida el header de la imagen incluyendo formatos RAW
    */
-  function UtilityHelpers.validateImageHeader(bytes, mimeType, fileName = '') {
+  function validateImageHeader(bytes, mimeType, fileName = '') {
     const view = new DataView(bytes.buffer);
     const extension = fileName ? fileName.split('.').pop().toLowerCase() : '';
     
@@ -14054,14 +14054,14 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     });
   }
   
-  function UtilityHelpers.resetView() {
+  function resetView() {
     zoom = 0.5;
     offsetX = 0;
     offsetY = 0;
     updateZoomDisplay();
   }
 
-  function UtilityHelpers.setZoomFromPercent(percent) {
+  function setZoomFromPercent(percent) {
     const newZoom = Math.max(0.1, Math.min(5.0, percent / 100));
     zoom = newZoom;
     updateZoomDisplay();
@@ -14084,7 +14084,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   }
 
   // Alias para redrawCanvas usado en las funciones de selección manual
-  function UtilityHelpers.redrawCanvas() {
+  function redrawCanvas() {
     redraw();
   }
 
@@ -15217,7 +15217,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     updateZoomDisplay();
   }
 
-  function UtilityHelpers.guardarConfiguracion(){
+  function guardarConfiguracion(){
     localStorage.setItem('cameraModel', cameraModelInput.value);
     localStorage.setItem('focalLength', focalInput.value);
     localStorage.setItem('aperture', apertureInput.value);
@@ -15226,7 +15226,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     localStorage.setItem('distancia', distanciaInput.value);
   }
 
-  function UtilityHelpers.cargarConfiguracion(){
+  function cargarConfiguracion(){
     const savedModel = localStorage.getItem('cameraModel');
     const savedFocal = localStorage.getItem('focalLength');
     const savedAperture = localStorage.getItem('aperture');
@@ -23114,7 +23114,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   }
 
   // Función para mostrar análisis morfológico en la interfaz
-  function VisualizationExport.mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = null) {
+  function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = null) {
     console.log(`📊 DEBUG mostrarAnalisisMorfologico - Iniciando visualización:`);
     console.log(`   - Objeto ID: ${obj?.id}`);
     console.log(`   - Dimensiones obj: ${obj?.width}x${obj?.height}`);
@@ -25439,7 +25439,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * @param {Object} obj - Objeto analizado
    * @param {Object} metricas - Métricas morfológicas calculadas
    */
-  function VisualizationExport.generarCanvasEsquematico(obj, metricas) {
+  function generarCanvasEsquematico(obj, metricas) {
     console.log(`📐 Generando canvas esquemático para ${obj.id}...`);
     
     const schematicContainer = document.getElementById('schematicCanvasContainer');
@@ -25875,7 +25875,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   }
 
   // Función para exportar análisis morfológico a archivo
-  function VisualizationExport.exportarAnalisisMorfologico(obj, metricas) {
+  function exportarAnalisisMorfologico(obj, metricas) {
     try {
       // Dimensiones de imagen según cara (accesibles en todo el scope de la función)
       let _iW = 0, _iH = 0;
@@ -26400,7 +26400,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   // ============================================================================
   // 🔐 VALIDAR COHERENCIA DATOS ANTES DE EXPORTAR PDF
   // ============================================================================
-  async function VisualizationExport.validarCoherenciaPreexportacion(obj, metricas, modo = 'monofacial') {
+  async function validarCoherenciaPreexportacion(obj, metricas, modo = 'monofacial') {
     const validaciones = {
       modo: modo,
       errores: [],
@@ -33266,7 +33266,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   } // FIN función generarPDFDesdeHTML
   
   // Exportar JSON como archivo
-  function VisualizationExport.exportarJSON(obj, metricas) {
+  function exportarJSON(obj, metricas) {
     try {
       const jsonData = generarJSON(obj, metricas);
       const jsonString = JSON.stringify(jsonData, null, 2);
