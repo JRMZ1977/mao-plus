@@ -4,6 +4,23 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Fase Actual: Migración UI Pestañas LAAR
+
+**Estado:** ✅ **Fases A-B COMPLETADAS** (commit: `5bdfb61`, 2026-06-08)
+
+La interfaz está en transición del modelo **sidebar-scroll** al modelo de **pestañas de flujo LAAR** (Proyecto → Captura → Análisis → Resultados). Arquitectura **Strangler Fig**: las pestañas envuelven la navegación existente sin tocar lógica de negocio.
+
+**Implementado:**
+- A3: API DOM nativa (compatible CSP `script-src 'self'`)
+- A4: Persistencia de estado con sessionStorage
+- A5: Guard HMR en buildTabBar()
+- B1: contextBridge para maoTabRouter
+- B2: BrowserWindow: `frame: false`, zoom deshabilitado
+- B3: Meta CSP stricta en index.html
+- B4: `-webkit-app-region: drag` para arrastre nativo
+
+**Referencia:** `/MIGRACION A PESTAÑAS/IMPLEMENTACION_COMPLETADA.md`
+
 ## Tech Stack
 - **Electron** (main.js + preload.js) — desktop shell
 - **Node.js** — build/tooling (`npm start` launches app)
@@ -145,3 +162,37 @@ export function canvasToImageCoords(x, y) {
 - Use `mao-console-analyzer` skill for post-extraction runtime monitoring (ReferenceError, TypeError)
 - Extract one module at a time, validate before proceeding
 - Document global dependencies in module header (see utility-helpers.js lines 1-25)
+
+## Migración LAAR — Fases A-B Completadas (2026-06-08)
+
+### Cambios Implementados
+
+| Fase | Actividad | Archivo | Cambios |
+|------|-----------|---------|---------|
+| A3 | innerHTML → API DOM nativa | `js/mao-tab-router.js` | CSP-compatible (sin dynamic HTML) |
+| A4 | sessionStorage persistence | `js/mao-tab-router.js` | Estado sobrevive `Ctrl+R` |
+| A5 | HMR-safe guard | `js/mao-tab-router.js` | Eliminación explícita previo rebuild |
+| B1 | contextBridge maoTabRouter | `preload.js` | Exposición segura del API |
+| B2 | Electron BrowserWindow | `main.js` | `frame: false`, zoom disabled |
+| B3 | Meta CSP | `index.html` | `default-src 'self'` |
+| B4 | webkit-app-region | `css/mao-tabs-laar.css` | Arrastre nativo macOS/Windows |
+
+**Archivos clave:**
+- `js/mao-tab-router.js` — LAAR tab router + state management
+- `css/mao-tabs-laar.css` — Design tokens LAAR + layout tabbar
+- `main.js` — BrowserWindow config (frame: false, zoom)
+- `preload.js` — contextBridge API exposure
+- `index.html` — CSP meta + script/css links
+
+### Reversibilidad
+Comentar 2 líneas en `index.html` restaura sidebar original:
+```html
+<!-- <link rel="stylesheet" href="css/mao-tabs-laar.css"> -->
+<!-- <script src="js/mao-tab-router.js" defer></script>   -->
+```
+
+### Próximas Fases (Opcionales)
+- **C1**: sessionStorage validation en flujo (detection:done, analysis:done)
+- **C2**: HMR testing con Vite
+- **C3**: Font fallback para Linux
+- **D1-D4**: DevTools validation checklist
