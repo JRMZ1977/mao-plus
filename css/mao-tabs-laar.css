@@ -179,7 +179,7 @@ header.mao-header,
   font-size          : 11px;
   font-weight        : 500;
   color              : var(--laar-g900);
-  font-family        : 'Courier New', monospace;
+  font-family        : 'Courier New', 'Courier', 'DejaVu Sans Mono', monospace;
 }
 
 /* Badge modo (Monofacial · Lítico) */
@@ -187,7 +187,7 @@ header.mao-header,
   padding            : 2px 7px;
   border-radius      : var(--laar-radius);
   font-size          : 10px;
-  font-family        : 'Courier New', monospace;
+  font-family        : 'Courier New', 'Courier', 'DejaVu Sans Mono', monospace;
   background         : var(--laar-b50);
   color              : var(--laar-b800);
   border             : 0.5px solid var(--laar-b200);
@@ -226,7 +226,7 @@ header.mao-header,
 
 .backend-status span {
   font-size          : 10px;
-  font-family        : 'Courier New', monospace;
+  font-family        : 'Courier New', 'Courier', 'DejaVu Sans Mono', monospace;
   color              : var(--laar-g500);
 }
 
@@ -342,7 +342,7 @@ header.mao-header select,
   background         : var(--laar-b100);
   color              : var(--laar-b800);
   border-radius      : 2px;
-  font-family        : 'Courier New', monospace;
+  font-family        : 'Courier New', 'Courier', 'DejaVu Sans Mono', monospace;
 }
 
 /* Barra de progreso en extremo derecho del tabbar */
@@ -368,7 +368,7 @@ header.mao-header select,
 
 .tab-progress-label {
   font-size          : 9px;
-  font-family        : 'Courier New', monospace;
+  font-family        : 'Courier New', 'Courier', 'DejaVu Sans Mono', monospace;
   color              : var(--laar-g500);
   margin-left        : 4px;
 }
@@ -440,7 +440,7 @@ header.mao-header select,
 
 .mao-canvas-info span {
   font-size          : 9px;
-  font-family        : 'Courier New', monospace;
+  font-family        : 'Courier New', 'Courier', 'DejaVu Sans Mono', monospace;
 }
 
 /* ─── Panel derecho: controles ───────────────────────────────────────────── */
@@ -508,14 +508,14 @@ header.mao-header select,
 
 .laar-metric-val {
   font-size          : 11px;
-  font-family        : 'Courier New', monospace;
+  font-family        : 'Courier New', 'Courier', 'DejaVu Sans Mono', monospace;
   font-weight        : 500;
   color              : var(--laar-g900);
 }
 
 /* Valor de dato (Courier New — REGLA LAAR 03) */
 .laar-data {
-  font-family        : 'Courier New', monospace;
+  font-family        : 'Courier New', 'Courier', 'DejaVu Sans Mono', monospace;
   font-size          : 12px;
   font-weight        : 500;
   color              : var(--laar-g900);
@@ -541,7 +541,7 @@ header.mao-header select,
   border             : 0.5px solid var(--laar-g300);
   border-radius      : var(--laar-radius);
   font-size          : 11px;
-  font-family        : 'Courier New', monospace;
+  font-family        : 'Courier New', 'Courier', 'DejaVu Sans Mono', monospace;
   color              : var(--laar-g900);
   background         : var(--laar-white);
   width              : 100%;
@@ -618,7 +618,7 @@ header.mao-header select,
 
 .laar-step-sub {
   font-size          : 9px;
-  font-family        : 'Courier New', monospace;
+  font-family        : 'Courier New', 'Courier', 'DejaVu Sans Mono', monospace;
   color              : var(--laar-g400);
 }
 
@@ -794,7 +794,7 @@ header.mao-header select,
 
 .sb-val {
   font-size          : 9px;
-  font-family        : 'Courier New', monospace;
+  font-family        : 'Courier New', 'Courier', 'DejaVu Sans Mono', monospace;
   font-weight        : 500;
   color              : var(--laar-g700);
 }
