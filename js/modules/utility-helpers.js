@@ -663,7 +663,7 @@ export function guardarConfiguracion(cameraModelInput, focalInput, apertureInput
 /**
  * Load camera and scale configuration from localStorage
  */
-export function cargarConfiguracion(cameraModelInput, focalInput, apertureInput, sensorWidthInput, sensorHeightInput, distanciaInput) {
+export function cargarConfiguracion(cameraModelInput, focalInput, apertureInput, sensorWidthInput, sensorHeightInput, distanciaInput, image, setStatus) {
   const savedModel = localStorage.getItem('cameraModel');
   const savedFocal = localStorage.getItem('focalLength');
   const savedAperture = localStorage.getItem('aperture');
