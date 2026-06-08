@@ -52004,6 +52004,13 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       isManualSelectionMode: false,
       zoomInput,
       zoomLevelDisplay,
+      statusDiv,
+      objectCountDisplay,
+      objects,
+      contourCache,
+      lastDetectionStats,
+      PERFORMANCE_CONFIG,
+      DEBUG_LOGS,
       redraw,
       redrawCanvas
     });

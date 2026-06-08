@@ -26,14 +26,27 @@
 
 // Internal state object — synchronizes with analysis-core.js globals
 let viewState = {
+  // Canvas state
   zoom: 0.5,
   offsetX: 0,
   offsetY: 0,
   image: null,
   canvas: null,
-  isManualSelectionMode: false,
+  // DOM elements
   zoomInput: null,
   zoomLevelDisplay: null,
+  statusDiv: null,
+  objectCountDisplay: null,
+  // Global objects/arrays
+  objects: [],
+  contourCache: new Map(),
+  lastDetectionStats: {},
+  // Flags
+  isManualSelectionMode: false,
+  // Config objects
+  PERFORMANCE_CONFIG: {},
+  DEBUG_LOGS: {},
+  // Callbacks
   redraw: null,
   redrawCanvas: null
 };
@@ -196,19 +209,21 @@ export function aplicarZoomPerforationCanvas(zoomLevel) {
  * Update display information about detected objects
  */
 export function updateDisplays() {
-  let displayText = `Objects detected: ${objects.length}`;
+  let displayText = `Objects detected: ${viewState.objects.length}`;
 
-  if (objects.length > 0 && lastDetectionStats.filtered > 0) {
-    displayText += ` (${lastDetectionStats.filtered} filtered < ${lastDetectionStats.minArea}px)`;
+  if (viewState.objects.length > 0 && viewState.lastDetectionStats.filtered > 0) {
+    displayText += ` (${viewState.lastDetectionStats.filtered} filtered < ${viewState.lastDetectionStats.minArea}px)`;
   }
 
-  const objetosConContorno = objects.filter(obj => obj.contornoReal);
+  const objetosConContorno = viewState.objects.filter(obj => obj.contornoReal);
   if (objetosConContorno.length > 0) {
     displayText += `| ${objetosConContorno.length} with real contours`;
   }
 
-  objectCountDisplay.textContent = displayText;
-  objectCountDisplay.style.color = objects.length > 0 ? '#555' : '#666';
+  if (viewState.objectCountDisplay) {
+    viewState.objectCountDisplay.textContent = displayText;
+    viewState.objectCountDisplay.style.color = viewState.objects.length > 0 ? '#555' : '#666';
+  }
 
   if (typeof actualizarEstadisticas === 'function') {
     actualizarEstadisticas();
@@ -223,8 +238,9 @@ export function updateDisplays() {
  * Set status message in status display
  */
 export function setStatus(msg, isError=false) {
-  statusDiv.textContent = msg;
-  statusDiv.style.color = isError ? '#777' : '#555';
+  if (!viewState.statusDiv) return;
+  viewState.statusDiv.textContent = msg;
+  viewState.statusDiv.style.color = isError ? '#777' : '#555';
 }
 
 // =====================================================================================
@@ -243,12 +259,12 @@ export function generateCacheKey(obj) {
  * Retrieve a cached contour for an object
  */
 export function getCachedContour(obj) {
-  if (!PERFORMANCE_CONFIG.CACHE_ENABLED) return null;
+  if (!viewState.PERFORMANCE_CONFIG?.CACHE_ENABLED) return null;
 
   const key = generateCacheKey(obj);
-  if (contourCache.has(key)) {
+  if (viewState.contourCache.has(key)) {
     console.log(`Contour retrieved from cache for object ${obj.id}`);
-    return contourCache.get(key);
+    return viewState.contourCache.get(key);
   }
   return null;
 }
@@ -257,16 +273,16 @@ export function getCachedContour(obj) {
  * Store a contour in cache with LRU eviction if needed
  */
 export function setCachedContour(obj, contourData) {
-  if (!PERFORMANCE_CONFIG.CACHE_ENABLED) return;
+  if (!viewState.PERFORMANCE_CONFIG?.CACHE_ENABLED) return;
 
-  if (contourCache.size >= PERFORMANCE_CONFIG.MAX_CACHE_SIZE) {
-    const firstKey = contourCache.keys().next().value;
-    contourCache.delete(firstKey);
+  if (viewState.contourCache.size >= (viewState.PERFORMANCE_CONFIG?.MAX_CACHE_SIZE || 100)) {
+    const firstKey = viewState.contourCache.keys().next().value;
+    viewState.contourCache.delete(firstKey);
     console.log('Contour cache cleared (LRU)');
   }
 
   const key = generateCacheKey(obj);
-  contourCache.set(key, contourData);
+  viewState.contourCache.set(key, contourData);
   console.log(`Contour stored in cache for object ${obj.id}`);
 }
 
@@ -274,7 +290,7 @@ export function setCachedContour(obj, contourData) {
  * Clear the entire contour cache
  */
 export function clearContourCache() {
-  contourCache.clear();
+  viewState.contourCache.clear();
   console.log('Contour cache completely cleared');
 }
 
