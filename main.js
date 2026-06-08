@@ -237,7 +237,7 @@ async function startPythonServer() {
     emitBackendStatus('down', { exitCode: code, signal: sig });
 
     // Auto-restart si la app NO se está cerrando y el exit no fue limpio
-    if (!pyIsQuitting && wasManaged && code !== 0 && code !== null) {
+    if (!pyIsQuitting && wasManaged && code !== 0) {
       if (pyRestartCount < PY_MAX_RESTARTS) {
         const delay = PY_RESTART_DELAYS_MS[pyRestartCount] || 10_000;
         pyRestartCount++;
