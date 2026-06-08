@@ -104,24 +104,20 @@
      Inyecta <div id="maoTabBar"> antes del contenedor de secciones.
   ═══════════════════════════════════════════════════════════════════════ */
   function buildTabBar() {
-    /* Detectar el contenedor de contenido principal */
-    var host = (
-      document.querySelector('main.mao-main') ||
-      document.querySelector('.mao-app-layout') ||
-      document.getElementById('mainContent') ||
-      document.getElementById('content') ||
-      document.getElementById('appContent') ||
-      document.querySelector('.main-content') ||
-      document.querySelector('main') ||
-      document.body
-    );
-
     /* Evitar doble inyección */
     if (document.getElementById('maoTabBar')) return;
 
     var bar = document.createElement('div');
     bar.id = 'maoTabBar';
     bar.className = 'mao-tabbar';
+    /* Inline styles para garantizar visibilidad */
+    bar.style.display = 'flex';
+    bar.style.height = '32px';
+    bar.style.backgroundColor = '#E5E7EB';
+    bar.style.alignItems = 'flex-end';
+    bar.style.padding = '0 12px';
+    bar.style.gap = '1px';
+    bar.style.borderBottom = '1px solid #D1D5DB';
 
     TABS.forEach(function (tab) {
       var el = document.createElement('div');
@@ -129,6 +125,17 @@
       el.setAttribute('data-tab', tab.id);
       el.setAttribute('role', 'tab');
       el.setAttribute('aria-selected', 'false');
+      /* Inline styles para visibilidad */
+      el.style.padding = '5px 14px';
+      el.style.fontSize = '10px';
+      el.style.fontWeight = '500';
+      el.style.cursor = 'pointer';
+      el.style.color = '#6B7280';
+      el.style.background = '#F3F4F6';
+      el.style.display = 'flex';
+      el.style.alignItems = 'center';
+      el.style.gap = '5px';
+      el.style.whiteSpace = 'nowrap';
 
       if (state.locked.indexOf(tab.id) !== -1) {
         el.classList.add('mao-tab--locked');
@@ -136,9 +143,9 @@
       }
 
       el.innerHTML =
-        '<span class="tab-indicator"></span>' +
-        '<span class="tab-icon" style="font-style:normal">' + (tab.icon || '') + '</span> ' +
-        '<span class="tab-label">' + tab.label + '</span>';
+        '<span class="tab-indicator" style="width:5px;height:5px;border-radius:50%;background:#D1D5DB;flex-shrink:0;margin-right:6px;"></span>' +
+        '<span class="tab-icon" style="font-style:normal;font-size:14px;font-weight:600;color:#6B7280;margin-right:4px;">' + (tab.icon || '') + '</span>' +
+        '<span class="tab-label" style="font-size:10px;color:#6B7280;">' + tab.label + '</span>';
 
       el.addEventListener('click', function () {
         if (state.locked.indexOf(tab.id) === -1) {
@@ -165,11 +172,14 @@
     prog.appendChild(progLabel);
     bar.appendChild(prog);
 
-    /* Insertar antes del primer hijo del contenedor */
-    if (host.firstChild) {
-      host.insertBefore(bar, host.firstChild);
+    /* Insertar después del header (topbar) */
+    var header = document.querySelector('header.mao-header');
+    if (header && header.nextSibling) {
+      header.parentNode.insertBefore(bar, header.nextSibling);
+    } else if (header) {
+      header.parentNode.appendChild(bar);
     } else {
-      host.appendChild(bar);
+      document.body.appendChild(bar);
     }
   }
 
