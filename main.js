@@ -1003,4 +1003,31 @@ ipcMain.handle('fs-trash-item', async (_, { itemPath }) => {
   } catch (error) {
     return { success: false, error: error.message };
   }
+
+// ── Captura de errores del renderer (para mao-console-analyzer) ──────────────
+const rendererErrorLog = path.join(APP_DIR, ".mao_renderer_errors.log");
+const rendererErrors = [];
+
+ipcMain.on("renderer-error-occurred", (event, errorData) => {
+  rendererErrors.push(errorData);
+  if (rendererErrors.length > 500) rendererErrors.shift();
+  
+  const logLine = `[${errorData.timestamp}] ${errorData.type}: ${errorData.name} — ${errorData.message}\n`;
+  try {
+    fs.appendFileSync(rendererErrorLog, logLine);
+  } catch (e) {
+    console.error("Error writing renderer error log:", e.message);
+  }
+  
+  if (errorData.type === "error" || errorData.type === "unhandledRejection") {
+    console.error("[Renderer Error Captured]", errorData.name, "—", errorData.message);
+  }
+});
+
+ipcMain.handle("get-renderer-errors", () => rendererErrors);
+ipcMain.handle("clear-renderer-errors", () => {
+  rendererErrors.length = 0;
+  return { cleared: true };
+});
+
 });

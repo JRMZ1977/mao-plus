@@ -93,3 +93,49 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
 console.log('📱 Plataforma:', process.platform);
 console.log('✅ Preload completado — contextBridge activo');
+
+// ── Error Reporter para mao-console-analyzer ────────────────────────────────
+// Captura errores del renderer y los envía al main process
+(() => {
+  const errors = [];
+  const maxErrors = 100;
+  
+  // Capturar errores no manejados
+  window.addEventListener('error', (event) => {
+    const errorData = {
+      type: 'error',
+      timestamp: new Date().toISOString(),
+      message: event.message,
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+      name: event.error?.name || 'Error',
+      stack: event.error?.stack || ''
+    };
+    errors.push(errorData);
+    if (errors.length > maxErrors) errors.shift();
+    ipcRenderer.send('renderer-error-occurred', errorData);
+  });
+  
+  // Capturar promesas rechazadas sin captura
+  window.addEventListener('unhandledrejection', (event) => {
+    const errorData = {
+      type: 'unhandledRejection',
+      timestamp: new Date().toISOString(),
+      message: event.reason?.message || String(event.reason),
+      name: event.reason?.name || 'UnhandledPromiseRejection',
+      stack: event.reason?.stack || ''
+    };
+    errors.push(errorData);
+    if (errors.length > maxErrors) errors.shift();
+    ipcRenderer.send('renderer-error-occurred', errorData);
+  });
+  
+  // Exponer API para acceder a errores capturados
+  contextBridge.exposeInMainWorld('rendererErrors', {
+    getErrors: () => errors,
+    clearErrors: () => errors.length = 0
+  });
+  
+  console.log('🔴 Error reporter activo — capturando errores del renderer');
+})();
