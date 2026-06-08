@@ -89,6 +89,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('mao:backend-status', handler);
     return () => ipcRenderer.removeListener('mao:backend-status', handler);
   },
+
+  /** Get boot metrics for Fase 4 evaluation */
+  getBootMetrics: () =>
+    ipcRenderer.invoke('get-boot-metrics'),
 });
 
 console.log('📱 Plataforma:', process.platform);

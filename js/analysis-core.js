@@ -51991,6 +51991,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   }
 
   function init(){
+    const t_init_start = Date.now();
     console.log('🚀 Inicializando MAO Plus - Morfometría Arqueológica de Objetos...');
     console.log('📝 Desarrollado por Quipus / Juan Francisco Ramírez, 2025');
 
@@ -52100,7 +52101,30 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     }
     
     console.log('✅ Inicialización de MAO completada con optimizaciones de memoria');
-    
+
+    // Registrar métricas de boot para Fase 4 de evaluación
+    const t_init_complete = Date.now();
+    if (window.electronAPI && window.electronAPI.getBootMetrics) {
+      (async () => {
+        try {
+          const mainMetrics = await window.electronAPI.getBootMetrics();
+          mainMetrics.t_renderer_ready = t_init_complete;
+          const t_init_duration = t_init_complete - t_init_start;
+          const t_total = t_init_complete - mainMetrics.t_app_start;
+          console.log('[METRICS] Boot complete:', {
+            t_electron_ready: mainMetrics.t_electron_ready - mainMetrics.t_app_start + 'ms',
+            t_python_spawn: mainMetrics.t_python_spawn - mainMetrics.t_app_start + 'ms',
+            t_python_health_ok: mainMetrics.t_python_health_ok - mainMetrics.t_python_spawn + 'ms',
+            t_window_created: mainMetrics.t_window_created - mainMetrics.t_app_start + 'ms',
+            t_init_duration: t_init_duration + 'ms',
+            t_total_boot: t_total + 'ms'
+          });
+        } catch (e) {
+          console.warn('[METRICS] Could not retrieve boot metrics:', e);
+        }
+      })();
+    }
+
     // Ejecutar validación del sistema al cargar
     setTimeout(() => {
       validarSistemaMAO();

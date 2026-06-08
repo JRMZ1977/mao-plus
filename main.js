@@ -30,6 +30,18 @@ let lastExportDir = null;
 // que NO deben estar activos en producción.
 const isDev = !app.isPackaged;
 
+// ── Boot Metrics Instrumentation ──────────────────────────────────────────
+// Recolectar timestamps para evaluar performance post-factorización
+const bootMetrics = {
+  t_app_start: Date.now(),
+  t_electron_ready: null,
+  t_python_spawn: null,
+  t_python_health_ok: null,
+  t_window_created: null,
+  t_renderer_ready: null,
+  t_total_boot: null
+};
+
 // ── Seguridad: webSecurity ────────────────────────────────────────────────
 // ESTADO: webSecurity: false es requerido mientras el renderer carga desde
 // file:// y hace fetch a http://127.0.0.1:8765 (distinto origen → bloqueo CORS).
@@ -314,6 +326,7 @@ function waitForServer(maxRetries = 30, intervalMs = 300) {
       const req = http.get(HEALTH_URL, (res) => {
         if (res.statusCode === 200) {
           pyServerReady = true;
+          bootMetrics.t_python_health_ok = Date.now();
           console.log('[MAO Python] Servidor listo ✓ (respondió en', tries * intervalMs, 'ms)');
           resolve(true);
         } else {
@@ -368,6 +381,7 @@ function attachRendererMonitor(win, label = 'main') {
 }
 
 function createWindow() {
+  bootMetrics.t_window_created = Date.now();
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -926,9 +940,12 @@ ipcMain.handle('fs-validate-analysis', async (_, { analysisPath }) => {
 });
 
 app.whenReady().then(async () => {
+  bootMetrics.t_electron_ready = Date.now();
+
   // 1. Arrancar servidor Python
   console.log('[MAO Boot] ▶ Iniciando booteo de aplicación...');
   emitBackendStatus('starting');
+  bootMetrics.t_python_spawn = Date.now();
   await startPythonServer();
 
   // 2. Esperar a que responda (máx ~15 s = 50 × 300ms) antes de mostrar la ventana
@@ -992,6 +1009,9 @@ ipcMain.handle('mao:backend-status:get', () => ({
   lastError: pyLastError,
   url:      `http://${SERVER_HOST}:${SERVER_PORT}`,
 }));
+
+// Boot metrics para Fase 4 de evaluación
+ipcMain.handle('get-boot-metrics', () => bootMetrics);
 
 // ============================================================================
 // IPC: mover carpeta / archivo a la Papelera del sistema
