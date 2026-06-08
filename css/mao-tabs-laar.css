@@ -230,6 +230,29 @@ header.mao-header,
   color              : var(--laar-g500);
 }
 
+/* ─── Arrastre nativo de ventana (macOS/Windows con frame: false) ───────── */
+#topbar,
+.topbar,
+header.mao-header,
+.app-header {
+  -webkit-app-region: drag;
+}
+
+#topbar button,
+#topbar input,
+#topbar select,
+.topbar button,
+.topbar input,
+.topbar select,
+header.mao-header button,
+header.mao-header input,
+header.mao-header select,
+.app-header button,
+.app-header input,
+.app-header select {
+  -webkit-app-region: no-drag;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    TABBAR — barra de pestañas de flujo
    REGLA LAAR 05: inactiva #F3F4F6 · activa #FFFFFF + borde-top 2px #2563EB

@@ -387,6 +387,8 @@ function createWindow() {
     height: 900,
     minWidth: 1000,
     minHeight: 700,
+    frame: false,              // LAAR: Eliminar barra nativa (topbar propio)
+    titleBarStyle: 'hidden',   // Permitir arrastre en macOS sin barra nativa
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -395,13 +397,17 @@ function createWindow() {
       sandbox: false       // false hasta confirmar compatibilidad completa en sandbox
     },
     title: 'MAO Plus - Morfometría Arqueológica de Objetos',
-    titleBarStyle: 'hiddenInset', // Estilo macOS moderno
-    trafficLightPosition: { x: 15, y: 15 },
     backgroundColor: '#f5f5f5'
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   attachRendererMonitor(mainWindow, 'main');
+
+  /* Deshabilitar zoom nativo — LAAR usa alturas fijas en px para tabbar */
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.webContents.setZoomLevel(0);
+    mainWindow.webContents.setVisualZoomLevelLimits(1, 1);
+  });
 
   // Manejar apertura de ventana del Comparador (window.open desde el renderer)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

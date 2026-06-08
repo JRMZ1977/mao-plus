@@ -108,7 +108,9 @@
      Inyecta <div id="maoTabBar"> antes del contenedor de secciones.
   ═══════════════════════════════════════════════════════════════════════ */
   function buildTabBar() {
-    /* Evitar doble inyección */
+    /* Evitar doble inyección — eliminar anterior si existe (para HMR) */
+    var existing = document.getElementById('maoTabBar');
+    if (existing) existing.remove();
     if (document.getElementById('maoTabBar')) return;
 
     var bar = document.createElement('div');
@@ -146,10 +148,35 @@
         el.setAttribute('aria-disabled', 'true');
       }
 
-      el.innerHTML =
-        '<span class="tab-indicator" style="width:5px;height:5px;border-radius:50%;background:#D1D5DB;flex-shrink:0;margin-right:6px;"></span>' +
-        '<span class="tab-icon" style="font-style:normal;font-size:14px;font-weight:600;color:#6B7280;margin-right:4px;">' + (tab.icon || '') + '</span>' +
-        '<span class="tab-label" style="font-size:10px;color:#6B7280;">' + tab.label + '</span>';
+      /* API DOM nativa — compatible con CSP 'script-src self' */
+      var indicator = document.createElement('span');
+      indicator.className = 'tab-indicator';
+      indicator.style.width = '5px';
+      indicator.style.height = '5px';
+      indicator.style.borderRadius = '50%';
+      indicator.style.background = '#D1D5DB';
+      indicator.style.flexShrink = '0';
+      indicator.style.marginRight = '6px';
+
+      var iconSpan = document.createElement('span');
+      iconSpan.className = 'tab-icon';
+      iconSpan.style.fontStyle = 'normal';
+      iconSpan.style.fontSize = '14px';
+      iconSpan.style.fontWeight = '600';
+      iconSpan.style.color = '#6B7280';
+      iconSpan.style.marginRight = '4px';
+      iconSpan.textContent = tab.icon || '';
+
+      var labelSpan = document.createElement('span');
+      labelSpan.className = 'tab-label';
+      labelSpan.style.fontSize = '10px';
+      labelSpan.style.color = '#6B7280';
+      labelSpan.textContent = tab.label;
+
+      el.appendChild(indicator);
+      el.appendChild(iconSpan);
+      el.appendChild(document.createTextNode(' '));
+      el.appendChild(labelSpan);
 
       el.addEventListener('click', function () {
         if (state.locked.indexOf(tab.id) === -1) {
@@ -316,6 +343,12 @@
       state.active = tabId;
       showSectionsFor(tabId);
       updateTabBarUI();
+      /* Persistir estado en sessionStorage */
+      try {
+        sessionStorage.setItem('maoTabState', JSON.stringify(state));
+      } catch (e) {
+        console.warn('[MAO Tab Router] No se pudo guardar estado:', e);
+      }
       document.dispatchEvent(new CustomEvent('mao:tab:change', { detail: { tab: tabId } }));
     },
 
@@ -474,6 +507,16 @@
      ARRANQUE
   ═══════════════════════════════════════════════════════════════════════ */
   function boot() {
+    /* Restaurar estado de sessionStorage si existe (para reload sin perder estado) */
+    var saved = sessionStorage.getItem('maoTabState');
+    if (saved) {
+      try {
+        Object.assign(state, JSON.parse(saved));
+      } catch (e) {
+        console.warn('[MAO Tab Router] No se pudo restaurar estado:', e);
+      }
+    }
+
     buildTabBar();
     showSectionsFor(state.active);
     updateTabBarUI();
