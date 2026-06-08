@@ -29,10 +29,10 @@
       --line-height-normal:  1.55;
       --line-height-relaxed: 1.7;
 
-      /* ── PALETA DE GRISES (base neutra — Material Blue Grey) ── */
+      /* ── PALETA DE GRISES (base neutra — LAAR) ── */
       --gray-0:   #FFFFFF;
       --gray-50:  #ECEFF1;   /* Blue Grey 50  */
-      --gray-100: #CFD8DC;   /* Blue Grey 100 — Light Primary */
+      --gray-100: #F3F4F6;   /* LAAR neutral — Light Primary */
       --gray-200: #B0BEC5;   /* Blue Grey 200 */
       --gray-300: #90A4AE;   /* Blue Grey 300 */
       --gray-400: #78909C;   /* Blue Grey 400 */
@@ -57,8 +57,8 @@
       --text-on-accent: #FFFFFF;   /* Text / Icons sobre oscuro */
 
       /* ── ACENTO CROMÁTICO ── */
-      /* Acento primario: Deep Purple A200 */
-      --accent:         #7C4DFF;
+      /* Acento primario: Slate-Blue (LAAR) */
+      --accent:         #2563EB;
       --accent-hover:   #651FFF;   /* Deep Purple A400 */
       --accent-light:   #EDE7FF;   /* Deep Purple 50 */
 
@@ -116,7 +116,7 @@
       --spacing-2xl: 48px;
 
       /* ── HEADER ── */
-      --header-height: 46px;
+      --header-height: 38px;
 
       /* ── TRANSICIONES ── */
       --transition-fast: 120ms ease;

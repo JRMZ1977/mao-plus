@@ -1,0 +1,845 @@
+/*
+ * MAO-plus — Sistema de Pestañas LAAR
+ * css/mao-tabs-laar.css
+ *
+ * CONCEPTO: Laboratorio de Análisis Arqueológico
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Blanco dominante · grises fríos Tailwind Gray · acento único slate-blue
+ * Sans-serif de sistema · Courier New exclusivo para datos y métricas
+ * Bordes 0.5px · radios 4px · sin ornamento · 100ms ease
+ *
+ * USO: cargar después de main.css
+ *   <link rel="stylesheet" href="css/mao-tabs-laar.css">
+ *
+ * REFERENCIA:
+ *   Apple HIG (2024). Tab Views. developer.apple.com/design/human-interface-guidelines/tab-views
+ *   Nielsen, J. (1994). Visibility of system status. CHI Proceedings.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOKENS DEL SISTEMA LAAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root {
+  /* Grises fríos (estructura y fondo) */
+  --laar-white : #FFFFFF;
+  --laar-g50   : #F9FAFB;
+  --laar-g100  : #F3F4F6;
+  --laar-g200  : #E5E7EB;
+  --laar-g300  : #D1D5DB;
+  --laar-g400  : #9CA3AF;
+  --laar-g500  : #6B7280;
+  --laar-g600  : #4B5563;
+  --laar-g700  : #374151;
+  --laar-g800  : #1F2937;
+  --laar-g900  : #111827;
+
+  /* Acento único — slate-blue (solo estado activo y acción primaria) */
+  --laar-b50   : #EFF6FF;
+  --laar-b100  : #DBEAFE;
+  --laar-b200  : #BFDBFE;
+  --laar-b400  : #3B82F6;
+  --laar-b500  : #2563EB;   /* ← único uso cromático permitido */
+  --laar-b600  : #1D4ED8;
+  --laar-b800  : #1E3A8A;
+
+  /* Semántica de estados — SOLO para el stepper y badges */
+  --laar-ok-bg : #ECFDF5;
+  --laar-ok-bd : #6EE7B7;
+  --laar-ok-tx : #065F46;
+  --laar-wa-bg : #FEF3C7;
+  --laar-wa-bd : #FCD34D;
+  --laar-wa-tx : #92400E;
+  --laar-er-bg : #FEF2F2;
+  --laar-er-bd : #FCA5A5;
+  --laar-er-tx : #991B1B;
+
+  /* Layout fijo */
+  --laar-topbar-h    : 38px;
+  --laar-tabbar-h    : 32px;
+  --laar-statusbar-h : 24px;
+  --laar-radius      : 4px;
+  --laar-border      : 0.5px solid var(--laar-g200);
+  --laar-border-md   : 0.5px solid var(--laar-g300);
+  --laar-transition  : 100ms ease;
+  --laar-canvas-bg   : #111827;  /* canvas oscuro — sin cambio permitido */
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEUTRALIZAR ESTILOS ANTERIORES (cuaderno de campo)
+   — sobreescribe variables de la paleta cálida si existían en main.css
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root {
+  --primary          : var(--laar-b500)   !important;
+  --sidebar-bg       : var(--laar-g100)   !important;
+  --header-bg        : var(--laar-g100)   !important;
+  --accent           : var(--laar-b500)   !important;
+  --text-primary     : var(--laar-g900)   !important;
+  --text-secondary   : var(--laar-g500)   !important;
+  --border-color     : var(--laar-g200)   !important;
+  --bg-surface       : var(--laar-white)  !important;
+  --bg-ground        : var(--laar-g50)    !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   OCULTAR SIDEBAR (se reemplaza por tabbar)
+   ═══════════════════════════════════════════════════════════════════════════ */
+#maoSidebar,
+#sidebar,
+.sidebar,
+.nav-sidebar,
+[class*="sidebar"],
+[id*="sidebar"],
+.left-nav,
+.step-nav,
+.workflow-nav {
+  display: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LAYOUT PRINCIPAL — ventana única de escritorio
+   ═══════════════════════════════════════════════════════════════════════════ */
+body,
+html {
+  margin             : 0;
+  padding            : 0;
+  height             : 100%;
+  background         : var(--laar-g100);
+  font-family        : -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size          : 12px;
+  color              : var(--laar-g900);
+  -webkit-font-smoothing : antialiased;
+}
+
+/* Chrome simulado de ventana desktop (solo si existe .window-chrome) */
+.window-chrome,
+#windowChrome {
+  height             : 26px;
+  background         : var(--laar-g200);
+  display            : flex;
+  align-items        : center;
+  padding            : 0 12px;
+  gap                : 5px;
+  border-bottom      : var(--laar-border);
+  flex-shrink        : 0;
+}
+
+.window-chrome .dot { width: 9px; height: 9px; border-radius: 50%; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOPBAR — #F3F4F6 · borde inferior · sin fondo oscuro
+   REGLA LAAR 04: contraste por peso, no por color
+   ═══════════════════════════════════════════════════════════════════════════ */
+#topbar,
+.topbar,
+header.mao-header,
+.app-header {
+  height             : var(--laar-topbar-h);
+  background         : var(--laar-g100) !important;
+  display            : flex !important;
+  align-items        : center;
+  padding            : 0 16px 0 14px;
+  gap                : 8px;
+  border-bottom      : 1px solid var(--laar-g200) !important;
+  flex-shrink        : 0;
+  /* Reset cualquier topbar oscura anterior */
+  color              : var(--laar-g900) !important;
+  box-shadow         : none !important;
+}
+
+/* Título de la app en topbar */
+#topbar .app-title,
+.topbar .app-title,
+.topbar .tb-logo,
+#appTitle {
+  font-size          : 13px;
+  font-weight        : 600;
+  color              : var(--laar-g900);
+  letter-spacing     : -.1px;
+}
+
+/* Breadcrumb en topbar: Proyecto › ID */
+.topbar-breadcrumb {
+  display            : flex;
+  align-items        : center;
+  gap                : 5px;
+}
+
+.topbar-breadcrumb .proj-name {
+  font-size          : 11px;
+  color              : var(--laar-g500);
+}
+
+.topbar-breadcrumb .sep {
+  font-size          : 11px;
+  color              : var(--laar-g400);
+}
+
+.topbar-breadcrumb .obj-id {
+  font-size          : 11px;
+  font-weight        : 500;
+  color              : var(--laar-g900);
+  font-family        : 'Courier New', monospace;
+}
+
+/* Badge modo (Monofacial · Lítico) */
+.topbar-badge {
+  padding            : 2px 7px;
+  border-radius      : var(--laar-radius);
+  font-size          : 10px;
+  font-family        : 'Courier New', monospace;
+  background         : var(--laar-b50);
+  color              : var(--laar-b800);
+  border             : 0.5px solid var(--laar-b200);
+}
+
+/* Botones secundarios en topbar */
+.topbar-btn,
+.tb-btn {
+  font-size          : 11px;
+  padding            : 3px 9px;
+  border             : var(--laar-border-md);
+  border-radius      : var(--laar-radius);
+  background         : var(--laar-white);
+  color              : var(--laar-g600);
+  cursor             : pointer;
+  transition         : background var(--laar-transition);
+}
+
+.topbar-btn:hover,
+.tb-btn:hover {
+  background         : var(--laar-g100);
+}
+
+/* Indicador Python/backend en topbar */
+.backend-status {
+  display            : flex;
+  align-items        : center;
+  gap                : 4px;
+}
+
+.backend-status .dot {
+  width              : 5px;
+  height             : 5px;
+  border-radius      : 50%;
+}
+
+.backend-status span {
+  font-size          : 10px;
+  font-family        : 'Courier New', monospace;
+  color              : var(--laar-g500);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TABBAR — barra de pestañas de flujo
+   REGLA LAAR 05: inactiva #F3F4F6 · activa #FFFFFF + borde-top 2px #2563EB
+   ═══════════════════════════════════════════════════════════════════════════ */
+#maoTabBar,
+.mao-tabbar {
+  height             : var(--laar-tabbar-h);
+  background         : var(--laar-g200);
+  display            : flex;
+  align-items        : flex-end;
+  padding            : 0 12px;
+  gap                : 1px;
+  border-bottom      : 1px solid var(--laar-g300);
+  flex-shrink        : 0;
+  position           : relative;
+  z-index            : 10;
+}
+
+/* Pestaña base */
+.mao-tab {
+  padding            : 5px 14px;
+  border-radius      : var(--laar-radius) var(--laar-radius) 0 0;
+  font-size          : 10px;
+  font-weight        : 500;
+  letter-spacing     : .04em;
+  text-transform     : uppercase;
+  cursor             : pointer;
+  border             : 0.5px solid transparent;
+  border-bottom      : none;
+  color              : var(--laar-g500);
+  background         : var(--laar-g100);
+  transition         : all var(--laar-transition);
+  display            : flex;
+  align-items        : center;
+  gap                : 5px;
+  user-select        : none;
+  white-space        : nowrap;
+}
+
+.mao-tab:hover:not(.mao-tab--active) {
+  background         : var(--laar-g50);
+  color              : var(--laar-g700);
+}
+
+/* Estado: ACTIVA */
+.mao-tab--active,
+.mao-tab.active {
+  background         : var(--laar-white) !important;
+  color              : var(--laar-g900) !important;
+  border-color       : var(--laar-g300) !important;
+  border-top         : 2px solid var(--laar-b500) !important;
+  padding-top        : 4px !important;
+}
+
+/* Estado: COMPLETADA */
+.mao-tab--done,
+.mao-tab.done {
+  color              : var(--laar-ok-tx);
+}
+
+/* Estado: BLOQUEADA */
+.mao-tab--locked,
+.mao-tab.locked {
+  color              : var(--laar-g400);
+  cursor             : not-allowed;
+  opacity            : 0.6;
+}
+
+/* Indicador de estado por pestaña (punto de color) */
+.tab-indicator {
+  width              : 5px;
+  height             : 5px;
+  border-radius      : 50%;
+  background         : var(--laar-g300);
+  flex-shrink        : 0;
+  transition         : background var(--laar-transition);
+}
+
+.mao-tab--active   .tab-indicator { background: var(--laar-b500); }
+.mao-tab--done     .tab-indicator { background: var(--laar-ok-bd); }
+.mao-tab--locked   .tab-indicator { background: var(--laar-g300); }
+
+/* Badge numérico en pestaña (ej: advertencias pendientes) */
+.tab-badge {
+  font-size          : 8px;
+  padding            : 1px 4px;
+  background         : var(--laar-b100);
+  color              : var(--laar-b800);
+  border-radius      : 2px;
+  font-family        : 'Courier New', monospace;
+}
+
+/* Barra de progreso en extremo derecho del tabbar */
+.tab-progress {
+  margin-left        : auto;
+  display            : flex;
+  align-items        : center;
+  gap                : 3px;
+  padding-bottom     : 5px;
+}
+
+.tab-progress-seg {
+  width              : 26px;
+  height             : 2px;
+  border-radius      : 1px;
+  background         : var(--laar-g300);
+  transition         : background var(--laar-transition);
+}
+
+.tab-progress-seg--done   { background: var(--laar-ok-bd);  }
+.tab-progress-seg--active { background: var(--laar-b400);   }
+.tab-progress-seg--locked { background: var(--laar-g300);   }
+
+.tab-progress-label {
+  font-size          : 9px;
+  font-family        : 'Courier New', monospace;
+  color              : var(--laar-g500);
+  margin-left        : 4px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PANELES DE CONTENIDO — un <section> por pestaña
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Cada sección/panel de pestaña */
+.mao-pane,
+[data-tab-pane] {
+  display            : none;
+  flex               : 1;
+  overflow           : hidden;
+}
+
+.mao-pane--active,
+.mao-pane.active,
+[data-tab-pane].active {
+  display            : flex;
+}
+
+/* Área de trabajo (canvas + panel derecho) */
+.mao-workspace {
+  display            : flex;
+  background         : var(--laar-white);
+  flex               : 1;
+  overflow           : hidden;
+}
+
+/* ─── Panel izquierdo: canvas oscuro ─────────────────────────────────────── */
+.mao-canvas-panel {
+  flex               : 1.1;
+  background         : var(--laar-canvas-bg);
+  border-right       : 1px solid var(--laar-g800);
+  display            : flex;
+  flex-direction     : column;
+  min-width          : 0;
+}
+
+.mao-canvas-toolbar {
+  height             : 30px;
+  background         : var(--laar-g800);
+  display            : flex;
+  align-items        : center;
+  padding            : 0 10px;
+  gap                : 6px;
+  border-bottom      : 1px solid var(--laar-g700);
+  flex-shrink        : 0;
+}
+
+.mao-canvas-area {
+  flex               : 1;
+  display            : flex;
+  align-items        : center;
+  justify-content    : center;
+  padding            : 12px;
+  overflow           : hidden;
+}
+
+.mao-canvas-info {
+  padding            : 6px 10px;
+  background         : var(--laar-g800);
+  border-top         : 1px solid var(--laar-g700);
+  display            : flex;
+  gap                : 10px;
+  flex-shrink        : 0;
+}
+
+.mao-canvas-info span {
+  font-size          : 9px;
+  font-family        : 'Courier New', monospace;
+}
+
+/* ─── Panel derecho: controles ───────────────────────────────────────────── */
+.mao-control-panel {
+  width              : 252px;
+  padding            : 14px;
+  display            : flex;
+  flex-direction     : column;
+  gap                : 10px;
+  overflow-y         : auto;
+  background         : var(--laar-white);
+  flex-shrink        : 0;
+}
+
+/* ─── Paneles solo-contenido (sin canvas, ej: pestaña Proyecto) ─────────── */
+.mao-content-pane {
+  padding            : 16px;
+  flex               : 1;
+  overflow-y         : auto;
+  background         : var(--laar-white);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMPONENTES UI — sistema LAAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Etiqueta de sección */
+.laar-sec-label {
+  font-size          : 10px;
+  font-weight        : 500;
+  letter-spacing     : .08em;
+  text-transform     : uppercase;
+  color              : var(--laar-g500);
+  margin-bottom      : 6px;
+  display            : block;
+}
+
+/* Tarjeta */
+.laar-card {
+  background         : var(--laar-white);
+  border             : var(--laar-border);
+  border-radius      : var(--laar-radius);
+  padding            : 10px 12px;
+}
+
+/* Métricas en grid 2×N */
+.laar-metric-grid {
+  display            : grid;
+  grid-template-columns: 1fr 1fr;
+  gap                : 4px;
+}
+
+.laar-metric {
+  background         : var(--laar-g50);
+  border             : var(--laar-border);
+  border-radius      : 3px;
+  padding            : 5px 7px;
+}
+
+.laar-metric-key {
+  font-size          : 9px;
+  color              : var(--laar-g400);
+  letter-spacing     : .04em;
+}
+
+.laar-metric-val {
+  font-size          : 11px;
+  font-family        : 'Courier New', monospace;
+  font-weight        : 500;
+  color              : var(--laar-g900);
+}
+
+/* Valor de dato (Courier New — REGLA LAAR 03) */
+.laar-data {
+  font-family        : 'Courier New', monospace;
+  font-size          : 12px;
+  font-weight        : 500;
+  color              : var(--laar-g900);
+}
+
+/* Campos de ID */
+.laar-id-field {
+  display            : flex;
+  flex-direction     : column;
+  gap                : 2px;
+}
+
+.laar-id-field label {
+  font-size          : 9px;
+  text-transform     : uppercase;
+  letter-spacing     : .06em;
+  color              : var(--laar-g500);
+}
+
+.laar-input,
+.laar-select {
+  padding            : 4px 6px;
+  border             : 0.5px solid var(--laar-g300);
+  border-radius      : var(--laar-radius);
+  font-size          : 11px;
+  font-family        : 'Courier New', monospace;
+  color              : var(--laar-g900);
+  background         : var(--laar-white);
+  width              : 100%;
+  box-sizing         : border-box;
+  transition         : border-color var(--laar-transition), box-shadow var(--laar-transition);
+}
+
+.laar-input:focus,
+.laar-select:focus {
+  outline            : none;
+  border-color       : var(--laar-b500);
+  box-shadow         : 0 0 0 2px var(--laar-b100);
+}
+
+/* ─── Stepper de procesamiento ───────────────────────────────────────────── */
+/*
+ * REGLA LAAR 06: tres estados exclusivos
+ *   Gris     → inactivo/pendiente
+ *   Ámbar    → en curso
+ *   Verde    → completado
+ *   Sin azul en el stepper
+ */
+.laar-step {
+  display            : flex;
+  align-items        : center;
+  gap                : 7px;
+  padding            : 7px 9px;
+  border-radius      : 3px;
+  margin-bottom      : 3px;
+  border             : 0.5px solid transparent;
+  transition         : all var(--laar-transition);
+}
+
+.laar-step--pending {
+  background         : var(--laar-g50);
+  border-color       : var(--laar-g200);
+}
+
+.laar-step--active {
+  background         : var(--laar-wa-bg);
+  border-color       : var(--laar-wa-bd);
+  border-width       : 1px;
+}
+
+.laar-step--done {
+  background         : var(--laar-ok-bg);
+  border-color       : var(--laar-ok-bd);
+}
+
+.laar-step-number {
+  width              : 18px;
+  height             : 18px;
+  border-radius      : 50%;
+  display            : flex;
+  align-items        : center;
+  justify-content    : center;
+  font-size          : 9px;
+  font-weight        : 600;
+  flex-shrink        : 0;
+}
+
+.laar-step--pending  .laar-step-number { background: var(--laar-g200); color: var(--laar-g500); }
+.laar-step--active   .laar-step-number { background: #FBBF24;           color: #92400E; }
+.laar-step--done     .laar-step-number { background: #34D399;           color: #065F46; }
+
+.laar-step-label {
+  font-size          : 11px;
+  flex               : 1;
+}
+
+.laar-step--pending .laar-step-label { color: var(--laar-g600); }
+.laar-step--active  .laar-step-label { color: var(--laar-wa-tx); font-weight: 500; }
+.laar-step--done    .laar-step-label { color: var(--laar-ok-tx); font-weight: 500; }
+
+.laar-step-sub {
+  font-size          : 9px;
+  font-family        : 'Courier New', monospace;
+  color              : var(--laar-g400);
+}
+
+.laar-step-btn {
+  padding            : 3px 8px;
+  border             : none;
+  border-radius      : 3px;
+  font-size          : 10px;
+  cursor             : pointer;
+  font-weight        : 500;
+  transition         : opacity var(--laar-transition);
+}
+
+.laar-step-btn:hover { opacity: 0.85; }
+
+/* ─── Opciones de selección (radio-like pills) ───────────────────────────── */
+.laar-opt {
+  padding            : 4px 10px;
+  border             : 0.5px solid var(--laar-g300);
+  border-radius      : var(--laar-radius);
+  font-size          : 10px;
+  cursor             : pointer;
+  color              : var(--laar-g600);
+  background         : var(--laar-white);
+  transition         : all var(--laar-transition);
+  user-select        : none;
+}
+
+.laar-opt--selected,
+.laar-opt.sel {
+  border-color       : var(--laar-b500);
+  color              : var(--laar-b600);
+  background         : var(--laar-b50);
+  font-weight        : 500;
+}
+
+/* ─── Toggle 2D / 3D / Bifacial ──────────────────────────────────────────── */
+.laar-mode-toggle {
+  display            : flex;
+  gap                : 1px;
+  background         : var(--laar-g200);
+  border-radius      : 3px;
+  overflow           : hidden;
+  padding            : 1px;
+}
+
+.laar-mode-btn {
+  padding            : 3px 10px;
+  font-size          : 10px;
+  font-weight        : 500;
+  border             : none;
+  cursor             : pointer;
+  border-radius      : 2px;
+  color              : var(--laar-g500);
+  background         : transparent;
+  text-transform     : uppercase;
+  letter-spacing     : .04em;
+  transition         : all var(--laar-transition);
+}
+
+.laar-mode-btn--active,
+.laar-mode-btn.active {
+  background         : var(--laar-white);
+  color              : var(--laar-g900);
+}
+
+/* ─── Botones de acción ──────────────────────────────────────────────────── */
+/* Primario — solo slate-blue (REGLA LAAR 02) */
+.laar-btn-primary {
+  background         : var(--laar-b500);
+  color              : var(--laar-white);
+  border             : none;
+  border-radius      : var(--laar-radius);
+  padding            : 6px 12px;
+  font-size          : 11px;
+  font-weight        : 500;
+  cursor             : pointer;
+  letter-spacing     : .03em;
+  transition         : background var(--laar-transition);
+}
+
+.laar-btn-primary:hover { background: var(--laar-b600); }
+
+/* Secundario — gris neutro */
+.laar-btn-secondary {
+  background         : var(--laar-white);
+  color              : var(--laar-g700);
+  border             : var(--laar-border-md);
+  border-radius      : var(--laar-radius);
+  padding            : 6px 12px;
+  font-size          : 11px;
+  cursor             : pointer;
+  transition         : background var(--laar-transition);
+}
+
+.laar-btn-secondary:hover { background: var(--laar-g50); }
+
+/* Destructivo — solo para PDF con advertencia */
+.laar-btn-destructive {
+  background         : var(--laar-white);
+  color              : var(--laar-er-tx);
+  border             : 0.5px solid var(--laar-er-bd);
+  border-radius      : var(--laar-radius);
+  padding            : 6px 10px;
+  font-size          : 10px;
+  cursor             : pointer;
+}
+
+/* ─── Grid de exportación ────────────────────────────────────────────────── */
+.laar-export-grid {
+  display            : grid;
+  grid-template-columns: 1fr 1fr;
+  gap                : 4px;
+}
+
+.laar-export-btn {
+  padding            : 6px 8px;
+  border             : var(--laar-border);
+  border-radius      : var(--laar-radius);
+  font-size          : 10px;
+  color              : var(--laar-g700);
+  background         : var(--laar-white);
+  cursor             : pointer;
+  font-weight        : 500;
+  transition         : background var(--laar-transition);
+  text-align         : center;
+}
+
+.laar-export-btn:hover { background: var(--laar-g50); }
+
+/* ─── Drop zone de imagen ────────────────────────────────────────────────── */
+.laar-dropzone {
+  padding            : 10px;
+  border             : 1px dashed var(--laar-g300);
+  border-radius      : var(--laar-radius);
+  background         : var(--laar-g50);
+  transition         : border-color var(--laar-transition);
+}
+
+.laar-dropzone:hover,
+.laar-dropzone--over {
+  border-color       : var(--laar-b500);
+  background         : var(--laar-b50);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BARRA DE ESTADO — 24px · fija al fondo
+   ═══════════════════════════════════════════════════════════════════════════ */
+#statusBar,
+.mao-statusbar {
+  height             : var(--laar-statusbar-h) !important;
+  background         : var(--laar-g100) !important;
+  border-top         : var(--laar-border) !important;
+  display            : flex !important;
+  align-items        : center;
+  padding            : 0 12px;
+  gap                : 10px;
+  flex-shrink        : 0;
+}
+
+.sb-pair {
+  display            : flex;
+  gap                : 4px;
+  align-items        : center;
+}
+
+.sb-key {
+  font-size          : 9px;
+  color              : var(--laar-g400);
+  letter-spacing     : .04em;
+  text-transform     : uppercase;
+}
+
+.sb-val {
+  font-size          : 9px;
+  font-family        : 'Courier New', monospace;
+  font-weight        : 500;
+  color              : var(--laar-g700);
+}
+
+.sb-dot {
+  width              : 5px;
+  height             : 5px;
+  border-radius      : 50%;
+}
+
+.sb-divider {
+  width              : 0.5px;
+  height             : 12px;
+  background         : var(--laar-g200);
+}
+
+/* Barra de calidad de imagen */
+.sb-quality-bar {
+  width              : 32px;
+  height             : 2px;
+  background         : var(--laar-g200);
+  border-radius      : 1px;
+  overflow           : hidden;
+  margin             : 0 2px;
+}
+
+.sb-quality-fill {
+  height             : 100%;
+  background         : #34D399;
+  border-radius      : 1px;
+  transition         : width 300ms ease;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   IDENTIFICACIÓN — panel de campos del objeto
+   ═══════════════════════════════════════════════════════════════════════════ */
+#identificacionAsignada {
+  background         : var(--laar-b50) !important;
+  border             : 1px solid var(--laar-b200) !important;
+  border-radius      : var(--laar-radius) !important;
+  padding            : 5px 8px;
+}
+
+#valorIdentificacionAsignada {
+  font-family        : 'Courier New', monospace !important;
+  font-weight        : 500 !important;
+  color              : var(--laar-b800) !important;
+}
+
+/* Grid de campos de ID (Sitio / Unidad / Nivel / …) */
+.laar-id-grid {
+  display            : grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap                : 5px;
+  margin-bottom      : 6px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BADGES de backend/Python
+   ═══════════════════════════════════════════════════════════════════════════ */
+.laar-backend-ok    .laar-backend-dot { background: #34D399 !important; }
+.laar-backend-error .laar-backend-dot { background: #F87171 !important; }
+.laar-backend-off   .laar-backend-dot { background: var(--laar-g300) !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCROLLBARS — discretas, sin llamar la atención
+   ═══════════════════════════════════════════════════════════════════════════ */
+::-webkit-scrollbar       { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--laar-g100); }
+::-webkit-scrollbar-thumb { background: var(--laar-g300); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--laar-g400); }
