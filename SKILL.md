@@ -69,3 +69,36 @@ Patrones detectados automáticamente:
 | Runtime errors | ❌ No | ✅ Sí |
 | IPC capture | ❌ No | ✅ Sí |
 
+## Lecciones Aprendidas (Evaluación Fases 1-5)
+
+### Validación Exitosa Post-Deployment
+Este skill fue validado en fases 3 (Runtime Monitoring) durante una evaluación comprensiva:
+- **Fase 3 Result**: ✅ PASS - Capturó correctamente 0 ReferenceErrors post-fix
+- **Fase 4 Result**: ✅ PASS - Boot metrics: 2831ms, 6.7% variación
+- **Fase 5 Result**: ✅ PASS - Resilience: Watchdog, fallbacks, port conflict resolution
+
+### Patrón de Errores Cascada Detectado
+Durante refactoring de módulos ES6, se identificó un patrón de errores en cascada:
+- **Problema**: Funciones extraídas perdieron acceso a 14 variables globales
+- **Manifestación**: ReferenceError en zoom, statusDiv, contourCache, objects, etc.
+- **Solución**: viewState pattern centralizado
+- **Rol del Skill**: mao-console-analyzer v2 fue crítico para IDENTIFICAR este patrón
+
+### Recomendaciones para Futuras Extracciones
+1. **Ejecutar ANTES de extraer**:
+   - Usar mao-launch para validar estado actual (SyntaxError, backend, Tier 1 API)
+
+2. **Ejecutar DESPUÉS de extraer**:
+   - Usar mao-console-analyzer inmediatamente para detectar ReferenceError/TypeError
+   - Buscar patrones: múltiples errores de la misma variable sugieren loss of scope
+
+3. **Si se detecta cascada**:
+   - Crear viewState object en módulo extraído
+   - Exportar initializeViewState() para sincronización
+   - Pasar todas las variables globales usadas como parte del state
+
+### Mejoras Futuras Posibles
+- [ ] Agregar patrón matcher para detectar "loss of scope" automáticamente
+- [ ] Sugerir viewState pattern en mensaje de correción
+- [ ] Integrar con mao-launch para reporte unificado
+
