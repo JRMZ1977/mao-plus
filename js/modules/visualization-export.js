@@ -43,11 +43,16 @@
 // ============================================================================
 // IMPORTS & DEPENDENCY MANAGEMENT
 // ============================================================================
-import * as MM from './morphometric-metrics.js';
-import * as CE from './classification-engine.js';
-import * as CQ from './contour-quality.js';
-import * as GP from './geometry-primitives.js';
-import * as UH from './utility-helpers.js';
+// NOTA: el cuerpo de este módulo usa los nombres COMPLETOS de los namespaces
+// (GeometryPrimitives, ClassificationEngine, …), heredados de cuando vivía en
+// el IIFE de analysis-core. Importamos con esos mismos nombres para que las
+// referencias resuelvan vía ESM (no dependemos de globales en window).
+import * as MorphometricMetrics from './morphometric-metrics.js';
+import * as ClassificationEngine from './classification-engine.js';
+import * as ContourQuality from './contour-quality.js';
+import * as GeometryPrimitives from './geometry-primitives.js';
+import * as UtilityHelpers from './utility-helpers.js';
+import * as MetricsOrchestrator from './metrics-orchestrator.js';
 import { generarTablaMetricasCompleta as _generarTablaMetricasCompleta } from './tabla-metricas-completa.js';
 
 // ============================================================================
@@ -203,7 +208,7 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
       // La imagen existe pero todavía está cargando — programar reintento único
       console.warn(`⚠️ [mostrarAnalisis] Imagen aún no cargada para ${obj?.id}. Reintentar al completar carga.`);
       imagenAUsar.addEventListener('load', () => {
-        VisualizationExport.mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica);
+        mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica);
       }, { once: true });
     }
 
@@ -2361,7 +2366,7 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
     // ============================================================================
     // 🆕 GENERAR CANVAS ESQUEMÁTICO - VISTA MORFOMÉTRICA SIN IMAGEN
     // ============================================================================
-    VisualizationExport.generarCanvasEsquematico(obj, metricas);
+    generarCanvasEsquematico(obj, metricas);
     
     // ============================================================================
     // 💾 AUTO-GUARDAR CANVAS EN OBJ — disponible para PDF sin acceder al DOM

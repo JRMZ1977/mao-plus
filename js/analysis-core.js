@@ -305,6 +305,83 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   };
   // ============================================================================
 
+  // ============================================================================
+  // 🌉 PUENTE DE ESTADO IIFE → MÓDULOS ES6
+  // ----------------------------------------------------------------------------
+  // visualization-export.js fue extraído de este IIFE (commit 6ce2e92c) pero
+  // sus funciones (mostrarAnalisisMorfologico, generarCanvasEsquematico, …)
+  // siguen referenciando estas variables como identificadores sueltos. En un
+  // módulo ES6 (siempre strict) esas refs lanzan ReferenceError SALVO que el
+  // nombre exista como propiedad del objeto global. El módulo ya accede así a
+  // otras globales (GeometryPrimitives, maoActivatePanel). Exponemos aquí las
+  // que faltaban, con getters VIVOS (la lectura siempre refleja el valor actual
+  // del IIFE, incluso tras reasignar `image`) y get/set para los contextos que
+  // el módulo asigna perezosamente (morphologicalCtx, idealizedShapeCtx).
+  //
+  // Mismo patrón/lección que el viewState de utility-helpers: al factorizar un
+  // módulo hay que cablear explícitamente las globales del IIFE que usa.
+  // ============================================================================
+  (function bridgeIIFEStateToModules() {
+    // Solo-lectura: el módulo los LEE; el IIFE es el único que los muta. Getters
+    // VIVOS → la lectura refleja el valor actual aunque el IIFE reasigne `image`.
+    // (Los elementos con `id` también se exponen vía named-access window.<id>,
+    //  pero los definimos explícitamente para no depender de ese comportamiento.)
+    const readers = {
+      // Estado de imagen (mutable en runtime)
+      image:                          () => image,
+      imageCaraA:                     () => imageCaraA,
+      imageCaraB:                     () => imageCaraB,
+      // Colecciones de estado (live arrays/objetos del IIFE)
+      objects:                        () => objects,
+      analisisMorfologicos:           () => analisisMorfologicos,
+      // Canvas y contenedores DOM
+      canvas:                         () => canvas,
+      morphologicalCanvas:            () => morphologicalCanvas,
+      morphologicalAnalysisContainer: () => morphologicalAnalysisContainer,
+      morphologicalMetrics:           () => morphologicalMetrics,
+      // Inputs de cámara (usados por las funciones de exportación del módulo)
+      cameraModelInput:               () => cameraModelInput,
+      focalInput:                     () => focalInput,
+      apertureInput:                  () => apertureInput,
+      sensorWidthInput:               () => sensorWidthInput,
+      sensorHeightInput:              () => sensorHeightInput,
+      distanciaInput:                 () => distanciaInput
+    };
+    Object.keys(readers).forEach((k) => {
+      Object.defineProperty(window, k, { get: readers[k], configurable: true });
+    });
+
+    // Lectura+escritura: el módulo asigna estos contextos de canvas la primera
+    // vez que los usa (lazy init) → get+set respaldados por las vars del IIFE.
+    Object.defineProperty(window, 'morphologicalCtx', {
+      get: () => morphologicalCtx,
+      set: (v) => { morphologicalCtx = v; },
+      configurable: true
+    });
+    Object.defineProperty(window, 'idealizedShapeCtx', {
+      get: () => idealizedShapeCtx,
+      set: (v) => { idealizedShapeCtx = v; },
+      configurable: true
+    });
+
+    // Funciones que viven en este IIFE pero que el módulo invoca como
+    // identificadores sueltos (guardado, perforaciones, EFA, comparativo).
+    // Son declaraciones `function` (hoisted) → el getter resuelve en runtime.
+    const fns = {
+      renderPanelEFA:                               () => renderPanelEFA,
+      redibujarMorphologicalCanvasConPerforaciones: () => redibujarMorphologicalCanvasConPerforaciones,
+      guardarAnalisisMorfologico:                   () => guardarAnalisisMorfologico,
+      guardarCanvasEnObjeto:                        () => guardarCanvasEnObjeto,
+      calcularAnalisisComparativo:                  () => calcularAnalisisComparativo,
+      resolverNombreFotografia:                     () => resolverNombreFotografia
+    };
+    Object.keys(fns).forEach((k) => {
+      if (!(k in window)) {
+        Object.defineProperty(window, k, { get: fns[k], configurable: true });
+      }
+    });
+  })();
+
   // Configuración de detección de objetos
   let detectionConfig = {
     minArea: 100,        // Área mínima en píxeles para considerar un objeto válido
@@ -43456,6 +43533,16 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         // Analizar nuevo
         console.log(`🔍 Iniciando análisis morfológico para objeto ${obj.id} (Cara: ${obj.cara || 'Mono'})`);
         analizarObjetoIndividual(obj, imagenCara);
+      }
+
+      // El panel morfológico se renderiza dentro de la pestaña Análisis (LAAR).
+      // Abrir el análisis es una acción explícita de "ver el resultado", así que
+      // desbloqueamos y navegamos a esa pestaña. Sin esto, reabrir un análisis
+      // guardado deja el panel oculto bajo el guard del ADR-001 (que mantiene
+      // Análisis bloqueado hasta una detección fresca en la sesión).
+      if (window.maoTabRouter) {
+        window.maoTabRouter.unlock('analisis');
+        window.maoTabRouter.go('analisis');
       }
     });
     
