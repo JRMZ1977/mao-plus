@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, protocol } = require('electron');
 const path   = require('path');
 const os     = require('os');
 const { spawn } = require('child_process');
@@ -57,6 +57,50 @@ if (isDev) {
   // Eliminar esta línea una vez migrado a esquema app://.
   app.commandLine.appendSwitch('disable-features', 'OutOfBlinkCors');
 }
+
+// ── Esquema custom `app://` ────────────────────────────────────────────────
+// Servir la app desde un esquema standard propio (app://mao/...) en lugar de
+// file://. Motivo: cargar ~30 <script> desde file:// en paralelo dispara de
+// forma intermitente `net::ERR_FAILED` en arranque en frío (bug de concurrencia
+// del esquema file:// en Chromium), lo que a veces impedía que cargara
+// js/mao-tab-router.js → la barra de pestañas LAAR no aparecía. Un esquema
+// `standard` pasa por el manejador de protocolo de Electron y no sufre ese bug.
+// registerSchemesAsPrivileged DEBE llamarse antes de 'ready'.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'app',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true
+    }
+  }
+]);
+
+// Tipos MIME para el manejador de protocolo app://
+const APP_MIME = {
+  '.html': 'text/html',
+  '.js':   'text/javascript',
+  '.mjs':  'text/javascript',
+  '.css':  'text/css',
+  '.json': 'application/json',
+  '.map':  'application/json',
+  '.png':  'image/png',
+  '.jpg':  'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif':  'image/gif',
+  '.webp': 'image/webp',
+  '.svg':  'image/svg+xml',
+  '.ico':  'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2':'font/woff2',
+  '.ttf':  'font/ttf',
+  '.otf':  'font/otf',
+  '.wasm': 'application/wasm',
+  '.txt':  'text/plain'
+};
 
 // ============================================================================
 // SERVIDOR PYTHON — arranque y apagado
@@ -403,7 +447,7 @@ function createWindow() {
     backgroundColor: '#f5f5f5'
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  mainWindow.loadURL('app://mao/index.html');
   attachRendererMonitor(mainWindow, 'main');
 
   /* Deshabilitar zoom nativo — LAAR usa alturas fijas en px para tabbar */
@@ -950,6 +994,27 @@ ipcMain.handle('fs-validate-analysis', async (_, { analysisPath }) => {
 
 app.whenReady().then(async () => {
   bootMetrics.t_electron_ready = Date.now();
+
+  // 0. Registrar el manejador del esquema app:// (sirve archivos locales bajo
+  //    APP_DIR de forma fiable, sin el bug de concurrencia de file://).
+  protocol.handle('app', async (request) => {
+    try {
+      const url = new URL(request.url);
+      let rel = decodeURIComponent(url.pathname);
+      if (!rel || rel === '/') rel = '/index.html';
+      const filePath = path.normalize(path.join(APP_DIR, rel));
+      // Anti path-traversal: el archivo debe quedar dentro de APP_DIR
+      if (filePath !== APP_DIR && !filePath.startsWith(APP_DIR + path.sep)) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      const data = await fsP.readFile(filePath);
+      const ext  = path.extname(filePath).toLowerCase();
+      const type = APP_MIME[ext] || 'application/octet-stream';
+      return new Response(data, { status: 200, headers: { 'Content-Type': type } });
+    } catch (e) {
+      return new Response('Not Found: ' + (e && e.message), { status: 404 });
+    }
+  });
 
   // 1. Arrancar servidor Python
   console.log('[MAO Boot] ▶ Iniciando booteo de aplicación...');
