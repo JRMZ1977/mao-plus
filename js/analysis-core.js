@@ -43499,15 +43499,15 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       redraw();
       
       actualizarProgreso(progressContainer, 70, 'Extrayendo metadatos JPG...');
-      const exifData = await UtilityHelpers.cargarMetadatos(file);
-      
+      const exifData = await cargarMetadatos(file);
+
       // Guardar referencia y verificar archivos complementarios (SIN procesar automáticamente)
       archivoJPGActual = file;
       nombreFotografiaOriginal = file.name || '';
       archivosComplementarios.metadatosJPG = exifData;
-      
+
       // Procesar metadatos solo para completar campos, sin cálculos
-      UtilityHelpers.procesarMetadatos(exifData, false);
+      procesarMetadatos(exifData, false);
       // Actualizar preview si el modo de identificación es 'fotografia'
       actualizarPreviewFotografia();
       
@@ -43519,11 +43519,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       actualizarEstadoProcesamiento();
       
     } catch (error) {
+      console.error('Error cargando JPG:', error);
       actualizarProgreso(progressContainer, 0, `Error: ${error.message}`, true);
       setTimeout(() => removerIndicadorProgreso(progressContainer), 3000);
     }
   });
-  
+
   // === FUNCIONES PARA INDICADORES DE PROGRESO ===
   
   /**
@@ -44663,13 +44664,27 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       await validarArchivoImagen(file);
       
       actualizarProgreso(progressContainer, 40, `Extrayendo metadatos ${rawFormat.toUpperCase()}...`);
-      
-      // Extraer metadatos del archivo RAW
-      const exifData = await UtilityHelpers.cargarMetadatos(file);
-      
+
+      // Extraer metadatos del archivo RAW — CR3 y otros formatos no soportados por exifr
+      // quedan con metadatos null; el usuario puede ingresar los parámetros manualmente.
+      let exifData = null;
+      try {
+        exifData = await cargarMetadatos(file);
+      } catch (metaError) {
+        const esFormatoNoSoportado = metaError.message.includes('Unknown file format') ||
+                                     metaError.message.includes('sin metadatos EXIF') ||
+                                     metaError.message.includes('vacíos o no legibles');
+        if (esFormatoNoSoportado) {
+          console.warn(`⚠ Metadatos ${rawFormat.toUpperCase()} no legibles (${metaError.message}). Ingrese parámetros de cámara manualmente.`);
+          UtilityHelpers.setStatus(`Archivo ${rawFormat.toUpperCase()} cargado. Metadatos no disponibles — ingrese focal, sensor y apertura manualmente.`, false);
+        } else {
+          throw metaError;
+        }
+      }
+
       // Procesar metadatos RAW (SIN cálculos automáticos)
       actualizarProgreso(progressContainer, 70, 'Preparando metadatos RAW...');
-      
+
       // Guardar referencia del archivo RAW para análisis futuro
       window.archivoRAWActual = {
         archivo: file,
@@ -44677,25 +44692,27 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         metadatos: exifData,
         fechaProcesamiento: new Date()
       };
-      
-      // Procesar metadatos solo para completar campos, sin cálculos
-      const procesoExitoso = UtilityHelpers.procesarMetadatos(exifData, true);
-      
+
+      // Poblar campos de cámara si se obtuvieron metadatos
+      if (exifData) {
+        procesarMetadatos(exifData, true);
+      }
+
       actualizarProgreso(progressContainer, 100, `Archivo ${rawFormat.toUpperCase()} preparado para procesamiento.`);
       setTimeout(() => removerIndicadorProgreso(progressContainer), 1000);
-      
-      console.log(`Archivo ${rawFormat.toUpperCase()} cargado exitosamente:`, {
+
+      console.log(`Archivo ${rawFormat.toUpperCase()} cargado:`, {
         nombre: file.name,
         formato: rawFormat,
-        fabricante: exifData.Make,
-        modelo: exifData.Model
+        fabricante: exifData?.Make ?? '(sin EXIF)',
+        modelo: exifData?.Model ?? '(sin EXIF)'
       });
-      
+
       // Verificar archivos complementarios y actualizar estado
       archivosComplementarios.metadatosRAW = exifData;
       actualizarArchivosComplementarios();
       actualizarEstadoProcesamiento();
-      
+
     } catch (error) {
       console.error(`Error procesando ${rawFormat.toUpperCase()}:`, error);
       actualizarProgreso(progressContainer, 0, `Error procesando ${rawFormat.toUpperCase()}: ${error.message}`, true);
@@ -45170,7 +45187,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         
         // Extraer metadatos
         actualizarProgreso(progressContainer, 70, `Extrayendo metadatos JPG Cara ${cara}...`);
-        metadatos = await UtilityHelpers.cargarMetadatos(file);
+        metadatos = await cargarMetadatos(file);
         
         // Guardar datos según la cara
         if (cara === 'A') {
@@ -45204,8 +45221,19 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         await validarArchivoImagen(file);
         
         actualizarProgreso(progressContainer, 60, `Extrayendo metadatos ${rawFormat.toUpperCase()} Cara ${cara}...`);
-        metadatos = await UtilityHelpers.cargarMetadatos(file);
-        
+        try {
+          metadatos = await cargarMetadatos(file);
+        } catch (metaError) {
+          const esFormatoNoSoportado = metaError.message.includes('Unknown file format') ||
+                                       metaError.message.includes('sin metadatos EXIF') ||
+                                       metaError.message.includes('vacíos o no legibles');
+          if (esFormatoNoSoportado) {
+            console.warn(`⚠ Metadatos ${rawFormat.toUpperCase()} Cara ${cara} no legibles. Ingrese parámetros manualmente.`);
+          } else {
+            throw metaError;
+          }
+        }
+
         // Guardar datos según la cara
         if (cara === 'A') {
           archivosComplementariosCaraA.raw = file;
@@ -45214,15 +45242,15 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           archivosComplementariosCaraB.raw = file;
           archivosComplementariosCaraB.metadatosRAW = metadatos;
         }
-        
+
         if (statusElement) {
           statusElement.innerHTML = `<span style="color: #17a2b8;">RAW cargado (${rawFormat.toUpperCase()})</span>`;
         }
       }
-      
+
       // Procesar metadatos (solo completar campos, sin cálculos)
       if (metadatos) {
-        UtilityHelpers.procesarMetadatos(metadatos, tipo === 'raw');
+        procesarMetadatos(metadatos, tipo === 'raw');
       }
       
       actualizarProgreso(progressContainer, 90, 'Verificando coherencia entre caras...');

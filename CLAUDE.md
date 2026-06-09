@@ -223,3 +223,44 @@ Verificado lanzando la app real en Electron (no solo `node -c`/health). Las pest
 
 ### Reversibilidad
 Comentar el `<link>` de `mao-tabs-laar.css` (incl. la estética) y el `<script>` del router en `index.html` restaura el sidebar + estilo "cuaderno de campo" originales.
+
+## Fix: Carga de Imagen + Metadatos EXIF + CR3 (2026-06-09)
+
+Verificado en Electron. Problema reportado: "al cargar la imagen no se carga y no lee los metadatos".
+
+### Causa Raíz
+
+Dos bugs independientes en `js/analysis-core.js`:
+
+**Bug 1 — scope IIFE vs módulo ES6 (JPG + RAW)**
+`UtilityHelpers.procesarMetadatos()` y `UtilityHelpers.cargarMetadatos()` son funciones exportadas desde `utility-helpers.js`. Esa versión del módulo referencia `cameraModelInput`, `focalInput`, `apertureInput`, `sensorWidthInput`, `sensorHeightInput` y `sensorSizes` como variables sueltas — pero esas variables viven dentro del IIFE de `analysis-core.js`, no en el scope del módulo ni en `window`. Resultado: `ReferenceError` silencioso capturado por el `try/catch` del handler, que:
+- Dejaba los campos de cámara vacíos
+- No actualizaba el estado (`actualizarEstadoProcesamiento()` nunca corría)
+- El status quedaba "MAO listo. Cargue una imagen..."
+
+Existen versiones locales correctas en el mismo IIFE: `cargarMetadatos()` (línea ~13245) y `procesarMetadatos()` (línea ~13341) que sí tienen acceso a todo el scope.
+
+**Bug 2 — CR3 no soportado por exifr.js**
+`exifr.js` (full.umd.js v7.1.3) no implementa el parser CR3 de Canon (formato ISOBMFF/`ftyp crx`). `exifr.parse()` lanza "Unknown file format". El error no era manejado: el RAW CR3 no quedaba registrado y el flujo se cortaba.
+
+### Fix Aplicado
+
+| # | Llamada anterior | Llamada corregida | Afecta |
+|---|-----------------|-------------------|--------|
+| 1 | `UtilityHelpers.cargarMetadatos(file)` | `cargarMetadatos(file)` | JPG handler |
+| 2 | `UtilityHelpers.procesarMetadatos(exifData, false)` | `procesarMetadatos(exifData, false)` | JPG handler |
+| 3 | `UtilityHelpers.cargarMetadatos(file)` | `cargarMetadatos(file)` | RAW handler |
+| 4 | `UtilityHelpers.procesarMetadatos(exifData, true)` | `procesarMetadatos(exifData, true)` | RAW handler |
+| 5 | `UtilityHelpers.cargarMetadatos(file)` | `cargarMetadatos(file)` | bifacial JPG cara A/B |
+| 6 | `UtilityHelpers.cargarMetadatos(file)` | `cargarMetadatos(file)` | bifacial RAW cara A/B |
+| 7 | `UtilityHelpers.procesarMetadatos(metadatos, ...)` | `procesarMetadatos(metadatos, ...)` | bifacial handler |
+
+**CR3 graceful**: En los handlers RAW (monofacial y bifacial), `cargarMetadatos` ahora está envuelto en su propio try-catch. Si el error es "Unknown file format" / "sin metadatos EXIF" / "vacíos o no legibles", el archivo queda registrado con `metadatos: null` y muestra: _"Archivo CR3 cargado. Metadatos no disponibles — ingrese focal, sensor y apertura manualmente."_
+
+### Resultado Verificado (Electron)
+- ✅ JPG carga, canvas muestra imagen, campos de cámara se pueblan desde EXIF (CANON EOS R8, focal 100mm, f/8, sensor 35.9×23.9mm)
+- ✅ CR3 se registra sin crash; advertencia clara en status y consola
+- ✅ Modo híbrido JPG+RAW activo: "Listo para calcular escala híbrida JPG+RAW"
+
+### Gotcha Permanente: funciones duplicadas en analysis-core.js vs utility-helpers.js
+`utility-helpers.js` contiene versiones de `cargarMetadatos` y `procesarMetadatos` que **NO funcionan** desde el módulo porque usan variables del IIFE. Las funciones locales del IIFE (sin prefijo `UtilityHelpers.`) son las correctas. No usar `UtilityHelpers.cargarMetadatos` ni `UtilityHelpers.procesarMetadatos` desde dentro del IIFE.
