@@ -61,6 +61,35 @@ Patrones detectados automáticamente:
 - TypeError → verificar export/import
 - Cannot find module → verificar ruta
 
+### PASO 9: Inspección de DOM/CSS en runtime (bugs silenciosos de layout)
+
+Algunos bugs NO lanzan error (no aparecen en logs ni IPC): layout roto, elementos
+ocultos, CSS que no aplica. `node -c` y el health check tampoco los ven. Para
+detectarlos, inspecciona el DOM real desde el main process volcando a stdout:
+
+```js
+// Insertar temporal en main.js (did-finish-load) y revertir tras verificar:
+mainWindow.webContents.executeJavaScript(`(()=>{
+  var el = document.getElementById('ELEMENTO_SOSPECHOSO');
+  var r = el ? el.getBoundingClientRect() : null;
+  return JSON.stringify({
+    existe: !!el,
+    rect: r && { x:Math.round(r.x), y:Math.round(r.y), w:Math.round(r.width), h:Math.round(r.height) },
+    display: el && getComputedStyle(el).display,
+    zIndex: el && getComputedStyle(el).zIndex,
+    tapadoPor: el && r ? (document.elementFromPoint(r.x+r.width/2, r.y+r.height/2)||{}).id : null
+  });
+})()`).then(r => console.log('[DIAG]', r));
+```
+
+Esto es MÁS FIABLE que la consola de DevTools (que, acoplada, queda cortada en
+pantalla). Para saber qué reglas CSS ganan, iterar `document.styleSheets` y probar
+`el.matches(rule.selectorText)`.
+
+**⚠️ Caché de CSS `file://`**: Electron sirve versiones cacheadas del CSS entre
+relanzamientos. Si un cambio de CSS "no aplica", probablemente no se recargó: bump
+el `?v=` del `<link>` en `index.html` (o limpia caché) antes de concluir nada.
+
 ## Diferencias v1 → v2
 
 | Aspecto | v1 | v2 |
@@ -68,6 +97,7 @@ Patrones detectados automáticamente:
 | ReferenceError detection | ❌ No | ✅ Sí |
 | Runtime errors | ❌ No | ✅ Sí |
 | IPC capture | ❌ No | ✅ Sí |
+| Bugs de layout/CSS (silenciosos) | ❌ No | ✅ Sí (PASO 9, inspección de DOM) |
 
 ## Lecciones Aprendidas (Evaluación Fases 1-5)
 

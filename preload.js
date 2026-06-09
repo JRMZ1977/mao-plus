@@ -148,27 +148,11 @@ console.log('✅ Preload completado — contextBridge activo');
   console.log('🔴 Error reporter activo — capturando errores del renderer');
 })();
 
-// ── API del Router de Pestañas LAAR (contextBridge) ──────────────────────────
-// Accesible como window.maoTabRouter — comunicación directa con el DOM.
-// (El router se implementa en js/mao-tab-router.js con acceso al DOM local)
-contextBridge.exposeInMainWorld('maoTabRouter', {
-  go       : (id)    => { if (window.maoTabRouter?.go) window.maoTabRouter.go(id); },
-  markDone : (id)    => { if (window.maoTabRouter?.markDone) window.maoTabRouter.markDone(id); },
-  unmarkDone: (id)   => { if (window.maoTabRouter?.unmarkDone) window.maoTabRouter.unmarkDone(id); },
-  unlock   : (id)    => { if (window.maoTabRouter?.unlock) window.maoTabRouter.unlock(id); },
-  lock     : (id)    => { if (window.maoTabRouter?.lock) window.maoTabRouter.lock(id); },
-  setBadge : (id, n) => { if (window.maoTabRouter?.setBadge) window.maoTabRouter.setBadge(id, n); },
-  next     : ()      => { if (window.maoTabRouter?.next) window.maoTabRouter.next(); },
-  prev     : ()      => { if (window.maoTabRouter?.prev) window.maoTabRouter.prev(); },
-  getState : ()      => window.maoTabRouter?.getState() || {}
-});
-
-// Reemitir eventos IPC del proceso principal como CustomEvents del DOM
-ipcRenderer.on('mao:detection:done', () =>
-  document.dispatchEvent(new CustomEvent('mao:detection:done')));
-ipcRenderer.on('mao:analysis:done', () =>
-  document.dispatchEvent(new CustomEvent('mao:analysis:done')));
-ipcRenderer.on('mao:project:saved', () =>
-  document.dispatchEvent(new CustomEvent('mao:project:saved')));
-
-console.log('📑 Tab Router API expuesto vía contextBridge');
+// ── Router de Pestañas LAAR ───────────────────────────────────────────────────
+// NO se expone vía contextBridge: el router (js/mao-tab-router.js) corre en el
+// main world del renderer y define window.maoTabRouter directamente. Exponerlo
+// aquí creaba una propiedad de solo-lectura que el router no podía sobreescribir
+// (TypeError "Cannot assign to read only property 'maoTabRouter'") y cuyos
+// métodos eran auto-referenciales. El relay IPC se eliminó porque main.js nunca
+// emite mao:detection:done / mao:analysis:done / mao:project:saved; esos eventos
+// se disparan ahora en el propio renderer (ver js/mao-tab-router.js).

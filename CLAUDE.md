@@ -6,20 +6,26 @@ Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
 ## 🎯 Fase Actual: Migración UI Pestañas LAAR
 
-**Estado:** ✅ **Fases A-B COMPLETADAS** (commit: `5bdfb61`, 2026-06-08)
+**Estado:** ✅ **Fases A-B + fixes de runtime + estética COMPLETADAS** (Fases A-B: commit `5bdfb61`, 2026-06-08 · fixes runtime + estética: 2026-06-09, verificados visualmente en Electron)
 
 La interfaz está en transición del modelo **sidebar-scroll** al modelo de **pestañas de flujo LAAR** (Proyecto → Captura → Análisis → Resultados). Arquitectura **Strangler Fig**: las pestañas envuelven la navegación existente sin tocar lógica de negocio.
 
-**Implementado:**
+**Implementado (A-B):**
 - A3: API DOM nativa (compatible CSP `script-src 'self'`)
 - A4: Persistencia de estado con sessionStorage
 - A5: Guard HMR en buildTabBar()
 - B1: contextBridge para maoTabRouter
-- B2: BrowserWindow: `frame: false`, zoom deshabilitado
-- B3: Meta CSP stricta en index.html
+- B2: BrowserWindow: `titleBarStyle: 'hiddenInset'` (conserva semáforos macOS), zoom deshabilitado
+- B3: Meta CSP en index.html
 - B4: `-webkit-app-region: drag` para arrastre nativo
 
-**Referencia:** `/MIGRACION A PESTAÑAS/IMPLEMENTACION_COMPLETADA.md`
+**Fixes de runtime (2026-06-09)** — bugs que `node -c` y health check NO detectan, solo runtime visual:
+- El tabbar se construía pero quedaba **oculto bajo el header fijo** (`#maoHeader` z9000 vs tabbar z10, ambos en y=0). Fix: `body { padding-top: var(--laar-topbar-h) }` en `mao-tabs-laar.css` (la regla previa `body,html{padding:0}` anulaba la compensación del header de `main.css`).
+- El contenido de la pestaña activa quedaba en `display:none`: la nav legacy (`sidebar-nav.js`/`object-dimension-mode.js`) oculta secciones con `.mao-panel--hidden` (`!important`) y corre EN `DOMContentLoaded`, DESPUÉS del router (`defer`). Fix: el router ahora usa esa misma clase autoritativa (`setSectionVisible`) y re-afirma la pestaña activa en un listener `DOMContentLoaded` registrado en boot (corre último).
+
+**Estética LAAR (2026-06-09)** — extendida del tabbar a los componentes en `mao-tabs-laar.css` (sección "ESTÉTICA LAAR — COMPONENTES", acotada a `.mao-main`, reversible): fieldsets/tarjetas planos (radio 4px, borde 0.5px, sin sombra), botones (secundario blanco + acento único azul para primarias; rojo/ámbar semánticos), tabs legacy CMO (anti-arcoíris) y bifacial. Pendiente verificar CMO/bifacial con datos reales; inputs/selects fuera de esta pasada.
+
+**⚠️ Gotcha de caché:** el CSS `file://` se cachea entre relanzamientos. Al editar un `.css`, bump el `?v=` de su `<link>` en `index.html` (mao-tabs-laar.css ya está versionado: `?v=20260609b`).
 
 ## Tech Stack
 - **Electron** (main.js + preload.js) — desktop shell
@@ -173,16 +179,16 @@ export function canvasToImageCoords(x, y) {
 | A4 | sessionStorage persistence | `js/mao-tab-router.js` | Estado sobrevive `Ctrl+R` |
 | A5 | HMR-safe guard | `js/mao-tab-router.js` | Eliminación explícita previo rebuild |
 | B1 | contextBridge maoTabRouter | `preload.js` | Exposición segura del API |
-| B2 | Electron BrowserWindow | `main.js` | `frame: false`, zoom disabled |
+| B2 | Electron BrowserWindow | `main.js` | `titleBarStyle: 'hiddenInset'`, zoom disabled |
 | B3 | Meta CSP | `index.html` | `default-src 'self'` |
 | B4 | webkit-app-region | `css/mao-tabs-laar.css` | Arrastre nativo macOS/Windows |
 
 **Archivos clave:**
-- `js/mao-tab-router.js` — LAAR tab router + state management
-- `css/mao-tabs-laar.css` — Design tokens LAAR + layout tabbar
-- `main.js` — BrowserWindow config (frame: false, zoom)
+- `js/mao-tab-router.js` — LAAR tab router + state management + `setSectionVisible` (clase autoritativa `.mao-panel--hidden`)
+- `css/mao-tabs-laar.css` — Design tokens LAAR + layout tabbar + sección "ESTÉTICA LAAR — COMPONENTES"
+- `main.js` — BrowserWindow config (`titleBarStyle: 'hiddenInset'`, zoom)
 - `preload.js` — contextBridge API exposure
-- `index.html` — CSP meta + script/css links
+- `index.html` — CSP meta + script/css links (con `?v=` cache-busting)
 
 ### Reversibilidad
 Comentar 2 líneas en `index.html` restaura sidebar original:
@@ -196,3 +202,24 @@ Comentar 2 líneas en `index.html` restaura sidebar original:
 - **C2**: HMR testing con Vite
 - **C3**: Font fallback para Linux
 - **D1-D4**: DevTools validation checklist
+
+## Migración LAAR — Fixes de Runtime + Estética (2026-06-09)
+
+Verificado lanzando la app real en Electron (no solo `node -c`/health). Las pestañas ahora se ven y funcionan, y la estética LAAR se extendió a los componentes.
+
+### Cambios
+
+| # | Problema | Archivo | Fix |
+|---|----------|---------|-----|
+| R1 | Tabbar oculto bajo el header fijo (`#maoHeader` z9000 vs tabbar z10, ambos y=0) | `css/mao-tabs-laar.css` | `body { padding-top: var(--laar-topbar-h) }` (la regla previa `body,html{padding:0}` anulaba la compensación de `main.css`) |
+| R2 | Secciones de la pestaña activa en `display:none` por la nav legacy (`.mao-panel--hidden !important`, corre en DOMContentLoaded tras el router `defer`) | `js/mao-tab-router.js` | `setSectionVisible` usa la clase autoritativa; re-afirmado en listener `DOMContentLoaded` registrado en boot (corre último) |
+| E1 | Estética LAAR solo en tabbar/topbar | `css/mao-tabs-laar.css` | Sección "ESTÉTICA LAAR — COMPONENTES" (`.mao-main`): fieldsets/tarjetas planos, botones (secundario blanco + azul primario, rojo/ámbar), tabs CMO/bifacial |
+| E2 | Botones estilizados por ID en `main.css` (especificidad 1,0,0) | `css/mao-tabs-laar.css` | `!important` en la capa override (main.css no usa `!important` en botones) |
+
+### Lecciones
+- **Validar pestañas/CSS exige runtime visual o inspección del DOM**, no basta con `node -c` + health check (no ven layout/CSS).
+- **Caché de CSS `file://`**: bump `?v=` en `index.html` al editar cualquier `.css`, o el cambio no se ve al relanzar.
+- **Inspección de DOM/CSS en runtime fiable**: `mainWindow.webContents.executeJavaScript(...)` desde `main.js` volcando a stdout (la consola de DevTools acoplada queda cortada).
+
+### Reversibilidad
+Comentar el `<link>` de `mao-tabs-laar.css` (incl. la estética) y el `<script>` del router en `index.html` restaura el sidebar + estilo "cuaderno de campo" originales.

@@ -23176,7 +23176,10 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       window.maoActivatePanel('morphologicalAnalysisContainer');
     }
     morphologicalAnalysisContainer.style.display = 'block';
-    
+
+    // ── LAAR Tab Router: análisis morfológico renderizado (idempotente) ──
+    document.dispatchEvent(new CustomEvent('mao:analysis:done'));
+
     // Configurar canvas morfológico
     if (!morphologicalCtx) {
       morphologicalCtx = morphologicalCanvas.getContext('2d');
@@ -44388,7 +44391,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       setTimeout(() => removerIndicadorProgreso(progressContainer), 2000);
       
       UtilityHelpers.setStatus(mensaje, false);
-      
+
+      // ── LAAR Tab Router: detección completada (cubre rutas YOLO y JS) ──
+      if (objects.length > 0) {
+        document.dispatchEvent(new CustomEvent('mao:detection:done'));
+      }
+
       console.log(`🎯 === DETECCIÓN AUTOMÁTICA COMPLETADA ===
       • Objetos detectados: ${objects.length}
       • Escala utilizada: ${scale.toFixed(6)} mm/píxel

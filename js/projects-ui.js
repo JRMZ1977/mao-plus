@@ -248,7 +248,10 @@ function initProjectsUI() {
       }
       
       console.log('✅ Proyecto guardado, cerrando modal...');
-      
+
+      // ── LAAR Tab Router: proyecto guardado ──
+      document.dispatchEvent(new CustomEvent('mao:project:saved'));
+
       projectModalOverlay.classList.remove('active');
       renderProjectsList();
       updateActiveProjectIndicator();

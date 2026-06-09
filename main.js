@@ -387,8 +387,11 @@ function createWindow() {
     height: 900,
     minWidth: 1000,
     minHeight: 700,
-    frame: false,              // LAAR: Eliminar barra nativa (topbar propio)
-    titleBarStyle: 'hidden',   // Permitir arrastre en macOS sin barra nativa
+    // LAAR: barra nativa oculta pero conservando los controles de ventana
+    // (semáforos macOS). Antes era `frame: false` + `titleBarStyle: 'hidden'`,
+    // lo que eliminaba minimizar/maximizar/cerrar sin reemplazo en el header.
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 14, y: 12 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,

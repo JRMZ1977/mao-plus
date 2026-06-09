@@ -72,7 +72,9 @@
       sections : [
         'sectionAnalisis3D',               // Descriptores morfológicos 3D
         'morphologicalAnalysisContainer',  // Panel maestro de resultados 2D
-        'bifacialComparisonsSection'       // Comparación bifacial
+        'bifacialComparisonsSection',      // Comparación bifacial
+        'sidebarResultCard',               // Resumen de resultado (reubicado del sidebar)
+        'sidebarActionsSection'            // Perforaciones + exportar + nuevo análisis (reubicado)
       ],
       locked   : false
     },
@@ -82,7 +84,9 @@
       icon     : '④',
       sections : [
         'resultadosPanel',              // Panel maestro de resultados
-        'comparadorMultiObjetoSection'  // Comparador multi-objeto (CMO)
+        'comparadorMultiObjetoSection', // Comparador multi-objeto (CMO)
+        'sidebarResultCard',            // Resumen de resultado (reubicado del sidebar)
+        'sidebarActionsSection'         // Perforaciones + exportar + nuevo análisis (reubicado)
       ],
       locked   : false
     }
@@ -104,6 +108,68 @@
   });
 
   /* ═══════════════════════════════════════════════════════════════════════
+     REUBICAR CONTROLES HUÉRFANOS DEL SIDEBAR
+     El sidebar (#maoSidebar) se oculta porque las pestañas reemplazan la
+     navegación. Pero el resumen de resultado y la sección de acciones
+     (Perforaciones, Exportar CSV/PDF/SVG/PNG, Nuevo Análisis) vivían dentro
+     del sidebar y quedaban inaccesibles. Se mueven al contenedor de contenido
+     (preservando IDs y listeners) y se registran en las pestañas Análisis y
+     Resultados (ver TABS). Mover el nodo conserva su cableado legacy
+     (sidebar-nav.js delega los clicks a los botones reales ocultos).
+  ═══════════════════════════════════════════════════════════════════════ */
+  function relocateOrphanedControls() {
+    var host = (
+      document.querySelector('.mao-main .container') ||
+      document.getElementById('mainContent') ||
+      document.querySelector('main') ||
+      document.body
+    );
+    if (!host) return;
+    ['sidebarResultCard', 'sidebarActionsSection'].forEach(function (id) {
+      var node = document.getElementById(id);
+      if (node && node.parentElement !== host) {
+        host.appendChild(node);
+      }
+    });
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     TECLADO DEL TABLIST (patrón ARIA: flechas mueven foco y activan)
+  ═══════════════════════════════════════════════════════════════════════ */
+  function firstUnlockedFrom(startIdx, dir) {
+    var n = TABS.length;
+    for (var i = 0; i < n; i++) {
+      var idx = ((startIdx + dir * i) % n + n) % n;
+      if (state.locked.indexOf(TABS[idx].id) === -1) return idx;
+    }
+    return -1;
+  }
+
+  function handleTabKeydown(e, tabId) {
+    var idx = TABS.findIndex(function (t) { return t.id === tabId; });
+    if (idx === -1) return;
+
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (state.locked.indexOf(tabId) === -1) router.go(tabId);
+      return;
+    }
+
+    var target = -1;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') target = firstUnlockedFrom(idx + 1, 1);
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') target = firstUnlockedFrom(idx - 1, -1);
+    else if (e.key === 'Home') target = firstUnlockedFrom(0, 1);
+    else if (e.key === 'End') target = firstUnlockedFrom(TABS.length - 1, -1);
+    else return;
+
+    e.preventDefault();
+    if (target === -1) return;
+    router.go(TABS[target].id);
+    var el = document.getElementById('maoTab-' + TABS[target].id);
+    if (el) el.focus();
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
      CONSTRUIR TABBAR
      Inyecta <div id="maoTabBar"> antes del contenedor de secciones.
   ═══════════════════════════════════════════════════════════════════════ */
@@ -116,61 +182,38 @@
     var bar = document.createElement('div');
     bar.id = 'maoTabBar';
     bar.className = 'mao-tabbar';
-    /* Inline styles para garantizar visibilidad */
-    bar.style.display = 'flex';
-    bar.style.height = '32px';
-    bar.style.backgroundColor = '#E5E7EB';
-    bar.style.alignItems = 'flex-end';
-    bar.style.padding = '0 12px';
-    bar.style.gap = '1px';
-    bar.style.borderBottom = '1px solid #D1D5DB';
+    /* Estilos provienen de css/mao-tabs-laar.css (.mao-tabbar). No se usan
+       estilos inline: anulaban las reglas de hover/done/indicador del CSS. */
+    bar.setAttribute('role', 'tablist');
+    bar.setAttribute('aria-label', 'Flujo de trabajo MAO');
 
     TABS.forEach(function (tab) {
       var el = document.createElement('div');
       el.className = 'mao-tab';
+      el.id = 'maoTab-' + tab.id;
       el.setAttribute('data-tab', tab.id);
       el.setAttribute('role', 'tab');
       el.setAttribute('aria-selected', 'false');
-      /* Inline styles para visibilidad */
-      el.style.padding = '5px 14px';
-      el.style.fontSize = '10px';
-      el.style.fontWeight = '500';
-      el.style.cursor = 'pointer';
-      el.style.color = '#6B7280';
-      el.style.background = '#F3F4F6';
-      el.style.display = 'flex';
-      el.style.alignItems = 'center';
-      el.style.gap = '5px';
-      el.style.whiteSpace = 'nowrap';
+      el.setAttribute('tabindex', '-1');   // roving tabindex (lo ajusta updateTabBarUI)
+      if (tab.sections && tab.sections.length) {
+        el.setAttribute('aria-controls', tab.sections.join(' '));
+      }
 
       if (state.locked.indexOf(tab.id) !== -1) {
         el.classList.add('mao-tab--locked');
         el.setAttribute('aria-disabled', 'true');
       }
 
-      /* API DOM nativa — compatible con CSP 'script-src self' */
       var indicator = document.createElement('span');
       indicator.className = 'tab-indicator';
-      indicator.style.width = '5px';
-      indicator.style.height = '5px';
-      indicator.style.borderRadius = '50%';
-      indicator.style.background = '#D1D5DB';
-      indicator.style.flexShrink = '0';
-      indicator.style.marginRight = '6px';
 
       var iconSpan = document.createElement('span');
       iconSpan.className = 'tab-icon';
-      iconSpan.style.fontStyle = 'normal';
-      iconSpan.style.fontSize = '14px';
-      iconSpan.style.fontWeight = '600';
-      iconSpan.style.color = '#6B7280';
-      iconSpan.style.marginRight = '4px';
+      iconSpan.setAttribute('aria-hidden', 'true');
       iconSpan.textContent = tab.icon || '';
 
       var labelSpan = document.createElement('span');
       labelSpan.className = 'tab-label';
-      labelSpan.style.fontSize = '10px';
-      labelSpan.style.color = '#6B7280';
       labelSpan.textContent = tab.label;
 
       el.appendChild(indicator);
@@ -182,6 +225,10 @@
         if (state.locked.indexOf(tab.id) === -1) {
           router.go(tab.id);
         }
+      });
+
+      el.addEventListener('keydown', function (e) {
+        handleTabKeydown(e, tab.id);
       });
 
       bar.appendChild(el);
@@ -220,6 +267,29 @@
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
+     VISIBILIDAD AUTORITATIVA DE SECCIONES
+     La navegación legacy (sidebar-nav.js / object-dimension-mode.js) oculta
+     paneles con la clase .mao-panel--hidden, definida en main.css como
+     `display:none !important`. Si el router mostrara secciones solo con
+     `style.display = ''`, NO podría vencer a ese !important y las secciones de
+     la pestaña activa quedarían ocultas. Además la navegación legacy corre en
+     DOMContentLoaded (después del router, que es `defer`) y re-oculta.
+     Por eso el router usa la MISMA clase:
+       - ocultar  → añade .mao-panel--hidden (gana a cualquier style.display)
+       - mostrar  → quita la clase y limpia el inline (vuelve al display natural)
+  ═══════════════════════════════════════════════════════════════════════ */
+  var HIDDEN_CLASS = 'mao-panel--hidden';
+  function setSectionVisible(el, show) {
+    if (!el) return;
+    if (show) {
+      el.classList.remove(HIDDEN_CLASS);
+      el.style.display = '';
+    } else {
+      el.classList.add(HIDDEN_CLASS);
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
      MOSTRAR / OCULTAR SECCIONES
   ═══════════════════════════════════════════════════════════════════════ */
   function showSectionsFor(tabId) {
@@ -231,13 +301,10 @@
       });
     });
 
-    /* Ocultar todas */
+    /* Ocultar todas (vía .mao-panel--hidden, ver setSectionVisible). No se
+       manipula la clase genérica 'active' (la usa la lógica legacy). */
     allSections.forEach(function (sid) {
-      var el = document.getElementById(sid);
-      if (el) {
-        el.style.display = 'none';
-        el.classList.remove('mao-pane--active', 'active');
-      }
+      setSectionVisible(document.getElementById(sid), false);
     });
 
     /* Mostrar las de la pestaña activa */
@@ -247,10 +314,58 @@
     activeTab.sections.forEach(function (sid) {
       var el = document.getElementById(sid);
       if (el) {
-        el.style.display = '';
-        el.classList.add('mao-pane--active', 'active');
+        setSectionVisible(el, true);
+        /* Relación ARIA pestaña↔panel */
+        el.setAttribute('role', 'tabpanel');
+        el.setAttribute('aria-labelledby', 'maoTab-' + tabId);
       }
     });
+
+    /* Corrección según modo activo (2D/3D · monofacial/bifacial) */
+    applyModeVisibility(tabId);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     VISIBILIDAD SEGÚN MODO
+     El show-pass de showSectionsFor revela TODAS las secciones de la pestaña,
+     pero canvasMonofacial/canvasBifacial y las secciones 3D son mutuamente
+     excluyentes según el modo. Lee el estado real desde los radios del DOM
+     (fuente de verdad) y oculta lo que no corresponde, evitando que aparezcan
+     ambos canvas a la vez o secciones 3D en modo 2D.
+  ═══════════════════════════════════════════════════════════════════════ */
+  function readMode() {
+    var r3d = document.getElementById('objectDimension3D');
+    var rbi = document.getElementById('modoBifacial');
+    return {
+      is3D       : !!(r3d && r3d.checked),
+      isBifacial : !!(rbi && rbi.checked)
+    };
+  }
+
+  function setDisp(id, show) {
+    setSectionVisible(document.getElementById(id), show);
+  }
+
+  function applyModeVisibility(tabId) {
+    var m = readMode();
+    if (tabId === 'captura') {
+      setDisp('sectionObj3D', m.is3D);
+      if (m.is3D) {
+        setDisp('canvasMonofacial', false);
+        setDisp('canvasBifacial', false);
+      } else {
+        setDisp('canvasMonofacial', !m.isBifacial);
+        setDisp('canvasBifacial', m.isBifacial);
+      }
+    } else if (tabId === 'analisis') {
+      setDisp('sectionAnalisis3D', m.is3D);
+      if (m.is3D) {
+        setDisp('morphologicalAnalysisContainer', false);
+        setDisp('bifacialComparisonsSection', false);
+      } else if (!m.isBifacial) {
+        setDisp('bifacialComparisonsSection', false);
+      }
+    }
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -264,6 +379,8 @@
       /* Limpiar clases de estado */
       el.classList.remove('mao-tab--active', 'active', 'mao-tab--done', 'done', 'mao-tab--locked', 'locked');
       el.setAttribute('aria-selected', 'false');
+      /* Roving tabindex: solo la pestaña activa es tabulable */
+      el.setAttribute('tabindex', tab.id === state.active ? '0' : '-1');
 
       if (state.locked.indexOf(tab.id) !== -1) {
         el.classList.add('mao-tab--locked', 'locked');
@@ -438,6 +555,7 @@
      * Inicialización manual (llamar si el script no usa defer).
      */
     init: function () {
+      relocateOrphanedControls();
       buildTabBar();
       showSectionsFor(state.active);
       updateTabBarUI();
@@ -456,21 +574,37 @@
       // No avanzar aún, solo registrar que hay progreso en Captura
     });
 
-    /* Cuando la detección finaliza → completar Captura y avanzar a Análisis */
+    /* Detección finalizada → completar Captura. Avance suave: solo saltar a
+       Análisis si el usuario sigue en Captura (no arrancarlo de otra pestaña). */
     document.addEventListener('mao:detection:done', function () {
       router.markDone('captura');
-      router.go('analisis');
+      if (state.active === 'captura') router.go('analisis');
     });
 
-    /* Cuando el análisis IA termina → completar Análisis y avanzar a Resultados */
+    /* Análisis morfológico renderizado → completar Análisis. NO se navega:
+       el panel morfológico vive en la propia pestaña Análisis, así que saltar
+       a Resultados arrancaría al usuario del resultado que acaba de producir. */
     document.addEventListener('mao:analysis:done', function () {
       router.markDone('analisis');
-      router.go('resultados');
     });
 
     /* Cuando se guarda el proyecto → marcar Proyecto como done */
     document.addEventListener('mao:project:saved', function () {
       router.markDone('proyecto');
+    });
+
+    /* Re-aplicar visibilidad cuando cambia el modo (2D/3D · mono/bifacial)
+       mientras el usuario está en una pestaña afectada. */
+    window.addEventListener('mao:object-dimension-changed', function () {
+      showSectionsFor(state.active);
+    });
+    ['modoMonofacial', 'modoBifacial'].forEach(function (id) {
+      var radio = document.getElementById(id);
+      if (radio) {
+        radio.addEventListener('change', function () {
+          showSectionsFor(state.active);
+        });
+      }
     });
 
     /* Compatibilidad con el sistema de notificaciones antiguo si existía */
@@ -517,6 +651,7 @@
       }
     }
 
+    relocateOrphanedControls();
     buildTabBar();
     showSectionsFor(state.active);
     updateTabBarUI();
@@ -524,12 +659,33 @@
     console.info('[MAO Tab Router] Inicializado. Pestaña activa:', state.active);
     console.info('[MAO Tab Router] API disponible en: window.maoTabRouter');
     console.info('[MAO Tab Router] Atajos: Alt+← Alt+→ · Alt+1…4');
+
+    /* DIAGNÓSTICO TEMPORAL — quitar tras verificar */
+    try {
+      var sheets = [].map.call(document.styleSheets, function (s) { return s.href || '(inline)'; });
+      var sb = document.getElementById('maoSidebar');
+      var tb = document.getElementById('maoTabBar');
+      console.info('[DIAG] styleSheets=' + JSON.stringify(sheets));
+      console.info('[DIAG] sidebar.display=' + (sb ? getComputedStyle(sb).display : 'NO-EL') +
+                   ' tabbar=' + (tb ? 'present parent=' + (tb.parentElement && (tb.parentElement.className||tb.parentElement.id)) : 'ABSENT') +
+                   ' header.bg=' + (function(){var h=document.querySelector('header.mao-header');return h?getComputedStyle(h).backgroundColor:'NO-HDR';})());
+    } catch (e) { console.warn('[DIAG] error', e); }
   }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);
   } else {
+    /* Script `defer`: readyState ya es 'interactive' aquí, así que boot() corre
+       ANTES de que se dispare DOMContentLoaded. La navegación legacy
+       (sidebar-nav.js, object-dimension-mode.js) corre EN DOMContentLoaded y
+       re-oculta las secciones de la pestaña activa con .mao-panel--hidden.
+       Registrar el re-afirmado ahora (antes de que DCL dispare) lo coloca como
+       ÚLTIMO listener → el router gana el estado inicial. */
     boot();
+    document.addEventListener('DOMContentLoaded', function () {
+      showSectionsFor(state.active);
+      updateTabBarUI();
+    });
   }
 
   /* Exponer API pública */
