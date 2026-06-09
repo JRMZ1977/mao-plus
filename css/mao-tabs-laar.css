@@ -113,12 +113,12 @@ html {
   -webkit-font-smoothing : antialiased;
 }
 
-/* Compensar el header fijo (.mao-header { position:fixed } en main.css).
-   La regla `padding:0` de arriba anulaba el `padding-top: var(--header-height)`
-   que main.css aplicaba al body, dejando el tabbar (primer hijo del contenido)
-   en y=0, oculto bajo el header (z-index 9000 > tabbar z-index 10). */
+/* Compensar el header fijo (.mao-header) Y el tabbar fijo (#maoTabBar), ambos
+   position:fixed en y=0..topbar y topbar..topbar+tabbar respectivamente. El
+   contenido debe empezar debajo de ambos, así que el padding-top suma las dos
+   alturas. (La regla `padding:0` de arriba anulaba el padding-top de main.css.) */
 body {
-  padding-top        : var(--laar-topbar-h);
+  padding-top        : calc(var(--laar-topbar-h) + var(--laar-tabbar-h));
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -180,8 +180,19 @@ header.mao-header select,
   gap                : 1px;
   border-bottom      : 1px solid var(--laar-g300);
   flex-shrink        : 0;
-  position           : relative;
-  z-index            : 10;
+  /* SIEMPRE VISIBLE: el tabbar es el navegador de pestañas; debe permanecer en
+     pantalla aunque el usuario scrollee el contenido. Se usa `position: fixed`
+     (NO sticky) porque `body { overflow-x: hidden }` de main.css convierte al
+     body en contenedor de scroll y rompe `position: sticky` de los descendientes
+     (gotcha conocido de CSS). `fixed` no depende de la cadena de scroll: se ancla
+     justo bajo el header fijo (top = --laar-topbar-h) y abarca todo el ancho como
+     el header. El body compensa header+tabbar en su padding-top (ver más abajo).
+     z-index 8000 < 9000 del header pero por encima del contenido (máx z-index 10). */
+  position           : fixed;
+  top                : var(--laar-topbar-h);
+  left               : 0;
+  right              : 0;
+  z-index            : 8000;
 }
 
 /* Pestaña base */
