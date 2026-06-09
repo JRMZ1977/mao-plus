@@ -76,7 +76,9 @@
         'sidebarResultCard',               // Resumen de resultado (reubicado del sidebar)
         'sidebarActionsSection'            // Perforaciones + exportar + nuevo análisis (reubicado)
       ],
-      locked   : false
+      /* Guard de prerrequisito (ADR-001 · Opción A): se desbloquea con
+         mao:detection:done. Evita llegar a Análisis con panel vacío. */
+      locked   : true
     },
     {
       id       : 'resultados',
@@ -88,9 +90,22 @@
         'sidebarResultCard',            // Resumen de resultado (reubicado del sidebar)
         'sidebarActionsSection'         // Perforaciones + exportar + nuevo análisis (reubicado)
       ],
-      locked   : false
+      /* Guard de prerrequisito (ADR-001 · Opción A): se desbloquea con
+         mao:analysis:done. */
+      locked   : true
     }
   ];
+
+  /* Flat list of all section IDs across all tabs — deduplicated, computed once */
+  var ALL_SECTIONS = (function () {
+    var acc = [];
+    TABS.forEach(function (tab) {
+      tab.sections.forEach(function (sid) {
+        if (acc.indexOf(sid) === -1) acc.push(sid);
+      });
+    });
+    return acc;
+  }());
 
   /* ═══════════════════════════════════════════════════════════════════════
      ESTADO INTERNO
@@ -101,6 +116,9 @@
     badges   : {},          // { id: numero } para badges de advertencia
     locked   : []           // ids de pestañas bloqueadas
   };
+
+  var tabEls      = {}; // { tabId: button element } — reset + populated by buildTabBar
+  var progressSegs = {}; // { tabId: segment element } — reset + populated by buildTabBar
 
   /* Inicializar locks desde TABS */
   TABS.forEach(function (tab) {
@@ -178,6 +196,7 @@
     var existing = document.getElementById('maoTabBar');
     if (existing) existing.remove();
     if (document.getElementById('maoTabBar')) return;
+    tabEls = {}; progressSegs = {};
 
     var bar = document.createElement('div');
     bar.id = 'maoTabBar';
@@ -232,6 +251,7 @@
       });
 
       bar.appendChild(el);
+      tabEls[tab.id] = el;
     });
 
     /* Barra de progreso */
@@ -243,6 +263,7 @@
       seg.className = 'tab-progress-seg';
       seg.setAttribute('data-progress-tab', tab.id);
       prog.appendChild(seg);
+      progressSegs[tab.id] = seg;
     });
     var progLabel = document.createElement('span');
     progLabel.className = 'tab-progress-label';
@@ -293,17 +314,9 @@
      MOSTRAR / OCULTAR SECCIONES
   ═══════════════════════════════════════════════════════════════════════ */
   function showSectionsFor(tabId) {
-    /* Recopilar todos los IDs de secciones de todas las pestañas */
-    var allSections = [];
-    TABS.forEach(function (tab) {
-      tab.sections.forEach(function (sid) {
-        if (allSections.indexOf(sid) === -1) allSections.push(sid);
-      });
-    });
-
     /* Ocultar todas (vía .mao-panel--hidden, ver setSectionVisible). No se
        manipula la clase genérica 'active' (la usa la lógica legacy). */
-    allSections.forEach(function (sid) {
+    ALL_SECTIONS.forEach(function (sid) {
       setSectionVisible(document.getElementById(sid), false);
     });
 
@@ -373,7 +386,7 @@
   ═══════════════════════════════════════════════════════════════════════ */
   function updateTabBarUI() {
     TABS.forEach(function (tab) {
-      var el = document.querySelector('[data-tab="' + tab.id + '"]');
+      var el = tabEls[tab.id];
       if (!el) return;
 
       /* Limpiar clases de estado */
@@ -412,7 +425,7 @@
   function updateProgressBar() {
     var doneCount = 0;
     TABS.forEach(function (tab, idx) {
-      var seg = document.querySelector('[data-progress-tab="' + tab.id + '"]');
+      var seg = progressSegs[tab.id];
       if (!seg) return;
 
       seg.classList.remove(
@@ -569,23 +582,23 @@
   ═══════════════════════════════════════════════════════════════════════ */
   function bindMaoEvents() {
 
-    /* Cuando se asigna la escala → completar paso 1 (Captura) */
-    document.addEventListener('mao:scale:set', function () {
-      // No avanzar aún, solo registrar que hay progreso en Captura
-    });
-
-    /* Detección finalizada → completar Captura. Avance suave: solo saltar a
-       Análisis si el usuario sigue en Captura (no arrancarlo de otra pestaña). */
+    /* Detección finalizada → completar Captura y DESBLOQUEAR Análisis
+       (ADR-001 · guard). unlock va ANTES de go(): go() rechaza pestañas
+       bloqueadas. Avance suave: solo saltar a Análisis si el usuario sigue
+       en Captura (no arrancarlo de otra pestaña). */
     document.addEventListener('mao:detection:done', function () {
       router.markDone('captura');
+      router.unlock('analisis');
       if (state.active === 'captura') router.go('analisis');
     });
 
-    /* Análisis morfológico renderizado → completar Análisis. NO se navega:
-       el panel morfológico vive en la propia pestaña Análisis, así que saltar
-       a Resultados arrancaría al usuario del resultado que acaba de producir. */
+    /* Análisis morfológico renderizado → completar Análisis y DESBLOQUEAR
+       Resultados (ADR-001 · guard). NO se navega: el panel morfológico vive
+       en la propia pestaña Análisis, así que saltar a Resultados arrancaría
+       al usuario del resultado que acaba de producir. */
     document.addEventListener('mao:analysis:done', function () {
       router.markDone('analisis');
+      router.unlock('resultados');
     });
 
     /* Cuando se guarda el proyecto → marcar Proyecto como done */
@@ -611,11 +624,13 @@
     document.addEventListener('stepCompleted', function (e) {
       if (!e.detail) return;
       var step = e.detail.step;
-      if (step === 'escala' || step === 'deteccion') {
-        if (step === 'deteccion') router.markDone('captura');
+      if (step === 'deteccion') {
+        router.markDone('captura');
+        router.unlock('analisis');
       }
       if (step === 'analisis') {
         router.markDone('analisis');
+        router.unlock('resultados');
       }
     });
 
@@ -651,6 +666,23 @@
       }
     }
 
+    /* Re-derivar guards desde el progreso restaurado (ADR-001): si un paso
+       ya se completó en una sesión previa, la pestaña que habilita debe quedar
+       accesible (caso: recargar / reabrir un proyecto ya avanzado). */
+    if (state.done.indexOf('captura') !== -1) {
+      state.locked = state.locked.filter(function (id) { return id !== 'analisis'; });
+    }
+    if (state.done.indexOf('analisis') !== -1) {
+      state.locked = state.locked.filter(function (id) { return id !== 'resultados'; });
+    }
+
+    /* Si la pestaña activa restaurada quedó bloqueada, caer a la primera
+       desbloqueada (evita mostrar una pestaña a la que no se podría navegar). */
+    if (state.locked.indexOf(state.active) !== -1) {
+      var safeIdx = firstUnlockedFrom(0, 1);
+      state.active = safeIdx === -1 ? 'proyecto' : TABS[safeIdx].id;
+    }
+
     relocateOrphanedControls();
     buildTabBar();
     showSectionsFor(state.active);
@@ -659,17 +691,6 @@
     console.info('[MAO Tab Router] Inicializado. Pestaña activa:', state.active);
     console.info('[MAO Tab Router] API disponible en: window.maoTabRouter');
     console.info('[MAO Tab Router] Atajos: Alt+← Alt+→ · Alt+1…4');
-
-    /* DIAGNÓSTICO TEMPORAL — quitar tras verificar */
-    try {
-      var sheets = [].map.call(document.styleSheets, function (s) { return s.href || '(inline)'; });
-      var sb = document.getElementById('maoSidebar');
-      var tb = document.getElementById('maoTabBar');
-      console.info('[DIAG] styleSheets=' + JSON.stringify(sheets));
-      console.info('[DIAG] sidebar.display=' + (sb ? getComputedStyle(sb).display : 'NO-EL') +
-                   ' tabbar=' + (tb ? 'present parent=' + (tb.parentElement && (tb.parentElement.className||tb.parentElement.id)) : 'ABSENT') +
-                   ' header.bg=' + (function(){var h=document.querySelector('header.mao-header');return h?getComputedStyle(h).backgroundColor:'NO-HDR';})());
-    } catch (e) { console.warn('[DIAG] error', e); }
   }
 
   if (document.readyState === 'loading') {

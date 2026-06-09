@@ -264,3 +264,23 @@ Existen versiones locales correctas en el mismo IIFE: `cargarMetadatos()` (líne
 
 ### Gotcha Permanente: funciones duplicadas en analysis-core.js vs utility-helpers.js
 `utility-helpers.js` contiene versiones de `cargarMetadatos` y `procesarMetadatos` que **NO funcionan** desde el módulo porque usan variables del IIFE. Las funciones locales del IIFE (sin prefijo `UtilityHelpers.`) son las correctas. No usar `UtilityHelpers.cargarMetadatos` ni `UtilityHelpers.procesarMetadatos` desde dentro del IIFE.
+
+## ADR-001: Guards de Flujo UI (2026-06-09)
+
+Optimización del flujo de pestañas LAAR. **Opción A** del ADR (mínima invasión, reusa el mecanismo `locked/unlock` existente). Solo `js/mao-tab-router.js` — reversible.
+
+### Implementado
+- **Guards de prerrequisito**: pestañas `analisis` y `resultados` arrancan `locked: true`. Ya no se puede llegar a Análisis con el panel vacío.
+- **Desbloqueo por evento de negocio** (en `bindMaoEvents`):
+  - `mao:detection:done` → `unlock('analisis')` (+ `markDone('captura')`). `unlock` va **antes** de `go()` porque `go()` rechaza pestañas bloqueadas.
+  - `mao:analysis:done` → `unlock('resultados')` (+ `markDone('analisis')`).
+  - El handler legacy `stepCompleted` (`deteccion`/`analisis`) hace los mismos unlocks por consistencia.
+- **Re-derivación de guards al restaurar `sessionStorage`** (en `boot`): si `state.done` incluye `captura`/`analisis`, se desbloquea la pestaña siguiente (caso reabrir proyecto avanzado). Si la pestaña activa restaurada quedó bloqueada, cae a la primera desbloqueada vía `firstUnlockedFrom`.
+- **Eliminado stub muerto** `mao:scale:set` (listener vacío, evento nunca despachado).
+
+### Deuda técnica conocida (no abordada)
+- **F3 — nodo compartido**: `sidebarResultCard` y `sidebarActionsSection` figuran en `sections[]` de `analisis` Y `resultados`. Funciona hoy (status-quo C-γ, riesgo bajo: el nodo es físicamente único tras `relocateOrphanedControls`). El ADR propuso **C-β** (sacarlos de `sections[]` + `position:sticky` para que el resultado quede siempre visible) — **diferido**: es cambio de layout y exige verificación visual en Electron (lección #1: `node -c`/health no ven CSS).
+- **F4 — radios hardcoded**: `applyModeVisibility`/`readMode` leen los IDs legacy `objectDimension3D` y `modoBifacial` directamente. Acoplamiento de bajo riesgo (IDs estables). El fix de mayor altitud sería que la nav legacy emita un evento con el modo y el router solo lo escuche (ya existe el listener `mao:object-dimension-changed`).
+
+### ⚠️ Pendiente de verificación visual en Electron
+Los guards son lógica pura (verificados con `node -c`), pero el flujo completo arranque→captura→detección→análisis→resultados con desbloqueo progresivo **no se ha corrido en Electron**. Validar con `npm start` (matar+relanzar, no Cmd+R).
