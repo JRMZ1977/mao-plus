@@ -40,6 +40,29 @@
  * ==========================================================================
  */
 
+/**
+ * Confianza global de la clasificación, normalizada a un porcentaje 0–100.
+ *
+ * Canónicamente `forma_confianza_global` ya es un string porcentaje (0–100) y
+ * `forma_confianza` es una fracción (0–1). Pero algunas rutas (objeto cacheado
+ * / reimportado) dejan `forma_confianza_global` ausente y `forma_confianza` en
+ * escala 0–100; el patrón previo `forma_confianza_global || (forma_confianza*100)`
+ * entonces multiplicaba ×100 un valor que ya era porcentaje → "6560%".
+ * Aquí preferimos el campo canónico, escalamos la fracción solo si es ≤1, y
+ * clampamos a [0,100] para que el display nunca supere 100%.
+ *
+ * @param {Object} metricas
+ * @returns {string} porcentaje con un decimal, p.ej. "65.6"
+ */
+function confianzaGlobalPorcentaje(metricas) {
+  let pct = parseFloat(metricas.forma_confianza_global);
+  if (!Number.isFinite(pct)) {
+    const c = parseFloat(metricas.forma_confianza) || 0;
+    pct = c <= 1 ? c * 100 : c;  // 0–1 → %, o ya viene en %
+  }
+  return Math.max(0, Math.min(100, pct)).toFixed(1);
+}
+
 // ============================================================================
 // COMPOSITE FUNCTION: TABLA DE MÉTRICAS COMPLETA
 // ============================================================================
@@ -121,7 +144,7 @@ export function generarTablaMetricasCompleta(obj, metricas) {
         </tr>
         <tr>
           <td style="${estiloTd}; font-weight: 600;">Confianza Global</td>
-          <td style="${estiloTd}; font-weight: 600; color: #28a745;">${((metricas.forma_confianza_global || metricas.forma_confianza || 0) * 100).toFixed(1)}%</td>
+          <td style="${estiloTd}; font-weight: 600; color: #28a745;">${confianzaGlobalPorcentaje(metricas)}%</td>
         </tr>
       </tbody>
     </table>
@@ -2503,7 +2526,7 @@ function generarSeccionClasificacion(metricas, estiloTabla, estiloTh, estiloTd) 
     const razonTipologica = metricas.forma_razon_tipologica || metricas.razon_tipologica || '';
     const reinterpretacionTipologica = !!metricas.forma_requiere_reinterpretacion_tipologica || (formaTipologica && formaTipologica !== formaGeometrica);
     const categoriaBase = metricas.forma_categoria_base || 'N/A';
-    const confianza = metricas.forma_confianza_global || ((metricas.forma_confianza || 0) * 100).toFixed(1);
+    const confianza = confianzaGlobalPorcentaje(metricas);
     const metodosCoincidentes = metricas.forma_metodos_coincidentes || 'N/A';
     const razonamiento = metricas.forma_razonamiento || 'No disponible';
     const claseCircularidad = metricas.shape_class_circularity || 'No clasificada';
