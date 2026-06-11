@@ -143,6 +143,23 @@
       document.body
     );
     if (!host) return;
+
+    /* ── Sacar el panel morfológico de #resultadosPanel ──────────────────────
+       El contenedor maestro #morphologicalAnalysisContainer (Métricas + EFA +
+       Contorno depurado + Vista esquemática + canvas esquemático) pertenece a la
+       pestaña Análisis, pero estaba físicamente ANIDADO dentro de #resultadosPanel
+       (sección de la pestaña Resultados). Al activar Análisis, el router des-ocultaba
+       el hijo, pero su padre #resultadosPanel recibía .mao-panel--hidden
+       (display:none !important) → el panel colapsaba a 0px de alto y quedaba invisible
+       (solo se veían las tarjetas sidebar reubicadas más abajo). Lo movemos a ser
+       HERMANO de #resultadosPanel para que el router lo controle de forma
+       independiente. Idempotente (HMR-safe): solo mueve si aún está anidado. */
+    var morph = document.getElementById('morphologicalAnalysisContainer');
+    var resPanel = document.getElementById('resultadosPanel');
+    if (morph && resPanel && morph.parentElement === resPanel && resPanel.parentElement) {
+      resPanel.parentElement.insertBefore(morph, resPanel);
+    }
+
     ['sidebarResultCard', 'sidebarActionsSection'].forEach(function (id) {
       var node = document.getElementById(id);
       if (node && node.parentElement !== host) {

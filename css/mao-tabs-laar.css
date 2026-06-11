@@ -584,3 +584,24 @@ div:has(> .bifacial-tab) {
   color              : var(--laar-g900) !important;
   border-top         : 2px solid var(--laar-b500) !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FIX VISIBILIDAD PANEL MORFOLÓGICO EN PESTAÑA ANÁLISIS (2026-06-11)
+   ───────────────────────────────────────────────────────────────────────────
+   #morphologicalAnalysisContainer (Métricas + EFA + Contorno depurado + Vista
+   esquemática + canvas) se reubicó FUERA de #resultadosPanel en
+   mao-tab-router.js (relocateOrphanedControls) para que el router lo gobierne
+   como sección propia de la pestaña Análisis. Pero su CSS base lo oculta:
+   `.morphological-analysis-container { display:none }` (main.css:1877).
+   El sistema legacy lo mostraba con `style.display='block'` inline; el router
+   LAAR, al activar la sección, LIMPIA ese inline (setSectionVisible →
+   `style.display=''`), revelando el display:none base → el panel quedaba a 0px
+   aun estando "mostrado" por el router.
+   Puente entre ambos sistemas de visibilidad: cuando el router NO lo oculta
+   (sin .mao-panel--hidden) y el legacy NO lo oculta (sin .res-hidden), se fuerza
+   visible. Así Análisis muestra TODAS las categorías (Métricas, EFA, Contorno,
+   Esquemática) ya renderizadas. Reversible (quitar este bloque restaura el
+   estado anterior). */
+#morphologicalAnalysisContainer:not(.mao-panel--hidden):not(.res-hidden) {
+  display: block !important;
+}
