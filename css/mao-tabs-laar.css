@@ -605,3 +605,175 @@ div:has(> .bifacial-tab) {
 #morphologicalAnalysisContainer:not(.mao-panel--hidden):not(.res-hidden) {
   display: block !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADR-002 · FASE 2 — JERARQUÍA §1–§8 + CHIP P/H (2026-06-11)
+   ───────────────────────────────────────────────────────────────────────────
+   Estilos del organizador post-render (js/mao-analysis-organizer.js).
+   La columna de métricas se vuelve flex y las secciones <details> se ordenan
+   con `order` (P/H §2 antes de EFA §3 — decisión JFRR). Los wrappers
+   intermedios del HTML legacy usan display:contents para que las secciones
+   participen del flex sin mover #efaMetricsPanel (los renderers harían
+   innerHTML sobre él y renderPanelEFA perdería su target).
+   Reversible: comentar el <script> del organizador en index.html. */
+
+.adr2-col            { display: flex; flex-direction: column; }
+#morphologicalMetrics.adr2-contents,
+.adr2-contents       { display: contents; }
+.adr2-root           { display: contents; }
+
+/* Cabecera sticky de resultado (absorbe el sidebarResultCard en Análisis) */
+#adr2Header {
+  position      : sticky;
+  top           : calc(var(--laar-topbar-h) + var(--laar-tabbar-h));
+  z-index       : 40;
+  display       : flex;
+  align-items   : center;
+  gap           : 14px;
+  flex-wrap     : wrap;
+  background    : var(--laar-white);
+  border        : var(--laar-border);
+  border-radius : var(--laar-radius);
+  padding       : 8px 12px;
+  margin        : 0 0 10px;
+}
+#adr2Header .adr2-h-id {
+  font-size      : 11px;
+  font-weight    : 600;
+  color          : var(--laar-g900);
+  font-variant-numeric: tabular-nums;
+}
+#adr2Header .adr2-h-forma {
+  font-size      : 11px;
+  color          : var(--laar-g700);
+}
+#adr2Header .adr2-h-ph {
+  display        : inline-flex;
+  align-items    : center;
+  gap            : 8px;
+  margin-left    : auto;
+}
+.adr2-chip {
+  font-size      : 10px;
+  font-weight    : 600;
+  letter-spacing : .03em;
+  padding        : 2px 8px;
+  border-radius  : 10px;
+  border         : 1px solid var(--laar-g300);
+  white-space    : nowrap;
+}
+.adr2-chip--wa   { background: var(--laar-wa-bg); border-color: var(--laar-wa-bd); color: var(--laar-wa-tx); }
+.adr2-chip--ok   { background: var(--laar-ok-bg); border-color: var(--laar-ok-bd); color: var(--laar-ok-tx); }
+.adr2-chip--none { background: var(--laar-g100);  border-color: var(--laar-g300);  color: var(--laar-g600); }
+
+.adr2-btn-ph {
+  font-size      : 11px;
+  font-weight    : 600;
+  color          : var(--laar-white);
+  background     : var(--laar-b500);
+  border         : none;
+  border-radius  : var(--laar-radius);
+  padding        : 4px 12px;
+  cursor         : pointer;
+  transition     : background var(--laar-transition);
+}
+.adr2-btn-ph:hover { background: var(--laar-b600); }
+.adr2-btn-tabla {
+  font-size      : 11px;
+  color          : var(--laar-b500);
+  background     : var(--laar-white);
+  border         : var(--laar-border-md);
+  border-radius  : var(--laar-radius);
+  padding        : 4px 10px;
+  cursor         : pointer;
+}
+.adr2-btn-tabla:hover { background: var(--laar-g50); }
+
+/* Secciones jerárquicas */
+details.adr2-sec {
+  border         : var(--laar-border);
+  border-radius  : var(--laar-radius);
+  background     : var(--laar-white);
+  margin         : 0 0 8px;
+}
+details.adr2-sec > summary {
+  cursor         : pointer;
+  list-style     : none;
+  padding        : 7px 12px;
+  font-size      : 11px;
+  font-weight    : 600;
+  letter-spacing : .04em;
+  text-transform : uppercase;
+  color          : var(--laar-g700);
+  user-select    : none;
+}
+details.adr2-sec > summary::before {
+  content        : '▸';
+  display        : inline-block;
+  margin-right   : 6px;
+  color          : var(--laar-g400);
+  transition     : transform var(--laar-transition);
+}
+details.adr2-sec[open] > summary::before { transform: rotate(90deg); }
+details.adr2-sec[open] > summary { border-bottom: var(--laar-border); }
+details.adr2-sec > .adr2-body { padding: 6px 12px 10px; }
+
+/* Tarjeta de estado P/H (§2) */
+.adr2-ph-card {
+  display        : flex;
+  align-items    : center;
+  gap            : 10px;
+  flex-wrap      : wrap;
+  padding        : 8px 0;
+}
+.adr2-ph-note {
+  flex           : 1 1 100%;
+  margin         : 2px 0 0;
+  font-size      : 11px;
+  color          : var(--laar-g600);
+}
+
+/* ── Aplanar la jerarquía legacy bajo el organizador (.adr2-on) ──────────────
+   El grupo «a) Métricas Morfológicas» es redundante con las §-secciones: su
+   summary se oculta y el <details> queda transparente (sigue `open`, así su
+   body —canvas + §-secciones— se muestra). Los grupos «b) Contorno Depurado» y
+   «c) Vista Esquemática» (que la Fase 3 fusionará en el lienzo) se alinean al
+   estilo LAAR y se neutraliza su insignia cromática. */
+#morphologicalAnalysisContainer.adr2-on #morphGroupA > summary { display: none; }
+#morphologicalAnalysisContainer.adr2-on #morphGroupA {
+  border        : 0;
+  background    : transparent;
+  box-shadow    : none;
+  margin        : 0;
+  padding       : 0;
+}
+#morphologicalAnalysisContainer.adr2-on #morphGroupA > .morph-result-group-body {
+  padding       : 0;
+}
+#morphologicalAnalysisContainer.adr2-on #morphGroupB,
+#morphologicalAnalysisContainer.adr2-on #morphGroupC {
+  border        : var(--laar-border);
+  border-radius : var(--laar-radius);
+  background    : var(--laar-white);
+  box-shadow    : none;
+  margin        : 8px 0 0;
+}
+#morphologicalAnalysisContainer.adr2-on #morphGroupB > summary,
+#morphologicalAnalysisContainer.adr2-on #morphGroupC > summary {
+  padding       : 7px 12px;
+}
+#morphologicalAnalysisContainer.adr2-on .morph-group-tag {
+  background    : var(--laar-g200) !important;
+  color         : var(--laar-g700) !important;
+  box-shadow    : none !important;
+}
+#morphologicalAnalysisContainer.adr2-on .morph-group-title {
+  font-size      : 11px !important;
+  font-weight    : 600 !important;
+  text-transform : uppercase;
+  letter-spacing : .04em;
+  color          : var(--laar-g700) !important;
+}
+#morphologicalAnalysisContainer.adr2-on .morph-group-subtitle {
+  color          : var(--laar-g500) !important;
+}

@@ -73,7 +73,10 @@
         'sectionAnalisis3D',               // Descriptores morfológicos 3D
         'morphologicalAnalysisContainer',  // Panel maestro de resultados 2D
         'bifacialComparisonsSection',      // Comparación bifacial
-        'sidebarResultCard',               // Resumen de resultado (reubicado del sidebar)
+        /* 'sidebarResultCard' retirado de Análisis (ADR-002 Fase 2): la
+           cabecera #adr2Header del organizador lo absorbe. Sigue listado en
+           Resultados. El nodo permanece en el DOM (oculto), así el botón
+           «Tabla completa ›» de la cabecera puede delegarle el click. */
         'sidebarActionsSection'            // Perforaciones + exportar + nuevo análisis (reubicado)
       ],
       /* Guard de prerrequisito (ADR-001 · Opción A): se desbloquea con

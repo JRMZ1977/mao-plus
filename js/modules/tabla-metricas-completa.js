@@ -2806,6 +2806,14 @@ function generarSeccionMetricasComplementarias(obj, metricas, estiloTabla, estil
     
     const metodoAnalisis = metricas.analysis_method || 'No especificado';
     const timestamp = metricas.analysis_timestamp || 'No disponible';
+
+    // ADR-002 Fase 2: tri-estado P/H. «Sin evaluar» (undefined) NO es lo mismo
+    // que «evaluado: ninguna» ([]). Antes ambos se renderizaban como 0/0.00%,
+    // exportando un dato falso para piezas con P/H no evaluadas.
+    const phEvaluado = Array.isArray(obj.perforaciones) || Array.isArray(obj.horadaciones);
+    const phPendiente = '<span style="font-size: 12px; color: #92400E; font-weight: 600;">— sin evaluar</span>';
+    const dispPerforaciones = phEvaluado ? numPerforaciones : phPendiente;
+    const dispHoradaciones = phEvaluado ? numHoradaciones : phPendiente;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #9c27b0;">
@@ -2847,18 +2855,18 @@ function generarSeccionMetricasComplementarias(obj, metricas, estiloTabla, estil
           </tr>
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}">Porosidad</td>
-            <td style="${estiloTd}">${porosidad.toFixed(2)}%</td>
-            <td style="${estiloTd}; font-size: 12px;">% de área con P/H</td>
+            <td style="${estiloTd}">${phEvaluado ? porosidad.toFixed(2) + '%' : phPendiente}</td>
+            <td style="${estiloTd}; font-size: 12px;">${phEvaluado ? '% de área con P/H' : 'Pendiente de evaluación P/H'}</td>
           </tr>
           <tr style="background: #f3e5f5;">
             <td style="${estiloTd}; font-weight: 600;">Total Perforaciones</td>
-            <td style="${estiloTd}; font-weight: 600; color: #0066cc; font-size: 18px;">${numPerforaciones}</td>
-            <td style="${estiloTd}; font-size: 12px;">Orificios pasantes</td>
+            <td style="${estiloTd}; font-weight: 600; color: #0066cc; font-size: 18px;">${dispPerforaciones}</td>
+            <td style="${estiloTd}; font-size: 12px;">${phEvaluado ? 'Orificios pasantes' : 'Pendiente de evaluación P/H'}</td>
           </tr>
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}; font-weight: 600;">Total Horadaciones</td>
-            <td style="${estiloTd}; font-weight: 600; color: #28a745; font-size: 18px;">${numHoradaciones}</td>
-            <td style="${estiloTd}; font-size: 12px;">Concavidades ciegas</td>
+            <td style="${estiloTd}; font-weight: 600; color: #28a745; font-size: 18px;">${dispHoradaciones}</td>
+            <td style="${estiloTd}; font-size: 12px;">${phEvaluado ? 'Concavidades ciegas' : 'Pendiente de evaluación P/H'}</td>
           </tr>
           <tr style="background: #f3e5f5;">
             <td style="${estiloTd}">Método de Análisis</td>
