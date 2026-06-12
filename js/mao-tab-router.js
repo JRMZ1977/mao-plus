@@ -44,9 +44,13 @@
       label    : 'Proyecto',
       icon     : '①',
       sections : [
+        'adr3ProyectoHeader',          // Cabecera de chips tri-estado (ADR-003 F2)
         'fieldsetGestionProyectos',   // Gestión de proyectos
+        'sectionFlujo',                // §2 Flujo de trabajo: 2D/3D + mono/bifacial (ADR-003 F2)
+        'sectionModo',                 // Anidado en sectionFlujo; listado para que el
+                                       // re-afirmado DOMContentLoaded lo rescate de la nav legacy
         'sectionIdentificacion',       // Identificación del objeto
-        'sectionModo'                  // Selector monofacial / bifacial
+        'adr3ProyectoFooter'           // CTA «Continuar a Captura» con guard suave (ADR-003 F3)
       ],
       locked   : false
     },
@@ -381,7 +385,12 @@
 
   function applyModeVisibility(tabId) {
     var m = readMode();
-    if (tabId === 'captura') {
+    if (tabId === 'proyecto') {
+      /* mono/bifacial solo aplica al flujo 2D. El show-pass limpia el inline
+         display que object-dimension-mode.js puso, así que se re-deriva aquí
+         desde los radios (ADR-003 F2; corrige además el caso pre-existente). */
+      setDisp('sectionModo', !m.is3D);
+    } else if (tabId === 'captura') {
       setDisp('sectionObj3D', m.is3D);
       if (m.is3D) {
         setDisp('canvasMonofacial', false);

@@ -28,7 +28,7 @@
   =====================================================================================
   -->
   <link rel="stylesheet" href="css/main.css?v=20260403f">
-  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260611g">
+  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260611i">
 </head>
 <body>
   <!-- ═══════════════════════════════════════════════════════════════════════
@@ -445,6 +445,23 @@
     <main class="mao-main">
   <div class="container">
 
+    <!-- ADR-003 Fase 2 — Cabecera de estado de la pestaña Proyecto (chips tri-estado) -->
+    <div id="adr3ProyectoHeader" class="adr3-header">
+      <span class="adr3-chip-group">
+        <span class="adr3-chip-label">Proyecto</span>
+        <span id="adr3ChipProyecto" class="adr3-chip adr3-chip--wa">Sin proyecto</span>
+        <button id="adr3BtnProyecto" type="button" class="adr3-chip-btn">Crear / Activar</button>
+      </span>
+      <span class="adr3-chip-group">
+        <span class="adr3-chip-label">ID</span>
+        <span id="adr3ChipId" class="adr3-chip adr3-chip--wa">Sin asignar</span>
+      </span>
+      <span class="adr3-chip-group">
+        <span class="adr3-chip-label">Flujo</span>
+        <span id="adr3ChipFlujo" class="adr3-chip adr3-chip--none">2D · Monofacial</span>
+      </span>
+    </div>
+
     <!-- SECCIÓN DE GESTIÓN DE PROYECTOS -->
     <fieldset id="fieldsetGestionProyectos" style="border: 2px solid var(--border-color-dark); margin-bottom: 20px;">
       <legend style="font-size: 14px; font-weight: 600; padding: 0 10px;">
@@ -507,36 +524,15 @@
           <input type="file" id="importProjectFileInput" accept=".json" style="display:none;">
         </div>
 
-        <!-- INFORMACIÓN ADICIONAL -->
-        <div class="info-box" style="margin-top: 15px;">
-          <strong style="color: var(--text-secondary);">¿Qué es un proyecto?</strong><br>
+        <!-- INFORMACIÓN ADICIONAL (colapsable — ADR-003 Fase 1) -->
+        <details class="info-box laar-details" style="margin-top: 15px;">
+          <summary>¿Qué es un proyecto?</summary>
           Un proyecto agrupa múltiples análisis morfométricos relacionados (misma cultura, sitio, colección, etc.) y guarda automáticamente todos los archivos (JSON, CSV) en una carpeta de tu computadora.
           <br><br>
           <strong style="color: var(--text-secondary);">Abrir Carpeta:</strong> Permite abrir análisis morfológicos desde cualquier carpeta de tu dispositivo, incluso carpetas compartidas o copiadas desde otros equipos.
-        </div>
+        </details>
 
-        <!-- SELECTOR GLOBAL DE TIPO DE OBJETO (2D / 3D) -->
-        <div id="objectDimensionSelector" style="margin-top: 14px; padding: 12px; background: var(--bg-secondary); border: 1.5px solid var(--border-color-dark); border-radius: 6px;">
-          <div style="font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 8px;">
-            Tipo de objeto a analizar (define el flujo de trabajo)
-          </div>
-          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom: 8px;">
-            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--text-primary); cursor:pointer; padding:7px 10px; border:1px solid var(--border-color); border-radius: 5px; background:var(--bg-primary);">
-              <input type="radio" name="objectDimensionMode" id="objectDimension2D" value="2d" checked style="cursor:pointer;" />
-              <span>Objeto 2D (imagen)</span>
-            </label>
-            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--text-primary); cursor:pointer; padding:7px 10px; border:1px solid var(--border-color); border-radius: 5px; background:var(--bg-primary);">
-              <input type="radio" name="objectDimensionMode" id="objectDimension3D" value="3d" style="cursor:pointer;" />
-              <span>Objeto 3D (.OBJ)</span>
-            </label>
-            <span id="objectDimensionStatus" style="margin-left:auto; font-size:11px; color:var(--text-secondary); font-weight:600;">Modo actual: 2D</span>
-          </div>
-          <div style="font-size:10px; color:var(--gray-500); line-height:1.4;">
-            <strong>2D:</strong> habilita identificación + modo monofacial/bifacial + carga de imágenes + detección morfométrica.
-            <br>
-            <strong>3D:</strong> habilita identificación + flujo de carga OBJ + visualizador 3D + métricas PCA.
-          </div>
-        </div>
+        <!-- SELECTOR 2D/3D promovido a #sectionFlujo (ADR-003 Fase 2) -->
 
         <!-- ACCESO AL COMPARADOR MULTI-OBJETO eliminado del panel; IDs preservados como elementos ocultos para comparator.js -->
         <div id="comparadorAccesoSection" style="display:none !important;" aria-hidden="true">
@@ -546,11 +542,63 @@
       </div>
     </fieldset>
 
+    <!-- ============================================================================ -->
+    <!-- §2 FLUJO DE TRABAJO (ADR-003 Fase 2): 2D/3D + monofacial/bifacial fusionados -->
+    <!-- El selector 2D/3D se promovió desde Gestión de Proyectos; #sectionModo se    -->
+    <!-- anida aquí con IDs y listeners intactos (object-dimension-mode.js lo oculta  -->
+    <!-- en modo 3D vía style.display, el router lo gestiona vía .mao-panel--hidden). -->
+    <!-- ============================================================================ -->
+    <fieldset id="sectionFlujo">
+      <legend>Flujo de Trabajo</legend>
+
+      <!-- SELECTOR GLOBAL DE TIPO DE OBJETO (2D / 3D) -->
+      <div id="objectDimensionSelector" style="padding: 12px; background: var(--bg-secondary); border: 1.5px solid var(--border-color-dark); border-radius: 6px;">
+        <div style="font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 8px;">
+          Tipo de objeto a analizar (define el flujo de trabajo)
+        </div>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom: 8px;">
+          <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--text-primary); cursor:pointer; padding:7px 10px; border:1px solid var(--border-color); border-radius: 5px; background:var(--bg-primary);">
+            <input type="radio" name="objectDimensionMode" id="objectDimension2D" value="2d" checked style="cursor:pointer;" />
+            <span>Objeto 2D (imagen)</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--text-primary); cursor:pointer; padding:7px 10px; border:1px solid var(--border-color); border-radius: 5px; background:var(--bg-primary);">
+            <input type="radio" name="objectDimensionMode" id="objectDimension3D" value="3d" style="cursor:pointer;" />
+            <span>Objeto 3D (.OBJ)</span>
+          </label>
+          <span id="objectDimensionStatus" style="margin-left:auto; font-size:11px; color:var(--text-secondary); font-weight:600;">Modo actual: 2D</span>
+        </div>
+        <details class="laar-details" style="font-size:10px; color:var(--gray-500); line-height:1.4;">
+          <summary>¿Qué habilita cada modo?</summary>
+          <strong>2D:</strong> habilita identificación + modo monofacial/bifacial + carga de imágenes + detección morfométrica.
+          <br>
+          <strong>3D:</strong> habilita identificación + flujo de carga OBJ + visualizador 3D + métricas PCA.
+        </details>
+      </div>
+
+      <!-- SELECTOR DE MODO DE ANÁLISIS (Monofacial / Bifacial) — solo flujo 2D -->
+      <fieldset id="sectionModo">
+        <legend>Modo de Análisis del Objeto</legend>
+        <div style="display: flex; gap: 20px; align-items: center; padding: 8px 0;">
+          <label class="radio-label">
+            <input type="radio" name="modoAnalisis" value="monofacial" id="modoMonofacial" checked style="cursor: pointer; width: 16px; height: 16px;"/>
+            <span>Monofacial (1 cara)</span>
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="modoAnalisis" value="bifacial" id="modoBifacial" style="cursor: pointer; width: 16px; height: 16px;"/>
+            <span>Bifacial (2 caras)</span>
+          </label>
+        </div>
+        <div class="note-teal">
+          <strong id="modoDescripcion">Monofacial:</strong><span id="modoTexto">Análisis de un solo objeto o una cara del objeto. Todos los cálculos se realizan sobre una imagen.</span>
+        </div>
+      </fieldset>
+    </fieldset>
+
     <fieldset id="sectionIdentificacion">
       <legend>Identificación del Objeto</legend>
       
       <!-- SELECTOR DE MODO DE IDENTIFICACIÓN -->
-      <div style="margin-bottom: 20px; padding: 15px; background: var(--bg-secondary); border: 1.5px solid var(--border-color-dark); border-radius: 6px;">
+      <div class="laar-subcard" style="margin-bottom: 20px; padding: 15px; background: var(--bg-secondary); border: 1.5px solid var(--border-color-dark); border-radius: 6px;">
         <div style="margin-bottom: 12px;">
           <span style="font-size: 14px; font-weight: 600; color: var(--text-secondary);">
             ¿Cómo deseas identificar el objeto?
@@ -570,9 +618,10 @@
             <span>Opción C: Por archivo</span>
           </label>
         </div>
-        <div style="padding: 8px; background: rgba(255,255,255,0.6); border-radius: 4px; font-size: 11px; color: var(--gray-500); line-height: 1.4;">
-          <strong>Tip:</strong>Elige el método que usaste al registrar el objeto en campo. Los tres métodos son válidos y se usarán en todas las exportaciones.
-        </div>
+        <details class="laar-details" style="font-size: 11px; color: var(--gray-500); line-height: 1.4;">
+          <summary>¿Cuál elegir?</summary>
+          Elige el método que usaste al registrar el objeto en campo. Los tres métodos son válidos y se usarán en todas las exportaciones.
+        </details>
       </div>
 
       <!-- BLOQUE NOMBRE (Opción A) - Inicialmente oculto -->
@@ -681,10 +730,11 @@
             <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Nombre común (exportaciones bifaciales)</div>
             <div id="fotoIdNombreComun" style="font-size: 14px; font-weight: 700; color: #37474F; padding: 8px 12px; background: var(--bg-primary); border: 2px solid #607D8B; border-radius: 5px; font-family: monospace;">— carga ambas fotografías —</div>
           </div>
-          <div style="margin-top: 8px; padding: 8px; background: rgba(255,255,255,0.5); border-radius: 4px; font-size: 10px; color: var(--gray-500); line-height: 1.5;">
+          <details class="laar-details" style="margin-top: 8px; font-size: 10px; color: var(--gray-500); line-height: 1.5;">
+            <summary>¿Cómo se deriva el nombre común?</summary>
             <strong>Nombre común:</strong> prefijo compartido de los dos nombres de archivo.<br>
             Ej: <em>QP1_N2_anv.jpg</em> + <em>QP1_N2_rev.jpg</em> → <strong>QP1_N2</strong>
-          </div>
+          </details>
         </div>
         <button id="btnAsignarFotografia" class="btn-submit-wide">
           Usar nombre de archivo como Identificación
@@ -714,26 +764,10 @@
       </div>
     </fieldset>
 
-    <!-- ============================================================================ -->
-    <!-- SELECTOR DE MODO DE ANÁLISIS (Monofacial / Bifacial) -->
-    <!-- ============================================================================ -->
-    <fieldset id="sectionModo">
-      <legend>Modo de Análisis del Objeto</legend>
-      <div style="display: flex; gap: 20px; align-items: center; padding: 8px 0;">
-        <label class="radio-label">
-          <input type="radio" name="modoAnalisis" value="monofacial" id="modoMonofacial" checked style="cursor: pointer; width: 16px; height: 16px;"/>
-          <span>Monofacial (1 cara)</span>
-        </label>
-        <label class="radio-label">
-          <input type="radio" name="modoAnalisis" value="bifacial" id="modoBifacial" style="cursor: pointer; width: 16px; height: 16px;"/>
-          <span>Bifacial (2 caras)</span>
-        </label>
-      </div>
-      <div class="note-teal">
-        <strong id="modoDescripcion">Monofacial:</strong><span id="modoTexto">Análisis de un solo objeto o una cara del objeto. Todos los cálculos se realizan sobre una imagen.</span>
-      </div>
-      
-    </fieldset>
+    <!-- ADR-003 Fase 3 — Pie de la pestaña Proyecto: CTA con guard suave -->
+    <div id="adr3ProyectoFooter" class="adr3-footer">
+      <button id="adr3BtnContinuar" type="button" class="adr3-btn-continuar">Continuar a Captura →</button>
+    </div>
 
     <!-- ============================================================================ -->
     <!-- INTERFAZ DE CARGA DE IMAGEN(ES) -->
@@ -4466,9 +4500,11 @@
   </script>
 
   <!-- LAAR Tab Router — Migración a pestañas -->
-  <script src="js/mao-tab-router.js?v=20260611b" defer></script>
+  <script src="js/mao-tab-router.js?v=20260611c" defer></script>
   <!-- ADR-002 Fase 2 — Organizador del panel de Análisis (jerarquía §1–§8 + chip P/H) -->
   <script src="js/mao-analysis-organizer.js?v=20260611d" defer></script>
+  <!-- ADR-003 Fases 2-3 — Organizador de la pestaña Proyecto (chips + CTA con guard) -->
+  <script src="js/mao-proyecto-organizer.js?v=20260611a" defer></script>
 
 </body>
 </html>

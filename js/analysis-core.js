@@ -53974,7 +53974,10 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
    */
   function actualizarPreviewFotografia() {
     const bloqueFoto = document.getElementById('bloqueFotografia');
-    if (!bloqueFoto || bloqueFoto.style.display === 'none') return;
+    /* ADR-003 F3: re-derivar también cuando la ID fue auto-asignada (Opción C):
+       el bloque queda oculto por bloquearModos() pero el archivo sigue mandando. */
+    const _autoActiva = !!(identificacionActual.bloqueada && identificacionActual.auto);
+    if ((!bloqueFoto || bloqueFoto.style.display === 'none') && !_autoActiva) return;
     const dimensionMode = typeof window._maoGetObjectDimension === 'function'
       ? window._maoGetObjectDimension()
       : '2d';
@@ -54005,6 +54008,47 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       if (spanB) spanB.textContent = n.caraB || '\u2014 carga foto B \u2014';
       if (spanC) spanC.textContent = n.comun || '\u2014 carga ambas fotograf\u00edas \u2014';
     }
+    autoAsignarIdentificacionFotografia();
+  }
+
+  /**
+   * ADR-003 Fase 3 — Auto-asignación de identificación en Opción C.
+   * Si el modo de identificación activo es «Por archivo» y no hay asignación
+   * manual previa, asigna (o re-deriva) la identificación con el nombre derivado
+   * de los archivos cargados, sin exigir volver a la pestaña Proyecto.
+   * Regla bifacial: espera a tener AMBAS caras (con una sola, el «nombre común»
+   * fijaría un valor incorrecto, p.ej. «QP1_N2_anv» en vez de «QP1_N2»).
+   * La asignación manual (botón o opciones A/B) nunca se sobreescribe (auto=false).
+   */
+  function autoAsignarIdentificacionFotografia() {
+    const radioFotografia = document.getElementById('modoIdFotografia');
+    if (!radioFotografia || !radioFotografia.checked) return;
+    if (identificacionActual.bloqueada && !identificacionActual.auto) return;
+
+    const esObj3d = (typeof window._maoGetObjectDimension === 'function'
+      ? window._maoGetObjectDimension()
+      : '2d') === '3d';
+    const esBifacial = !esObj3d && (modoAnalisis === 'bifacial');
+    const nombres = derivarNombresDesdeFotografias();
+    const valor = esBifacial
+      ? ((nombres.caraA && nombres.caraB) ? nombres.comun : '')
+      : nombres.mono;
+    if (!valor || valor === identificacionActual.valor) return;
+
+    identificacionActual = {
+      tipo: 'fotografia',
+      valor: valor,
+      valorCaraA: nombres.caraA || null,
+      valorCaraB: nombres.caraB || null,
+      bloqueada: true,
+      auto: true
+    };
+    mostrarIdentificacionAsignada(valor);
+    bloquearModos();
+    if (typeof toast !== 'undefined' && toast.success) {
+      toast.success('Identificación asignada automáticamente: ' + valor);
+    }
+    console.log('✅ Identificación auto-asignada (Opción C):', valor);
   }
 
   function inicializarSistemaIdentificacion() {
@@ -54169,8 +54213,10 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
     
     if (valorSpan) valorSpan.textContent = valor;
     if (contenedor) contenedor.style.display = 'block';
+    /* ADR-003 F2/F3: notificar al organizador de la pestaña Proyecto (chip ID). */
+    document.dispatchEvent(new CustomEvent('mao:identification:assigned', { detail: { valor: valor } }));
   }
-  
+
   function bloquearModos() {
     const radioNombre = document.getElementById('modoIdNombre');
     const radioCampos = document.getElementById('modoIdCampos');
@@ -54219,7 +54265,10 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
     
     // Limpiar campo de nombre
     if (nombreInput) nombreInput.value = '';
-    
+
+    /* ADR-003 F2/F3: notificar al organizador de la pestaña Proyecto (chip ID). */
+    document.dispatchEvent(new CustomEvent('mao:identification:cleared'));
+
     console.log('🔄 Identificación reseteada');
   }
   

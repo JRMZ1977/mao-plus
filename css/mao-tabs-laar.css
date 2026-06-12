@@ -936,3 +936,258 @@ details.adr2-sec > .adr2-body { padding: 6px 12px 10px; }
 #morphologicalAnalysisContainer.adr2-on .morph-group-subtitle {
   color          : var(--laar-g500) !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ESTÉTICA LAAR — PESTAÑA PROYECTO (ADR-003 · Fase 1, 2026-06-11)
+   ───────────────────────────────────────────────────────────────────────────
+   De-rainbow de los 3 fieldsets de la pestaña Proyecto (#fieldsetGestion-
+   Proyectos, #sectionIdentificacion, #sectionModo). El HTML legacy usa estilos
+   inline (gradientes, #0066cc/#28a745 en caras A/B, rojos #D32F2F/#bf360c,
+   bordes 1.5–2px): solo `!important` los vence (precedente E2). Semánticos =
+   estado real: ámbar «sin proyecto», verde «activo/asignado», rojo solo en
+   marcadores de campo obligatorio. Comentar el <link> revierte 100%.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Fieldset Gestión: borde inline 2px → plano LAAR ──────────────────────── */
+.mao-main #fieldsetGestionProyectos {
+  border             : var(--laar-border-md) !important;
+}
+
+/* ─── Banners de estado de proyecto — semántica real ───────────────────────── */
+/* Sin proyecto = advertencia (los análisis solo van al navegador) */
+.mao-main #sinProyectoIndicador {
+  background         : var(--laar-wa-bg) !important;
+  border             : 0.5px solid var(--laar-wa-bd) !important;
+  border-left        : 3px solid var(--laar-wa-bd) !important;
+  border-radius      : var(--laar-radius) !important;
+}
+.mao-main #sinProyectoIndicador div {
+  color              : var(--laar-wa-tx) !important;
+}
+/* Proyecto activo = ok */
+.mao-main #proyectoActivoIndicador {
+  background         : var(--laar-ok-bg) !important;
+  border             : 0.5px solid var(--laar-ok-bd) !important;
+  border-left        : 3px solid var(--laar-ok-bd) !important;
+  border-radius      : var(--laar-radius) !important;
+}
+.mao-main #proyectoActivoIndicador div {
+  color              : var(--laar-ok-tx) !important;
+}
+.mao-main #proyectoActivoNombre {
+  color              : var(--laar-g900) !important;
+}
+
+/* ─── Jerarquía de botones en Gestión: una sola primaria (Crear Proyecto) ──── */
+/* ID + !important vence a la capa secundaria .btn-action (clase + !important) */
+.mao-main #btnCrearProyectoRapido {
+  background         : var(--laar-b500) !important;
+  border-color       : var(--laar-b500) !important;
+  color              : var(--laar-white) !important;
+}
+.mao-main #btnCrearProyectoRapido:hover {
+  background         : var(--laar-b600) !important;
+  border-color       : var(--laar-b600) !important;
+  color              : var(--laar-white) !important;
+}
+
+/* ─── Sub-tarjetas (selector 2D/3D, bloques de identificación) — planas ────── */
+.mao-main #objectDimensionSelector,
+.mao-main #bloqueNombre,
+.mao-main #bloqueCampos,
+.mao-main #bloqueFotografia,
+.mao-main .laar-subcard {
+  background         : var(--laar-g50) !important;
+  border             : var(--laar-border-md) !important;
+  border-radius      : var(--laar-radius) !important;
+}
+/* Opciones tipo radio-tarjeta dentro de las sub-tarjetas: borde fino, radio 4 */
+.mao-main #objectDimensionSelector label,
+.mao-main .laar-subcard label {
+  border             : var(--laar-border-md) !important;
+  border-radius      : var(--laar-radius) !important;
+}
+
+/* ─── Identificación Asignada: gradiente inline → tarjeta ok plana ─────────── */
+.mao-main #identificacionAsignada {
+  background         : var(--laar-ok-bg) !important;
+  border             : 0.5px solid var(--laar-ok-bd) !important;
+  border-radius      : var(--laar-radius) !important;
+}
+.mao-main #identificacionAsignada div {
+  color              : var(--laar-ok-tx) !important;
+}
+.mao-main #valorIdentificacionAsignada {
+  color              : var(--laar-g900) !important;
+}
+
+/* ─── Marcadores de campo obligatorio: #D32F2F inline → rojo semántico ─────── */
+.mao-main #sitioAsterisco,
+.mao-main #unidadAsterisco,
+.mao-main #nivelAsterisco,
+.mao-main #estratoAsterisco {
+  color              : var(--laar-er-tx) !important;
+}
+
+/* ─── Hints #bf360c inline → micro-etiqueta gris ───────────────────────────── */
+.mao-main #bloqueNombre small,
+.mao-main #fotoIdActionHint {
+  color              : var(--laar-g500) !important;
+}
+
+/* ─── Previews de nombre (Opción C): monospace sobre blanco, texto g900 ────── */
+.mao-main #fotoIdNombreMono,
+.mao-main #fotoIdNombreA,
+.mao-main #fotoIdNombreB,
+.mao-main #fotoIdNombreComun {
+  background         : var(--laar-white) !important;
+  border             : var(--laar-border-md) !important;
+  border-radius      : var(--laar-radius) !important;
+  color              : var(--laar-g900) !important;
+}
+/* Caras A/B: el color funcional pasa de texto a acento de borde desaturado */
+.mao-main #fotoIdNombreA { border-left: 3px solid var(--laar-b200) !important; }
+.mao-main #fotoIdNombreB { border-left: 3px solid var(--laar-ok-bd) !important; }
+.mao-main #fotoIdPreviewBifacial div[style*="#0066cc"],
+.mao-main #fotoIdPreviewBifacial div[style*="#28a745"] {
+  color              : var(--laar-g500) !important;
+}
+
+/* ─── Nota teal (sectionModo y afines) → gris neutro ───────────────────────── */
+.mao-main .note-teal {
+  background         : var(--laar-g50);
+  border-left        : 3px solid var(--laar-g300);
+  border-radius      : var(--laar-radius);
+  color              : var(--laar-g600);
+}
+
+/* ─── Textos didácticos colapsables (<details class="laar-details">) ───────── */
+.mao-main details.laar-details > summary {
+  cursor             : pointer;
+  font-size          : 11px;
+  font-weight        : 600;
+  color              : var(--laar-g500);
+  text-transform     : uppercase;
+  letter-spacing     : .04em;
+  user-select        : none;
+  transition         : color var(--laar-transition);
+}
+.mao-main details.laar-details > summary:hover {
+  color              : var(--laar-g700);
+}
+.mao-main details.laar-details[open] > summary {
+  color              : var(--laar-g700);
+  margin-bottom      : 6px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADR-003 Fase 2-3 — Cabecera de chips tri-estado + pie con CTA
+   ───────────────────────────────────────────────────────────────────────────
+   Cabecera sticky con el estado de Proyecto / ID / Flujo de un vistazo, y pie
+   con la CTA «Continuar a Captura». Mismos tokens semánticos que el chip P/H
+   del ADR-002 (wa = pendiente, ok = resuelto, none = informativo).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Cabecera de estado ─────────────────────────────────────────────────────── */
+.mao-main #adr3ProyectoHeader.adr3-header {
+  display            : flex;
+  flex-wrap          : wrap;
+  align-items        : center;
+  gap                : 18px;
+  position           : sticky;
+  /* Anclar BAJO las barras fijas (topbar + tabbar); con top:0 quedaría detrás. */
+  top                : calc(var(--laar-topbar-h) + var(--laar-tabbar-h));
+  z-index            : 5;
+  margin-bottom      : 16px;
+  padding            : 10px 14px;
+  background         : var(--laar-white);
+  border             : var(--laar-border-md);
+  border-radius      : var(--laar-radius);
+}
+.adr3-chip-group {
+  display            : inline-flex;
+  align-items        : center;
+  gap                : 8px;
+}
+.adr3-chip-label {
+  font-size          : 10px;
+  font-weight        : 700;
+  text-transform     : uppercase;
+  letter-spacing     : .06em;
+  color              : var(--laar-g500);
+}
+.adr3-chip {
+  display            : inline-flex;
+  align-items        : center;
+  padding            : 3px 10px;
+  font-size          : 12px;
+  font-weight        : 600;
+  border-radius      : 999px;
+  border             : 0.5px solid var(--laar-g300);
+  background         : var(--laar-g100);
+  color              : var(--laar-g700);
+  white-space        : nowrap;
+  max-width          : 280px;
+  overflow           : hidden;
+  text-overflow      : ellipsis;
+}
+.adr3-chip--ok {
+  background         : var(--laar-ok-bg);
+  border-color       : var(--laar-ok-bd);
+  color              : var(--laar-ok-tx);
+}
+.adr3-chip--wa {
+  background         : var(--laar-wa-bg);
+  border-color       : var(--laar-wa-bd);
+  color              : var(--laar-wa-tx);
+}
+.adr3-chip--none {
+  background         : var(--laar-g100);
+  border-color       : var(--laar-g300);
+  color              : var(--laar-g600);
+}
+.adr3-chip-btn {
+  padding            : 3px 10px;
+  font-size          : 11px;
+  font-weight        : 600;
+  color              : var(--laar-b500);
+  background         : var(--laar-white);
+  border             : 0.5px solid var(--laar-b200);
+  border-radius      : var(--laar-radius);
+  cursor             : pointer;
+  transition         : background var(--laar-transition), border-color var(--laar-transition);
+}
+.adr3-chip-btn:hover {
+  background         : var(--laar-b50);
+  border-color       : var(--laar-b500);
+}
+
+/* ── Pie con CTA ────────────────────────────────────────────────────────────── */
+.mao-main #adr3ProyectoFooter.adr3-footer {
+  display            : flex;
+  justify-content    : flex-end;
+  margin             : 18px 0 8px;
+  padding-top        : 14px;
+  border-top         : var(--laar-border-md);
+}
+.adr3-btn-continuar {
+  padding            : 9px 20px;
+  font-size          : 13px;
+  font-weight        : 600;
+  color              : var(--laar-white);
+  background         : var(--laar-b500);
+  border             : 1px solid var(--laar-b500);
+  border-radius      : var(--laar-radius);
+  cursor             : pointer;
+  transition         : background var(--laar-transition), border-color var(--laar-transition);
+}
+.adr3-btn-continuar:hover {
+  background         : var(--laar-b600);
+  border-color       : var(--laar-b600);
+}
+
+/* ── §2 Flujo: el #sectionModo anidado pierde su marco (subnivel visual) ────── */
+.mao-main #sectionFlujo #sectionModo {
+  border             : var(--laar-border-md) !important;
+  margin-top         : 12px;
+}
