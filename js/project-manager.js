@@ -1031,6 +1031,17 @@ class ProjectManager {
     rows.push(`01_Clasificacion,Confianza Clasificacion,${metricas.forma_confianza_global || ((metricas.forma_confianza || 0) * 100).toFixed(1)},%,Nivel de certeza`);
     rows.push(`01_Clasificacion,Metodos Coincidentes,${metricas.forma_metodos_coincidentes || 'N/A'},,Métodos que coinciden`);
     rows.push(`01_Clasificacion,Categoria Base,${metricas.forma_categoria_base || 'N/A'},,Categoría morfológica`);
+    // Confianza de DETECCIÓN (distinta de la clasificación de forma): fiabilidad
+    // de la detección automática del objeto (contraste de borde + extent),
+    // cableada desde detect() Python. N/A si vino de detección JS/manual/3D.
+    {
+      const _detConf = (typeof metricas.detection_confidence === 'number')
+        ? metricas.detection_confidence
+        : (typeof objeto._confidence === 'number' ? objeto._confidence : null);
+      const _detLvl = metricas.detection_confidence_level || objeto._confidenceLvl || 'N/A';
+      const _detConfPct = (_detConf != null) ? (_detConf * 100).toFixed(0) : 'N/A';
+      rows.push(`01_Clasificacion,Confianza Deteccion,${_detConfPct},%,Fiabilidad de la deteccion automatica - nivel ${_detLvl}`);
+    }
     if (metricas.patron_agrupamiento && metricas.patron_agrupamiento !== 'N/A') {
       rows.push(`01_Clasificacion,Patron Agrupamiento,${metricas.patron_agrupamiento},,${metricas.patron_agrupamiento_detalles || 'Patrón P/H'}`);
       rows.push(`01_Clasificacion,Sintesis Final,${metricas.clasificacion_sintesis_final || 'N/A'},,Clasificación integrada`);

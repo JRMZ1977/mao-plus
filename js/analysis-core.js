@@ -10170,6 +10170,13 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     const metrics = {};
     const contornoMetrics = contornoData.metrics;
 
+    // Confianza de detección — metadato de calidad (no morfométrico) cableado
+    // desde detect() Python (_confianza_objeto). Se hace campo de primera clase
+    // de metricas para que viaje a CSV/JSON/viewer/colección. null si el objeto
+    // vino de detección JS/manual/3D (sin score).
+    metrics.detection_confidence = (typeof obj?._confidence === 'number') ? obj._confidence : null;
+    metrics.detection_confidence_level = obj?._confidenceLvl || null;
+
     // Sanear el array de puntos una única vez en el punto de convergencia de las
     // tres rutas (caché, conversión, extracción lazy). Eliminar null/undefined
     // para que todas las funciones descendentes (calcularExcentricidad,
@@ -43395,6 +43402,22 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     individualizarObjetos();
   }
 
+  // Chip de confianza de detección (lenguaje canónico LAAR, ADR-005).
+  // Fuente: detect() Python → _confianza_objeto (contraste de borde + extent).
+  // Color = estado real: alta→ok (verde) · media→none (neutro) · baja→wa (revisar).
+  // Si el objeto no trae score (detección JS/manual/3D) → sin chip (graceful).
+  function _confidenceChipHtml(obj) {
+    const lvl = obj && obj._confidenceLvl;
+    if (!lvl) return '';
+    const score = (typeof obj._confidence === 'number') ? Math.round(obj._confidence * 100) : null;
+    const mod = lvl === 'alta' ? 'ok' : (lvl === 'baja' ? 'wa' : 'none');
+    const txt = lvl === 'baja' ? 'Confianza baja · revisar'
+              : lvl === 'media' ? 'Confianza media'
+              : 'Confianza alta';
+    const tip = score != null ? ` title="Detección automática: ${score}%"` : '';
+    return `<div style="margin-top:6px;"><span class="laar-chip laar-chip--${mod}"${tip}>${txt}</span></div>`;
+  }
+
   function crearCardObjeto(obj, caraLabel) {
     const card = document.createElement('div');
     card.className = 'individual-object-card';
@@ -43485,6 +43508,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           ID: ${obj.id}<br>
           Área: ${obj.area?.toFixed(0) || 'N/A'} px²
         </div>
+        ${_confidenceChipHtml(obj)}
       `;
     } else {
       // MODO MONOFACIAL - Título con nombre heredado si existe
@@ -43496,6 +43520,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         </div>
         <div style="font-size:12px;color:#666;margin-bottom:4px;">Tipo: ${caraTexto}</div>
         <div style="font-size:11px;color:#999;">Área: ${obj.area?.toFixed(0) || 'N/A'} px²</div>
+        ${_confidenceChipHtml(obj)}
       `;
     }
     
