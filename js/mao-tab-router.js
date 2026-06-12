@@ -59,6 +59,7 @@
       label    : 'Captura',
       icon     : '②',
       sections : [
+        'adr4CapturaHeader',          // Cabecera de chips de estado (ADR-004 F2)
         'sectionImagen',              // Carga de imagen(es) JPG/RAW
         'sectionObj3D',               // Flujo OBJ 3D (visible solo en modo 3D)
         'sectionEscala',              // Configuración, escala y detección

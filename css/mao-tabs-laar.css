@@ -1191,3 +1191,254 @@ details.adr2-sec > .adr2-body { padding: 6px 12px 10px; }
   border             : var(--laar-border-md) !important;
   margin-top         : 12px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ESTÉTICA LAAR — PESTAÑA CAPTURA (ADR-004 · Fase 1, 2026-06-12)
+   ───────────────────────────────────────────────────────────────────────────
+   De-rainbow de las secciones de Captura (#sectionImagen, #sectionEscala,
+   #canvasBifacial, #fieldsetPruebaVirtual y el visor 3D). El HTML legacy y
+   main.css traen slate/teal (#607D8B/#455A64), púrpura (#7C4DFF/#6f42c1),
+   gradientes y un select en dark-theme. Disciplina LAAR: acento único b500 =
+   acción primaria ACCIONABLE (botón habilitado del stepper); verde ok / ámbar
+   wa SOLO para estado real (paso hecho, advertencias); resto en grises. Solo
+   `!important` vence al inline + a las reglas con id de main.css (precedente E2).
+   Comentar el <link> de este archivo revierte el 100%.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Stepper de procesamiento: botones planos, acento solo al accionable ──── */
+/* Todos los botones de paso → secundario LAAR (vence a .btn-purple/.btn-teal) */
+.mao-main #stepperProcesamiento .btn-step {
+  background         : var(--laar-white) !important;
+  background-image   : none !important;
+  color             : var(--laar-g700) !important;
+  border            : var(--laar-border-md) !important;
+  box-shadow        : none !important;
+}
+.mao-main #stepperProcesamiento .btn-step:hover:not(:disabled) {
+  background         : var(--laar-g50) !important;
+}
+/* Acción primaria de avance, habilitada → acento único b500 (azul = accionable) */
+.mao-main #stepperProcesamiento #calcularEscalaBtn:not(:disabled),
+.mao-main #stepperProcesamiento #detectarObjetosBtn:not(:disabled),
+.mao-main #stepperProcesamiento #individualizarBifacialBtn:not(:disabled),
+.mao-main #stepperProcesamiento #maoIaBtn:not(:disabled) {
+  background         : var(--laar-b500) !important;
+  color             : var(--laar-white) !important;
+  border-color      : var(--laar-b500) !important;
+}
+.mao-main #stepperProcesamiento #calcularEscalaBtn:not(:disabled):hover,
+.mao-main #stepperProcesamiento #detectarObjetosBtn:not(:disabled):hover,
+.mao-main #stepperProcesamiento #individualizarBifacialBtn:not(:disabled):hover,
+.mao-main #stepperProcesamiento #maoIaBtn:not(:disabled):hover {
+  background         : var(--laar-b600) !important;
+  border-color      : var(--laar-b600) !important;
+}
+/* Insignias de paso (incl. IA púrpura) → b500 activo · ok hecho (semántica real) */
+.mao-main #stepperProcesamiento .proc-step.step-active .proc-step-num,
+.mao-main #stepIA.step-active .proc-step-num {
+  background         : var(--laar-b500) !important;
+}
+.mao-main #stepperProcesamiento .proc-step.step-active .proc-step-label,
+.mao-main #stepIA.step-active .proc-step-label {
+  color             : var(--laar-b500) !important;
+}
+.mao-main #stepperProcesamiento .proc-step.step-done .proc-step-num,
+.mao-main #stepIA.step-done .proc-step-num {
+  background         : var(--laar-ok-tx) !important;
+}
+.mao-main #stepperProcesamiento .proc-step.step-done .proc-step-label,
+.mao-main #stepIA.step-done .proc-step-label {
+  color             : var(--laar-g600) !important;
+}
+/* Insignia IA en reposo: el span trae `style="background:#6f42c1"` inline
+   (index.html) → idle morado aunque el paso no esté activo. Neutralizar para
+   que iguale a las insignias «1»/«2» (gris); el azul/verde reaparece solo en
+   step-active / step-done por las reglas de arriba (más específicas). */
+.mao-main #stepIA .proc-step-num {
+  background        : var(--laar-g400) !important;
+}
+
+/* ─── Panel de verificación de escala: borde 2px púrpura → plano LAAR ──────── */
+.mao-main #panelVerificacionEscala {
+  background         : var(--laar-white) !important;
+  border             : var(--laar-border-md) !important;
+}
+.mao-main #panelVerificacionEscala strong[style*="#7C4DFF"] {
+  color             : var(--laar-g700) !important;
+}
+.mao-main #distanciaPx { color: var(--laar-g700) !important; }
+.mao-main #distanciaMm { color: var(--laar-g900) !important; }
+.mao-main #advertenciaZona {
+  background         : var(--laar-wa-bg) !important;
+  color             : var(--laar-wa-tx) !important;
+}
+/* Botones púrpura/teal sueltos (fuera del stepper) → secundarios.
+   «Cancelar» (#cancelarVerificacionBtn, btn-danger) y «Aplicar Corrección»
+   (#aplicarCorreccionBtn, btn-success) conservan su semántica er/ok. */
+.mao-main #nuevaMedicionBtn,
+.mao-main #nuevaMedicionBtn2,
+.mao-main #calcularErrorBtn {
+  background         : var(--laar-white) !important;
+  background-image   : none !important;
+  color             : var(--laar-g700) !important;
+  border             : var(--laar-border-md) !important;
+}
+
+/* ─── Cajas informativas: azul/teal inline → gris neutro ───────────────────── */
+.mao-main #notaEscalaBifacial {
+  background         : var(--laar-g50) !important;
+  border-left-color  : var(--laar-g300) !important;
+  color             : var(--laar-g600) !important;
+}
+.mao-main #hybridAnalysisInfo {
+  background         : var(--laar-g50) !important;
+  border-left-color  : var(--laar-g300) !important;
+  color             : var(--laar-g700) !important;
+}
+/* Indicador «CORREGIDA»: chip slate → chip ok plano */
+.mao-main #scaleCorrectedIndicator {
+  background         : var(--laar-ok-bg) !important;
+  color             : var(--laar-ok-tx) !important;
+}
+
+/* ─── Checkbox YOLO IA: gradiente púrpura inline → chip neutro (b500 si activo) */
+.mao-main #sectionEscala label:has(> #useYoloDetectionCheck) {
+  background         : var(--laar-g50) !important;
+  background-image   : none !important;
+  border-color      : var(--laar-g300) !important;
+}
+.mao-main #sectionEscala label:has(> #useYoloDetectionCheck) span {
+  color             : var(--laar-g700) !important;
+}
+.mao-main #sectionEscala label:has(> #useYoloDetectionCheck:checked) {
+  border-color      : var(--laar-b500) !important;
+}
+.mao-main #sectionEscala label:has(> #useYoloDetectionCheck:checked) span {
+  color             : var(--laar-b500) !important;
+}
+
+/* ─── Paneles de CARGA bifacial: borde 3px de marca + gradiente → plano ─────── */
+.mao-main #cargaBifacial .bifacial-panel-a,
+.mao-main #cargaBifacial .bifacial-panel-b {
+  background         : var(--laar-g50) !important;
+  background-image   : none !important;
+  border             : var(--laar-border-md) !important;
+}
+/* El color funcional de cada cara pasa de marco a acento de borde desaturado
+   (misma regla que las caras A/B del ADR-003) */
+.mao-main #cargaBifacial .bifacial-panel-a { border-left: 3px solid var(--laar-b200) !important; }
+.mao-main #cargaBifacial .bifacial-panel-b { border-left: 3px solid var(--laar-ok-bd) !important; }
+.mao-main #cargaBifacial .bifacial-badge-a,
+.mao-main #cargaBifacial .bifacial-badge-b {
+  background         : var(--laar-g500) !important;
+}
+.mao-main #cargaBifacial .bifacial-cara-title-a,
+.mao-main #cargaBifacial .bifacial-cara-title-b {
+  color             : var(--laar-g700) !important;
+}
+.mao-main #cargaBifacial .bifacial-warning {
+  background         : var(--laar-wa-bg) !important;
+  background-image   : none !important;
+  border-left-color  : var(--laar-wa-bd) !important;
+  color             : var(--laar-wa-tx) !important;
+}
+
+/* ─── Lienzo DUAL bifacial: marcos slate inline (#607D8B/#455A64) → neutro ──── */
+.mao-main #canvasBifacial [style*="#607D8B"],
+.mao-main #canvasBifacial [style*="#455A64"] {
+  border-color      : var(--laar-g300) !important;
+  color             : var(--laar-g700) !important;
+}
+.mao-main #canvasBifacial [style*="#ECEFF1"] {
+  background         : var(--laar-g50) !important;
+}
+.mao-main #canvasBifacial [style*="#fff3cd"] {
+  background         : var(--laar-wa-bg) !important;
+  border-left-color  : var(--laar-wa-bd) !important;
+  color             : var(--laar-wa-tx) !important;
+}
+/* «Individualizar Objetos Bifaciales»: gradiente → primaria b500 (2 ids: vence
+   al selector de atributo que neutraliza los marcos) */
+.mao-main #canvasBifacial #individualizarBifacialBtn2 {
+  background         : var(--laar-b500) !important;
+  background-image   : none !important;
+  color             : var(--laar-white) !important;
+  border             : none !important;
+  box-shadow        : none !important;
+}
+.mao-main #canvasBifacial #individualizarBifacialBtn2:disabled {
+  background         : var(--laar-g200) !important;
+  color             : var(--laar-g500) !important;
+}
+
+/* ─── Visor 3D: select en dark-theme (#1e2530) → input estándar LAAR ────────── */
+.mao-main #obj3dRoughnessGamma {
+  background         : var(--laar-white) !important;
+  color             : var(--laar-g700) !important;
+  border             : var(--laar-border-md) !important;
+}
+
+/* ─── Prueba Virtual (dev-only): botones con gradiente rosa/gris → secundarios ─ */
+.mao-main #testProgressIndicatorBtn,
+.mao-main #openProjectsBtn {
+  background         : var(--laar-white) !important;
+  background-image   : none !important;
+  color             : var(--laar-g700) !important;
+  border             : var(--laar-border-md) !important;
+  box-shadow        : none !important;
+}
+
+/* ─── Toolbar flotante de zoom (canvas monofacial) → chips neutros + acento ──
+   Presets `.zoom-preset` venían en gray-400 relleno (pesado), el nivel y el
+   ⊞ individualizar en slate/verde (#individualizarBtn{background:#416e41} de
+   main.css, regla vieja por id). Se aplanan a chips grises + acento b500. */
+.mao-main #zoomToolbar .zt-level {
+  color             : var(--laar-g700) !important;
+}
+.mao-main #zoomToolbar .zoom-preset {
+  background        : var(--laar-g100) !important;
+  color             : var(--laar-g700) !important;
+}
+.mao-main #zoomToolbar .zoom-preset:hover {
+  background        : var(--laar-g200) !important;
+}
+.mao-main #zoomToolbar #individualizarBtn {
+  background        : transparent !important;
+  color             : var(--laar-b500) !important;
+}
+.mao-main #zoomToolbar #individualizarBtn:hover {
+  background        : var(--laar-b50) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADR-004 · FASE 2 — CABECERA DE CHIPS DE CAPTURA (2026-06-12)
+   ───────────────────────────────────────────────────────────────────────────
+   #adr4CapturaHeader resume el estado disperso (imagen · escala · objetos ·
+   flujo) en chips tri-estado, sticky bajo topbar+tabbar. Reusa las clases de
+   chip LAAR de ADR-003 (.adr3-chip*, .adr3-chip-group, .adr3-chip-label); aquí
+   solo el contenedor. La da vida js/mao-captura-organizer.js (reversible:
+   comentar su <script>). El #canvas2dScaleLine queda absorbido → oculto.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.mao-main #adr4CapturaHeader.adr4-header {
+  display            : flex;
+  flex-wrap          : wrap;
+  align-items        : center;
+  gap                : 18px;
+  position           : sticky;
+  /* El contenedor de scroll es `body` (overflow-x:hidden ⇒ overflow-y:auto) y ya
+     lleva `padding-top: topbar+tabbar`. Por eso el sticky debe ser top:0: se fija
+     en el borde del contenido (justo bajo las barras). Un top:calc(topbar+tabbar)
+     sumaría 70px al padding y la cabecera taparía la fila de carga (verificado por
+     sonda DOM: con top:70 se fijaba en y=140 sobre #cargaMonofacial). */
+  top                : 0;
+  z-index            : 5;
+  margin-bottom      : 16px;
+  padding            : 10px 14px;
+  background         : var(--laar-white);
+  border             : var(--laar-border-md);
+  border-radius      : var(--laar-radius);
+}
+/* La línea de escala/objetos del cuerpo queda absorbida por la cabecera */
+.mao-main #canvas2dScaleLine {
+  display            : none !important;
+}

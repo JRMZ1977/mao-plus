@@ -28,7 +28,7 @@
   =====================================================================================
   -->
   <link rel="stylesheet" href="css/main.css?v=20260403f">
-  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260611i">
+  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260612d">
 </head>
 <body>
   <!-- ═══════════════════════════════════════════════════════════════════════
@@ -770,6 +770,29 @@
     </div>
 
     <!-- ============================================================================ -->
+    <!-- ADR-004 Fase 2 — Cabecera de estado de Captura (chips Imagen/Escala/Objetos/Flujo) -->
+    <!-- La da vida js/mao-captura-organizer.js. Reusa las clases de chip LAAR de ADR-003. -->
+    <!-- ============================================================================ -->
+    <div id="adr4CapturaHeader" class="adr4-header">
+      <div class="adr3-chip-group">
+        <span class="adr3-chip-label">Imagen</span>
+        <span id="adr4ChipImagen" class="adr3-chip adr3-chip--wa">Sin cargar</span>
+      </div>
+      <div class="adr3-chip-group">
+        <span class="adr3-chip-label">Escala</span>
+        <span id="adr4ChipEscala" class="adr3-chip adr3-chip--wa">Sin calcular</span>
+      </div>
+      <div class="adr3-chip-group">
+        <span class="adr3-chip-label">Objetos</span>
+        <span id="adr4ChipObjetos" class="adr3-chip adr3-chip--none">—</span>
+      </div>
+      <div class="adr3-chip-group">
+        <span class="adr3-chip-label">Flujo</span>
+        <span id="adr4ChipFlujo" class="adr3-chip adr3-chip--none">2D · Monofacial</span>
+      </div>
+    </div>
+
+    <!-- ============================================================================ -->
     <!-- INTERFAZ DE CARGA DE IMAGEN(ES) -->
     <!-- ============================================================================ -->
     <fieldset id="sectionImagen">
@@ -836,10 +859,13 @@
           </div>
         </div>
         
-        <div class="bifacial-warning">
-          <strong style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;"><span></span>Modo Bifacial Activado:</strong>
-          Cargue las imágenes de ambas caras del objeto. El sistema ejecutará el análisis morfométrico completo para cada cara y generará un análisis comparativo intercara automatizado.
-        </div>
+        <!-- ADR-004 Fase 3 — didáctico bifacial a <details> (progressive disclosure) -->
+        <details class="laar-details">
+          <summary>Cómo funciona el modo bifacial</summary>
+          <div style="font-size: 11px; color: var(--gray-600); line-height: 1.5;">
+            Cargue las imágenes de ambas caras del objeto. El sistema ejecutará el análisis morfométrico completo para cada cara y generará un análisis comparativo intercara automatizado.
+          </div>
+        </details>
       </div>
       <div style="font-size: 10px; color: var(--gray-500);">
         RAW: NEF, CR2/CR3, ARW, ORF, RAF, DNG, RW2, PEF, SRW
@@ -1170,7 +1196,7 @@
     </fieldset>
 
     <fieldset id="sectionEscala">
-      <legend>Configuración y Procesamiento</legend>
+      <legend>Escala y Detección</legend>
 
       <!-- PROCESAMIENTO - Stepper visual de pasos -->
       <div style="margin-top: 12px; padding: 10px 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px;">
@@ -4500,11 +4526,13 @@
   </script>
 
   <!-- LAAR Tab Router — Migración a pestañas -->
-  <script src="js/mao-tab-router.js?v=20260611c" defer></script>
+  <script src="js/mao-tab-router.js?v=20260612a" defer></script>
   <!-- ADR-002 Fase 2 — Organizador del panel de Análisis (jerarquía §1–§8 + chip P/H) -->
   <script src="js/mao-analysis-organizer.js?v=20260611d" defer></script>
   <!-- ADR-003 Fases 2-3 — Organizador de la pestaña Proyecto (chips + CTA con guard) -->
   <script src="js/mao-proyecto-organizer.js?v=20260611a" defer></script>
+  <!-- ADR-004 Fase 2 — Organizador de la pestaña Captura (chips de estado) -->
+  <script src="js/mao-captura-organizer.js?v=20260612a" defer></script>
 
 </body>
 </html>
