@@ -298,6 +298,66 @@
     if (wrap.style.display !== want) wrap.style.display = want;
   }
 
+  /* ── Fase 3: lienzo unificado con conmutador de vistas ──────────────────────
+     Relocaliza los grupos B (Contorno depurado) y C (Vista esquemática) a la
+     celda del lienzo (#morphologicalCanvasContainer) y los presenta como vistas
+     conmutables junto al canvas «Real». Seguro: los renderers dibujan sobre los
+     <canvas> por ID (no reconstruyen la celda) y solo fuerzan `.open=true` en
+     B/C — controlamos la visibilidad por `display` del grupo, no por `open`. */
+  function setCanvasView(view) {
+    var cell = $('morphologicalCanvasContainer');
+    if (!cell) return;
+    ['real', 'contorno', 'esquema'].forEach(function (v) {
+      /* .adr2-cview distingue las VISTAS de los botones del conmutador (ambos
+         llevan data-view); sin la clase, querySelector matchearía el botón. */
+      var node = cell.querySelector('.adr2-cview[data-view="' + v + '"]');
+      if (node) node.style.display = (v === view) ? '' : 'none';
+    });
+    var seg = $('adr2CanvasSeg');
+    if (seg) Array.prototype.forEach.call(seg.children, function (b) {
+      b.classList.toggle('adr2-seg-btn--active', b.getAttribute('data-view') === view);
+    });
+  }
+
+  function unifyCanvas() {
+    var cell = $('morphologicalCanvasContainer');
+    var gB = $('morphGroupB');
+    var gC = $('morphGroupC');
+    if (!cell || !gB || !gC) return;
+
+    /* 1) Envolver el contenido «Real» actual (título + canvas + leyenda) una vez */
+    var real = $('adr2ViewReal');
+    if (!real) {
+      real = el('div', 'adr2-view adr2-cview'); real.id = 'adr2ViewReal';
+      real.setAttribute('data-view', 'real');
+      while (cell.firstChild) real.appendChild(cell.firstChild);
+      cell.appendChild(real);
+    }
+
+    /* 2) Relocalizar B y C a la celda como vistas (idempotente) */
+    if (gB.parentElement !== cell) {
+      gB.classList.add('adr2-cview'); gB.setAttribute('data-view', 'contorno'); cell.appendChild(gB);
+    }
+    if (gC.parentElement !== cell) {
+      gC.classList.add('adr2-cview'); gC.setAttribute('data-view', 'esquema'); cell.appendChild(gC);
+    }
+
+    /* 3) Conmutador segmentado (una vez) */
+    var seg = $('adr2CanvasSeg');
+    if (!seg) {
+      seg = el('div', 'adr2-seg'); seg.id = 'adr2CanvasSeg';
+      [['real', 'Real'], ['contorno', 'Contorno depurado'], ['esquema', 'Esquemática']]
+        .forEach(function (v) {
+          var b = el('button', 'adr2-seg-btn', v[1]);
+          b.type = 'button'; b.setAttribute('data-view', v[0]);
+          b.addEventListener('click', function () { setCanvasView(v[0]); });
+          seg.appendChild(b);
+        });
+      cell.insertBefore(seg, cell.firstChild);
+      setCanvasView('real');
+    }
+  }
+
   /* ── Orquestación ────────────────────────────────────────────────────────── */
   var scheduled = false;
   function schedule() {
@@ -320,6 +380,8 @@
     var col = mm.parentElement;
     if (col) col.classList.add('adr2-col');
     ensureEfaWrapper(col);
+
+    unifyCanvas();   /* Fase 3: vistas del lienzo (Real/Contorno/Esquemática) */
 
     if (!mm.childNodes.length) return;
     var root = partition(mm);

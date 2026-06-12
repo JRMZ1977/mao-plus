@@ -733,6 +733,165 @@ details.adr2-sec > .adr2-body { padding: 6px 12px 10px; }
   color          : var(--laar-g600);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADR-002 · FASE 1 — DE-RAINBOW DEL CONTENIDO (estilo LAAR, 2026-06-11)
+   ───────────────────────────────────────────────────────────────────────────
+   El HTML legacy de las secciones (visualization-export.js) trae decenas de
+   colores/gradientes/sombras inline. #morphologicalMetrics (§1,§2,§4–§8) y
+   #efaMetricsPanel (§3) son texto/tablas SIN <canvas> → neutralización segura
+   por bloque. Las clases .adr2-* del organizador (chips, cabecera, tarjeta P/H)
+   usan color por CLASE, no inline → conservan su semántica. El lienzo (columna
+   izquierda) y los grupos b/c (con canvas) quedan fuera (Fase 3). Reversible. */
+#morphologicalAnalysisContainer.adr2-on #morphologicalMetrics [style*="color"],
+#morphologicalAnalysisContainer.adr2-on #efaMetricsPanel [style*="color"] {
+  color            : var(--laar-g800) !important;
+}
+#morphologicalAnalysisContainer.adr2-on #morphologicalMetrics [style*="background"],
+#morphologicalAnalysisContainer.adr2-on #efaMetricsPanel [style*="background"] {
+  background       : var(--laar-g50) !important;
+  background-image : none !important;
+  box-shadow       : none !important;
+}
+#morphologicalAnalysisContainer.adr2-on #morphologicalMetrics [style*="border"],
+#morphologicalAnalysisContainer.adr2-on #efaMetricsPanel [style*="border"] {
+  border-color     : var(--laar-g200) !important;
+}
+/* Sub-encabezados internos un punto más oscuros y en escala LAAR */
+#morphologicalAnalysisContainer.adr2-on #morphologicalMetrics h5,
+#morphologicalAnalysisContainer.adr2-on #morphologicalMetrics h6,
+#morphologicalAnalysisContainer.adr2-on #efaMetricsPanel h5,
+#morphologicalAnalysisContainer.adr2-on #efaMetricsPanel h6 {
+  color            : var(--laar-g700) !important;
+  border-color     : var(--laar-g200) !important;
+  font-size        : 11px !important;
+  text-transform   : uppercase;
+  letter-spacing   : .03em;
+}
+/* Acento único permitido: enlaces/botones de export del listado EFA (TPS/CSV) */
+#morphologicalAnalysisContainer.adr2-on #efaMetricsPanel button[style*="color"] {
+  color            : var(--laar-b500) !important;
+  background        : var(--laar-white) !important;
+  border-color      : var(--laar-g300) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADR-002 · FASE 4 — BARRA DE ACCIONES STICKY (2026-06-11)
+   ───────────────────────────────────────────────────────────────────────────
+   #sidebarActionsSection (reubicado por el router al host de contenido) pasa de
+   columna enterrada al pie a barra horizontal fija al fondo del viewport,
+   siempre alcanzable. Se oculta la zona «Herramientas» (Perforaciones ya vive
+   en la cabecera #adr2Header). Exportar conserva sus sub-etiquetas; «Nuevo
+   análisis» se separa a la derecha como acción de flujo. El CTA «Guardar y
+   Finalizar» (#closeAnalysisBtn, arriba del panel, solo en Análisis) pasa a
+   primario LAAR (b500). Pure CSS, reversible. */
+#sidebarActionsSection {
+  position       : sticky;
+  bottom         : 0;
+  z-index        : 30;
+  display        : flex;
+  flex-wrap      : wrap;
+  align-items    : center;
+  gap            : 8px;
+  width          : 100% !important;      /* el host dimensionaba la sección a ~340px (ancho del sidebar) */
+  max-width      : 100% !important;
+  align-self     : stretch !important;   /* por si el host es flex/grid */
+  box-sizing     : border-box;
+  background     : var(--laar-white);
+  border         : var(--laar-border);
+  border-radius  : var(--laar-radius);
+  padding        : 8px 12px;
+  margin-top     : 12px;
+  box-shadow     : 0 -2px 8px rgba(17, 24, 39, .04);
+}
+/* Ocultar separadores, headers verticales y la zona Herramientas/Perforaciones */
+#sidebarActionsSection .mao-sidebar-sep,
+#sidebarActionsSection .mao-sidebar-section-header,
+#sidebarActionsSection #sidebarPerforacionesBtn { display: none !important; }
+
+/* Botones de export → secundarios LAAR (blanco + borde), compactos, horizontales */
+#sidebarActionsSection .sidebar-action-btn {
+  display        : inline-flex;
+  align-items    : center;
+  gap            : 6px;
+  width          : auto !important;
+  margin         : 0 !important;
+  padding        : 5px 10px;
+  font-size      : 11px;
+  font-weight    : 500;
+  color          : var(--laar-g700) !important;
+  background     : var(--laar-white) !important;
+  border         : var(--laar-border-md) !important;
+  border-radius  : var(--laar-radius);
+  box-shadow     : none !important;
+  cursor         : pointer;
+  transition     : background var(--laar-transition);
+}
+#sidebarActionsSection .sidebar-action-btn:hover { background: var(--laar-g50) !important; }
+#sidebarActionsSection .sidebar-action-btn .nav-icon { width: 13px; height: 13px; flex: 0 0 auto; }
+/* Nuevo análisis: acción de flujo, separada a la derecha */
+#sidebarActionsSection #sidebarNuevoAnalisisBtn {
+  margin-left    : auto !important;
+  color          : var(--laar-g600) !important;
+}
+
+/* CTA primaria del análisis: «Guardar y Finalizar» → acento único b500 */
+#morphologicalAnalysisContainer.adr2-on #closeAnalysisBtn {
+  background     : var(--laar-b500) !important;
+  background-image: none !important;
+  color          : var(--laar-white) !important;
+  border         : none !important;
+  border-radius  : var(--laar-radius) !important;
+  box-shadow     : none !important;
+}
+#morphologicalAnalysisContainer.adr2-on #closeAnalysisBtn:hover {
+  background     : var(--laar-b600) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADR-002 · FASE 3 — LIENZO UNIFICADO (conmutador de vistas, 2026-06-11)
+   ───────────────────────────────────────────────────────────────────────────
+   El organizador relocaliza los grupos B/C a #morphologicalCanvasContainer y
+   los expone como vistas conmutables (Real / Contorno / Esquemática) junto al
+   canvas. Aquí: el control segmentado y el aplanado del cromo de details de
+   las vistas relocalizadas. Reversible. */
+#adr2CanvasSeg {
+  display        : inline-flex;
+  gap            : 2px;
+  margin         : 0 0 10px;
+  padding        : 2px;
+  background     : var(--laar-g100);
+  border         : var(--laar-border);
+  border-radius  : var(--laar-radius);
+}
+.adr2-seg-btn {
+  font-size      : 11px;
+  font-weight    : 500;
+  color          : var(--laar-g600);
+  background     : transparent;
+  border         : none;
+  border-radius  : 3px;
+  padding        : 4px 12px;
+  cursor         : pointer;
+  white-space    : nowrap;
+  transition     : background var(--laar-transition), color var(--laar-transition);
+}
+.adr2-seg-btn:hover { color: var(--laar-g900); }
+.adr2-seg-btn--active {
+  background     : var(--laar-white);
+  color          : var(--laar-b500);
+  box-shadow     : 0 1px 2px rgba(17, 24, 39, .06);
+}
+/* Vistas relocalizadas (B/C): sin cromo de details ni borde dentro de la celda */
+#morphologicalCanvasContainer details[data-view] > summary { display: none !important; }
+#morphologicalCanvasContainer details[data-view] {
+  border         : 0 !important;
+  background     : transparent !important;
+  box-shadow     : none !important;
+  margin         : 0 !important;
+  padding        : 0 !important;
+}
+#morphologicalCanvasContainer #adr2ViewReal > :first-child { margin-top: 0; }
+
 /* ── Aplanar la jerarquía legacy bajo el organizador (.adr2-on) ──────────────
    El grupo «a) Métricas Morfológicas» es redundante con las §-secciones: su
    summary se oculta y el <details> queda transparente (sigue `open`, así su
