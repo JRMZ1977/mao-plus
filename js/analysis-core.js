@@ -44393,27 +44393,23 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       // Limpiar detecciones previas
       objects = [];
 
-      // ── Intento Python (YOLO IA o detect clásico) ────────────────────────
+      // ── Intento Python (detect clásico; con separación watershed opcional) ──
       let _pyDetUsed = false;
-      const _useYolo = document.getElementById('useYoloDetectionCheck')?.checked;
-      if (window.PythonBridge && PythonBridge.isAvailable()) {
+      const _separarPegados = document.getElementById('useSeparateTouchingCheck')?.checked;
+      if (window.PythonBridge && PythonBridge.isAvailable() && PythonBridge.isModuleActive('detection')) {
         try {
           const imageDataURL = image.src || (image instanceof HTMLCanvasElement
             ? image.toDataURL('image/png') : null);
           if (imageDataURL) {
             let pyDet = null;
-            if (_useYolo) {
-              console.log('[Python] Usando YOLOv8n para detección de instancias...');
-              pyDet = await PythonBridge.detection.detectYolo(imageDataURL, {
-                minArea: detectionConfig.minArea,
-              });
-              if (pyDet) console.log(`[Python] YOLO detect ✓ → ${pyDet.objects?.length ?? 0} objetos (método: ${pyDet.method})`);
-            } else if (PythonBridge.isModuleActive('detection')) {
-              pyDet = await PythonBridge.detection.detect(imageDataURL, {
-                minArea: detectionConfig.minArea,
-              });
-              if (pyDet) console.log(`[Python] detection.detect ✓ → ${pyDet.objects?.length ?? 0} objetos`);
+            if (_separarPegados) {
+              console.log('[Python] Detección con separación de objetos pegados (watershed)...');
             }
+            pyDet = await PythonBridge.detection.detect(imageDataURL, {
+              minArea: detectionConfig.minArea,
+              separateTouching: !!_separarPegados,
+            });
+            if (pyDet) console.log(`[Python] detection.detect ✓ → ${pyDet.objects?.length ?? 0} objetos (método: ${pyDet.method_used})`);
             if (pyDet && Array.isArray(pyDet.objects) && pyDet.objects.length > 0) {
               objects = pyDet.objects.map((o, idx) => {
                 const _minX   = o.bbox ? o.bbox.x : (o.minX || 0);
@@ -44437,9 +44433,10 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
                   area:    o.area || 0,
                   centroide:      { x: _cx, y: _cy },
                   contour_points: o.contour_points || [],
-                  _source:    _useYolo ? 'python_yolo' : 'python',
-                  _yoloConf:  o.yolo_confidence ?? null,
-                  _detMethod: o.detection_method ?? null,
+                  _source:    _separarPegados ? 'python_watershed' : 'python',
+                  _confidence:     o.detection_confidence ?? null,
+                  _confidenceLvl:  o.confidence_level ?? null,
+                  _detMethod: o.detectionMethod ?? null,
                   _maoIA:     o.mao_ia ?? null,
                 };
               });

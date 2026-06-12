@@ -150,6 +150,12 @@ def _zscan_color_analysis(img_bgr: np.ndarray, cell_size: int = 3) -> dict:
     umbral_perforacion = max(5.0, min(22.0, global_std * 1.5))
     tiene_perforacion = delta_e_centro < umbral_perforacion
 
+    # Umbral de clasificación celda→fondo, adaptativo al contraste real.
+    # Reemplaza el 22.0 fijo previo (incoherente con el umbral de perforación,
+    # que ya era adaptativo): en baja luz el ΔE inter-clase es menor y un umbral
+    # fijo marcaba como «fondo» celdas del propio objeto, encogiendo el radio.
+    umbral_celda = max(12.0, min(30.0, global_std * 2.0))
+
     # ── Fase C: Estadísticas por celda ───────────────────────────────────────
     cells_w = math.ceil(w / cell_size)
     cells_h = math.ceil(h / cell_size)
@@ -178,7 +184,7 @@ def _zscan_color_analysis(img_bgr: np.ndarray, cell_size: int = 3) -> dict:
             (cell_stats[:, :, 1] - obj_g) ** 2 +
             (cell_stats[:, :, 2] - obj_b) ** 2
         )
-        is_fondo_cell = d_cells_obj > 22.0
+        is_fondo_cell = d_cells_obj > umbral_celda
 
         radio_fin = max_radio
         for radio in range(1, max_radio):
@@ -399,6 +405,114 @@ def _excluir_franja_borde(mask: np.ndarray) -> np.ndarray:
     return mask
 
 
+def _separate_touching_watershed(
+    mask_uint8: np.ndarray, img_bgr: np.ndarray, min_area: int
+) -> "np.ndarray | None":
+    """
+    Separa objetos en contacto/solapados con distance-transform + watershed.
+
+    Reemplaza la rama YOLO borrada (sin dependencias: OpenCV puro). Solo divide
+    cuando la transformada de distancia revela varios máximos (varios centros)
+    dentro de un mismo componente conectado; un blob convexo único queda intacto.
+
+    Estrategia:
+      1. Semillas de primer plano (sure_fg): por cada componente, los píxeles cuya
+         distancia al fondo supera 0.5·max_local. Dos discos pegados → 2 semillas.
+      2. Fondo seguro (sure_bg): dilatación amplia de la máscara.
+      3. Zona desconocida = sure_bg − sure_fg (el «cuello» entre objetos).
+      4. cv2.watershed inunda desde las semillas y traza la frontera en el cuello.
+
+    Retorna labels int32 (0=fondo, 1..N=objetos) o None si no aporta separación
+    (≤1 objeto resultante) para que el llamador use connectedComponents normal.
+    """
+    bin_mask = (mask_uint8 > 0).astype(np.uint8)
+    if int(bin_mask.sum()) == 0:
+        return None
+
+    # ── 1. Semillas de primer plano por componente (umbral relativo local) ────
+    num_cc, labels_cc = cv2.connectedComponents(bin_mask)
+    if num_cc <= 1:
+        return None
+    dist = cv2.distanceTransform(bin_mask, cv2.DIST_L2, 5)
+    sure_fg = np.zeros_like(bin_mask)
+    for lbl in range(1, num_cc):
+        comp = labels_cc == lbl
+        local_max = float(dist[comp].max())
+        if local_max <= 0:
+            continue
+        # 0.5·max_local: en dos objetos pegados cada centro supera el umbral;
+        # el cuello (distancia baja) queda fuera → frontera de watershed.
+        sure_fg[comp & (dist >= 0.5 * local_max)] = 1
+    # Separar semillas que el umbral dejó conectadas por una fina banda.
+    sure_fg = cv2.erode(sure_fg, np.ones((3, 3), np.uint8), iterations=1)
+
+    # ── 2-3. Fondo seguro y zona desconocida ─────────────────────────────────
+    kernel = np.ones((3, 3), np.uint8)
+    sure_bg = cv2.dilate(bin_mask, kernel, iterations=3)
+    unknown = cv2.subtract(sure_bg, sure_fg)
+
+    # ── 4. Marcadores + watershed ─────────────────────────────────────────────
+    n_seeds, markers = cv2.connectedComponents(sure_fg)
+    if n_seeds <= 2:   # 1 fondo + ≤1 objeto → no hay nada que separar
+        return None
+    markers = markers + 1            # reservar 0 para «desconocido»
+    markers[unknown > 0] = 0
+    markers = cv2.watershed(img_bgr, markers)   # fronteras quedan en −1
+
+    # Reetiquetar: marcadores ≥2 son objetos; compactar a 1..N filtrando área.
+    out = np.zeros(bin_mask.shape, dtype=np.int32)
+    next_label = 0
+    n_objs = 0
+    for m in range(2, markers.max() + 1):
+        comp = (markers == m) & (bin_mask > 0)
+        if int(comp.sum()) < min_area:
+            continue
+        next_label += 1
+        out[comp] = next_label
+        n_objs += 1
+
+    if n_objs <= 1:
+        return None
+    return out
+
+
+def _confianza_objeto(
+    mask_obj: np.ndarray, img_rgb: np.ndarray, area: int, bbox_area: int
+) -> dict:
+    """
+    Confianza de detección por objeto ∈ [0,1] a partir de evidencia local real:
+      • contraste de borde — ΔE entre los píxeles del objeto y un anillo de fondo
+        que lo rodea (dilatación − objeto), normalizado a ~60 ΔE.
+      • compacidad (extent) — área / área del bbox; rellenos sólidos puntúan más
+        que máscaras fragmentadas o con muchos huecos.
+
+    Devuelve {"score": float, "level": "alta"|"media"|"baja"}.
+    El nivel mapea a los chips LAAR (alta→ok, media→ok atenuado, baja→wa).
+    """
+    obj_bool = mask_obj > 0
+    n_obj = int(obj_bool.sum())
+    if n_obj == 0:
+        return {"score": 0.0, "level": "baja"}
+
+    # Anillo de fondo inmediato alrededor del objeto
+    ring = cv2.dilate(mask_obj.astype(np.uint8),
+                      np.ones((5, 5), np.uint8), iterations=2) > 0
+    ring &= ~obj_bool
+    if int(ring.sum()) >= 8:
+        obj_mean = img_rgb[obj_bool].mean(axis=0)
+        ring_mean = img_rgb[ring].mean(axis=0)
+        delta_e = float(np.sqrt(((obj_mean - ring_mean) ** 2).sum()))
+        contraste = max(0.0, min(1.0, delta_e / 60.0))
+    else:
+        contraste = 0.5   # sin anillo medible (objeto pegado al borde)
+
+    extent = max(0.0, min(1.0, area / bbox_area)) if bbox_area > 0 else 0.0
+
+    score = round(0.65 * contraste + 0.35 * extent, 3)
+    level = "alta" if score >= 0.66 else "media" if score >= 0.40 else "baja"
+    return {"score": score, "level": level}
+
+
 # ── Detección de objetos ─────────────────────────────────────────────────────
 
 async def detect(
@@ -406,6 +520,7 @@ async def detect(
     threshold: float = 0.5,
     min_area: int = 1000,
     max_objects: int = 50,
+    separate_touching: bool = False,
 ) -> dict:
     """
     Detecta objetos en la imagen usando OpenCV.
@@ -483,26 +598,76 @@ async def detect(
     mask_uint8 = cv2.morphologyEx(mask_uint8, cv2.MORPH_CLOSE, kernel, iterations=iters)
     mask_uint8 = cv2.morphologyEx(mask_uint8, cv2.MORPH_OPEN,  kernel, iterations=iters)
 
-    # 6. Encontrar componentes conectados
-    num_labels, labels, stats_cv, centroids = cv2.connectedComponentsWithStats(
-        mask_uint8, connectivity=8
-    )
+    # 5b. GrabCut fallback cuando el Z-scan tiene baja confianza.
+    # El umbral de color falla en fondos heterogéneos o de bajo contraste
+    # cromático; GrabCut (GMM + graph-cuts) reasigna usando la máscara previa
+    # como semilla. Solo se aplica si: hay Z-scan, distObjBg es bajo y la
+    # cobertura previa no está colapsada. El resultado se acepta solo si no
+    # colapsa la máscara (evita borrar el objeto en escenas difíciles).
+    used_grabcut = False
+    if zscan is not None and not fondo["es_fondo_blanco"]:
+        cov_prev = float((mask_uint8 > 0).mean())
+        if zscan.get("distObjBg", 999.0) < 30.0 and 0.002 < cov_prev < 0.97:
+            try:
+                # Acotar coste: GrabCut sobre imagen reducida a ≤768px lado mayor.
+                gh, gw = img_for_mask.shape[:2]
+                gscale = min(1.0, 768.0 / max(gh, gw))
+                if gscale < 1.0:
+                    small = cv2.resize(img_for_mask, (int(gw * gscale), int(gh * gscale)),
+                                       interpolation=cv2.INTER_AREA)
+                    seed = cv2.resize(mask_uint8, (small.shape[1], small.shape[0]),
+                                      interpolation=cv2.INTER_NEAREST)
+                else:
+                    small, seed = img_for_mask, mask_uint8
+                gc = _grabcut_mask(small, initial_mask_u8=seed)
+                cov_gc = float(gc.mean())
+                if 0.005 < cov_gc < 0.95:
+                    gc_full = cv2.resize((gc * 255).astype(np.uint8), (w, h),
+                                         interpolation=cv2.INTER_NEAREST)
+                    gc_full = _excluir_franja_borde((gc_full > 0).astype(np.uint8)) * 255
+                    mask_uint8 = gc_full.astype(np.uint8)
+                    used_grabcut = True
+            except Exception:
+                pass   # conservar la máscara de color si GrabCut falla
+
+    # 6. Etiquetado de componentes — con separación opcional de objetos pegados.
+    # separate_touching activa distance-transform + watershed (reemplaza la rama
+    # YOLO borrada): divide blobs que fusionan varios artefactos en contacto.
+    used_watershed = False
+    if separate_touching:
+        ws_labels = _separate_touching_watershed(mask_uint8, img_for_mask, min_area)
+        if ws_labels is not None:
+            labels = ws_labels
+            label_ids = list(range(1, int(labels.max()) + 1))
+            used_watershed = True
+    if not used_watershed:
+        num_labels, labels, _stats_cv, _centroids = cv2.connectedComponentsWithStats(
+            mask_uint8, connectivity=8
+        )
+        label_ids = list(range(1, num_labels))
+    total_components = len(label_ids)
+
+    img_rgb_full = cv2.cvtColor(img_for_mask, cv2.COLOR_BGR2RGB).astype(np.float32)
 
     # 7. Filtrar objetos: omitir etiqueta 0 (fondo), aplicar área mínima
     objects = []
-    for i in range(1, num_labels):
-        area = int(stats_cv[i, cv2.CC_STAT_AREA])
+    for i in label_ids:
+        comp = labels == i
+        area = int(comp.sum())
         if area < min_area:
             continue
 
-        x = int(stats_cv[i, cv2.CC_STAT_LEFT])
-        y = int(stats_cv[i, cv2.CC_STAT_TOP])
-        bw = int(stats_cv[i, cv2.CC_STAT_WIDTH])
-        bh = int(stats_cv[i, cv2.CC_STAT_HEIGHT])
-        cx, cy = float(centroids[i][0]), float(centroids[i][1])
+        ys, xs = np.nonzero(comp)
+        x, y = int(xs.min()), int(ys.min())
+        bw = int(xs.max() - x + 1)
+        bh = int(ys.max() - y + 1)
+        cx, cy = float(xs.mean()), float(ys.mean())
+
+        conf = _confianza_objeto(comp.astype(np.uint8), img_rgb_full, area, bw * bh)
 
         objects.append({
             "id": None,          # se asigna abajo con índice final
+            "_label": int(i),    # privado: se elimina antes de retornar
             "bbox": {"x": x, "y": y, "w": bw, "h": bh},
             "minX": x, "minY": y,
             "width": bw, "height": bh,
@@ -515,6 +680,8 @@ async def detect(
             "tight_height": bh,
             "aspect_ratio": round(bw / bh, 3) if bh > 0 else 1.0,
             "area_pixels": area,
+            "detection_confidence": conf["score"],
+            "confidence_level": conf["level"],
         })
 
     # Ordenar por área descendente; filtrar dominancia (≥20% del mayor — igual JS)
@@ -561,44 +728,38 @@ async def detect(
         obj["id"] = f"PY_{idx + 1:02d}"
 
     # ── Enriquecimiento MAO_IA: descriptores morfológicos rápidos por objeto ──
-    # Se calculan sobre la máscara binaria (ya disponible), sin re-detectar.
+    # El contorno se deriva de la máscara del propio componente (labels==_label):
+    # correcto también tras watershed, donde cada objeto separado tiene su contorno
+    # (la máscara global aún los mostraría fusionados).
     # Aporta: circularity, solidity, equivalent_diameter, extent.
     # No sustituye el análisis completo de contour.py + metrics.py.
-    try:
-        contours_all, _ = cv2.findContours(
-            mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-        # Mapear componente → contorno por centroide más cercano
-        for obj in objects:
-            ocx, ocy = obj["centroid"]
-            best_cnt = None
-            best_dist = float("inf")
-            for cnt in contours_all:
-                carea = cv2.contourArea(cnt)
-                if carea < min_area * 0.5:
-                    continue
-                M = cv2.moments(cnt)
-                if M["m00"] <= 0:
-                    continue
-                ccx = M["m10"] / M["m00"]
-                ccy = M["m01"] / M["m00"]
-                d = math.sqrt((ccx - ocx) ** 2 + (ccy - ocy) ** 2)
-                if d < best_dist:
-                    best_dist = d
-                    best_cnt = cnt
-            if best_cnt is not None and best_dist < max(obj.get("width", 50), 50):
-                idx_obj = int(obj["id"].split("_")[1]) - 1
-                morph = _morpho_from_contour(best_cnt, idx_obj)
-                obj["mao_ia"] = {
-                    "circularity":         morph["circularity"],
-                    "solidity":            morph["solidity"],
-                    "equivalent_diameter": morph["equivalent_diameter"],
-                    "extent":              morph["extent"],
-                    "aspect_ratio":        morph["aspect_ratio"],
-                    "convexity_defects":   morph["convexity_defects"],
-                }
-    except Exception:
-        pass   # fallback: los objetos se devuelven sin mao_ia
+    for obj in objects:
+        try:
+            comp_u8 = (labels == obj["_label"]).astype(np.uint8) * 255
+            cnts, _ = cv2.findContours(
+                comp_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            if not cnts:
+                continue
+            best_cnt = max(cnts, key=cv2.contourArea)
+            if cv2.contourArea(best_cnt) < min_area * 0.5:
+                continue
+            idx_obj = int(obj["id"].split("_")[1]) - 1
+            morph = _morpho_from_contour(best_cnt, idx_obj)
+            obj["mao_ia"] = {
+                "circularity":         morph["circularity"],
+                "solidity":            morph["solidity"],
+                "equivalent_diameter": morph["equivalent_diameter"],
+                "extent":              morph["extent"],
+                "aspect_ratio":        morph["aspect_ratio"],
+                "convexity_defects":   morph["convexity_defects"],
+            }
+        except Exception:
+            pass   # fallback: el objeto se devuelve sin mao_ia
+
+    # Limpiar campo privado de etiqueta antes de serializar la respuesta.
+    for obj in objects:
+        obj.pop("_label", None)
 
     used_clahe = img_for_mask is not img
     method = (
@@ -607,6 +768,10 @@ async def detect(
         else "python_zscan_competitive" if zscan is not None
         else "python_adaptive_color"
     )
+    if used_grabcut:
+        method += "+grabcut"
+    if used_watershed:
+        method += "+watershed"
 
     result = {
         "status": "ok",
@@ -623,9 +788,11 @@ async def detect(
         },
         "stats": {
             "image_size": [w, h],
-            "total_components": num_labels - 1,
-            "filtered_by_area": (num_labels - 1) - len(objects),
+            "total_components": total_components,
+            "filtered_by_area": total_components - len(objects),
             "min_area_threshold": min_area,
+            "used_grabcut_fallback": used_grabcut,
+            "used_watershed_split": used_watershed,
         },
     }
     if zscan is not None:

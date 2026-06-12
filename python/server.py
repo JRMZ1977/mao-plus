@@ -154,18 +154,23 @@ async def capabilities():
 @app.post(f"{API_PREFIX}/detect")
 async def detect_objects(
     image: UploadFile = File(...),
-    threshold: float  = Form(default=0.5),
-    min_area: int     = Form(default=100),
-    max_objects: int  = Form(default=50),
+    threshold: float        = Form(default=0.5),
+    min_area: int           = Form(default=100),
+    max_objects: int        = Form(default=50),
+    separate_touching: bool = Form(default=False),
 ):
     """
     Detecta objetos en una imagen usando OpenCV.
 
     Reemplaza: detectObjectsAutomatically() — analysis-core.js ~línea 55406
-    Bibliotecas candidatas:
-      - cv2.threshold + cv2.findContours  (actual, ya implementado en JS)
-      - cv2.watershed                     (mejora: separa objetos pegados)
-      - cv2.GrabCut                       (mejora: fondo no uniforme)
+    Pipeline:
+      - cv2.threshold / Z-scan + Otsu     (umbral de color objeto/fondo)
+      - cv2.GrabCut                       (fallback en bajo contraste / fondo no uniforme)
+      - cv2.watershed                     (separa objetos pegados si separate_touching=True)
+
+    separate_touching — distance-transform + watershed para dividir blobs que
+                        fusionan varios artefactos en contacto (reemplaza la
+                        antigua rama YOLO, sin dependencias externas).
 
     Estado: IMPLEMENTADO (✅) — módulo detection.detect() funcional.
     """
@@ -175,6 +180,7 @@ async def detect_objects(
         threshold=threshold,
         min_area=min_area,
         max_objects=max_objects,
+        separate_touching=separate_touching,
     )
     return result
 
@@ -1649,89 +1655,12 @@ async def classify_object(request: Request):
 
 # ============================================================================
 # FASE 1 IA — DETECCIÓN CON YOLOv8n
-# Nuevo módulo: yolo_detector.py
-# Resuelve: separación de objetos pegados/solapados
-# Flujo: YOLOv8n (instancias) → GrabCut ROI (máscara fina) → contorno + MAO_IA
+# Separación de objetos pegados/solapados.
+# RETIRADO 2026-06-12: la rama YOLO (yolo_detector.py, borrado en bba1910 el
+# 2026-04-23) dejó este endpoint importando un módulo inexistente → HTTP 500.
+# Sustituida por watershed (distance-transform) dentro de /api/detect vía el
+# parámetro separate_touching=True — OpenCV puro, sin descarga de modelos.
 # ============================================================================
-
-@app.get(f"{API_PREFIX}/detect-yolo/status")
-async def detect_yolo_status():
-    """
-    Estado del módulo YOLO.
-
-    Respuesta:
-      {
-        "yolo_available": bool,     # True cuando yolov8n.pt está en caché
-        "model":          str,      # nombre del modelo (yolov8n.pt)
-        "fallback":       str,      # descripción del fallback activo
-        "note":           str,      # mensaje legible del estado
-      }
-    """
-    from python.modules.yolo_detector import status_yolo
-    return status_yolo()
-
-
-@app.post(f"{API_PREFIX}/detect-yolo")
-async def detect_objects_yolo(
-    image:              UploadFile = File(...),
-    conf_threshold:     float      = Form(default=0.20),
-    min_area:           int        = Form(default=100),
-    max_objects:        int        = Form(default=50),
-    use_grabcut:        bool       = Form(default=True),
-    fallback_classical: bool       = Form(default=True),
-):
-    """
-    Detección de objetos arqueológicos usando YOLOv8n + GrabCut.
-
-    Mejora sobre /api/detect:
-      - Separa objetos pegados/solapados (instancia por instancia)
-      - Confianza por objeto (yolo_confidence)
-      - Máscara fina por GrabCut para cada bbox YOLO
-      - Fallback automático a Z-scan + GrabCut clásico si YOLO falla
-
-    Parámetros:
-      conf_threshold    — confianza mínima YOLO (0.0–1.0). 0.20 recomendado
-                          para objetos arqueológicos sobre fondo plano.
-      min_area          — área mínima en píxeles.
-      max_objects       — límite de objetos en la respuesta.
-      use_grabcut       — refinar máscara de cada ROI con GrabCut (recomendado).
-      fallback_classical — activar detección clásica si YOLO no detecta nada.
-
-    Respuesta:
-      {
-        "objects": [
-          {
-            "id":               "PY_01",
-            "bbox":             {"x", "y", "width", "height"},
-            "area":             float,
-            "perimeter":        float,
-            "centroid":         [x, y],
-            "aspect_ratio":     float,
-            "detection_method": "yolov8n" | "classical_zscan",
-            "yolo_confidence":  float,      # solo en detecciones YOLO
-            "yolo_class_id":    int,        # clase COCO detectada
-            "mao_ia": {
-              "circularity", "solidity", "equivalent_diameter",
-              "extent", "aspect_ratio", "convexity_defects"
-            }
-          }, ...
-        ],
-        "count":  int,
-        "method": "yolov8n+grabcut" | "yolov8n" | "classical_fallback"
-      }
-
-    Reemplaza/extiende: detectObjectsAutomatically() — analysis-core.js ~L55406
-    """
-    from python.modules.yolo_detector import detect_yolo
-    data = await _read_image(image)
-    return await detect_yolo(
-        image_bytes=data,
-        conf_threshold=conf_threshold,
-        min_area=min_area,
-        max_objects=max_objects,
-        use_grabcut=use_grabcut,
-        fallback_classical=fallback_classical,
-    )
 
 
 # ============================================================================

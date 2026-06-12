@@ -134,7 +134,16 @@ class TestBuildMask:
 
 class TestDetect:
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        # Loop propio por llamada: aísla del estado global de asyncio. Otros
+        # archivos de la suite usan asyncio.run(), que al salir hace
+        # set_event_loop(None) y deja get_event_loop() rompiendo en Py3.9
+        # (RuntimeError: There is no current event loop). new_event_loop()
+        # no depende de ese estado.
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
     def test_detect_fondo_gris_zscan(self):
         """detect() con fondo no blanco debe usar method=python_zscan_competitive."""
@@ -272,7 +281,16 @@ class TestCoherencia:
 
 class TestExtract:
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        # Loop propio por llamada: aísla del estado global de asyncio. Otros
+        # archivos de la suite usan asyncio.run(), que al salir hace
+        # set_event_loop(None) y deja get_event_loop() rompiendo en Py3.9
+        # (RuntimeError: There is no current event loop). new_event_loop()
+        # no depende de ese estado.
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
     def test_extract_devuelve_fields_requeridos(self):
         """extract() debe devolver los campos del contrato original más convex_hull."""
@@ -336,7 +354,16 @@ class TestExtract:
 
 class TestFullPipeline:
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        # Loop propio por llamada: aísla del estado global de asyncio. Otros
+        # archivos de la suite usan asyncio.run(), que al salir hace
+        # set_event_loop(None) y deja get_event_loop() rompiendo en Py3.9
+        # (RuntimeError: There is no current event loop). new_event_loop()
+        # no depende de ese estado.
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
     def test_pipeline_retorna_metricas(self):
         """full_pipeline() debe devolver objetos con métricas completas."""

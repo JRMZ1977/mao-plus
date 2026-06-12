@@ -40,6 +40,15 @@ def _load_module(path: Path, name: str):
     raise ImportError(f"No se pudo cargar {path}")
 
 
+# El repo MAO_A es una checkout externa que no existe en todas las máquinas.
+# Sin él no hay paridad que verificar: saltamos el módulo entero en colección
+# (en vez de fallar con FileNotFoundError) cuando el comparator de MAO_A falta.
+if not A_COMPARATOR.exists():
+    pytest.skip(
+        f"MAO_A no disponible ({A_COMPARATOR}); tests de paridad bifacial omitidos.",
+        allow_module_level=True,
+    )
+
 comparator_plus = _load_module(PLUS_COMPARATOR, "comparator_plus")
 comparator_a    = _load_module(A_COMPARATOR, "comparator_a")
 

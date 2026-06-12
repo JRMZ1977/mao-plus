@@ -124,7 +124,16 @@ class TestZscanBajoContraste:
 
 class TestDetectBajoContraste:
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        # Loop propio por llamada: aísla del estado global de asyncio. Otros
+        # archivos de la suite usan asyncio.run(), que al salir hace
+        # set_event_loop(None) y deja get_event_loop() rompiendo en Py3.9
+        # (RuntimeError: There is no current event loop). new_event_loop()
+        # no depende de ese estado.
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
     def test_detect_lc_de16_encuentra_objeto(self):
         """detect() debe encontrar el objeto con ΔE ≈ 16."""
@@ -145,13 +154,17 @@ class TestDetectBajoContraste:
         assert result["count"] >= 1, "No detectó objeto en ΔE≈12"
 
     def test_detect_lc_usa_clahe_method(self):
-        """detect() con LC debe reportar method=python_zscan_lc_clahe."""
+        """detect() con LC debe reportar method base python_zscan_lc_clahe.
+
+        El método puede llevar sufijos aditivos (+grabcut / +watershed) según
+        los fallbacks que se activen; se valida el prefijo, no la igualdad.
+        """
         from python.modules.detection import detect
         img = _lc_gray(de=16)
         result = self._run(detect(_png_bytes(img), min_area=500))
 
         assert result["count"] >= 1
-        assert result["method_used"] == "python_zscan_lc_clahe", (
+        assert result["method_used"].startswith("python_zscan_lc_clahe"), (
             f"method_used incorrecto: {result['method_used']}"
         )
 
@@ -264,7 +277,16 @@ class TestGradienteAdaptativoLC:
 
 class TestExtractBajoContraste:
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        # Loop propio por llamada: aísla del estado global de asyncio. Otros
+        # archivos de la suite usan asyncio.run(), que al salir hace
+        # set_event_loop(None) y deja get_event_loop() rompiendo en Py3.9
+        # (RuntimeError: There is no current event loop). new_event_loop()
+        # no depende de ese estado.
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
     def test_extract_lc_de16_retorna_ok(self):
         """extract() debe retornar status=ok con ΔE ≈ 16."""
@@ -313,7 +335,16 @@ class TestExtractBajoContraste:
 
 class TestPipelineBajoContraste:
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        # Loop propio por llamada: aísla del estado global de asyncio. Otros
+        # archivos de la suite usan asyncio.run(), que al salir hace
+        # set_event_loop(None) y deja get_event_loop() rompiendo en Py3.9
+        # (RuntimeError: There is no current event loop). new_event_loop()
+        # no depende de ese estado.
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
     def test_pipeline_lc_de16(self):
         """Pipeline completo detect→contour→metrics debe completarse con ΔE ≈ 16."""
@@ -419,7 +450,16 @@ class TestPrioridadArtefacto:
     """Verifica que el objeto[0] devuelto sea el artefacto, no las referencias."""
 
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        # Loop propio por llamada: aísla del estado global de asyncio. Otros
+        # archivos de la suite usan asyncio.run(), que al salir hace
+        # set_event_loop(None) y deja get_event_loop() rompiendo en Py3.9
+        # (RuntimeError: There is no current event loop). new_event_loop()
+        # no depende de ese estado.
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
     def test_artefacto_elongado_fondo_blanco_es_primero(self):
         """Con fondo blanco, artefacto elongado centrado debe ser objeto[0]."""

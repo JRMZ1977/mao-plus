@@ -281,28 +281,18 @@ const PythonBridge = (() => {
    * Retorna null si no está implementado → usar detectObjectsAutomatically() JS.
    */
   const detection = {
-    async detect(imageDataURL, { threshold = 0.5, minArea = 100, maxObjects = 50 } = {}) {
+    async detect(imageDataURL, { threshold = 0.5, minArea = 100, maxObjects = 50, separateTouching = false } = {}) {
       if (!_serverAvailable || !isModuleActive('detection')) return null;
       const blob = _dataURLtoBlob(imageDataURL);
       return _fetch('/detect', {
         method: 'POST',
-        body: _formData({ image: blob, threshold, min_area: minArea, max_objects: maxObjects }),
-      });
-    },
-
-    async detectYolo(imageDataURL, { confThreshold = 0.38, minArea = 100, maxObjects = 20, useGrabcut = true } = {}) {
-      if (!_serverAvailable) return null;
-      const blob = _dataURLtoBlob(imageDataURL);
-      return _fetch('/detect-yolo', {
-        method: 'POST',
-        _timeout: 30_000,
+        _timeout: separateTouching ? 30_000 : undefined,
         body: _formData({
-          image:              blob,
-          conf_threshold:     confThreshold,
-          min_area:           minArea,
-          max_objects:        maxObjects,
-          use_grabcut:        useGrabcut,
-          fallback_classical: true,
+          image: blob,
+          threshold,
+          min_area: minArea,
+          max_objects: maxObjects,
+          separate_touching: separateTouching,
         }),
       });
     },

@@ -244,3 +244,72 @@ class TestModoDeteccionGeneral:
         assert len(body["objects"]) >= 1
         # brillo_min calculado debe ser ≥ 230 para activar modo blanco
         assert brillo_min >= 230, f"brillo_min={brillo_min} no debería ser < 230 para fondo=245"
+
+
+# ── Helpers para los tests de watershed/confianza ─────────────────────────────
+
+def _png(img_bgr) -> bytes:
+    import cv2
+    ok, buf = cv2.imencode(".png", img_bgr)
+    assert ok
+    return buf.tobytes()
+
+
+def _dos_circulos_pegados(w=340, h=300, bg=210, obj=40):
+    """Dos discos oscuros solapados sobre fondo claro → un solo componente."""
+    import cv2
+    import numpy as np
+    img = np.full((h, w, 3), bg, dtype=np.uint8)
+    cv2.circle(img, (115, h // 2), 50, (obj, obj, obj), -1)
+    cv2.circle(img, (205, h // 2), 50, (obj, obj, obj), -1)
+    return img
+
+
+class TestSeparacionWatershed:
+    """separate_touching=True divide objetos pegados (distance-transform + watershed)."""
+
+    def test_sin_separar_es_un_solo_objeto(self, client):
+        """Dos discos solapados sin separar → 1 componente conectado."""
+        body = _post_detect(client, _png(_dos_circulos_pegados()),
+                            min_area=500, separate_touching=False).json()
+        assert body["count"] == 1, f"esperado 1 blob fusionado, got {body['count']}"
+        assert body["stats"]["used_watershed_split"] is False
+
+    def test_separar_divide_en_dos(self, client):
+        """Con separate_touching=True el watershed parte el blob en 2."""
+        body = _post_detect(client, _png(_dos_circulos_pegados()),
+                            min_area=500, separate_touching=True).json()
+        assert body["count"] == 2, f"esperado 2 objetos separados, got {body['count']}"
+        assert body["stats"]["used_watershed_split"] is True
+        assert body["method_used"].endswith("+watershed")
+
+    def test_objeto_unico_no_se_sobre_segmenta(self, client, png_bytes_white_bg):
+        """Un objeto único convexo no debe partirse aunque se pida separar."""
+        body = _post_detect(client, png_bytes_white_bg,
+                            min_area=500, separate_touching=True).json()
+        # El fixture tiene un objeto principal; watershed no debe inventar otro.
+        assert body["count"] >= 1
+        # Sin múltiples máximos no hay split → watershed se desactiva.
+        assert body["stats"]["used_watershed_split"] is False
+
+
+class TestConfianzaPorObjeto:
+    """detect() expone detection_confidence ∈[0,1] + confidence_level por objeto."""
+
+    def test_campos_confianza_presentes(self, client, png_bytes_dark):
+        body = _post_detect(client, png_bytes_dark, min_area=100).json()
+        assert body["objects"], "sin objetos para validar confianza"
+        for o in body["objects"]:
+            assert "detection_confidence" in o
+            assert "confidence_level" in o
+            assert 0.0 <= o["detection_confidence"] <= 1.0
+            assert o["confidence_level"] in {"alta", "media", "baja"}
+
+    def test_objeto_alto_contraste_confianza_alta(self, client, png_bytes_white_bg):
+        """Objeto oscuro sólido sobre fondo blanco → confianza alta."""
+        body = _post_detect(client, png_bytes_white_bg, min_area=500).json()
+        principal = max(body["objects"], key=lambda o: o["area"])
+        assert principal["detection_confidence"] >= 0.66, (
+            f"contraste fuerte debería dar confianza alta, got {principal['detection_confidence']}"
+        )
+        assert principal["confidence_level"] == "alta"
