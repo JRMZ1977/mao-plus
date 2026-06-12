@@ -21,69 +21,46 @@
 (function () {
   'use strict';
 
-  var $ = function (id) { return document.getElementById(id); };
+  var MO = window.MaoOrganizer;          /* base compartida (ADR-005) */
+  var $ = MO.$;
 
-  /* ── Helpers de estado ────────────────────────────────────────────────────── */
-  function readMode() {
-    var r3d = $('objectDimension3D');
-    var rbi = $('modoBifacial');
-    return {
-      is3D       : !!(r3d && r3d.checked),
-      isBifacial : !!(rbi && rbi.checked)
-    };
-  }
-  function modoFlujo() {
-    var m = readMode();
-    if (m.is3D) return '3D';
-    return '2D · ' + (m.isBifacial ? 'Bifacial' : 'Monofacial');
-  }
+  /* ── Helpers de estado (readMode/modoFlujo/isVisible viven en MaoOrganizer) ── */
   function fileName(id) {
     var inp = $(id);
     return (inp && inp.files && inp.files.length) ? (inp.files[0].name || '') : '';
   }
   function hasFile(id) { return fileName(id) !== ''; }
 
-  function isVisible(el) {
-    return !!(el && el.style.display !== 'none' &&
-              getComputedStyle(el).display !== 'none');
-  }
-
-  /* ── Pintado de chips (reusa .adr3-chip de ADR-003) ───────────────────────── */
-  function setChip(el, cls, txt) {
-    if (!el) return;
-    el.className = 'adr3-chip ' + cls;
-    el.textContent = txt;
-  }
-
+  /* ── Pintado de chips (geometría/colores canónicos .laar-chip de ADR-005) ──── */
   function updateImagenChip() {
     var chip = $('adr4ChipImagen');
     if (!chip) return;
-    var m = readMode();
+    var m = MO.readMode();
 
     if (m.is3D) {
       var obj = fileName('obj3dInput');
-      if (obj) setChip(chip, 'adr3-chip--ok', obj);
-      else     setChip(chip, 'adr3-chip--wa', 'Sin cargar');
+      if (obj) MO.setChip(chip, 'ok', obj);
+      else     MO.setChip(chip, 'wa', 'Sin cargar');
       return;
     }
 
     if (m.isBifacial) {
       var a = hasFile('jpgInputCaraA') || hasFile('rawInputCaraA');
       var b = hasFile('jpgInputCaraB') || hasFile('rawInputCaraB');
-      if (a && b)      setChip(chip, 'adr3-chip--ok', 'A ✓ · B ✓');
-      else if (a)      setChip(chip, 'adr3-chip--wa', 'A ✓ · B —');
-      else if (b)      setChip(chip, 'adr3-chip--wa', 'A — · B ✓');
-      else             setChip(chip, 'adr3-chip--wa', 'Sin cargar');
+      if (a && b)      MO.setChip(chip, 'ok', 'A ✓ · B ✓');
+      else if (a)      MO.setChip(chip, 'wa', 'A ✓ · B —');
+      else if (b)      MO.setChip(chip, 'wa', 'A — · B ✓');
+      else             MO.setChip(chip, 'wa', 'Sin cargar');
       return;
     }
 
     /* Monofacial 2D */
     var jpg = fileName('jpgInput');
     var raw = fileName('rawInput');
-    if (jpg && raw)  setChip(chip, 'adr3-chip--ok', jpg + ' (+RAW)');
-    else if (jpg)    setChip(chip, 'adr3-chip--ok', jpg);
-    else if (raw)    setChip(chip, 'adr3-chip--ok', raw);
-    else             setChip(chip, 'adr3-chip--wa', 'Sin cargar');
+    if (jpg && raw)  MO.setChip(chip, 'ok', jpg + ' (+RAW)');
+    else if (jpg)    MO.setChip(chip, 'ok', jpg);
+    else if (raw)    MO.setChip(chip, 'ok', raw);
+    else             MO.setChip(chip, 'wa', 'Sin cargar');
   }
 
   function updateEscalaChip() {
@@ -92,11 +69,11 @@
     var disp = $('scaleDisplay');
     var val = disp ? (disp.textContent || '').trim() : '';
     if (!val || val === '-') {
-      setChip(chip, 'adr3-chip--wa', 'Sin calcular');
+      MO.setChip(chip, 'wa', 'Sin calcular');
       return;
     }
-    var corregida = isVisible($('scaleCorrectedIndicator'));
-    setChip(chip, 'adr3-chip--ok', val + ' mm/px' + (corregida ? ' · corregida' : ''));
+    var corregida = MO.isVisible($('scaleCorrectedIndicator'));
+    MO.setChip(chip, 'ok', val + ' mm/px' + (corregida ? ' · corregida' : ''));
   }
 
   function updateObjetosChip() {
@@ -105,14 +82,14 @@
     var oc = $('objectCount');
     var txt = oc ? (oc.textContent || '').trim() : '';
     if (!txt || /sin imagen/i.test(txt)) {
-      setChip(chip, 'adr3-chip--none', '—');
+      MO.setChip(chip, 'none', '—');
     } else {
-      setChip(chip, 'adr3-chip--ok', txt);
+      MO.setChip(chip, 'ok', txt);
     }
   }
 
   function updateFlujoChip() {
-    setChip($('adr4ChipFlujo'), 'adr3-chip--none', modoFlujo());
+    MO.setChip($('adr4ChipFlujo'), 'none', MO.modoFlujo());
   }
 
   function updateAll() {
@@ -123,9 +100,9 @@
   }
 
   function resetChips() {
-    setChip($('adr4ChipImagen'), 'adr3-chip--wa', 'Sin cargar');
-    setChip($('adr4ChipEscala'), 'adr3-chip--wa', 'Sin calcular');
-    setChip($('adr4ChipObjetos'), 'adr3-chip--none', '—');
+    MO.setChip($('adr4ChipImagen'), 'wa', 'Sin cargar');
+    MO.setChip($('adr4ChipEscala'), 'wa', 'Sin calcular');
+    MO.setChip($('adr4ChipObjetos'), 'none', '—');
     updateFlujoChip();
   }
 
@@ -174,13 +151,8 @@
     updateAll();
     /* analysis-core corre su init en DOMContentLoaded; re-leer tras él. */
     setTimeout(updateAll, 0);
-    console.log('[ADR4] Captura Organizer activo (Fase 2: chips Imagen/Escala/Objetos/Flujo)');
+    MO.log('ADR4', 'Captura Organizer activo (Fase 2: chips Imagen/Escala/Objetos/Flujo)');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
-  } else {
-    boot();
-    document.addEventListener('DOMContentLoaded', updateAll);
-  }
+  MO.bootWhenReady(boot, updateAll);
 })();

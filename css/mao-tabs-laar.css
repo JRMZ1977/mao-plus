@@ -622,10 +622,69 @@ div:has(> .bifacial-tab) {
 .adr2-contents       { display: contents; }
 .adr2-root           { display: contents; }
 
-/* Cabecera sticky de resultado (absorbe el sidebarResultCard en Análisis) */
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADR-005 — CAPA CANÓNICA TRANSVERSAL (2026-06-12)
+   ───────────────────────────────────────────────────────────────────────────
+   Lenguaje único compartido por las cabeceras de Proyecto/Captura/Análisis (y la
+   futura Resultados). Las clases .adr2-/.adr3-/.adr4- preexistentes siguen
+   funcionando intactas; aquí se define la familia canónica .laar-* a la que los
+   organizers migran (ADR-005 Fase 2). Reversible con el resto de este archivo.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Cabecera sticky canónica. top:0 (NO calc): el `body` es el contenedor de scroll
+   y YA lleva `padding-top: topbar+tabbar` (línea ~121); el sticky se mide desde el
+   borde del padding box, así que top:0 fija la cabecera en y≈70 (bajo las barras).
+   Un top:calc(topbar+tabbar) duplicaría el offset (verificado por sonda en ADR-004). */
+.laar-header {
+  position      : sticky;
+  top           : 0;
+  z-index       : 5;
+  background    : var(--laar-white);
+  border        : var(--laar-border-md);
+  border-radius : var(--laar-radius);
+}
+
+/* Chip tri-estado canónico — geometría pill por defecto (la cabecera densa de
+   Análisis la ajusta con el override acotado de más abajo). Color = semántica
+   de estado, no decoración: wa=pendiente · ok=hecho · none=neutro/cero-decidido. */
+.laar-chip {
+  display       : inline-flex;
+  align-items   : center;
+  padding       : 3px 10px;
+  font-size     : 12px;
+  font-weight   : 600;
+  border-radius : 999px;
+  border        : 0.5px solid var(--laar-g300);
+  background    : var(--laar-g100);
+  color         : var(--laar-g700);
+  white-space   : nowrap;
+  max-width     : 280px;
+  overflow      : hidden;
+  text-overflow : ellipsis;
+}
+.laar-chip--ok   { background: var(--laar-ok-bg); border-color: var(--laar-ok-bd); color: var(--laar-ok-tx); }
+.laar-chip--wa   { background: var(--laar-wa-bg); border-color: var(--laar-wa-bd); color: var(--laar-wa-tx); }
+.laar-chip--none { background: var(--laar-g100);  border-color: var(--laar-g300);  color: var(--laar-g600); }
+
+/* Énfasis visual SIN alterar el copy fuente (sentence case → versalita por CSS). */
+.laar-chip--lg   { text-transform: uppercase; letter-spacing: .04em; }
+
+/* Override de geometría densa: conserva el look 10px de la cabecera/tarjeta de
+   Análisis cuando sus chips migren a .laar-chip (Fase 2). */
+#adr2Header .laar-chip,
+.adr2-ph-card .laar-chip {
+  font-size     : 10px;
+  padding       : 2px 8px;
+  border-radius : 10px;
+  border-width  : 1px;
+  max-width     : none;
+}
+
+/* Cabecera sticky de resultado (absorbe el sidebarResultCard en Análisis).
+   top:0 — ADR-005 D1 (antes calc, que duplicaba el offset; ver .laar-header). */
 #adr2Header {
   position      : sticky;
-  top           : calc(var(--laar-topbar-h) + var(--laar-tabbar-h));
+  top           : 0;
   z-index       : 40;
   display       : flex;
   align-items   : center;
@@ -1095,8 +1154,10 @@ details.adr2-sec > .adr2-body { padding: 6px 12px 10px; }
   align-items        : center;
   gap                : 18px;
   position           : sticky;
-  /* Anclar BAJO las barras fijas (topbar + tabbar); con top:0 quedaría detrás. */
-  top                : calc(var(--laar-topbar-h) + var(--laar-tabbar-h));
+  /* top:0 — ADR-005 D1. El `body` (contenedor de scroll) ya aporta el offset
+     vía su padding-top: topbar+tabbar; con top:0 la cabecera se fija en y≈70,
+     justo bajo las barras. Antes era calc(...), que duplicaba el offset. */
+  top                : 0;
   z-index            : 5;
   margin-bottom      : 16px;
   padding            : 10px 14px;

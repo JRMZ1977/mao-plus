@@ -23,16 +23,13 @@
 (function () {
   'use strict';
 
-  var $ = function (id) { return document.getElementById(id); };
+  var MO = window.MaoOrganizer;          /* base compartida (ADR-005) */
+  var $ = MO.$;
 
   /* Estado del chip ID: lo mantiene el organizador a partir de eventos. */
   var idState = { asignada: false, valor: '' };
 
-  function _toast(kind, msg) {
-    if (typeof toast !== 'undefined' && toast[kind]) toast[kind](msg);
-  }
-
-  /* ── Helpers de estado ────────────────────────────────────────────────────── */
+  /* ── Helpers de estado (los comunes viven en MaoOrganizer) ────────────────── */
   function proyectoActivo() {
     var ind = $('proyectoActivoIndicador');
     return !!(ind && ind.style.display !== 'none' &&
@@ -46,28 +43,16 @@
     var r = $('modoIdFotografia');
     return !!(r && r.checked);
   }
-  function modoFlujo() {
-    var r3d = $('objectDimension3D');
-    var rbi = $('modoBifacial');
-    if (r3d && r3d.checked) return '3D';
-    return '2D · ' + ((rbi && rbi.checked) ? 'Bifacial' : 'Monofacial');
-  }
 
-  /* ── Pintado de chips ─────────────────────────────────────────────────────── */
-  function setChip(el, cls, txt) {
-    if (!el) return;
-    el.className = 'adr3-chip ' + cls;
-    el.textContent = txt;
-  }
-
+  /* ── Pintado de chips (geometría/colores canónicos .laar-chip de ADR-005) ──── */
   function updateProyectoChip() {
     var chip = $('adr3ChipProyecto');
     var btn = $('adr3BtnProyecto');
     if (proyectoActivo()) {
-      setChip(chip, 'adr3-chip--ok', nombreProyecto() || 'Proyecto activo');
+      MO.setChip(chip, 'ok', nombreProyecto() || 'Proyecto activo');
       if (btn) btn.style.display = 'none';
     } else {
-      setChip(chip, 'adr3-chip--wa', 'Sin proyecto');
+      MO.setChip(chip, 'wa', 'Sin proyecto');
       if (btn) btn.style.display = '';
     }
   }
@@ -75,16 +60,16 @@
   function updateIdChip() {
     var chip = $('adr3ChipId');
     if (idState.asignada) {
-      setChip(chip, 'adr3-chip--ok', idState.valor || 'Asignada');
+      MO.setChip(chip, 'ok', idState.valor || 'Asignada');
     } else if (opcionCSeleccionada()) {
-      setChip(chip, 'adr3-chip--none', 'Auto al cargar imágenes');
+      MO.setChip(chip, 'none', 'Auto al cargar imágenes');
     } else {
-      setChip(chip, 'adr3-chip--wa', 'Sin asignar');
+      MO.setChip(chip, 'wa', 'Sin asignar');
     }
   }
 
   function updateFlujoChip() {
-    setChip($('adr3ChipFlujo'), 'adr3-chip--none', modoFlujo());
+    MO.setChip($('adr3ChipFlujo'), 'none', MO.modoFlujo());
   }
 
   function updateAll() {
@@ -109,7 +94,7 @@
        informará y se auto-asignará al cargar las imágenes (ADR-003 §C/§D). */
     if (!idState.asignada) {
       if (opcionCSeleccionada()) {
-        _toast('info', 'La identificación se asignará automáticamente al cargar las imágenes.');
+        MO.toast('info', 'La identificación se asignará automáticamente al cargar las imágenes.');
       } else {
         var seguirId = window.confirm(
           '¿Continuar sin identificación asignada?\n\n' +
@@ -175,13 +160,8 @@
     updateAll();
     /* projects-ui.js corre su init en DOMContentLoaded; re-leer tras él. */
     setTimeout(updateAll, 0);
-    console.log('[ADR3] Proyecto Organizer activo (Fases 2-3: chips + CTA con guard)');
+    MO.log('ADR3', 'Proyecto Organizer activo (Fases 2-3: chips + CTA con guard)');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
-  } else {
-    boot();
-    document.addEventListener('DOMContentLoaded', updateAll);
-  }
+  MO.bootWhenReady(boot, updateAll);
 })();

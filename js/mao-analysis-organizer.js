@@ -32,7 +32,8 @@
 (function () {
   'use strict';
 
-  var $ = function (id) { return document.getElementById(id); };
+  var MO = window.MaoOrganizer;          /* base compartida (ADR-005) */
+  var $ = MO.$, el = MO.el;
 
   /* ── Definición de secciones (ADR-002 §A; orden aprobado P/H §2 · EFA §3) ── */
   var DEFS = {
@@ -108,12 +109,7 @@
     }
   }
 
-  function el(tag, cls, text) {
-    var n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text != null) n.textContent = text;
-    return n;
-  }
+  /* `el(tag, cls, text)` ahora viene de MaoOrganizer (aliasado arriba). */
 
   /* ── Cabecera sticky de resultado ────────────────────────────────────────── */
   function buildHeader(container) {
@@ -127,7 +123,7 @@
       hdr.appendChild(el('span', 'adr2-h-id'));
       hdr.appendChild(el('span', 'adr2-h-forma'));
       var phBox = el('span', 'adr2-h-ph');
-      phBox.appendChild(el('span', 'adr2-chip'));
+      phBox.appendChild(el('span', 'laar-chip'));
       var phBtn = el('button', 'adr2-btn-ph');
       phBtn.type = 'button';
       phBtn.addEventListener('click', lanzarModalPH);
@@ -151,12 +147,12 @@
 
     var st = phEstado(obj);
     var chipTxt, chipCls;
-    if (st.key === 'sin-evaluar') { chipTxt = 'P/H: sin evaluar';  chipCls = 'adr2-chip adr2-chip--wa'; }
+    if (st.key === 'sin-evaluar') { chipTxt = 'P/H: sin evaluar';  chipCls = 'laar-chip laar-chip--wa'; }
     else if (st.key === 'hallazgos') {
       chipTxt = 'P/H: ' + st.nP + ' perforacion' + (st.nP === 1 ? '' : 'es') +
                 ' · ' + st.nH + ' horadacion' + (st.nH === 1 ? '' : 'es');
-      chipCls = 'adr2-chip adr2-chip--ok';
-    } else { chipTxt = 'P/H: evaluado · sin P/H'; chipCls = 'adr2-chip adr2-chip--none'; }
+      chipCls = 'laar-chip laar-chip--ok';
+    } else { chipTxt = 'P/H: evaluado · sin P/H'; chipCls = 'laar-chip laar-chip--none'; }
 
     /* setIfChanged: evita mutaciones (y re-disparos de observers) en vano */
     var set = function (sel, prop, val) {
@@ -165,8 +161,8 @@
     };
     set('.adr2-h-id', 'textContent', idTxt);
     set('.adr2-h-forma', 'textContent', formaTxt);
-    set('.adr2-chip', 'textContent', chipTxt);
-    set('.adr2-chip', 'className', chipCls);
+    set('.laar-chip', 'textContent', chipTxt);
+    set('.laar-chip', 'className', chipCls);
     set('.adr2-btn-ph', 'textContent', st.key === 'sin-evaluar' ? 'Evaluar P/H' : 'Editar P/H');
   }
 
@@ -191,7 +187,7 @@
     card.setAttribute('data-nph', st.nP + '/' + st.nH);
 
     if (st.key === 'sin-evaluar') {
-      card.appendChild(el('span', 'adr2-chip adr2-chip--wa', 'SIN EVALUAR'));
+      card.appendChild(el('span', 'laar-chip laar-chip--lg laar-chip--wa', 'Sin evaluar'));
       card.appendChild(el('p', 'adr2-ph-note',
         'La detección de P/H infiere sobre las métricas del objeto (porosidad, ' +
         'patrón de agrupamiento, ratios de área, listado EFA). Hasta evaluarla, ' +
@@ -200,13 +196,13 @@
       b1.type = 'button'; b1.addEventListener('click', lanzarModalPH);
       card.appendChild(b1);
     } else if (st.key === 'hallazgos') {
-      card.appendChild(el('span', 'adr2-chip adr2-chip--ok',
+      card.appendChild(el('span', 'laar-chip laar-chip--ok',
         st.nP + ' perforaciones · ' + st.nH + ' horadaciones'));
       var b2 = el('button', 'adr2-btn-ph', 'Editar P/H');
       b2.type = 'button'; b2.addEventListener('click', lanzarModalPH);
       card.appendChild(b2);
     } else {
-      card.appendChild(el('span', 'adr2-chip adr2-chip--none', 'EVALUADO · SIN P/H'));
+      card.appendChild(el('span', 'laar-chip laar-chip--lg laar-chip--none', 'Evaluado · sin P/H'));
       card.appendChild(el('p', 'adr2-ph-note',
         'Se evaluó y no se identificaron perforaciones ni horadaciones: ' +
         'el cero es un cero real.'));
@@ -398,12 +394,8 @@
         .observe(efa, { childList: true, attributes: true, attributeFilter: ['style'] });
     }
     schedule();
-    console.log('[ADR2] Analysis Organizer activo (Fase 2: jerarquía §1–§8 + chip P/H)');
+    MO.log('ADR2', 'Analysis Organizer activo (Fase 2: jerarquía §1–§8 + chip P/H)');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
-  } else {
-    boot();
-  }
+  MO.bootWhenReady(boot);
 })();

@@ -4,11 +4,16 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
-## 🎯 Fase Actual: Migración UI Pestañas LAAR
+## 🎯 Fase Actual: UI Pestañas LAAR — tratamiento completo (ADR-001…005)
 
-**Estado:** ✅ **Fases A-B + fixes de runtime + estética COMPLETADAS** (Fases A-B: commit `5bdfb61`, 2026-06-08 · fixes runtime + estética: 2026-06-09, verificados visualmente en Electron)
+**Estado:** ✅ **Migración + rediseño por pestaña + armonización transversal COMPLETADOS y verificados en Electron.**
+- Fases A-B (infraestructura de pestañas): commit `5bdfb61` (2026-06-08) · fixes runtime + estética: 2026-06-09.
+- ADR-001 guards de flujo · ADR-002 Análisis · ADR-003 Proyecto · ADR-004 Captura · **ADR-005 armonización transversal** (lenguaje canónico `.laar-chip`/`.laar-header` + base `window.MaoOrganizer`; cierra el de-rainbow + jerarquía de las 4 pestañas) — 2026-06-11/12.
+- Detalle de cada ADR en sus secciones más abajo y en `docs/ADR-00{1..5}-*.md`.
 
-La interfaz está en transición del modelo **sidebar-scroll** al modelo de **pestañas de flujo LAAR** (Proyecto → Captura → Análisis → Resultados). Arquitectura **Strangler Fig**: las pestañas envuelven la navegación existente sin tocar lógica de negocio.
+La interfaz pasó del modelo **sidebar-scroll** al de **pestañas de flujo LAAR** (Proyecto → Captura → Análisis → Resultados). Arquitectura **Strangler Fig**: las pestañas y los organizers (`mao-*-organizer.js`) envuelven la navegación existente sin tocar lógica de negocio. Único pendiente transversal: probar el flip de chips con archivos reales (los `<input type=file>` no se pueblan por script).
+
+**Historial detallado de la migración base (A-B) abajo ↓** (se conserva como registro; el estado vigente es el de los ADR).
 
 **Implementado (A-B):**
 - A3: API DOM nativa (compatible CSP `script-src 'self'`)
@@ -25,7 +30,7 @@ La interfaz está en transición del modelo **sidebar-scroll** al modelo de **pe
 
 **Estética LAAR (2026-06-09)** — extendida del tabbar a los componentes en `mao-tabs-laar.css` (sección "ESTÉTICA LAAR — COMPONENTES", acotada a `.mao-main`, reversible): fieldsets/tarjetas planos (radio 4px, borde 0.5px, sin sombra), botones (secundario blanco + acento único azul para primarias; rojo/ámbar semánticos), tabs legacy CMO (anti-arcoíris) y bifacial. Pendiente verificar CMO/bifacial con datos reales; inputs/selects fuera de esta pasada.
 
-**⚠️ Gotcha de caché:** el CSS `file://` se cachea entre relanzamientos. Al editar un `.css`, bump el `?v=` de su `<link>` en `index.html` (mao-tabs-laar.css ya está versionado: `?v=20260609b`).
+**⚠️ Gotcha de caché:** el CSS `file://` se cachea entre relanzamientos. Al editar un `.css`/`.js` versionado, bump el `?v=` de su `<link>`/`<script>` en `index.html` (al cierre de ADR-005: `mao-tabs-laar.css?v=20260612e`, organizers y base en `?v=20260612e`).
 
 ## Tech Stack
 - **Electron** (main.js + preload.js) — desktop shell
@@ -284,3 +289,32 @@ Optimización del flujo de pestañas LAAR. **Opción A** del ADR (mínima invasi
 
 ### ⚠️ Pendiente de verificación visual en Electron
 Los guards son lógica pura (verificados con `node -c`), pero el flujo completo arranque→captura→detección→análisis→resultados con desbloqueo progresivo **no se ha corrido en Electron**. Validar con `npm start` (matar+relanzar, no Cmd+R).
+
+## ADR-005: Armonización Transversal de las Pestañas LAAR (2026-06-12)
+
+ADR **ortogonal** a ADR-002/003/004 (que rediseñaron una pestaña cada uno, en sesiones separadas, y al hacerlo derivaron). No rediseña ninguna pestaña: (1) define el **lenguaje canónico compartido** y (2) reconcilia la deriva. La próxima pestaña (Resultados) hereda el lenguaje gratis. Método completo (protocolo de 6 pasos + inventario D1–D5) en `docs/ADR-005-armonizacion-transversal.md`. Decisión JFRR: Doc + Fase 1 + Fase 2, migración **aditiva con alias**. Reversible.
+
+### Lenguaje canónico (el «idioma único»)
+- **Chips** `.laar-chip` + `.laar-chip--ok/--wa/--none` (color = **estado real**, no decoración: `wa`=pendiente · `ok`=hecho · `none`=neutro/cero-decidido) + `.laar-chip--lg` (versalita por CSS).
+- **Copy** en **sentence case** siempre (no «SIN EVALUAR»); el énfasis mayúscula lo aplica `--lg`, no el string fuente.
+- **Cabecera** `.laar-header` (`position:sticky; top:0`).
+- Definido en `css/mao-tabs-laar.css`, sección «ADR-005 — CAPA CANÓNICA TRANSVERSAL». Las clases `.adr2-/.adr3-/.adr4-` preexistentes siguen intactas.
+
+### Implementado
+| # | Eje | Cambio |
+|---|-----|--------|
+| **D1** ⚠ | Bug de layout (sticky `top`) | `#adr2Header` y `#adr3ProyectoHeader` usaban `top: calc(topbar+tabbar)` → **duplicaban** el offset (el `body` ya aporta el `padding-top`). Corregido a `top:0` para las **tres** cabeceras. Resuelve la contradicción ADR-003 («top:0 quedaría detrás») vs ADR-004 («top:0 es correcto»): **ADR-004 tenía razón**. |
+| **D2** | Familia de chips | `.adr2-chip*` (Análisis) y `.adr3-chip*` (Proyecto/Captura) → canónica `.laar-chip*`. Geometría densa de Análisis preservada con override acotado (`#adr2Header .laar-chip`, `.adr2-ph-card .laar-chip`). |
+| **D3** | Copy/mayúsculas | Tarjeta P/H de Análisis «SIN EVALUAR»/«EVALUADO · SIN P/H» → sentence case + `--lg`. |
+| **D4** | Helpers JS triplicados | Nuevo `js/mao-organizer-base.js` (`window.MaoOrganizer`: `setChip`/`isVisible`/`readMode`/`modoFlujo`/`toast`/`bootWhenReady`/`log`/`el`/`$`). Los 3 organizers migrados a `MO.*` (~120 líneas de duplicación eliminadas). |
+| **D5** | Naming de cabecera | `.laar-header` canónica (para Resultados y adopción futura). |
+
+### ⚠️ Gotcha de carga
+`js/mao-organizer-base.js` es **dependencia dura** de los tres organizers: su `<script>` debe ir **antes** que `mao-analysis/proyecto/captura-organizer.js` en `index.html` (ya colocado tras `mao-tab-router.js`). Comentar la base sin comentar los organizers los rompe (`ReferenceError: MaoOrganizer`). Para desactivar una pestaña, comentar **su** organizer, no la base.
+
+### Verificado en Electron (sonda DOM, 2026-06-12)
+`MaoOrganizer:true` · `#adr3ProyectoHeader` → `sticky, top:0px, rectTop:70` (justo bajo las barras, = Captura) · chip = `laar-chip laar-chip--ok` (pill 999px, verde) · renderer errors `0`. La base cargó antes que los organizers; D1 confirmado.
+
+### Pendiente
+- Flip de chips con **archivos reales** (los `<input type=file>` no se pueblan por script) — mismo límite manual heredado de ADR-003/004.
+- `#adr2Header` (Análisis) solo se construye al renderizar un análisis; su `top:0` no se probó en vivo pero usa la regla canónica ya verificada en Proyecto.

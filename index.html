@@ -28,7 +28,7 @@
   =====================================================================================
   -->
   <link rel="stylesheet" href="css/main.css?v=20260403f">
-  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260612d">
+  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260612e">
 </head>
 <body>
   <!-- ═══════════════════════════════════════════════════════════════════════
@@ -4527,12 +4527,14 @@
 
   <!-- LAAR Tab Router — Migración a pestañas -->
   <script src="js/mao-tab-router.js?v=20260612a" defer></script>
+  <!-- ADR-005 — Base compartida de los organizers (DEBE cargar antes que ellos) -->
+  <script src="js/mao-organizer-base.js?v=20260612e" defer></script>
   <!-- ADR-002 Fase 2 — Organizador del panel de Análisis (jerarquía §1–§8 + chip P/H) -->
-  <script src="js/mao-analysis-organizer.js?v=20260611d" defer></script>
+  <script src="js/mao-analysis-organizer.js?v=20260612e" defer></script>
   <!-- ADR-003 Fases 2-3 — Organizador de la pestaña Proyecto (chips + CTA con guard) -->
-  <script src="js/mao-proyecto-organizer.js?v=20260611a" defer></script>
+  <script src="js/mao-proyecto-organizer.js?v=20260612e" defer></script>
   <!-- ADR-004 Fase 2 — Organizador de la pestaña Captura (chips de estado) -->
-  <script src="js/mao-captura-organizer.js?v=20260612a" defer></script>
+  <script src="js/mao-captura-organizer.js?v=20260612e" defer></script>
 
 </body>
 </html>
