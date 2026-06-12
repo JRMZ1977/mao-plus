@@ -2091,8 +2091,8 @@ async def efa_analysis(
     Invariancias aplicadas cuando normalize=True:
       - Traslación   : centrado por offset DC
       - Escala       : normalizado al semieje mayor del 1er armónico
-      - Rotación     : alineación SEMA (Kuhl & Giardina 1982, sec. 4)
-      - Reflexión    : signo positivo en c1 normalizado
+      - Rotación     : alineación SEMA en el plano (Kuhl & Giardina 1982, sec. 4)
+      - Reflexión    : convenio de quiralidad d1 ≥ 0 (forma canónica única)
 
     Entrada:
       contour_json — JSON: [[x1,y1],[x2,y2],...] en píxeles (absolutos)

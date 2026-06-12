@@ -646,6 +646,31 @@ def _pca_contextual(
     }
 
 
+def _max_pairwise_distance(points: np.ndarray, chunk: int = 256) -> float:
+    """
+    Diámetro de un conjunto de puntos = máxima distancia euclídea entre cualquier
+    par. Cálculo EXACTO por bloques: memoria O(chunk·n) en vez del tensor O(n²).
+
+    Se usa para el Feret 3D máximo. El diámetro SIEMPRE cae entre dos vértices del
+    convex hull, así que submuestrear arriesga descartar justo esos dos y
+    subestimarlo de forma grosera (p.ej. un diámetro real de 200 → 6.8 si el
+    muestreo aleatorio tira los extremos).
+    """
+    V = np.asarray(points, dtype=np.float64)
+    n = V.shape[0]
+    if n < 2:
+        return 0.0
+    best = 0.0
+    for i in range(0, n, chunk):
+        block = V[i:i + chunk]                                    # (b, d)
+        d2 = ((block[:, None, :] - V[None, :, :]) ** 2).sum(axis=2)  # (b, n)
+        if d2.size:
+            m = float(np.sqrt(d2.max()))
+            if m > best:
+                best = m
+    return best
+
+
 def _compute_paridad_2d_metrics(mesh: Any) -> dict[str, Any]:
     """
     Calcula descriptores 3D equivalentes a familias clásicas de morfometría 2D
@@ -730,20 +755,16 @@ def _compute_paridad_2d_metrics(mesh: Any) -> dict[str, Any]:
     try:
         if hull is not None:
             V = np.asarray(hull.vertices, dtype=np.float64)
-            # Submuestrear para evitar O(n²) explosivo
-            if V.shape[0] > 600:
-                idx = np.random.default_rng(0).choice(V.shape[0], 600, replace=False)
-                V = V[idx]
-            # Feret máximo: máxima distancia entre cualquier par de vértices
-            diff = V[:, None, :] - V[None, :, :]
-            dists = np.sqrt(np.einsum("ijk,ijk->ij", diff, diff))
-            feret_max = float(dists.max()) if dists.size else None
+            # Feret máximo = diámetro del hull (máxima distancia entre vértices).
+            # Cálculo EXACTO por bloques: NO se submuestrea (perdería los extremos
+            # y subestimaría el diámetro). Los hulls reales tienen pocos vértices,
+            # y el coste O(n²) queda acotado en memoria por _max_pairwise_distance.
+            feret_max = _max_pairwise_distance(V) if V.shape[0] >= 2 else None
             # Feret mínimo: mínima anchura proyectando sobre normales de caras del hull
             feret_min = None
             try:
                 normals = np.asarray(hull.face_normals, dtype=np.float64)
-                Vfull = np.asarray(hull.vertices, dtype=np.float64)
-                proj = Vfull @ normals.T  # (n_vert, n_faces)
+                proj = V @ normals.T  # (n_vert, n_faces)
                 widths = proj.max(axis=0) - proj.min(axis=0)
                 widths = widths[np.isfinite(widths)]
                 if widths.size:
@@ -2683,6 +2704,13 @@ def _resample_closed_contour(points2d: np.ndarray, n_samples: int = 64) -> np.nd
 def _procrustes_disparity_2d(a: np.ndarray, b: np.ndarray) -> dict[str, float] | None:
     """
     Distancia Procrustes 2D (sin reflexión) para dos contornos homologados.
+
+    `disparity` es el M² de Procrustes estándar = SUMA de cuadrados de las
+    diferencias tras centrar, escalar a norma de Frobenius unitaria y rotar
+    óptimamente (rango [0, 2], como scipy.spatial.procrustes). NO se divide por
+    el nº de puntos: hacerlo aplasta el rango a ~1e-3 y satura la similitud a
+    [0.95, 1] (un círculo y un cuadrado salían 0.999). Con la suma, el rango de
+    `similarity = exp(−6·disparity)` se reparte de forma útil sobre [0, 1].
     """
     eps = 1e-12
     A = np.asarray(a, dtype=np.float64)
@@ -2709,7 +2737,8 @@ def _procrustes_disparity_2d(a: np.ndarray, b: np.ndarray) -> dict[str, float] |
         R = U @ Vt
 
     A_aligned = A0 @ R
-    disparity = float(np.mean(np.sum((A_aligned - B0) ** 2, axis=1)))
+    # M² de Procrustes = SUMA de cuadrados (no media): preserva el rango dinámico.
+    disparity = float(np.sum((A_aligned - B0) ** 2))
     similarity = float(math.exp(-6.0 * disparity))
 
     return {

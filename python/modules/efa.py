@@ -106,17 +106,16 @@ def _normalize_coeffs(coeffs: np.ndarray) -> tuple[np.ndarray, dict]:
       scale    : factor de escala = semieje mayor del 1er armónico
     """
     c = coeffs.copy()
+    n = len(c)
 
-    # 1. Semieje mayor del 1er armónico
+    # ── 1. Rotación de FASE θ₁ — invariancia al punto de inicio ───────────────
+    # θ₁ orienta la PARAMETRIZACIÓN al semieje mayor del 1er armónico (equivale
+    # a la matriz V de la SVD de M₁=[[a1,b1],[c1,d1]]). Cada armónico k rota k·θ₁.
     a1, b1, c1, d1 = c[0]
-    # Ángulo theta_1: orienta el 1er armónico para que a1 > 0, c1 = 0
     theta_1 = 0.5 * math.atan2(
         2.0 * (a1 * b1 + c1 * d1),
         a1 ** 2 - b1 ** 2 + c1 ** 2 - d1 ** 2
     )
-
-    # Rotar cada armónico k por k * theta_1
-    n = len(c)
     for k in range(1, n + 1):
         idx = k - 1
         a, b, cc_, d = c[idx]
@@ -129,21 +128,38 @@ def _normalize_coeffs(coeffs: np.ndarray) -> tuple[np.ndarray, dict]:
            -cc_ * sin_a + d * cos_a,
         ]
 
-    # 2. Escala: normalizar por semieje mayor del 1er armónico después de theta_1
-    a1n, b1n, c1n, d1n = c[0]
-    # Semieje mayor E1 (Kuhl & Giardina eq. 14)
-    E1_sq = a1n ** 2 + c1n ** 2
-    E1    = math.sqrt(E1_sq) if E1_sq > 1e-20 else 1.0
+    # ── 2. Rotación ESPACIAL ψ₁ — invariancia a la orientación en el plano ────
+    # Tras θ₁ el 1er armónico = [[a1',b1'],[c1',d1']]; su semieje mayor apunta a
+    # ψ₁ = atan2(c1', a1') EN EL PLANO. Se rota TODA la forma por −ψ₁ (matriz U
+    # de la SVD), llevando el semieje mayor al eje X. SIN este paso la EFA NO es
+    # invariante a la rotación de la pieza (Kuhl & Giardina 1982, sec. 4).
+    a1p, _b1p, c1p, _d1p = c[0]
+    psi_1 = math.atan2(c1p, a1p)
+    cos_p = math.cos(psi_1); sin_p = math.sin(psi_1)
+    for idx in range(n):
+        a, b, cc_, d = c[idx]
+        # R(−ψ₁) · [[a, b], [cc_, d]]   con R(−ψ) = [[cosψ, sinψ], [−sinψ, cosψ]]
+        c[idx] = [
+            cos_p * a + sin_p * cc_,
+            cos_p * b + sin_p * d,
+           -sin_p * a + cos_p * cc_,
+           -sin_p * b + cos_p * d,
+        ]
 
+    # ── 3. Escala — normalizar por el semieje mayor del 1er armónico ──────────
+    # Tras ψ₁: c[0] = [E1, 0, 0, d1''] → E1 = √(a1''²+c1''²) (c1''≈0).
+    E1_sq = c[0][0] ** 2 + c[0][2] ** 2
+    E1    = math.sqrt(E1_sq) if E1_sq > 1e-20 else 1.0
     c /= E1
 
-    # 3. Reflexión: asegurar c1 >= 0 (convenio positivo)
-    psi_1 = math.atan2(c[0][2], c[0][0])  # c[0] tras escala = [a1'', 0, c1'', 0]
-    if c[0][2] < 0:
-        # Voltear eje Y (reflexión): invertir signo de cn, dn en todos
-        c[:, 2] *= -1.0
+    # ── 4. Reflexión — convenio de quiralidad d1 ≥ 0 ─────────────────────────
+    # Una reflexión sobre el eje mayor (o invertir el sentido de recorrido del
+    # contorno) cambia el signo de d1. Forzar d1 ≥ 0 colapsa ambos casos en una
+    # forma canónica única. (Sustituye al antiguo criterio c1≥0, que tras la
+    # rotación espacial ψ₁ quedaba siempre en c1≈0 y no discriminaba nada.)
+    if c[0][3] < 0:
+        c[:, 2] *= -1.0   # negar componentes-y (cn, dn) de todos los armónicos
         c[:, 3] *= -1.0
-        psi_1   *= -1.0
 
     return c, {
         "theta_1_deg":   round(math.degrees(theta_1), 4),
