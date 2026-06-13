@@ -72,10 +72,19 @@ Phase 2d:              bifacial-analysis
 ## Run & Test
 ```bash
 npm start                                    # Launch Electron app + Python server
-.venv/bin/python -m pytest tests/ python/tests/   # Suite completa → 254 passed, 2 skipped
+.venv/bin/python -m pytest tests/ python/tests/   # Suite completa → 257 passed, 2 skipped
 ```
 
 **Gotcha — aislamiento del event-loop asyncio (2026-06-12):** los tests sync que ejecutan corrutinas deben usar un **loop propio por llamada** (`asyncio.new_event_loop()` + `close()` en `finally`), nunca `asyncio.get_event_loop().run_until_complete()`. Otros archivos usan `asyncio.run()`, que al salir hace `set_event_loop(None)` y rompe `get_event_loop()` en Py3.9 (`RuntimeError: There is no current event loop` + `coroutine ... was never awaited`) — falla solo en la suite completa, no aislado. Patrón ya aplicado en `python/tests/test_phase4.py` y `test_bajo_contraste.py`. Los `test_bifacial_parity{,_v2}.py` hacen `pytest.skip(allow_module_level=True)` si falta la checkout externa `MAO_A`.
+
+## Modal de detección IA — confianza por objeto + análisis cancelable (2026-06-13)
+
+Dos mejoras sobre la ventana de detección con IA (`#maoIaModal` · `js/mao-ia.js`):
+
+- **#1 Confianza por objeto (lenguaje canónico LAAR · ADR-007).** El endpoint `/api/mao-ia` (`python/modules/mao_ia_analyzer.py`) ahora propaga `detection_confidence` (score ∈ [0,1]) y `confidence_level` (`alta`/`media`/`baja`) por objeto, reusando `detection._confianza_objeto` (import **perezoso** obligatorio: `detection.py` importa `_morpho_from_contour` de `mao_ia_analyzer` a nivel de módulo → el ciclo solo se evita con import diferido dentro de `detect_with_mao_ia`). En el modal: chip `.laar-chip --ok/--none/--wa` en el selector (solo media/baja, compacto), **columna «Confianza»** ordenable en la Tabla, **resumen de chips** en la cabecera de resultados, **filtro de triage** «solo baja confianza», y columnas `Confianza_nivel`/`Confianza_score` en el CSV del modal. Test: `python/tests/test_mao_ia_confidence.py` (3 tests).
+- **#3 Cancelar + cronómetro.** El `fetch` pasó de `AbortSignal.timeout(120_000)` fijo a un `AbortController` propio (cancelable) con timeout duro de respaldo de 120 s (`abort('timeout')`). El overlay de progreso muestra **tiempo transcurrido** (cronómetro) y un botón **Cancelar** (`abort('user')`); el `catch` distingue cancelación de usuario, timeout y error real.
+
+**Pendiente de verificación visual en Electron** (lección #1: `node -c`/health no ven layout/CSS): el flip de chips y el orden/filtro/cancelación con una imagen real. Verificado: backend (3 tests nuevos), suite completa (257 passed, 2 skipped) y `node -c`. Caché: `mao-ia.js?v=20260613a` en `index.html`.
 
 ## Skills for Validation & Error Detection
 

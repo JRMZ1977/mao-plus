@@ -406,6 +406,12 @@ async def detect_with_mao_ia(
     from python.modules import metrics as _metrics_mod  # noqa: PLC0415
     import asyncio as _asyncio  # noqa: PLC0415
 
+    # _confianza_objeto vive en detection.py, que a su vez importa
+    # _morpho_from_contour de ESTE módulo a nivel de módulo → import perezoso
+    # obligatorio para no cerrar el ciclo. Es la fuente canónica de la confianza
+    # de detección (contraste de borde + extent) que alimenta el chip LAAR.
+    from python.modules.detection import _confianza_objeto  # noqa: PLC0415
+
     # ── Pre-decodificar imagen UNA SOLA VEZ para todos los objetos ───────────
     # Sin esto, _textura_superficie() decodificaba el JPEG N veces (una por objeto),
     # que es la principal causa de lentitud cuando hay múltiples objetos detectados.
@@ -418,6 +424,33 @@ async def detect_with_mao_ia(
         obj_id = idx + 1
         feat = _morpho_from_contour(cnt, obj_id)
         feat["label"] = f"MAO_{obj_id:02d}"
+
+        # ── Confianza de detección por objeto (chip LAAR · ADR-007) ──────────
+        # Mismo cálculo que detect(): contraste de borde (ΔE objeto/anillo de
+        # fondo) + extent. Se recorta al bbox (+margen) para no construir una
+        # máscara del tamaño de la imagen por cada objeto.
+        try:
+            if _img_bgr_shared is not None:
+                bx, by, bw_, bh_ = cv2.boundingRect(cnt)
+                _M = 6
+                xa = max(0, bx - _M); ya = max(0, by - _M)
+                xb = min(w, bx + bw_ + _M); yb = min(h, by + bh_ + _M)
+                sub_rgb = cv2.cvtColor(
+                    _img_bgr_shared[ya:yb, xa:xb], cv2.COLOR_BGR2RGB)
+                mask_obj = np_inner.zeros((yb - ya, xb - xa), np_inner.uint8)
+                cv2.drawContours(
+                    mask_obj, [cnt - (xa, ya)], -1, 255, thickness=-1)
+                area_filled = int((mask_obj > 0).sum())
+                conf = _confianza_objeto(mask_obj, sub_rgb, area_filled, bw_ * bh_)
+                feat["detection_confidence"] = conf["score"]
+                feat["confidence_level"]     = conf["level"]
+            else:
+                feat["detection_confidence"] = None
+                feat["confidence_level"]     = None
+        except Exception as _ce:  # pragma: no cover — defensivo, no debe romper
+            feat["detection_confidence"] = None
+            feat["confidence_level"]     = None
+            feat["_confidence_error"]    = str(_ce)
 
         # Contorno crudo (sin approxPolyDP) → metrics.py aplica su propia simplificación
         raw_pts = cnt.reshape(-1, 2).tolist()

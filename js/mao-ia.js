@@ -120,6 +120,84 @@
   let selectedFace       = 'A';
   let serverHealthy      = false;            // flag de salud del servidor
 
+  // ── #3: cancelación + cronómetro del análisis ────────────────────────────
+  let _iaAbortController = null;
+  let _iaElapsedTimer    = null;
+
+  // ── #1: orden + filtro de la tabla por confianza/columna ─────────────────
+  let _iaTableSortKey = null;   // null = orden natural (área desc del backend)
+  let _iaTableSortDir = 1;      // 1 asc · -1 desc
+  let _iaConfFilter   = false;  // true = solo objetos de baja confianza
+
+  // ── Confianza de detección: lenguaje canónico LAAR (ADR-005 · ADR-007) ────
+  // Fuente: backend mao_ia_analyzer → _confianza_objeto (contraste de borde +
+  // extent). Color = estado real: alta→ok · media→none · baja→wa.
+  function _confLevel(obj) {
+    return (obj && (obj.confidence_level || obj._confidenceLvl)) || null;
+  }
+  function _confScore(obj) {
+    const s = obj && (obj.detection_confidence != null
+      ? obj.detection_confidence : obj._confidence);
+    return typeof s === 'number' ? s : null;
+  }
+  function _confMod(lvl) {
+    return lvl === 'alta' ? 'ok' : (lvl === 'baja' ? 'wa' : 'none');
+  }
+  function _confTxtShort(lvl) {
+    return lvl === 'alta' ? 'Alta' : lvl === 'media' ? 'Media'
+         : lvl === 'baja' ? 'Baja' : '—';
+  }
+  function _confTitle(obj) {
+    const s = _confScore(obj);
+    return s != null ? 'Confianza de detección: ' + Math.round(s * 100) + '%'
+                     : 'Confianza de detección automática';
+  }
+  /** Chip DOM canónico (selector). small=true para pills compactos. */
+  function _makeConfChip(obj, small) {
+    const lvl = _confLevel(obj);
+    if (!lvl) return null;
+    const chip = document.createElement('span');
+    const MO   = window.MaoOrganizer;
+    const txt  = lvl === 'baja' ? 'Revisar' : _confTxtShort(lvl);
+    if (MO && MO.setChip) MO.setChip(chip, _confMod(lvl), txt);
+    else { chip.className = 'laar-chip laar-chip--' + _confMod(lvl); chip.textContent = txt; }
+    chip.title = _confTitle(obj);
+    if (small) { chip.style.fontSize = '8.5px'; chip.style.padding = '1px 6px'; }
+    return chip;
+  }
+  /** Chip como string HTML (para renderTable, que construye HTML). */
+  function _confChipHTML(obj) {
+    const lvl = _confLevel(obj);
+    if (!lvl) return '<span style="color:#cbd5e0;">—</span>';
+    const t = _confTitle(obj).replace(/"/g, '&quot;');
+    return '<span class="laar-chip laar-chip--' + _confMod(lvl) + '" ' +
+           'style="font-size:9px;padding:1px 7px;" title="' + t + '">' +
+           _confTxtShort(lvl) + '</span>';
+  }
+  /** Conteos por nivel para resumen y toolbar de triage. */
+  function _confCounts(objects) {
+    const c = { alta: 0, media: 0, baja: 0, sin: 0 };
+    (objects || []).forEach(o => {
+      const l = _confLevel(o);
+      if (l === 'alta' || l === 'media' || l === 'baja') c[l]++; else c.sin++;
+    });
+    return c;
+  }
+
+  // ── #3: overlay de progreso con cronómetro de tiempo transcurrido ────────
+  function _startElapsed() {
+    const el = document.getElementById('maoIaProgressElapsed');
+    const t0 = performance.now();
+    if (el) el.textContent = '0.0 s';
+    _stopElapsed();
+    _iaElapsedTimer = setInterval(() => {
+      if (el) el.textContent = ((performance.now() - t0) / 1000).toFixed(1) + ' s';
+    }, 200);
+  }
+  function _stopElapsed() {
+    if (_iaElapsedTimer) { clearInterval(_iaElapsedTimer); _iaElapsedTimer = null; }
+  }
+
   // ── SISTEMA DE REINTENTOS AUTOMÁTICO PARA EL SERVIDOR ───────────────────
   // Si el servidor no responde al cargar la app, reintenta automáticamente
   // cada segundo sin bloquear la UI. Permite que el usuario inicie análisis
@@ -253,9 +331,16 @@
     if (faceObjects.length > 0) {
       maoIaLastObjects = faceObjects;
       maoIaVisible     = new Set(faceObjects.map(o => o.object_id));
+      // #1 — reinicia orden/filtro al restaurar la otra cara.
+      _iaTableSortKey = null; _iaTableSortDir = 1; _iaConfFilter = false;
+      const _cfb = document.getElementById('maoIaConfFilter');
+      if (_cfb) _cfb.checked = false;
+      _updateSortIndicators();
       buildMaoSelector(faceObjects);
       renderTable(faceObjects);
       renderCards(faceObjects);
+      _renderConfSummary(faceObjects);
+      _updateConfFilterCount();
       if (resultsPanel) resultsPanel.style.display = 'flex';
       if (placeholderEl) placeholderEl.style.display = 'none';
       setTimeout(() => { fitZoomToWrap(); drawContoursCanvas(faceObjects); }, 50);
@@ -263,6 +348,7 @@
       // Sin análisis para esta cara: limpiar UI
       maoIaLastObjects = [];
       maoIaVisible     = new Set();
+      _renderConfSummary([]);
       hideDetailPanel();
       if (resultsPanel) resultsPanel.style.display = 'none';
       if (placeholderEl) placeholderEl.style.display = 'flex';
@@ -913,6 +999,14 @@
     iaFocusedId = null; _syncCenterBtn();
     if (placeholderEl) placeholderEl.style.display = 'none';
     resultsPanel.style.display = 'none';
+    // #3 — análisis cancelable + cronómetro. Sustituye el AbortSignal.timeout
+    // fijo (no cancelable) por un AbortController propio, con un timeout duro
+    // de respaldo de 120 s que aborta con motivo 'timeout'.
+    _iaAbortController = new AbortController();
+    const _killTimer = setTimeout(() => {
+      if (_iaAbortController) _iaAbortController.abort('timeout');
+    }, 120_000);
+    _startElapsed();
     try {
       // Obtener imagen activa y recortar según ROI (si existe)
       const _img = getActiveImage();
@@ -940,7 +1034,7 @@
       fd.append('clahe_clip',       sliderClip.value);
       fd.append('clahe_tile',       sliderTile.value);
       fd.append('max_objects',      sliderMax.value);
-      const resp = await fetch(PYTHON_URL + '/api/mao-ia', { method: 'POST', body: fd, signal: AbortSignal.timeout(120_000) });
+      const resp = await fetch(PYTHON_URL + '/api/mao-ia', { method: 'POST', body: fd, signal: _iaAbortController.signal });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const data = await resp.json();
       // Desplazar coordenadas si se usó ROI
@@ -970,15 +1064,55 @@
       renderResults(data);
     } catch (err) {
       showSpinner(false);
+      const aborted = !!(err && err.name === 'AbortError');
+      const reason  = _iaAbortController && _iaAbortController.signal.reason;
       if (inlineError) {
-        inlineError.textContent  = '⚠️ Error al analizar: ' + err.message;
+        inlineError.textContent  = aborted
+          ? (reason === 'user'
+              ? 'Análisis cancelado.'
+              : '⏱️ El análisis superó el tiempo límite (120 s). Reduce el área (ROI) o el número máximo de objetos.')
+          : '⚠️ Error al analizar: ' + err.message;
         inlineError.style.display = 'block';
       }
       if (placeholderEl) placeholderEl.style.display = 'flex';
     } finally {
+      clearTimeout(_killTimer);
+      _stopElapsed();
+      _iaAbortController = null;
       btnRun.disabled    = false;
       btnRun.textContent = '\u25b6\u2002 Ejecutar an\xe1lisis';
     }
+  });
+
+  // #3 — botón Cancelar del overlay de progreso.
+  const _progressCancelBtn = document.getElementById('maoIaProgressCancel');
+  _progressCancelBtn && _progressCancelBtn.addEventListener('click', () => {
+    if (_iaAbortController) _iaAbortController.abort('user');
+  });
+
+  // #1 — orden por columna (clic en cabecera de la tabla). renderTable y
+  // _updateSortIndicators son declaraciones hoisteadas; el listener solo se
+  // dispara tras el primer análisis, cuando ya hay objetos.
+  (function _wireTableSort() {
+    if (!viewTable) return;
+    const thead = viewTable.querySelector('thead');
+    if (!thead) return;
+    thead.addEventListener('click', e => {
+      const th = e.target.closest('th[data-sort]');
+      if (!th || !maoIaLastObjects.length) return;
+      const key = th.getAttribute('data-sort');
+      if (_iaTableSortKey === key) _iaTableSortDir = -_iaTableSortDir;
+      else { _iaTableSortKey = key; _iaTableSortDir = (key === 'conf' ? 1 : -1); }
+      _updateSortIndicators();
+      renderTable(maoIaLastObjects);
+    });
+  })();
+
+  // #1 — filtro de triage «solo baja confianza».
+  const _confFilterChk = document.getElementById('maoIaConfFilter');
+  _confFilterChk && _confFilterChk.addEventListener('change', () => {
+    _iaConfFilter = !!_confFilterChk.checked;
+    renderTable(maoIaLastObjects);
   });
 
   // ── Exportar CSV ─────────────────────────────────────────────────────────
@@ -986,6 +1120,7 @@
     if (!maoIaLastObjects.length) return;
     const cols = [
       ['object_id','ID'],['label','Etiqueta'],
+      ['confidence_level','Confianza_nivel'],['detection_confidence','Confianza_score'],
       ['area_px','Area_px2'],['perimeter_px','Perimetro_px'],
       ['centroide_x','Cx'],['centroide_y','Cy'],
       ['circularity','Circularidad'],['solidity','Solidez'],
@@ -1043,6 +1178,13 @@
         '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';flex-shrink:0;"></span>' +
         '<span style="font-weight:700;color:' + color + ';">#' + obj.object_id + '</span>' +
         '<span style="color:#a0aec0;font-size:9px;">' + Math.round(obj.area_px || obj.area) + 'px²</span>';
+      // #1 — chip de confianza compacto solo para objetos que merecen revisión
+      // (media/baja); los de alta confianza no añaden ruido visual.
+      const _cLvl = _confLevel(obj);
+      if (_cLvl === 'media' || _cLvl === 'baja') {
+        const _cChip = _makeConfChip(obj, true);
+        if (_cChip) card.appendChild(_cChip);
+      }
       card.addEventListener('click', () => {
         const id = obj.object_id;
         const yaAislado = maoIaVisible.size === 1 && maoIaVisible.has(id);
@@ -1546,10 +1688,90 @@
       if (detailSpinner) detailSpinner.style.display = 'none';
     }
   });
+  // \u2500\u2500 #1: orden + filtro de triage de la tabla \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  function _sortVal(obj, key) {
+    switch (key) {
+      case 'id':        return obj.object_id;
+      case 'conf':      return _confScore(obj);
+      case 'area':      return obj.area_px != null ? obj.area_px : obj.area;
+      case 'perimeter': return obj.perimeter_px != null ? obj.perimeter_px : obj.perimeter;
+      case 'cx':        return obj.centroide_x != null ? obj.centroide_x : obj.centroid_x;
+      case 'cy':        return obj.centroide_y != null ? obj.centroide_y : obj.centroid_y;
+      case 'circ':      return obj.circularity;
+      case 'solidity':  return obj.solidity;
+      case 'exc':       return obj.excentricidad;
+      case 'eqd':       return obj.equivalent_diameter;
+      case 'forma':     return obj.forma_detectada_mostrada || obj.forma_detectada || '';
+      default:          return null;
+    }
+  }
+  function _tableViewObjects() {
+    let arr = maoIaLastObjects.slice();
+    if (_iaConfFilter) arr = arr.filter(o => _confLevel(o) === 'baja');
+    if (_iaTableSortKey) {
+      const k = _iaTableSortKey, dir = _iaTableSortDir;
+      arr.sort((a, b) => {
+        let va = _sortVal(a, k), vb = _sortVal(b, k);
+        if (typeof va === 'string' || typeof vb === 'string') {
+          return dir * String(va == null ? '' : va).localeCompare(String(vb == null ? '' : vb));
+        }
+        if (va == null) va = -Infinity;
+        if (vb == null) vb = -Infinity;
+        return dir * (va - vb);
+      });
+    }
+    return arr;
+  }
+  function _updateSortIndicators() {
+    if (!viewTable) return;
+    viewTable.querySelectorAll('th[data-sort]').forEach(th => {
+      const base = th.getAttribute('data-label') ||
+                   th.textContent.replace(/\s*[\u25b2\u25bc]\s*$/, '').trim();
+      th.setAttribute('data-label', base);
+      const active = th.getAttribute('data-sort') === _iaTableSortKey;
+      th.innerHTML = base + (active ? (_iaTableSortDir === 1 ? ' \u25b2' : ' \u25bc') : '');
+    });
+  }
+  function _renderConfSummary(objects) {
+    const el = document.getElementById('maoIaConfSummary');
+    if (!el) return;
+    const c = _confCounts(objects);
+    if (!objects || !objects.length || (c.alta + c.media + c.baja) === 0) {
+      el.style.display = 'none'; el.innerHTML = ''; return;
+    }
+    el.style.display = 'inline-flex';
+    el.innerHTML = '';
+    const MO = window.MaoOrganizer;
+    const mk = (mod, txt) => {
+      const s = document.createElement('span');
+      if (MO && MO.setChip) MO.setChip(s, mod, txt);
+      else { s.className = 'laar-chip laar-chip--' + mod; s.textContent = txt; }
+      s.style.fontSize = '8.5px'; s.style.padding = '1px 7px';
+      return s;
+    };
+    if (c.alta)  el.appendChild(mk('ok',   c.alta + ' alta'));
+    if (c.media) el.appendChild(mk('none', c.media + ' media'));
+    if (c.baja)  el.appendChild(mk('wa',   c.baja + ' baja \u00b7 revisar'));
+  }
+  function _updateConfFilterCount() {
+    const el = document.getElementById('maoIaConfFilterCount');
+    if (!el) return;
+    const c = _confCounts(maoIaLastObjects);
+    el.textContent = c.baja
+      ? (c.baja + ' de ' + maoIaLastObjects.length + ' por revisar')
+      : 'Sin objetos de baja confianza';
+  }
+
   function renderTable(objects) {
     if (!tableBody) return;
     const fmt = (v, d) => { d = d == null ? 2 : d; return v == null ? '\u2014' : Number(v).toFixed(d); };
-    tableBody.innerHTML = objects.map(function(obj, i) {
+    const view = _tableViewObjects();           // #1 — orden + filtro de triage
+    if (!view.length && _iaConfFilter) {
+      tableBody.innerHTML = '<tr><td colspan="12" style="padding:14px;text-align:center;color:#718096;">Ning\u00fan objeto de baja confianza. Desactiva el filtro para ver todos.</td></tr>';
+      _updateSortIndicators();
+      return;
+    }
+    tableBody.innerHTML = view.map(function(obj, i) {
       const color = iaColor(obj.object_id);
       const bg    = i % 2 ? '#faf9ff' : '#fff';
       const circ  = Number(obj.circularity || 0);
@@ -1568,6 +1790,7 @@
             '<span style="font-weight:700;color:' + color + ';">' + (obj.label || '#' + obj.object_id) + '</span>' +
           '</span>' +
         '</td>' +
+        '<td style="padding:6px 10px;white-space:nowrap;">' + _confChipHTML(obj) + '</td>' +
         '<td style="padding:6px 10px;text-align:right;font-weight:600;">' + fmt(obj.area_px || obj.area, 0) + '</td>' +
         '<td style="padding:6px 10px;text-align:right;">' + fmt(obj.perimeter_px || obj.perimeter, 1) + '</td>' +
         '<td style="padding:6px 10px;text-align:right;">' + fmt(obj.centroide_x != null ? obj.centroide_x : obj.centroid_x, 1) + '</td>' +
@@ -2456,6 +2679,12 @@
     _updateFaceBadges();
     maoIaVisible     = new Set(maoIaLastObjects.map(o => o.object_id));
 
+    // #1 — reinicia orden/filtro de triage en cada nuevo análisis.
+    _iaTableSortKey = null; _iaTableSortDir = 1; _iaConfFilter = false;
+    const _cf = document.getElementById('maoIaConfFilter');
+    if (_cf) _cf.checked = false;
+    _updateSortIndicators();
+
     const INTERNAL = new Set(['object_id','label','contour_points','hull_points',
       'convexity_defects','centroid_x','centroid_y','hull_centroid_x','hull_centroid_y',
       'bbox_x','bbox_y','bbox_w','bbox_h','centroide','_metrics_error','_metricsCount']);
@@ -2489,6 +2718,7 @@
         '<div style="color:#718096;padding:16px 0;text-align:center;">No se detectaron objetos con estos parámetros.</div>';
       if (selectorWrap) selectorWrap.style.display = 'none';
       if (cnvContornos) cnvContornos.style.display = 'none';
+      _renderConfSummary([]);
       switchTab('cards');
       return;
     }
@@ -2497,6 +2727,8 @@
     renderTable(maoIaLastObjects);
     renderCards(maoIaLastObjects);
     switchTab('canvas');
+    _renderConfSummary(maoIaLastObjects);   // #1 — resumen de confianza (chips)
+    _updateConfFilterCount();
 
     // ── Inyectar en el flujo de tarjetas morfológicas principal ──────────
     // Genera las tarjetas de objeto en la vista de análisis morfológico,
