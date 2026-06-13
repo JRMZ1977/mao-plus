@@ -12148,36 +12148,11 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       }
 
       const emitirMonitorAnalisis = (objMonitor, metricasMonitor) => {
-        // ADR-008: `detectionMethod` ya es enum canónico ('automatic'|'manual'|'ia')
-        // tras la normalización; se acepta también el crudo legacy ('manual_area').
-        const _dm = objMonitor.detectionMethod;
-        const modoMonitor = (objMonitor._samSegmented || _dm === 'ia')
-          ? 'ia'
-          : (_dm === 'manual' || _dm === 'manual_area' || objMonitor.detectionArea ? 'manual' : 'automatico');
-        const payload = {
-          objeto: objMonitor.id || null,
-          cara: objMonitor.cara || 'mono',
-          modo: modoMonitor,
-          metodoDeteccion: objMonitor.detectionMethod || null,
-          analysis_method: metricasMonitor.analysis_method || null,
-          forma: metricasMonitor.forma_detectada || metricasMonitor.forma_detectada_meta || null,
-          forma_meta: metricasMonitor.forma_detectada_meta || null,
-          forma_geometrica: metricasMonitor.forma_geometrica_observada || metricasMonitor.forma_detectada || null,
-          forma_tipologica: metricasMonitor.forma_tipologica_inferida || metricasMonitor.forma_detectada_tipologica || null,
-          forma_tipologica_reinterpretada: !!metricasMonitor.forma_requiere_reinterpretacion_tipologica,
-          razon_tipologica: metricasMonitor.forma_razon_tipologica || null,
-          area_fragmentada_px: metricasMonitor.area_fragmentada_px ?? null,
-          area_px: metricasMonitor.area_px ?? null,
-          centroid_hull_x: metricasMonitor.centroide_hull_x ?? null,
-          centroid_hull_y: metricasMonitor.centroide_hull_y ?? null,
-          radio_maximo_px: metricasMonitor.radio_maximo_px ?? null,
-          radio_minimo_px: metricasMonitor.radio_minimo_px ?? null,
-          ratio_radios: metricasMonitor.ratio_radios ?? null,
-          regularidad_radial: metricasMonitor.regularidad_radial ?? null,
-          circularity: metricasMonitor.circularity ?? null,
-          solidity: metricasMonitor.solidity ?? null,
-          timestamp: new Date().toISOString(),
-        };
+        // ADR-008 Fase 3 — schema único de telemetría (C7): el builder canónico
+        // unifica auto/manual/IA e incluye método + confianza de detección.
+        const payload = (window.MaoDeteccion && window.MaoDeteccion.buildMonitorAnalisis)
+          ? window.MaoDeteccion.buildMonitorAnalisis(objMonitor, metricasMonitor)
+          : { objeto: objMonitor.id || null, modo: 'desconocido', timestamp: new Date().toISOString() };
         console.info(`[MONITOR_ANALISIS] ${JSON.stringify(payload)}`);
       };
 

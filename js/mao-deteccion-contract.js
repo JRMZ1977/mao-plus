@@ -143,18 +143,100 @@
     return obj;
   }
 
+  function _firstDef() {
+    for (var i = 0; i < arguments.length; i++) {
+      if (arguments[i] != null) return arguments[i];
+    }
+    return null;
+  }
+
+  // ── ADR-008 Fase 3 · guard de schema (dev) ─────────────────────────────────
+  // Valida que un objeto NORMALIZADO cumple el contrato. Devuelve [] si OK, o la
+  // lista de campos en falta/ inválidos. La confianza es opcional (null válido).
+  var _guard = true;
+  function validar(obj) {
+    if (!obj || typeof obj !== 'object') return ['no-objeto'];
+    var bad = [];
+    if (obj.__contrato !== CONTRACT_VERSION) bad.push('sin-sello');
+    if (['automatic', 'manual', 'ia'].indexOf(obj.detectionMethod) === -1)
+      bad.push('detectionMethod=' + obj.detectionMethod);
+    var b = obj.bbox;
+    if (!b || typeof b.x !== 'number' || typeof b.y !== 'number' ||
+        typeof b.w !== 'number' || typeof b.h !== 'number') bad.push('bbox');
+    if (typeof obj.area_pixels !== 'number') bad.push('area_pixels');
+    if (obj.source_id == null && obj.id == null) bad.push('source_id/id');
+    if (obj.confidence_level != null &&
+        ['alta', 'media', 'baja'].indexOf(obj.confidence_level) === -1)
+      bad.push('confidence_level=' + obj.confidence_level);
+    return bad;
+  }
+
   /** Normaliza una lista in place; devuelve la misma referencia. */
   function normalizarLista(arr) {
     if (!Array.isArray(arr)) return arr;
     for (var i = 0; i < arr.length; i++) normalizar(arr[i]);
+    // Guard de schema: silencioso si el contrato se cumple (0 violaciones).
+    if (_guard) {
+      var viol = [];
+      for (var j = 0; j < arr.length; j++) {
+        var probs = validar(arr[j]);
+        if (probs.length) viol.push({ id: arr[j] && (arr[j].id || arr[j].source_id), problemas: probs });
+      }
+      if (viol.length && root.console && console.warn) {
+        console.warn('[MAO_CONTRATO] ' + viol.length + ' objeto(s) violan el contrato:',
+          JSON.stringify(viol));
+      }
+    }
     return arr;
+  }
+
+  // ── ADR-008 Fase 3 · telemetría unificada (C7) ─────────────────────────────
+  // Schema ÚNICO de [MONITOR_ANALISIS] para los 3 modos (auto/manual/IA). Antes
+  // vivía duplicado y divergente en analysis-core.js y mao-ia.js. Superset de
+  // ambos + confianza de detección canónica + método canónico.
+  function buildMonitorAnalisis(obj, m) {
+    obj = obj || {}; m = m || {};
+    var enumModo = modoCanonico(obj);
+    return {
+      objeto: obj.id || obj.nombreObjeto || null,
+      cara: obj.cara || 'mono',
+      modo: enumModo === 'automatic' ? 'automatico' : enumModo,
+      metodoDeteccion: obj.detectionMethod || enumModo,
+      detectionMethodRaw: obj.detectionMethodRaw || null,
+      detection_confidence: _firstDef(obj.detection_confidence, obj._confidence),
+      confidence_level: _firstDef(obj.confidence_level, obj._confidenceLvl),
+      analysis_method: m.analysis_method || null,
+      forma: m.forma_detectada || m.forma_detectada_meta || null,
+      forma_meta: m.forma_detectada_meta || null,
+      forma_geometrica: m.forma_geometrica_observada || m.forma_detectada || null,
+      forma_tipologica: m.forma_tipologica_inferida || m.forma_detectada_tipologica || null,
+      forma_tipologica_reinterpretada: !!m.forma_requiere_reinterpretacion_tipologica,
+      razon_tipologica: m.forma_razon_tipologica || null,
+      tipo_artefacto: m.tipo_artefacto || null,
+      subtipo_artefacto: m.subtipo_artefacto || null,
+      confianza_tipologia: m.confianza_tipologia != null ? m.confianza_tipologia : null,
+      area_fragmentada_px: m.area_fragmentada_px != null ? m.area_fragmentada_px : null,
+      area_px: m.area_px != null ? m.area_px : null,
+      centroid_hull_x: m.centroide_hull_x != null ? m.centroide_hull_x : null,
+      centroid_hull_y: m.centroide_hull_y != null ? m.centroide_hull_y : null,
+      radio_maximo_px: m.radio_maximo_px != null ? m.radio_maximo_px : null,
+      radio_minimo_px: m.radio_minimo_px != null ? m.radio_minimo_px : null,
+      ratio_radios: m.ratio_radios != null ? m.ratio_radios : null,
+      regularidad_radial: m.regularidad_radial != null ? m.regularidad_radial : null,
+      circularity: m.circularity != null ? m.circularity : null,
+      solidity: m.solidity != null ? m.solidity : null,
+      timestamp: new Date().toISOString(),
+    };
   }
 
   var api = {
     CONTRACT_VERSION: CONTRACT_VERSION,
     normalizar: normalizar,
     normalizarLista: normalizarLista,
-    modoCanonico: modoCanonico
+    modoCanonico: modoCanonico,
+    validar: validar,
+    buildMonitorAnalisis: buildMonitorAnalisis,
+    setGuard: function (v) { _guard = !!v; }
   };
 
   root.MaoDeteccion = api;

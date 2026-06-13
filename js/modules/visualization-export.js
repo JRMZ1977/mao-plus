@@ -3043,7 +3043,9 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         'Num_Angulos_Rectos', 'Num_Angulos_Agudos', 'Num_Angulos_Obtusos',
         // Clasificaciones
         'Clasificacion_Circularidad', 'Clasificacion_Aspecto', 'Clasificacion_Compacidad',
-        'Forma_Detectada', 'Confianza_Forma', 'Factor_Escala', 'Fecha_Analisis'
+        'Forma_Detectada', 'Confianza_Forma', 'Factor_Escala', 'Fecha_Analisis',
+        // ADR-008 Fase 3 — confianza de DETECCIÓN (chip LAAR), coherente con el CSV del modal IA
+        'Confianza_nivel', 'Confianza_score'
       ].join(',');
       
       const csvValues = [
@@ -3076,11 +3078,13 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         `"${metricas.geometria_vertices || 'N/A'}"`, metricas.angulo_medio_vertices || 'N/A', metricas.angulo_predominante || 'N/A',
         metricas.desviacion_angulos || 'N/A', metricas.num_angulos_rectos || 0, metricas.num_angulos_agudos || 0, metricas.num_angulos_obtusos || 0,
         // Clasificaciones
-        metricas.completitud_estimada || 'N/A', `"${metricas.completitud_tipo_fragmento || 'N/A'}"`, metricas.completitud_cobertura_grados || 'N/A',
-        // Clasificaciones
+        // NOTA (ADR-008 Fase 3): aquí había un bloque `completitud_*` DUPLICADO (sin
+        // header), que desalineaba las últimas 7 columnas del CSV. Eliminado.
         `"${metricas.shape_class_circularity}"`, `"${metricas.shape_class_aspect}"`, `"${metricas.shape_class_compactness}"`,
         `"${metricas.forma_detectada || 'N/A'}"`, metricas.forma_confianza || 'N/A',
-        `"${metricas.scale_factor}"`, `"${metricas.analysis_timestamp}"`
+        `"${metricas.scale_factor}"`, `"${metricas.analysis_timestamp}"`,
+        // ADR-008 Fase 3 — confianza de DETECCIÓN desde el objeto (no metricas)
+        `"${obj.confidence_level || 'N/A'}"`, (obj.detection_confidence != null ? obj.detection_confidence : 'N/A')
       ].join(',');
       
       const csvContent = `${csvHeaders}\n${csvValues}`;

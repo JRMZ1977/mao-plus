@@ -2612,33 +2612,11 @@
     maoObj.forma_detectada = _formaMostradaIA;
 
     const emitirMonitorAnalisisIA = (objMonitor, metricasMonitor) => {
-      const payload = {
-        objeto: objMonitor.id || objMonitor.nombreObjeto || null,
-        cara: objMonitor.cara || 'mono',
-        modo: 'ia',
-        metodoDeteccion: 'mao_ia',
-        analysis_method: metricasMonitor.analysis_method || null,
-        forma: metricasMonitor.forma_detectada || metricasMonitor.forma_detectada_meta || null,
-        forma_meta: metricasMonitor.forma_detectada_meta || null,
-        forma_geometrica: metricasMonitor.forma_geometrica_observada || metricasMonitor.forma_detectada || null,
-        forma_tipologica: metricasMonitor.forma_tipologica_inferida || metricasMonitor.forma_detectada_tipologica || null,
-        forma_tipologica_reinterpretada: !!metricasMonitor.forma_requiere_reinterpretacion_tipologica,
-        razon_tipologica: metricasMonitor.forma_razon_tipologica || null,
-        tipo_artefacto: metricasMonitor.tipo_artefacto || null,
-        subtipo_artefacto: metricasMonitor.subtipo_artefacto || null,
-        confianza_tipologia: metricasMonitor.confianza_tipologia ?? null,
-        area_fragmentada_px: metricasMonitor.area_fragmentada_px ?? null,
-        area_px: metricasMonitor.area_px ?? null,
-        centroid_hull_x: metricasMonitor.centroide_hull_x ?? null,
-        centroid_hull_y: metricasMonitor.centroide_hull_y ?? null,
-        radio_maximo_px: metricasMonitor.radio_maximo_px ?? null,
-        radio_minimo_px: metricasMonitor.radio_minimo_px ?? null,
-        ratio_radios: metricasMonitor.ratio_radios ?? null,
-        regularidad_radial: metricasMonitor.regularidad_radial ?? null,
-        circularity: metricasMonitor.circularity ?? null,
-        solidity: metricasMonitor.solidity ?? null,
-        timestamp: new Date().toISOString(),
-      };
+      // ADR-008 Fase 3 — mismo builder canónico que auto/manual (C7). objMonitor
+      // trae `_fromIA` → el builder resuelve modo/método 'ia' sin hardcodear.
+      const payload = (window.MaoDeteccion && window.MaoDeteccion.buildMonitorAnalisis)
+        ? window.MaoDeteccion.buildMonitorAnalisis(objMonitor, metricasMonitor)
+        : { objeto: objMonitor.id || objMonitor.nombreObjeto || null, modo: 'ia', timestamp: new Date().toISOString() };
       console.info(`[MONITOR_ANALISIS] ${JSON.stringify(payload)}`);
     };
 

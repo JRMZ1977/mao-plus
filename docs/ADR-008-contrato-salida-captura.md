@@ -1,6 +1,6 @@
 # ADR-008 — Contrato de salida de captura (coherencia entre modos de detección)
 
-- **Estado:** En curso (2026-06-13) · Fase 0 (doc) + **Fase 1 (normalizador) + Fase 2 (paridad de confianza) implementadas y verificadas en Electron**; Fase 3 pendiente
+- **Estado:** ✅ **Completado (2026-06-13)** · Fases 0 (doc) + 1 (normalizador) + 2 (paridad de confianza) + 3 (telemetría + CSV + guard) **implementadas y verificadas en Electron**. Fase 1+2 en commit `d3e4628`; Fase 3 encima.
 - **Decisores:** JFRR (alcance: «establecer coherencia de salida entre modos de captura») · Claude (diagnóstico y diseño)
 - **Precedentes:** ADR-005 (lenguaje canónico LAAR + `window.MaoOrganizer`) · ADR-007 (reconciliación captura→análisis, confianza por objeto) · ADR-006 (patrón «registro + contrato» aplicado al núcleo morfométrico). Detección backend: commits `8675ede` (watershed + confianza, retira YOLO), `4fef282` (confianza a UI/CSV).
 - **Ámbito:** frontera de **detección → `window.objects`** (frontend) y forma de objeto que emite el backend de detección. **No** toca la lógica de detección de ningún modo, ni el cálculo morfométrico (`metrics.py`), ni la Tier 1 API. Aditivo, con alias, reversible.
@@ -201,7 +201,32 @@ canónico→legacy, manual no inventa) ✓ · **sonda Electron end-to-end** (gat
 
 ---
 
-## Decisiones de diseño (a confirmar en Fase 1)
+## Implementado — Fase 3 (2026-06-13)
+
+Cierra **C7** (telemetría + export coherentes) y añade el **guard de schema**.
+
+| # | Cambio | Archivo |
+|---|--------|---------|
+| Telemetría | `MaoDeteccion.buildMonitorAnalisis(obj, m)` — schema **único** de `[MONITOR_ANALISIS]` para los 3 modos (superset de los dos payloads previos + `detection_confidence`/`confidence_level` + `metodoDeteccion` canónico, sin hardcodear `'mao_ia'`). Los dos emisores (`analysis-core.js`, `mao-ia.js`) lo invocan; ~50 líneas duplicadas y divergentes eliminadas. | `mao-deteccion-contract.js`, `analysis-core.js`, `mao-ia.js` |
+| CSV | El export principal gana `Confianza_nivel`/`Confianza_score` (confianza de **detección**, desde el objeto), **mismos nombres** que el CSV del modal IA → columnas coherentes entre modos. | `visualization-export.js` |
+| Guard | `MaoDeteccion.validar(obj)` (campos canónicos; confianza opcional) corre dentro de `normalizarLista` en el choke point. **Silencioso si 0 violaciones**; si las hay, un solo `[MAO_CONTRATO]`. Toggle `setGuard(false)`. | `mao-deteccion-contract.js` |
+
+**Bug preexistente corregido en passing (CSV):** el export principal duplicaba el bloque
+`completitud_*` en los **valores** sin header (77 valores vs 74 cabeceras), lo que
+**desalineaba las últimas 7 columnas** del CSV (`Clasificacion_*`, `Forma_Detectada`,
+`Confianza_Forma`, `Factor_Escala`, `Fecha_Analisis` recibían el valor de la columna
+equivocada). Eliminado el duplicado → 76 = 76 con las 2 columnas de confianza nuevas.
+
+**Verificación Fase 3:** `node -c` (4 archivos) ✓ · test en node (9/9: schema **idéntico
+entre los 3 modos**, método canónico sin hardcode, confianza en los 3, validador OK) ✓ ·
+suite Python `260 passed, 2 skipped` (Fase 3 no toca Python) ✓ · **sonda Electron**
+(gated `MAO_PROBE=3`, revertida) ✓: builder/validador vivos, `modos=[automatico,manual,ia]`,
+`metodos=[automatic,manual,ia]`, `schemaIdentico=true`, **guard en el choke point real →
+`violaciones=[0,0]`**, `renderThrew=false`, 0 errores de renderer.
+
+---
+
+## Decisiones de diseño (resueltas)
 
 ### A · El `id` canónico es el compuesto arqueológico
 `generarIDObjeto` produce el ID que la colección y el export ya esperan. Unificar
