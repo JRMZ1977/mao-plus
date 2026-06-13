@@ -11895,6 +11895,18 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
               obj.convexHull = pyCont.convex_hull;
               obj._hullIsAbsolute = true;
             }
+
+            // ADR-008 Fase 2 — confianza AUTORITATIVA en la frontera del contorno.
+            // Homogeneiza los 4 modos: manual/auto-frontend la heredan aquí (no la
+            // calculan en detección); auto-backend/IA reconcilian su preview. Misma
+            // fuente que detect()/IA (_confianza_objeto). Alias legacy
+            // (_confidence/_confidenceLvl) para el triage y el export existentes.
+            if (pyCont.detection_confidence != null) {
+              obj.detection_confidence = pyCont.detection_confidence;
+              obj.confidence_level     = pyCont.confidence_level;
+              obj._confidence          = pyCont.detection_confidence;
+              obj._confidenceLvl       = pyCont.confidence_level;
+            }
           }
         } catch (_e) {
           console.warn('[Python] contour.extract falló, usando contorno existente:', _e.message);
@@ -12136,9 +12148,12 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       }
 
       const emitirMonitorAnalisis = (objMonitor, metricasMonitor) => {
-        const modoMonitor = objMonitor._samSegmented
+        // ADR-008: `detectionMethod` ya es enum canónico ('automatic'|'manual'|'ia')
+        // tras la normalización; se acepta también el crudo legacy ('manual_area').
+        const _dm = objMonitor.detectionMethod;
+        const modoMonitor = (objMonitor._samSegmented || _dm === 'ia')
           ? 'ia'
-          : (objMonitor.detectionMethod === 'manual_area' || objMonitor.detectionArea ? 'manual' : 'automatico');
+          : (_dm === 'manual' || _dm === 'manual_area' || objMonitor.detectionArea ? 'manual' : 'automatico');
         const payload = {
           objeto: objMonitor.id || null,
           cara: objMonitor.cara || 'mono',
@@ -33491,6 +33506,10 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
 
   function individualizarObjetos() {
     if(objects.length === 0) return;
+
+    // ADR-008 Fase 1 — normalizar la forma de objeto de los 4 modos de detección
+    // antes del render/triage (único choke point; aditivo, no toca `id`).
+    if (window.MaoDeteccion) window.MaoDeteccion.normalizarLista(objects);
 
     console.log(`🎯 Individualizando ${objects.length} objetos...`);
 

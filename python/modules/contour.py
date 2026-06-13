@@ -31,6 +31,7 @@ from fastapi import HTTPException
 from python.modules.detection import (
     _bytes_to_cv, _detectar_color_fondo, _build_binary_mask,
     _zscan_color_analysis, _aplicar_clahe, _grabcut_mask,
+    _confianza_objeto,
 )
 
 IMPLEMENTED = True
@@ -536,9 +537,29 @@ async def extract(
         else "bajo"
     )
 
+    # ── Confianza de detección por objeto (ADR-008 Fase 2) ───────────────────
+    # El contorno es la frontera donde convergen los 4 modos de captura, así que
+    # aquí la confianza es AUTORITATIVA y homogénea entre modos (manual y
+    # auto-frontend, que no la calculan en detección, la heredan en el análisis).
+    # Misma fuente que detect()/IA: `_confianza_objeto` sobre la máscara y el ROI
+    # ya calculados (contraste de borde + extent). No añade round-trips: reusa el
+    # de `/contour`. Calidad geométrica (arriba) ≠ confianza de detección.
+    detection_confidence = None
+    confidence_level = None
+    try:
+        roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB).astype(np.float32)
+        area_filled = int((mask_u8 > 0).sum())
+        _conf = _confianza_objeto(mask_u8, roi_rgb, area_filled, bw * bh)
+        detection_confidence = _conf["score"]
+        confidence_level = _conf["level"]
+    except Exception:
+        pass   # confianza opcional: el contrato admite null si no es calculable
+
     # ── Retorno compatible con extraerContornoReal() JS ──────────────────────
     return {
         "status": "ok",
+        "detection_confidence": detection_confidence,
+        "confidence_level":     confidence_level,
         "points":        [[round(float(p[0]), 2), round(float(p[1]), 2)] for p in pts_abs],
         "points_visual": [[round(float(p[0]), 2), round(float(p[1]), 2)] for p in pts_vis_abs],
         "convex_hull":   [[round(float(p[0]), 2), round(float(p[1]), 2)] for p in hull_pts_abs] if hull_pts_abs is not None else [],

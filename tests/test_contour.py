@@ -131,3 +131,29 @@ class TestContourPipeline:
         assert max(xs) <= 315
         assert min(ys) >= 60
         assert max(ys) <= 240
+
+
+# ── ADR-008 Fase 2 — confianza de detección en la frontera del contorno ──────
+# `/contour` ahora propaga `detection_confidence`/`confidence_level` (misma fuente
+# que detect()/IA: _confianza_objeto), para que los 4 modos de captura hereden la
+# confianza en el análisis y el contrato sea homogéneo.
+
+class TestContourConfidence:
+    def test_confidence_keys_present(self, client, png_bytes_dark):
+        body = _post_contour(client, png_bytes_dark).json()
+        assert "detection_confidence" in body
+        assert "confidence_level" in body
+
+    def test_confidence_level_canonico(self, client, png_bytes_dark):
+        """El nivel es el lenguaje LAAR (alta/media/baja) o None."""
+        body = _post_contour(client, png_bytes_dark).json()
+        assert body["confidence_level"] in ("alta", "media", "baja", None)
+
+    def test_confidence_score_en_rango(self, client, png_bytes_dark):
+        """Score ∈ [0,1] o None; objeto oscuro nítido sobre fondo claro → no None."""
+        body = _post_contour(client, png_bytes_dark).json()
+        score = body["detection_confidence"]
+        assert score is None or (0.0 <= score <= 1.0)
+        # El fixture es un objeto de alto contraste → la confianza debe calcularse.
+        assert score is not None
+        assert body["confidence_level"] is not None
