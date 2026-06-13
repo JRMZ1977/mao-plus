@@ -1050,6 +1050,8 @@ class ProjectManager {
     // ========================================================================
     // II. (02) DIMENSIONES MÉTRICAS DEL OBJETO
     // ========================================================================
+    // D1 — procedencia de escala: advierte si las dimensiones están en px (sin calibrar).
+    rows.push(`02_Dimensiones,Escala Calibrada,${metricas.sin_escala_calibrada ? 'NO - valores en px' : 'Si - valores en mm'},,Si las dimensiones estan calibradas a mm o quedaron en pixeles`);
     rows.push(`02_Dimensiones,Area Total,${metricas.area || 0},mm²,Área total del objeto`);
     rows.push(`02_Dimensiones,Perimetro,${metricas.perimeter || 0},mm,Perímetro del contorno`);
     rows.push(`02_Dimensiones,Ancho BB Ajustado,${metricas.tight_width || metricas.width || 0},mm,Ancho del bounding box ajustado`);

@@ -373,7 +373,10 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       guardarAnalisisMorfologico:                   () => guardarAnalisisMorfologico,
       guardarCanvasEnObjeto:                        () => guardarCanvasEnObjeto,
       calcularAnalisisComparativo:                  () => calcularAnalisisComparativo,
-      resolverNombreFotografia:                     () => resolverNombreFotografia
+      resolverNombreFotografia:                     () => resolverNombreFotografia,
+      // Render del grid de objetos: expuesto para automatización/sonda de runtime
+      // (consistente con `objects` arriba); permite re-render sin re-detectar.
+      individualizarObjetos:                        () => individualizarObjetos
     };
     Object.keys(fns).forEach((k) => {
       if (!(k in window)) {
@@ -10176,6 +10179,8 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     // vino de detección JS/manual/3D (sin score).
     metrics.detection_confidence = (typeof obj?._confidence === 'number') ? obj._confidence : null;
     metrics.detection_confidence_level = obj?._confidenceLvl || null;
+    // D1 — procedencia de escala: marca si las métricas salieron en px (sin mm).
+    metrics.sin_escala_calibrada = !_escalaCalibrada();
 
     // Sanear el array de puntos una única vez en el punto de convergencia de las
     // tres rutas (caché, conversión, extracción lazy). Eliminar null/undefined
@@ -33413,11 +33418,82 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     }
   }
 
+  // ════════════════════════════════════════════════════════════════════════
+  // FLUJO CAPTURA→ANÁLISIS (ADR-007) — LÓGICA del triage (la presentación —
+  // toolbar de chips + botón batch — la renderiza mao-captura-organizer.js):
+  //   A1 filtro por confianza · C1 batch · D1 guard de escala · E1 referencias.
+  // ════════════════════════════════════════════════════════════════════════
+  let _filtroSoloRevisar  = false;   // A1: mostrar solo objetos de baja confianza
+  let _escalaWarnAceptada = false;   // D1: el usuario ya aceptó analizar sin escala
+
+  // D1 — ¿hay escala métrica calibrada? Si no, las métricas salen en píxeles.
+  function _escalaCalibrada() {
+    if (typeof scale === 'number' && isFinite(scale) && scale > 0) return true;
+    const txt = scaleDisplay && scaleDisplay.textContent;
+    return !!(txt && txt !== '-' && parseFloat(txt) > 0);
+  }
+
+  // E1 — referencia (carta de color / escala métrica): excluida del análisis.
+  function _esReferencia(obj) { return !!(obj && obj._esReferencia); }
+
+  // D1 — confirma UNA sola vez analizar sin escala. Retorna true si proceder.
+  function _guardEscala() {
+    if (_escalaCalibrada() || _escalaWarnAceptada) return true;
+    const ok = confirm(
+      'No hay escala métrica calibrada.\n\n' +
+      'Las métricas se calcularán en PÍXELES, no en milímetros. ' +
+      'Calibra la escala en la pestaña Captura para obtener medidas reales.\n\n' +
+      '¿Analizar de todas formas?'
+    );
+    if (ok) _escalaWarnAceptada = true;
+    return ok;
+  }
+
+  // C1 — analiza en lote los objetos analizables (excluye referencias) con guard
+  // de escala. Emite progreso por evento; la UI (organizer) lo refleja.
+  async function _analizarTodos() {
+    if (!_guardEscala()) return;
+    const indices = [];
+    objects.forEach((o, i) => { if (!_esReferencia(o)) indices.push(i); });
+    if (!indices.length) return;
+
+    const total = indices.length;
+    let hechos = 0, errores = 0;
+    const _progress = (running) => document.dispatchEvent(new CustomEvent(
+      'mao:batch-analyze:progress', { detail: { done: hechos, total, running } }));
+    for (const idx of indices) {
+      hechos++;
+      _progress(true);
+      UtilityHelpers.setStatus(`Analizando objeto ${hechos}/${total}…`, false);
+      try {
+        await analizarObjetoMorfologicamente(idx, true);   // silencioso + caché
+      } catch (e) {
+        errores++;
+        console.warn(`[batch] objeto idx ${idx} falló:`, e && e.message);
+      }
+      await new Promise(res => setTimeout(res, 0));          // ceder hilo a la UI
+    }
+    _progress(false);
+    UtilityHelpers.setStatus(
+      `Análisis en lote: ${total - errores}/${total} objetos` + (errores ? ` (${errores} con error)` : ''),
+      errores > 0
+    );
+    individualizarObjetos();   // re-render del grid → re-render de la toolbar
+  }
+
+  // ADR-007 §D3 — cableado event-driven con el organizer de Captura (presentación):
+  //   organizer → batch / toggle de filtro ; core → lógica + re-render del grid.
+  document.addEventListener('mao:batch-analyze:request', function () { _analizarTodos(); });
+  document.addEventListener('mao:triage-filter:toggle', function () {
+    _filtroSoloRevisar = !_filtroSoloRevisar;
+    individualizarObjetos();
+  });
+
   function individualizarObjetos() {
     if(objects.length === 0) return;
-    
+
     console.log(`🎯 Individualizando ${objects.length} objetos...`);
-    
+
     individualObjectsContainer.style.display = 'block';
     individualObjectsGrid.innerHTML = '';
     
@@ -33433,8 +33509,13 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     let esBifacial = false;
     
     console.log('🔄 Agrupando objetos. Total objetos:', objects.length);
-    
-    objects.forEach(obj => {
+
+    // A1 — filtro «solo revisar»: muestra únicamente los de baja confianza.
+    const _objetosVisibles = _filtroSoloRevisar
+      ? objects.filter(o => o._confidenceLvl === 'baja')
+      : objects;
+
+    _objetosVisibles.forEach(obj => {
       console.log(`  - Objeto ${obj.id}: cara="${obj.cara}", numeroObjeto=${obj.numeroObjeto}`);
       if (obj.cara) {
         esBifacial = true;
@@ -33504,7 +33585,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         } catch(e) { console.error(`Error: ${e.message}`); }
       }
     });
-  
+
+    // ADR-007 §D3 — señal al organizer de Captura para que (re)pinte la toolbar
+    // de triage. El detail lleva el estado del filtro para el visual del chip.
+    document.dispatchEvent(new CustomEvent('mao:objects:rendered',
+      { detail: { soloRevisar: _filtroSoloRevisar } }));
+
     toggleObjectsBtn.style.display = 'block';
     toggleObjectsBtn.textContent = 'Ocultar objetos individuales';
 
@@ -43402,20 +43488,28 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     individualizarObjetos();
   }
 
-  // Chip de confianza de detección (lenguaje canónico LAAR, ADR-005).
-  // Fuente: detect() Python → _confianza_objeto (contraste de borde + extent).
-  // Color = estado real: alta→ok (verde) · media→none (neutro) · baja→wa (revisar).
-  // Si el objeto no trae score (detección JS/manual/3D) → sin chip (graceful).
-  function _confidenceChipHtml(obj) {
+  // Chip de confianza de detección — lenguaje canónico LAAR vía
+  // MaoOrganizer.setChip (ADR-005 · ADR-007 §D2). Fuente: detect() Python →
+  // _confianza_objeto (contraste de borde + extent). Color = estado real:
+  // alta→ok · media→none · baja→wa. Sin score (JS/manual/3D) ⇒ no se añade chip.
+  function _appendConfidenceChip(container, obj) {
     const lvl = obj && obj._confidenceLvl;
-    if (!lvl) return '';
-    const score = (typeof obj._confidence === 'number') ? Math.round(obj._confidence * 100) : null;
+    if (!lvl || !container) return;
+    const MO = window.MaoOrganizer;
     const mod = lvl === 'alta' ? 'ok' : (lvl === 'baja' ? 'wa' : 'none');
     const txt = lvl === 'baja' ? 'Confianza baja · revisar'
               : lvl === 'media' ? 'Confianza media'
               : 'Confianza alta';
-    const tip = score != null ? ` title="Detección automática: ${score}%"` : '';
-    return `<div style="margin-top:6px;"><span class="laar-chip laar-chip--${mod}"${tip}>${txt}</span></div>`;
+    const wrap = document.createElement('div');
+    wrap.style.marginTop = '6px';
+    const chip = document.createElement('span');
+    if (MO && MO.setChip) MO.setChip(chip, mod, txt);
+    else { chip.className = 'laar-chip laar-chip--' + mod; chip.textContent = txt; }
+    if (typeof obj._confidence === 'number') {
+      chip.title = 'Detección automática: ' + Math.round(obj._confidence * 100) + '%';
+    }
+    wrap.appendChild(chip);
+    container.appendChild(wrap);
   }
 
   function crearCardObjeto(obj, caraLabel) {
@@ -43508,7 +43602,6 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
           ID: ${obj.id}<br>
           Área: ${obj.area?.toFixed(0) || 'N/A'} px²
         </div>
-        ${_confidenceChipHtml(obj)}
       `;
     } else {
       // MODO MONOFACIAL - Título con nombre heredado si existe
@@ -43520,9 +43613,11 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         </div>
         <div style="font-size:12px;color:#666;margin-bottom:4px;">Tipo: ${caraTexto}</div>
         <div style="font-size:11px;color:#999;">Área: ${obj.area?.toFixed(0) || 'N/A'} px²</div>
-        ${_confidenceChipHtml(obj)}
       `;
     }
+
+    // ADR-007 §D2 — chip de confianza vía MaoOrganizer.setChip (tras el innerHTML).
+    _appendConfidenceChip(infoDiv, obj);
     
     // 🆕 Botón "Abrir análisis" que usa caché si existe
     const analyzeBtn = document.createElement('button');
@@ -43539,6 +43634,8 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     analyzeBtn.onmouseover = () => { analyzeBtn.style.transform = 'translateY(-2px)'; analyzeBtn.style.boxShadow = tieneCache ? '0 4px 8px rgba(40,167,69,0.4)' : '0 4px 8px rgba(23,162,184,0.4)'; };
     analyzeBtn.onmouseout = () => { analyzeBtn.style.transform = 'translateY(0)'; analyzeBtn.style.boxShadow = tieneCache ? '0 2px 4px rgba(40,167,69,0.3)' : '0 2px 4px rgba(23,162,184,0.3)'; };
     analyzeBtn.addEventListener('click', () => {
+      // D1 — guard de escala: confirmar una vez si se analiza sin calibración.
+      if (!obj.analisisCached && !_guardEscala()) return;
       console.log(`🖱️ Click en botón análisis para ${obj.id} (cache: ${!!obj.analisisCached})`);
       UtilityHelpers.setStatus(`Procesando análisis para ${obj.id}…`, false);
       const imagenCara = obj.cara === 'A' ? imageCaraA : (obj.cara === 'B' ? imageCaraB : image);
@@ -43572,6 +43669,35 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     });
     
     infoDiv.appendChild(analyzeBtn);
+
+    // E1 — marcado de referencia (carta de color / escala métrica): se excluye
+    // del análisis y del batch. Atenúa la tarjeta y oculta el botón de análisis.
+    const esRef = _esReferencia(obj);
+    if (esRef) {
+      card.style.opacity = '0.55';
+      analyzeBtn.style.display = 'none';
+    }
+    const refBtn = document.createElement('button');
+    refBtn.textContent = esRef ? '✓ Es referencia (no se analiza)' : 'Marcar como referencia';
+    refBtn.title = 'Las referencias (carta de color, escala métrica) se excluyen del análisis y los resultados';
+    refBtn.style.cssText = 'width:100%;padding:6px;margin-top:6px;font-size:11px;font-weight:600;border-radius:6px;cursor:pointer;border:0.5px solid ' +
+      (esRef ? '#FCD34D;background:#FEF3C7;color:#92400E;' : '#D1D5DB;background:#fff;color:#4B5563;');
+    refBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nuevo = !obj._esReferencia;
+      // Coherencia bifacial: propagar a ambas caras del mismo objeto.
+      if (obj.numeroObjeto) {
+        objects.forEach(o => { if (o.numeroObjeto === obj.numeroObjeto) o._esReferencia = nuevo; });
+      } else {
+        obj._esReferencia = nuevo;
+      }
+      // ADR-007 §D5 — el cambio en el set de objetos es parte del flujo: la
+      // cabecera de Captura (artefactos·referencias) y futuros consumidores reaccionan.
+      document.dispatchEvent(new CustomEvent('mao:objects:changed',
+        { detail: { id: obj.id, numeroObjeto: obj.numeroObjeto, esReferencia: nuevo } }));
+      individualizarObjetos();   // re-render del grid → re-render de la toolbar
+    });
+    infoDiv.appendChild(refBtn);
 
     // Trigger centralized button update
     if (obj.numeroObjeto) {
