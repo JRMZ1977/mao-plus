@@ -16,7 +16,7 @@
  *  - Flujo: radios 2D/3D y mono/bifacial + evento `mao:object-dimension-changed`.
  *  - Reset: click en #nuevoAnalisisBtn → chips a estado inicial.
  *
- * Reusa las clases de chip LAAR de ADR-003 (.adr3-chip / --ok / --wa / --none).
+ * Pinta los chips con MO.setChip → lenguaje canónico .laar-chip (ADR-005).
  */
 (function () {
   'use strict';

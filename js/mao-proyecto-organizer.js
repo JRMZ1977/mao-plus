@@ -31,9 +31,7 @@
 
   /* ── Helpers de estado (los comunes viven en MaoOrganizer) ────────────────── */
   function proyectoActivo() {
-    var ind = $('proyectoActivoIndicador');
-    return !!(ind && ind.style.display !== 'none' &&
-              getComputedStyle(ind).display !== 'none');
+    return MO.isVisible($('proyectoActivoIndicador'));
   }
   function nombreProyecto() {
     var n = $('proyectoActivoNombre');
