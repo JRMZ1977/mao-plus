@@ -2790,20 +2790,9 @@ function generarSeccionMetricasComplementarias(obj, metricas, estiloTabla, estil
     const elongacion = parseFloat(metricas.elongation || metricas.elongacion) || 0;
     const porosidad = parseFloat(metricas.porosidad) || 0;
     
-    // DEBUG: Ver qué contiene obj
-    console.log('🔍 DEBUG generarSeccionMetricasComplementarias:');
-    console.log('   obj:', obj);
-    console.log('   obj.perforaciones:', obj.perforaciones);
-    console.log('   obj.horadaciones:', obj.horadaciones);
-    console.log('   metricas.patron_agrupamiento_confianza:', metricas.patron_agrupamiento_confianza);
-    
-    // ✅ CORREGIDO: Leer directamente del objeto, no de métricas guardadas
+    // Leer directamente del objeto: undefined = no evaluado, [] = evaluado ninguna
     const numPerforaciones = (obj.perforaciones && obj.perforaciones.length) || 0;
     const numHoradaciones = (obj.horadaciones && obj.horadaciones.length) || 0;
-    
-    console.log('   numPerforaciones calculado:', numPerforaciones);
-    console.log('   numHoradaciones calculado:', numHoradaciones);
-    
     const metodoAnalisis = metricas.analysis_method || 'No especificado';
     const timestamp = metricas.analysis_timestamp || 'No disponible';
 
@@ -2811,12 +2800,12 @@ function generarSeccionMetricasComplementarias(obj, metricas, estiloTabla, estil
     // que «evaluado: ninguna» ([]). Antes ambos se renderizaban como 0/0.00%,
     // exportando un dato falso para piezas con P/H no evaluadas.
     const phEvaluado = Array.isArray(obj.perforaciones) || Array.isArray(obj.horadaciones);
-    const phPendiente = '<span style="font-size: 12px; color: #92400E; font-weight: 600;">— sin evaluar</span>';
+    const phPendiente = '<span class="laar-chip laar-chip--wa laar-chip--lg">Sin evaluar</span>';
     const dispPerforaciones = phEvaluado ? numPerforaciones : phPendiente;
     const dispHoradaciones = phEvaluado ? numHoradaciones : phPendiente;
     
     return `
-      <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #9c27b0;">
+      <h3 style="color: var(--laar-g800, #374151); margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 2px solid var(--laar-g200, #e5e7eb);">
         XI-b. Métricas de Distribución y Contexto P/H
       </h3>
       <table style="${estiloTabla}">
@@ -2860,12 +2849,12 @@ function generarSeccionMetricasComplementarias(obj, metricas, estiloTabla, estil
           </tr>
           <tr style="background: #f3e5f5;">
             <td style="${estiloTd}; font-weight: 600;">Total Perforaciones</td>
-            <td style="${estiloTd}; font-weight: 600; color: #0066cc; font-size: 18px;">${dispPerforaciones}</td>
+            <td style="${estiloTd}; font-weight: 600; font-size: 18px;">${dispPerforaciones}</td>
             <td style="${estiloTd}; font-size: 12px;">${phEvaluado ? 'Orificios pasantes' : 'Pendiente de evaluación P/H'}</td>
           </tr>
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}; font-weight: 600;">Total Horadaciones</td>
-            <td style="${estiloTd}; font-weight: 600; color: #28a745; font-size: 18px;">${dispHoradaciones}</td>
+            <td style="${estiloTd}; font-weight: 600; font-size: 18px;">${dispHoradaciones}</td>
             <td style="${estiloTd}; font-size: 12px;">${phEvaluado ? 'Concavidades ciegas' : 'Pendiente de evaluación P/H'}</td>
           </tr>
           <tr style="background: #f3e5f5;">

@@ -43,20 +43,10 @@ const bootMetrics = {
 };
 
 // ── Seguridad: webSecurity ────────────────────────────────────────────────
-// ESTADO: webSecurity: false es requerido mientras el renderer carga desde
-// file:// y hace fetch a http://127.0.0.1:8765 (distinto origen → bloqueo CORS).
-//
-// TODO producción: registrar esquema custom `app://` con protocol.handle() y
-// cambiar mainWindow.loadFile() → loadURL('app://mao/index.html').
-// Con app:// (standard + corsEnabled: false) webSecurity puede ser true.
-// Ver: https://www.electronjs.org/docs/latest/api/protocol#protocolhandlescheme-handler
-//
-// Mientras tanto: el bypass de CORS de Chromium solo se aplica en DEV.
-if (isDev) {
-  // En desarrollo: deshabilitar OutOfBlinkCors para requests file:// → http://.
-  // Eliminar esta línea una vez migrado a esquema app://.
-  app.commandLine.appendSwitch('disable-features', 'OutOfBlinkCors');
-}
+// La app carga desde el esquema custom `app://` (registrado abajo con
+// protocol.registerSchemesAsPrivileged + protocol.handle). El backend en
+// http://127.0.0.1:8765 tiene CORSMiddleware con allow_origins=["*"], por lo
+// que webSecurity:true es seguro. No se necesita el bypass OutOfBlinkCors.
 
 // ── Esquema custom `app://` ────────────────────────────────────────────────
 // Servir la app desde un esquema standard propio (app://mao/...) en lugar de
@@ -218,6 +208,14 @@ async function startPythonServer() {
     
     pyServerManaged = true;
   } else {
+    // Warmup: pre-cargar cv2 antes de lanzar uvicorn para evitar que iCloud
+    // interrumpa la carga de cv2.abi3.so durante el arranque del servidor.
+    await new Promise(resolve => {
+      const warm = spawn(PYTHON_BIN, ['-c', 'import cv2, numpy'], { cwd: APP_DIR, stdio: 'ignore' });
+      warm.on('close', resolve);
+      warm.on('error', resolve); // si falla, continuar igualmente
+    });
+
     console.log(`[MAO Python] Iniciando uvicorn en ${SERVER_HOST}:${SERVER_PORT} con ${PYTHON_BIN}...`);
 
     pyServer = spawn(
@@ -440,7 +438,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false, // TODO: true tras migrar a esquema app:// (ver comentario al inicio)
+      webSecurity: true,
       sandbox: false       // false hasta confirmar compatibilidad completa en sandbox
     },
     title: 'MAO Plus - Morfometría Arqueológica de Objetos',
@@ -479,7 +477,7 @@ function createWindow() {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
             contextIsolation: true,
-            webSecurity: false, // TODO: true tras migrar a esquema app://
+            webSecurity: true,
             sandbox: false
           }
         }

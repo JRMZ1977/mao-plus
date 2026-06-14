@@ -93,6 +93,7 @@
       label    : 'Resultados',
       icon     : '④',
       sections : [
+        'adr5ResultadosHeader',         // Cabecera de chips de estado (ADR-005 Resultados)
         'resultadosPanel',              // Panel maestro de resultados
         'comparadorMultiObjetoSection', // Comparador multi-objeto (CMO)
         'sidebarResultCard',            // Resumen de resultado (reubicado del sidebar)
