@@ -11569,7 +11569,12 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         obj.horadaciones = metricasCached.horadaciones;
         console.log(`  ✅ ${obj.horadaciones.length} horadaciones restauradas desde caché`);
       }
-      
+
+      // ADR-009: restaurar candidatos P/H seedless (sugerencias sin confirmar)
+      if (metricasCached.phCandidatos && !obj.phCandidatos) {
+        obj.phCandidatos = metricasCached.phCandidatos;
+      }
+
       // 🔧 Asignar obj.metricas al caché para que la exportación PDF y otros
       // flujos que leen obj.metricas directamente (en lugar de analisisCached.metricas)
       // encuentren los datos correctos. Se hace siempre, no solo en modo interactivo.
@@ -11868,13 +11873,17 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 
       // ── B2: Contorno subpíxel Python /api/contour ───────────────────────────
       // Reemplaza extraerContornoReal() → cornerSubPix OpenCV (más preciso que JS)
-      // Si el objeto ya fue segmentado con IA (_samSegmented), preservar ese
-      // contorno — el segmentador IA usa la imagen completa con contexto de fondo
-      // y produce un contorno más preciso que el extractor estándar sobre el recorte.
-      // Fase 3: para `_canonicalRaster`, el contorno ya proviene de la geometría 3D
-      // exacta; re-extraerlo desde el raster sintético sólo añadiría ruido de stair-step.
+      // Si el objeto ya fue segmentado con IA (_samSegmented), se PRESERVA ese
+      // contorno — el segmentador IA usa la imagen completa con contexto de fondo y
+      // produce un contorno más preciso que el extractor estándar sobre el recorte.
+      // ADR-009: aun así se ejecuta /contour para objetos IA/SAM (antes excluidos)
+      // con el ÚNICO fin de capturar `ph_candidates` — los huecos viven en la imagen,
+      // no en el contorno; la adopción del contorno/hull/confianza queda gateada por
+      // `!obj._samSegmented` abajo, así el contorno IA no se pisa.
+      // Fase 3 obj3d: para `_canonicalRaster`, el contorno proviene de la geometría 3D
+      // exacta y el raster sintético no tiene P/H reales → se omite por completo.
       if (window.PythonBridge && PythonBridge.isModuleActive('contour') && fullImageDataURL &&
-          !obj._samSegmented && !obj._canonicalRaster) {
+          !obj._canonicalRaster) {
         try {
           const pyCont = await PythonBridge.contour.extract(
             fullImageDataURL,
@@ -11882,30 +11891,45 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
             { subpixel: true, simplify: 2.0 }
           );
           if (pyCont && Array.isArray(pyCont.points) && pyCont.points.length >= 3) {
-            // Python devuelve coords ABSOLUTAS (paso 7 en contour.py suma bbox.x/y).
-            // Los canvases (schematicCanvas, morphologicalCanvas) esperan absolutas y
-            // restan obj.minX/minY ellos mismos al dibujar → almacenar sin modificar.
-            obj.contour_points = pyCont.points;
-            obj.has_real_contour = true;
-            console.log(`[Python] contour.extract ✓ → ${obj.contour_points.length} pts subpíxel (coords absolutas)`);
+            // El contorno/hull/confianza del extractor SOLO se adoptan si el objeto NO
+            // viene segmentado por IA (para no pisar el contorno definitivo AIA/SAM).
+            if (!obj._samSegmented) {
+              // Python devuelve coords ABSOLUTAS (paso 7 en contour.py suma bbox.x/y).
+              // Los canvases (schematicCanvas, morphologicalCanvas) esperan absolutas y
+              // restan obj.minX/minY ellos mismos al dibujar → almacenar sin modificar.
+              obj.contour_points = pyCont.points;
+              obj.has_real_contour = true;
+              console.log(`[Python] contour.extract ✓ → ${obj.contour_points.length} pts subpíxel (coords absolutas)`);
 
-            // Hull absoluto — _hullIsAbsolute=true para que la lógica del canvas
-            // (isRelative = !_hullIsAbsolute) aplique la resta de minX/minY.
-            if (Array.isArray(pyCont.convex_hull) && pyCont.convex_hull.length >= 3) {
-              obj.convexHull = pyCont.convex_hull;
-              obj._hullIsAbsolute = true;
+              // Hull absoluto — _hullIsAbsolute=true para que la lógica del canvas
+              // (isRelative = !_hullIsAbsolute) aplique la resta de minX/minY.
+              if (Array.isArray(pyCont.convex_hull) && pyCont.convex_hull.length >= 3) {
+                obj.convexHull = pyCont.convex_hull;
+                obj._hullIsAbsolute = true;
+              }
+
+              // ADR-008 Fase 2 — confianza AUTORITATIVA en la frontera del contorno.
+              // Homogeneiza los 4 modos: manual/auto-frontend la heredan aquí (no la
+              // calculan en detección); auto-backend reconcilia su preview. Misma
+              // fuente que detect()/IA (_confianza_objeto). Alias legacy
+              // (_confidence/_confidenceLvl) para el triage y el export existentes.
+              if (pyCont.detection_confidence != null) {
+                obj.detection_confidence = pyCont.detection_confidence;
+                obj.confidence_level     = pyCont.confidence_level;
+                obj._confidence          = pyCont.detection_confidence;
+                obj._confidenceLvl       = pyCont.confidence_level;
+              }
             }
 
-            // ADR-008 Fase 2 — confianza AUTORITATIVA en la frontera del contorno.
-            // Homogeneiza los 4 modos: manual/auto-frontend la heredan aquí (no la
-            // calculan en detección); auto-backend/IA reconcilian su preview. Misma
-            // fuente que detect()/IA (_confianza_objeto). Alias legacy
-            // (_confidence/_confidenceLvl) para el triage y el export existentes.
-            if (pyCont.detection_confidence != null) {
-              obj.detection_confidence = pyCont.detection_confidence;
-              obj.confidence_level     = pyCont.confidence_level;
-              obj._confidence          = pyCont.detection_confidence;
-              obj._confidenceLvl       = pyCont.confidence_level;
+            // ── ADR-009 — candidatos P/H seedless (sugerencias a confirmar) ──────
+            // El backend detecta huecos internos durante la extracción del contorno
+            // (RETR_CCOMP). Son SUGERENCIAS neutras (tipo='candidato'): NO se escriben
+            // en obj.perforaciones/horadaciones ni alteran el área neta hasta que el
+            // usuario los confirma y tipa en el modal P/H. Se capturan SIEMPRE (incluido
+            // IA/SAM) y elevan P/H a tarea primaria vía el chip §2 de la pestaña Análisis.
+            obj.phCandidatos = Array.isArray(pyCont.ph_candidates) ? pyCont.ph_candidates : [];
+            if (obj.phCandidatos.length) {
+              console.log(`[Python] P/H candidatos seedless: ${obj.phCandidatos.length} hueco(s) (sin confirmar)`);
             }
           }
         } catch (_e) {
@@ -12276,7 +12300,9 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       ...metricas,
       // Asegurar que P/H estén incluidas
       perforaciones: obj.perforaciones || metricas.perforaciones || [],
-      horadaciones: obj.horadaciones || metricas.horadaciones || []
+      horadaciones: obj.horadaciones || metricas.horadaciones || [],
+      // ADR-009: candidatos P/H seedless (sugerencias sin confirmar) persistidos
+      phCandidatos: obj.phCandidatos || metricas.phCandidatos || []
     };
     
     targetObj.analisisCached = {
@@ -42989,18 +43015,9 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       console.log('   ✅ Event listener Exportar PNG Morfológico conectado');
     }
 
-    // Botón PNG en sidebar
-    const sidebarExportPNGBtn = document.getElementById('sidebarExportPNGBtn');
-    if (sidebarExportPNGBtn) {
-      sidebarExportPNGBtn.addEventListener('click', async () => {
-        console.log('🖱️ Click en sidebar PNG');
-        await exportarPNGMorfologicoActual();
-      });
-      console.log('   ✅ Event listener Sidebar PNG conectado');
-    } else {
-      console.warn('   ⚠️  Botón sidebarExportPNGBtn no encontrado en el DOM');
-    }
-    
+    // Botón PNG en sidebar → delega en exportarPNGMorfologicoBtn vía el proxy de
+    // setupSidebarActions() (sidebar-nav.js), igual que CSV/PDF/SVG. Sin handler directo.
+
     // Botón de exportación CSV del modal de tabla completa (mantener para modal)
     const exportarMetricasModalBtn = document.getElementById('exportarMetricasModalBtn');
     
@@ -47350,6 +47367,29 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       }
     });
 
+    // ── ADR-009: precargar candidatos P/H auto-detectados como sugerencias ───────
+    // tipo='candidato' (neutro): se renderizan distinto (ámbar discontinuo) y NO se
+    // guardan como P/H hasta que el usuario los confirme asignándoles tipo. Solo se
+    // cargan si el objeto aún no fue evaluado (no pisar P/H ya confirmados). Sus
+    // puntos vienen en coords ABSOLUTAS de imagen ([[x,y]] o [{x,y}]).
+    let _idCand = existentes.reduce((m, t) => Math.max(m, Number(t.id) || 0), 0);
+    if (existentes.length === 0 && Array.isArray(obj.phCandidatos)) {
+      obj.phCandidatos.forEach((c) => {
+        const ptsRaw = c.points || c.puntos;
+        if (!Array.isArray(ptsRaw) || ptsRaw.length < 3) return;
+        const puntos = ptsRaw.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : { x: p.x, y: p.y });
+        existentes.push({
+          id: ++_idCand,
+          tipo: 'candidato',
+          puntos: puntos,
+          timestamp: Date.now(),
+          metodo: 'auto-seedless',
+          _confidence: (typeof c.detection_confidence === 'number') ? c.detection_confidence : null,
+          _confidenceLvl: c.confidence_level || null,
+        });
+      });
+    }
+
     trazadosPerforaciones = existentes;
     contadorTrazados = existentes.reduce((m, t) => Math.max(m, Number(t.id) || 0), 0);
     actualizarListaTrazados();
@@ -47385,7 +47425,10 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     modal.style.display = 'block';
     setTimeout(() => perforationCanvas.focus(), 100);
     
-    if (existentes.length > 0) {
+    const _nCand = trazadosPerforaciones.filter(t => t.tipo === 'candidato').length;
+    if (_nCand > 0) {
+      UtilityHelpers.setStatus(`Canvas listo (Zoom 2x). ${_nCand} candidato(s) P/H auto-detectado(s) (ámbar discontinuo): confírmelos como perforación u horadación, o descártelos.`, false);
+    } else if (existentes.length > 0) {
       UtilityHelpers.setStatus(`Canvas listo (Zoom 2x). Se cargaron ${existentes.length} P/H existentes para edición: puede eliminar, ajustar y volver a detectar.`, false);
     } else {
       UtilityHelpers.setStatus(`Canvas listo (Zoom 2x). Trace el polígono haciendo clic. Use el zoom para más precisión.`, false);
@@ -49056,18 +49099,23 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     // NUEVO: Dibujar TODOS los trazados completados
     // ============================================================================
     trazadosPerforaciones.forEach((trazado, index) => {
-      const color = trazado.tipo === 'perforacion' ? '#0066cc' : '#28a745';
-      
+      // ADR-009: candidatos auto-detectados se distinguen (ámbar, discontinuo).
+      const esCandidato = trazado.tipo === 'candidato';
+      const color = esCandidato ? '#e69500'
+                  : (trazado.tipo === 'perforacion' ? '#0066cc' : '#28a745');
+
       // Convertir puntos
-      const canvasPoints = trazado.puntos.map(pt => 
+      const canvasPoints = trazado.puntos.map(pt =>
         UtilityHelpers.imageToPerforationCanvasCoords(pt.x, pt.y)
       );
-      
+
       if (canvasPoints.length < 3) return;
-      
-      // NO dibujar relleno - solo borde sólido (valores fijos 1:1)
+
+      // NO dibujar relleno - solo borde (sólido para P/H confirmados, discontinuo
+      // para candidatos sin confirmar).
       perforationCanvasCtx.strokeStyle = color;
       perforationCanvasCtx.lineWidth = 2;
+      perforationCanvasCtx.setLineDash(esCandidato ? [5, 4] : []);
       perforationCanvasCtx.beginPath();
       perforationCanvasCtx.moveTo(canvasPoints[0].x, canvasPoints[0].y);
       for (let i = 1; i < canvasPoints.length; i++) {
@@ -49075,10 +49123,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       }
       perforationCanvasCtx.closePath();
       perforationCanvasCtx.stroke();
-      
+      perforationCanvasCtx.setLineDash([]);
+
       // Etiqueta semi-transparente en una esquina externa (valores fijos 1:1)
       const centroide = calcularCentroidePoligono(canvasPoints);
-      const etiqueta = trazado._displayLabel || (trazado.tipo === 'perforacion' ? `P${index + 1}` : `H${index + 1}`);
+      const etiqueta = trazado._displayLabel || (esCandidato ? `?${index + 1}`
+                       : (trazado.tipo === 'perforacion' ? `P${index + 1}` : `H${index + 1}`));
       const fontSize = 10;
       
       // Encontrar punto más alejado del centro (para poner etiqueta afuera)
@@ -49754,10 +49804,14 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   function recalcularEtiquetasTrazadosPH() {
     let nPerf = 0;
     let nHor = 0;
+    let nCand = 0;
     trazadosPerforaciones.forEach(t => {
       if (t.tipo === 'perforacion') {
         nPerf += 1;
         t._displayLabel = `P${nPerf}`;
+      } else if (t.tipo === 'candidato') {   // ADR-009: candidato sin tipo aún
+        nCand += 1;
+        t._displayLabel = `?${nCand}`;
       } else {
         nHor += 1;
         t._displayLabel = `H${nHor}`;
@@ -49779,11 +49833,31 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       
       // Generar HTML de la lista
       lista.innerHTML = trazadosPerforaciones.map(t => {
+        // ADR-009: candidatos auto-detectados → controles para confirmar/tipar/descartar.
+        if (t.tipo === 'candidato') {
+          const conf = (typeof t._confidence === 'number')
+            ? ` · conf. ${(t._confidence * 100).toFixed(0)}%${t._confidenceLvl ? ' (' + t._confidenceLvl + ')' : ''}`
+            : '';
+          return `
+            <div style="margin: 3px 0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px; background: #fff8ec; border-left: 4px solid #e69500; border-radius: 3px; gap: 6px; flex-wrap: wrap;">
+                <span style="font-size: 11px; font-weight: bold; color: #b36b00;">
+                  CANDIDATO ${t._displayLabel || ('?' )} <span style="color: #6c757d; font-weight: normal;">(${t.puntos.length} pts${conf})</span>
+                </span>
+                <span style="display:flex;gap:4px;align-items:center;">
+                  <button onclick="confirmarCandidatoPH(${t.id}, 'perforacion')" title="Confirmar como perforación" style="padding: 2px 8px; background: #0066cc; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">Perforación</button>
+                  <button onclick="confirmarCandidatoPH(${t.id}, 'horadacion')" title="Confirmar como horadación" style="padding: 2px 8px; background: #28a745; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">Horadación</button>
+                  <button onclick="descartarCandidatoPH(${t.id})" title="Descartar candidato" style="padding: 2px 8px; background: #6c757d; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">Descartar</button>
+                </span>
+              </div>
+            </div>
+          `;
+        }
         const color = t.tipo === 'perforacion' ? '#0066cc' : '#28a745';
         const icono = t.tipo === 'perforacion' ? '' : '';
         const nombre = t.tipo === 'perforacion' ? 'PERFORACIÓN' : 'HORADACIÓN';
         const etiqueta = t._displayLabel || (t.tipo === 'perforacion' ? 'P?' : 'H?');
-        
+
         return `
           <div style="margin: 3px 0;">
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px; background: white; border-left: 4px solid ${color}; border-radius: 3px;">
@@ -49830,6 +49904,63 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   }
   // C: Exponer a scope global para los onclick inlineados en actualizarListaTrazados()
   window.eliminarTrazado = eliminarTrazado;
+
+  /**
+   * ADR-009 — Confirmar un candidato P/H auto-detectado, asignándole tipo.
+   * El candidato pasa a 'perforacion'|'horadacion' y, al finalizar los trazados,
+   * se guarda como P/H (recalcula área neta). Sólo entonces afecta métricas.
+   */
+  function confirmarCandidatoPH(id, tipo) {
+    const t = trazadosPerforaciones.find(x => x.id === id);
+    if (!t || t.tipo !== 'candidato') return;
+    if (tipo !== 'perforacion' && tipo !== 'horadacion') return;
+    t.tipo = tipo;
+    t.metodo = 'auto-confirmado';
+    recalcularEtiquetasTrazadosPH();
+    actualizarListaTrazados();
+    redibujarPoligonoEnCanvasAmpliado();
+    sincronizarCandidatosPHEnObjeto();
+    const nombre = tipo === 'perforacion' ? 'Perforación' : 'Horadación';
+    UtilityHelpers.setStatus(`Candidato confirmado como ${nombre}. Finalice los trazados para aplicarlo al objeto.`, false);
+  }
+  window.confirmarCandidatoPH = confirmarCandidatoPH;
+
+  /**
+   * ADR-009 — Descartar un candidato P/H (no es una P/H real). Se elimina del
+   * trazado y del objeto para que el chip deje de contarlo.
+   */
+  function descartarCandidatoPH(id) {
+    const index = trazadosPerforaciones.findIndex(x => x.id === id);
+    if (index === -1 || trazadosPerforaciones[index].tipo !== 'candidato') return;
+    trazadosPerforaciones.splice(index, 1);
+    recalcularEtiquetasTrazadosPH();
+    actualizarListaTrazados();
+    redibujarPoligonoEnCanvasAmpliado();
+    sincronizarCandidatosPHEnObjeto();
+    const rest = trazadosPerforaciones.filter(t => t.tipo === 'candidato').length;
+    UtilityHelpers.setStatus(`Candidato descartado. Candidatos restantes: ${rest}.`, false);
+  }
+  window.descartarCandidatoPH = descartarCandidatoPH;
+
+  /**
+   * ADR-009 — Resincroniza obj.phCandidatos con los candidatos AÚN sin confirmar
+   * en el trazado actual, para que el chip §2 refleje confirmaciones/descartes
+   * aunque el usuario cierre sin finalizar.
+   */
+  function sincronizarCandidatosPHEnObjeto() {
+    const restantes = trazadosPerforaciones
+      .filter(t => t.tipo === 'candidato')
+      .map(t => ({
+        tipo: 'candidato',
+        points: t.puntos.map(p => [p.x, p.y]),
+        detection_confidence: t._confidence,
+        confidence_level: t._confidenceLvl,
+      }));
+    if (selectedObjectForPerforation) selectedObjectForPerforation.phCandidatos = restantes;
+    if (currentAnalyzedObject && currentAnalyzedObject.obj) {
+      currentAnalyzedObject.obj.phCandidatos = restantes;
+    }
+  }
 
   /**
    * Calcular métricas morfológicas completas para una perforación/horadación
@@ -50736,10 +50867,14 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       if (selectedObjectForPerforation) {
         selectedObjectForPerforation.perforaciones = [];
         selectedObjectForPerforation.horadaciones = [];
+        // ADR-009: finalizar sin trazados = decisión humana «sin P/H» → limpiar
+        // candidatos para que el chip deje de proponerlos (cae a «evaluado · sin P/H»).
+        selectedObjectForPerforation.phCandidatos = [];
 
         if (currentAnalyzedObject && currentAnalyzedObject.obj) {
           currentAnalyzedObject.obj.perforaciones = [];
           currentAnalyzedObject.obj.horadaciones = [];
+          currentAnalyzedObject.obj.phCandidatos = [];
           sincronizarPerforacionesEnMemoria(currentAnalyzedObject.obj);
         }
 
@@ -50879,12 +51014,17 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       });
     }
     
+    // ADR-009: al finalizar, los candidatos no confirmados se consideran revisados
+    // y descartados → limpiar para que el chip refleje solo los P/H confirmados.
+    selectedObjectForPerforation.phCandidatos = [];
+
     // IMPORTANTE: Sincronizar con currentAnalyzedObject.obj
     if (currentAnalyzedObject && currentAnalyzedObject.obj) {
       currentAnalyzedObject.obj.perforaciones = selectedObjectForPerforation.perforaciones;
       currentAnalyzedObject.obj.horadaciones = selectedObjectForPerforation.horadaciones;
+      currentAnalyzedObject.obj.phCandidatos = [];
       console.log(`✅ Sincronizado con currentAnalyzedObject.obj`);
-      
+
       // 🔄 SINCRONIZAR AUTOMÁTICAMENTE: Guardar cambios en analisisMorfologicos.objetos
       sincronizarPerforacionesEnMemoria(currentAnalyzedObject.obj);
     }

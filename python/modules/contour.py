@@ -31,7 +31,7 @@ from fastapi import HTTPException
 from python.modules.detection import (
     _bytes_to_cv, _detectar_color_fondo, _build_binary_mask,
     _zscan_color_analysis, _aplicar_clahe, _grabcut_mask,
-    _confianza_objeto,
+    _confianza_objeto, detect_holes,
 )
 
 IMPLEMENTED = True
@@ -375,6 +375,10 @@ async def extract(
     mask = _build_binary_mask(roi_for_mask, fondo, zscan_roi)    # objeto=1, fondo=0
     mask_u8 = (mask * 255).astype(np.uint8)
 
+    # Snapshot de la máscara con los HUECOS PRESERVADOS (antes del MORPH_CLOSE del
+    # Paso 3, que los rellena). Es la fuente de la detección seedless de P/H (ADR-009).
+    mask_raw_holes = mask_u8.copy()
+
     # ── Paso 3: Suavizado morfológico (equivale a suavizarMascaraMorfologica JS) ─
     # Cierre (cerrar huecos) + apertura (eliminar ruido) — misma lógica JS
     iters = 2 if fondo["es_fondo_cromatico"] else 1
@@ -555,11 +559,24 @@ async def extract(
     except Exception:
         pass   # confianza opcional: el contrato admite null si no es calculable
 
+    # ── Detección seedless de huecos internos → candidatos P/H (ADR-009) ─────
+    # Huecos sobre la máscara con huecos preservados (mask_raw_holes), en coords
+    # absolutas (offset = x, y del bbox). Son SUGERENCIAS: no tocan métricas ni
+    # área neta; el usuario las confirma y tipa. Si GrabCut reemplazó la máscara
+    # (cobertura anómala) la detección de huecos no es fiable → se omite.
+    ph_candidates: list = []
+    if not _grabcut_usado:
+        try:
+            ph_candidates = detect_holes(mask_raw_holes, offset_xy=(x, y), roi_bgr=roi)
+        except Exception:
+            ph_candidates = []   # opcional: el contrato admite lista vacía
+
     # ── Retorno compatible con extraerContornoReal() JS ──────────────────────
     return {
         "status": "ok",
         "detection_confidence": detection_confidence,
         "confidence_level":     confidence_level,
+        "ph_candidates":        ph_candidates,
         "points":        [[round(float(p[0]), 2), round(float(p[1]), 2)] for p in pts_abs],
         "points_visual": [[round(float(p[0]), 2), round(float(p[1]), 2)] for p in pts_vis_abs],
         "convex_hull":   [[round(float(p[0]), 2), round(float(p[1]), 2)] for p in hull_pts_abs] if hull_pts_abs is not None else [],

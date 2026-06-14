@@ -225,6 +225,11 @@
       regularidad_radial: m.regularidad_radial != null ? m.regularidad_radial : null,
       circularity: m.circularity != null ? m.circularity : null,
       solidity: m.solidity != null ? m.solidity : null,
+      // ADR-009: P/H auto-detectados (sugerencias) vs confirmados por el usuario.
+      // Distinguir ambos evita interpretar candidatos sin confirmar como métricas.
+      ph_candidatos_detectados: Array.isArray(obj.phCandidatos) ? obj.phCandidatos.length : 0,
+      ph_confirmados: (Array.isArray(obj.perforaciones) ? obj.perforaciones.length : 0) +
+                      (Array.isArray(obj.horadaciones) ? obj.horadaciones.length : 0),
       timestamp: new Date().toISOString(),
     };
   }

@@ -78,17 +78,31 @@
     return tag === 'H5' ? 'sec9' : null;
   }
 
-  /* ── Estado P/H tri-valuado (ADR-002 §C) ─────────────────────────────────── */
+  /* ── Estado P/H (ADR-002 §C + ADR-009: candidatos seedless) ──────────────────
+     Cuatro estados, por prioridad:
+       · hallazgos    → hay P/H CONFIRMADOS (nP+nH>0).
+       · candidatos   → sin confirmados pero la detección seedless propuso huecos
+                        (obj.phCandidatos): sugerencias a confirmar (ADR-009).
+       · sin-ph       → evaluado, cero real (decisión humana, sin candidatos vivos).
+       · sin-evaluar  → ni evaluado ni candidatos.
+     OJO: NO se usa `evaluado` como prioridad sobre candidatos, porque varios flujos
+     (objetos IA, export) inicializan perforaciones/horadaciones a `[]` aunque el
+     humano no haya decidido nada → `evaluado` no es señal fiable de «ya decidió».
+     El «no nag» se preserva porque confirmar→hallazgos, descartar y finalizar limpian
+     obj.phCandidatos (→ cae a sin-ph/sin-evaluar). */
   function phEstado(obj) {
     var p = obj ? obj.perforaciones : undefined;
     var h = obj ? obj.horadaciones : undefined;
     var evaluado = Array.isArray(p) || Array.isArray(h);
     var nP = Array.isArray(p) ? p.length : 0;
     var nH = Array.isArray(h) ? h.length : 0;
-    return {
-      key: !evaluado ? 'sin-evaluar' : (nP + nH > 0 ? 'hallazgos' : 'sin-ph'),
-      nP: nP, nH: nH
-    };
+    var nC = (obj && Array.isArray(obj.phCandidatos)) ? obj.phCandidatos.length : 0;
+    var key;
+    if (nP + nH > 0)   key = 'hallazgos';
+    else if (nC > 0)   key = 'candidatos';
+    else if (evaluado) key = 'sin-ph';
+    else               key = 'sin-evaluar';
+    return { key: key, nP: nP, nH: nH, nC: nC };
   }
 
   function lanzarModalPH() {
@@ -148,11 +162,18 @@
     var st = phEstado(obj);
     var chipTxt, chipCls;
     if (st.key === 'sin-evaluar') { chipTxt = 'P/H: sin evaluar';  chipCls = 'laar-chip laar-chip--wa'; }
+    else if (st.key === 'candidatos') {
+      chipTxt = 'P/H: ' + st.nC + ' candidata' + (st.nC === 1 ? '' : 's') + ' — confirmar';
+      chipCls = 'laar-chip laar-chip--wa';
+    }
     else if (st.key === 'hallazgos') {
       chipTxt = 'P/H: ' + st.nP + ' perforacion' + (st.nP === 1 ? '' : 'es') +
                 ' · ' + st.nH + ' horadacion' + (st.nH === 1 ? '' : 'es');
       chipCls = 'laar-chip laar-chip--ok';
     } else { chipTxt = 'P/H: evaluado · sin P/H'; chipCls = 'laar-chip laar-chip--none'; }
+    var btnTxt = st.key === 'sin-evaluar' ? 'Evaluar P/H'
+               : st.key === 'candidatos'  ? 'Revisar P/H'
+               : 'Editar P/H';
 
     /* setIfChanged: evita mutaciones (y re-disparos de observers) en vano */
     var set = function (sel, prop, val) {
@@ -163,7 +184,7 @@
     set('.adr2-h-forma', 'textContent', formaTxt);
     set('.laar-chip', 'textContent', chipTxt);
     set('.laar-chip', 'className', chipCls);
-    set('.adr2-btn-ph', 'textContent', st.key === 'sin-evaluar' ? 'Evaluar P/H' : 'Editar P/H');
+    set('.adr2-btn-ph', 'textContent', btnTxt);
   }
 
   /* ── §2 P/H: tarjeta de estado (los «Resumen de…» renderizados se le unen) ── */
@@ -178,13 +199,15 @@
     var body = sec.querySelector(':scope > .adr2-body');
     var card = body.querySelector(':scope > .adr2-ph-card');
     if (card && card.getAttribute('data-estado') === st.key &&
-        card.getAttribute('data-nph') === (st.nP + '/' + st.nH)) {
+        card.getAttribute('data-nph') === (st.nP + '/' + st.nH) &&
+        card.getAttribute('data-nc') === String(st.nC)) {
       return; /* sin cambios → sin mutación → sin bucle de observer */
     }
     if (card) card.remove();
     card = el('div', 'adr2-ph-card');
     card.setAttribute('data-estado', st.key);
     card.setAttribute('data-nph', st.nP + '/' + st.nH);
+    card.setAttribute('data-nc', String(st.nC));
 
     if (st.key === 'sin-evaluar') {
       card.appendChild(el('span', 'laar-chip laar-chip--lg laar-chip--wa', 'Sin evaluar'));
@@ -195,6 +218,17 @@
       var b1 = el('button', 'adr2-btn-ph', 'Evaluar P/H');
       b1.type = 'button'; b1.addEventListener('click', lanzarModalPH);
       card.appendChild(b1);
+    } else if (st.key === 'candidatos') {
+      card.appendChild(el('span', 'laar-chip laar-chip--lg laar-chip--wa',
+        st.nC + ' candidata' + (st.nC === 1 ? '' : 's')));
+      card.appendChild(el('p', 'adr2-ph-note',
+        'La detección automática propuso ' + st.nC + ' hueco' + (st.nC === 1 ? '' : 's') +
+        ' interno' + (st.nC === 1 ? '' : 's') + ' como posible' + (st.nC === 1 ? '' : 's') +
+        ' P/H. Son sugerencias: no alteran el área neta ni ninguna métrica hasta que ' +
+        'las revises, asignes tipo (perforación u horadación) y confirmes.'));
+      var bc = el('button', 'adr2-btn-ph', 'Revisar P/H');
+      bc.type = 'button'; bc.addEventListener('click', lanzarModalPH);
+      card.appendChild(bc);
     } else if (st.key === 'hallazgos') {
       card.appendChild(el('span', 'laar-chip laar-chip--ok',
         st.nP + ' perforaciones · ' + st.nH + ' horadaciones'));

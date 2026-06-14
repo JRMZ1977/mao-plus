@@ -160,6 +160,7 @@
       ['sidebarExportCSVBtn',             'exportarAnalisisCompletoBtn'],
       ['sidebarExportPDFBtn',             'exportarPDFIntegralBtn'],
       ['sidebarExportSVGBtn',             'exportarSVGVectorialBtn'],
+      ['sidebarExportPNGBtn',             'exportarPNGMorfologicoBtn'],
       ['sidebarExportBifacialCSVBtn',     'exportarComparacionBifacialCSVBtn'],
       ['sidebarExportBifacialPDFBtn',     'exportarComparacionBifacialPDFBtn'],
       ['sidebarNuevoAnalisisBtn',           'nuevoAnalisisBtn'],

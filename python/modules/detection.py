@@ -513,6 +513,162 @@ def _confianza_objeto(
     return {"score": score, "level": level}
 
 
+# ── Detección seedless de huecos internos (candidatos P/H · ADR-009) ──────────
+
+def _confianza_hueco(
+    cnt: np.ndarray, area_px: float, bbox_area: float,
+    mask_obj: np.ndarray, roi_rgb: "np.ndarray | None"
+) -> dict:
+    """
+    Confianza de un hueco candidato ∈ [0,1] — misma forma que `_confianza_objeto`:
+      • contraste de borde — ΔE entre el interior del hueco y el anillo de OBJETO que
+        lo rodea (dilatación − hueco, intersectado con la máscara de objeto).
+      • compacidad (extent) — área / área del bbox del hueco.
+    Devuelve {"score", "level"} con los mismos cortes LAAR (alta/media/baja).
+    """
+    extent = max(0.0, min(1.0, area_px / bbox_area)) if bbox_area > 0 else 0.0
+
+    contraste = 0.5   # sin color medible → neutro
+    if roi_rgb is not None:
+        h, w = mask_obj.shape[:2]
+        hole_mask = np.zeros((h, w), np.uint8)
+        cv2.drawContours(hole_mask, [cnt], -1, 255, thickness=cv2.FILLED)
+        hole_bool = hole_mask > 0
+        ring = cv2.dilate(hole_mask, np.ones((5, 5), np.uint8), iterations=2) > 0
+        ring &= ~hole_bool
+        ring &= (mask_obj > 0)   # anillo solo sobre píxeles de objeto
+        if int(hole_bool.sum()) >= 4 and int(ring.sum()) >= 8:
+            hole_mean = roi_rgb[hole_bool].mean(axis=0)
+            ring_mean = roi_rgb[ring].mean(axis=0)
+            delta_e = float(np.sqrt(((hole_mean - ring_mean) ** 2).sum()))
+            contraste = max(0.0, min(1.0, delta_e / 60.0))
+
+    score = round(0.65 * contraste + 0.35 * extent, 3)
+    level = "alta" if score >= 0.66 else "media" if score >= 0.40 else "baja"
+    return {"score": score, "level": level}
+
+
+def detect_holes(
+    mask_raw: np.ndarray,
+    offset_xy: tuple = (0, 0),
+    roi_bgr: "np.ndarray | None" = None,
+    min_area_abs: float = 16.0,
+    min_area_ratio: float = 0.001,
+    max_area_ratio: float = 0.35,
+    max_candidates: int = 24,
+) -> list[dict]:
+    """
+    Detección SEEDLESS de huecos internos = candidatos P/H (ADR-009).
+
+    Un hueco es una región interior totalmente encerrada por el objeto. Se detecta
+    combinando DOS señales sobre la silueta rellena del objeto:
+
+      (1) Por máscara — interior clasificado como fondo (`silueta & ¬máscara`):
+          capta huecos del color del fondo y funciona sin imagen (tests).
+      (2) Por desviación de color — interior cuya intensidad se aparta del CUERPO
+          del objeto (`|gray − mediana_cuerpo| > umbral`): capta huecos que NO son
+          del color del fondo (through-holes grises, recesos en sombra). Requiere
+          `roi_bgr`. Se erosiona la silueta para no marcar la transición del borde.
+
+    Parámetros
+    ----------
+    mask_raw    : máscara uint8 del objeto (objeto>0) con los huecos PRESERVADOS,
+                  es decir, ANTES del `MORPH_CLOSE` que los rellena.
+    offset_xy   : (x, y) del ROI → los puntos se devuelven en coords ABSOLUTAS.
+    roi_bgr     : ROI BGR; habilita la señal (2). Sin él solo opera la señal (1).
+
+    Importante (ADR-009): NO clasifica perforación vs horadación (la profundidad no es
+    observable en 2D) → `tipo="candidato"`. NO altera ninguna métrica; son sugerencias
+    que el usuario confirma y tipa.
+
+    Retorna lista (posiblemente vacía) de candidatos en coords absolutas.
+    """
+    h, w = mask_raw.shape[:2]
+
+    # Limpieza ligera: quita specks blancos sueltos sin rellenar huecos reales.
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    m = cv2.morphologyEx(mask_raw, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    # Silueta del objeto (huecos rellenos) desde su(s) contorno(s) externo(s).
+    ext_cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not ext_cnts:
+        return []
+    filled = np.zeros((h, w), np.uint8)
+    cv2.drawContours(filled, ext_cnts, -1, 255, thickness=cv2.FILLED)
+    object_area_px = float((filled > 0).sum())
+    if object_area_px <= 0:
+        return []
+
+    # (1) Huecos por máscara: interior clasificado como fondo.
+    hole_px = cv2.bitwise_and(filled, cv2.bitwise_not(m))
+
+    # (2) Huecos por desviación de color respecto al cuerpo del objeto.
+    roi_rgb = None
+    if roi_bgr is not None:
+        roi_rgb = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB).astype(np.float32)
+        gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        body = (filled > 0) & (m > 0)
+        if int(body.sum()) >= 16:
+            body_med = float(np.median(gray[body]))
+            body_std = float(np.std(gray[body]))
+            thr = max(25.0, 1.5 * body_std)
+            # Erosionar la silueta excluye la transición objeto/fondo del borde.
+            interior = cv2.erode(filled, kernel, iterations=2) > 0
+            dev_mask = (interior & (np.abs(gray - body_med) > thr)).astype(np.uint8) * 255
+            hole_px = cv2.bitwise_or(hole_px, dev_mask)
+
+    # Denoise de la máscara de huecos.
+    hole_px = cv2.morphologyEx(hole_px, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    cnts, _ = cv2.findContours(hole_px, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return []
+
+    min_area = max(min_area_abs, min_area_ratio * object_area_px)
+    max_area = max_area_ratio * object_area_px
+    ox, oy = offset_xy
+
+    candidates: list[dict] = []
+    for c in cnts:
+        area_px = float(cv2.contourArea(c))
+        if area_px < min_area or area_px > max_area:
+            continue
+
+        x_, y_, bw_, bh_ = cv2.boundingRect(c)
+        # Hueco pegado al límite del ROI → probablemente un entrante del borde, no fiable.
+        if x_ <= 0 or y_ <= 0 or x_ + bw_ >= w or y_ + bh_ >= h:
+            continue
+
+        perim_px = float(cv2.arcLength(c, True))
+        circ = (4.0 * math.pi * area_px) / (perim_px * perim_px) if perim_px > 0 else 0.0
+        M = cv2.moments(c)
+        cx = M["m10"] / M["m00"] if M["m00"] else float(x_ + bw_ / 2.0)
+        cy = M["m01"] / M["m00"] if M["m00"] else float(y_ + bh_ / 2.0)
+
+        eps = max(1.0, 0.01 * perim_px)
+        approx = cv2.approxPolyDP(c, eps, True)
+        if len(approx) < 3:
+            approx = c
+        points_abs = [[int(p[0][0]) + ox, int(p[0][1]) + oy] for p in approx]
+
+        conf = _confianza_hueco(c, area_px, float(bw_ * bh_), m, roi_rgb)
+
+        candidates.append({
+            "tipo": "candidato",
+            "points": points_abs,
+            "area_px": round(area_px, 2),
+            "bbox": {"x": int(x_) + ox, "y": int(y_) + oy, "w": int(bw_), "h": int(bh_)},
+            "centroid": [round(cx + ox, 1), round(cy + oy, 1)],
+            "perimeter_px": round(perim_px, 2),
+            "circularity": round(circ, 4),
+            "detection_confidence": conf["score"],
+            "confidence_level": conf["level"],
+        })
+
+    candidates.sort(key=lambda d: d["area_px"], reverse=True)
+    return candidates[:max_candidates]
+
+
 # ── Detección de objetos ─────────────────────────────────────────────────────
 
 async def detect(
