@@ -52635,6 +52635,148 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     setTimeout(() => {
       validarSistemaMAO();
     }, 1000);
+
+    // ── ADR-010: hook de verificación E2E (solo dev) ─────────────────────────
+    // Instala window.__maoE2E para ejercer el flujo cargar→escalar→detectar
+    // desde la consola del renderer o una skill, sin tocar <input type=file>.
+    // El gate getIsDev() garantiza que en producción el hook no existe.
+    if (window.electronAPI && typeof window.electronAPI.getIsDev === 'function') {
+      window.electronAPI.getIsDev().then(isDev => {
+        if (!isDev) return;
+
+        // ── Esperar un evento de documento con timeout ──────────────────────
+        function waitForEvent(eventName, timeoutMs = 8000) {
+          return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error(`timeout esperando ${eventName}`)), timeoutMs);
+            document.addEventListener(eventName, () => { clearTimeout(timer); resolve(); }, { once: true });
+          });
+        }
+
+        // ── Construir un File desde una URL app:// o una ruta de disco ───────
+        // src: 'nombre.png'       → app://mao/assets/fixtures/nombre.png
+        //      '/ruta/absoluta'   → IPC fs-read-file (devuelve data: base64)
+        async function srcToFile(src, tipo = 'jpg') {
+          const mime = tipo === 'jpg' ? 'image/jpeg' : 'image/png';
+          const name = src.split('/').pop();
+          if (src.startsWith('/')) {
+            // Ruta absoluta de disco (imágenes reales del usuario)
+            const res = await window.electronAPI.readFile(src);
+            if (!res.success) throw new Error(`No se pudo leer: ${src} — ${res.error}`);
+            // readFile devuelve data:image/...;base64,...
+            const [, b64] = res.content.split(',');
+            const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+            return new File([bytes], name, { type: mime });
+          }
+          // Nombre corto → fixture bajo assets/fixtures/
+          const url = `app://mao/assets/fixtures/${src}`;
+          const blob = await fetch(url).then(r => {
+            if (!r.ok) throw new Error(`fetch ${url} → ${r.status}`);
+            return r.blob();
+          });
+          return new File([blob], name, { type: blob.type || mime });
+        }
+
+        // ── Inyectar un File en el code-path real del input ──────────────────
+        // Usa DataTransfer + dispatchEvent('change') para ejercer exactamente
+        // el handler existente sin reimplementar su lógica.
+        function inyectarEnInput(inputId, file) {
+          const input = document.getElementById(inputId);
+          if (!input) throw new Error(`Input no encontrado: #${inputId}`);
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          input.files = dt.files;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        // ── Map modo/cara/tipo → id del input ────────────────────────────────
+        function resolverInputId(modo, cara, tipo) {
+          if (modo === 'obj3d') return 'obj3dInput';
+          if (modo === 'bifacial') {
+            const c = (cara || 'A').toUpperCase();
+            return tipo === 'raw' ? `rawInputCara${c}` : `jpgInputCara${c}`;
+          }
+          return tipo === 'raw' ? 'rawInput' : 'jpgInput';
+        }
+
+        // ── API pública window.__maoE2E ───────────────────────────────────────
+        const E2E = {
+          // Carga un fixture/imagen en el input correcto y espera el evento de carga.
+          // src: nombre de fixture ('sintetico_escala_objeto_ph.png') o ruta absoluta.
+          async cargar(src, { modo = 'monofacial', cara, tipo = 'jpg' } = {}) {
+            const file = await srcToFile(src, tipo);
+            inyectarEnInput(resolverInputId(modo, cara, tipo), file);
+            // La carga de imagen no despacha un evento canónico propio;
+            // esperamos mao:objects:changed (si los había) o un pequeño settle.
+            await new Promise(r => setTimeout(r, 300));
+            console.log(`[E2E] cargar OK — ${src}`);
+          },
+
+          // Rellena el campo de distancia y pulsa el botón de calcular escala.
+          // distanciaMm: distancia cámara-objeto en mm (default 1000).
+          async escala({ distanciaMm = 1000 } = {}) {
+            const dist = document.getElementById('distanciaInput');
+            if (dist) { dist.value = distanciaMm; dist.dispatchEvent(new Event('input', { bubbles: true })); }
+            const btn = document.getElementById('calcularEscalaBtn');
+            if (!btn) throw new Error('calcularEscalaBtn no encontrado');
+            btn.click();
+            await new Promise(r => setTimeout(r, 500));
+            console.log('[E2E] escala OK');
+          },
+
+          // Pulsa el botón de detección y espera mao:detection:done.
+          async detectar() {
+            const btn = document.getElementById('detectarObjetosBtn');
+            if (!btn) throw new Error('detectarObjetosBtn no encontrado');
+            btn.click();
+            await waitForEvent('mao:detection:done', 20000);
+            console.log('[E2E] detectar OK');
+          },
+
+          // Flujo completo: cargar → escala → detectar.
+          // opts.skipEscala=true para omitir el cálculo de escala (útil si ya está fijada).
+          async flujoCompleto(src, { modo = 'monofacial', cara, tipo = 'jpg', distanciaMm = 1000, skipEscala = false } = {}) {
+            await E2E.cargar(src, { modo, cara, tipo });
+            if (!skipEscala) await E2E.escala({ distanciaMm });
+            await E2E.detectar();
+            console.log('[E2E] flujoCompleto ✓ — chips, P/H y detección listos para inspección visual.');
+          },
+
+          help() {
+            console.info(`window.__maoE2E — hook de verificación E2E (ADR-010)
+
+Métodos:
+  await __maoE2E.cargar(src, opts)        — inyecta fixture en el input real
+  await __maoE2E.escala({ distanciaMm })  — rellena distancia y calcula escala
+  await __maoE2E.detectar()               — detecta objetos, espera mao:detection:done
+  await __maoE2E.flujoCompleto(src, opts) — los 3 pasos en secuencia
+
+src: nombre de fixture ('sintetico_escala_objeto_ph.png') → assets/fixtures/
+     o ruta absoluta de disco ('/Users/.../mi_imagen.jpg')
+
+opts: { modo:'monofacial'|'bifacial'|'obj3d', cara:'A'|'B', tipo:'jpg'|'raw',
+        distanciaMm:1000, skipEscala:false }
+
+Ejemplos:
+  await __maoE2E.flujoCompleto('sintetico_escala_objeto_ph.png')
+  await __maoE2E.cargar('sintetico_caraA.png', { modo:'bifacial', cara:'A' })
+  await __maoE2E.cargar('/Users/me/foto.jpg')
+
+Pendientes a verificar (ADR-003/004/005/007/008/009):
+  - Chips Imagen→ok / Escala→ok / Objetos→ok
+  - Auto-ID poblado en pestaña Proyecto
+  - Chip P/H «N candidatas — confirmar» + modal
+  - Lenguaje .laar-chip en todas las pestañas
+  - Orden/filtro confianza en modal IA`);
+          }
+        };
+
+        window.__maoE2E = E2E;
+        window.__maoLoadTestFixture = (src, opts) => E2E.cargar(src, opts);
+
+        console.log('[E2E] hook ADR-010 activo — window.__maoE2E.help() para instrucciones');
+      }).catch(e => console.warn('[E2E] No se pudo instalar hook:', e.message));
+    }
+    // ── fin ADR-010 ──────────────────────────────────────────────────────────
   }
 
   // === FUNCIÓN DE VALIDACIÓN DEL SISTEMA ===

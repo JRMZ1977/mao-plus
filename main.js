@@ -1084,6 +1084,10 @@ ipcMain.handle('mao:backend-status:get', () => ({
   url:      `http://${SERVER_HOST}:${SERVER_PORT}`,
 }));
 
+// Gate dev-only para el hook de verificación E2E (ADR-010). El renderer no
+// conoce isDev; lo consulta por aquí para instalar window.__maoE2E solo en dev.
+ipcMain.handle('mao:is-dev', () => isDev);
+
 // Boot metrics para Fase 4 de evaluación
 ipcMain.handle('get-boot-metrics', () => bootMetrics);
 ipcMain.on('report-boot-metrics', (event, metrics) => {

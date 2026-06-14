@@ -90,6 +90,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('mao:backend-status', handler);
   },
 
+  /** Gate dev-only — ADR-010 E2E hook */
+  getIsDev: () =>
+    ipcRenderer.invoke('mao:is-dev'),
+
   /** Get boot metrics for Fase 4 evaluation */
   getBootMetrics: () =>
     ipcRenderer.invoke('get-boot-metrics'),
