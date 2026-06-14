@@ -29,6 +29,14 @@ except Exception:
     _efa_mod = None           # type: ignore[assignment]
     _EFA_AVAILABLE = False
 
+# Registro morfométrico canónico (ADR-006)
+try:
+    from python.modules.morphometric_registry import REGISTRY as _MORPH_REG
+    _MORPH_REG_AVAILABLE = True
+except Exception:
+    _MORPH_REG = {}            # type: ignore[assignment]
+    _MORPH_REG_AVAILABLE = False
+
 IMPLEMENTED = True
 
 
@@ -2445,6 +2453,23 @@ def _compute_crossdimensional_mao_coherence(
     idx = canonical_morphology.get("mao_plus_indices", {}) if isinstance(canonical_morphology, dict) else {}
     t_summary = canonical_morphology.get("transverse_summary", {}) if isinstance(canonical_morphology, dict) else {}
 
+    # ── Claves y escalas leídas del registro morfométrico (ADR-006) ──────────
+    # Los literales de clave y coherence_scale viven en morphometric_registry.py.
+    # Fallback a valores por defecto si el registro no está disponible.
+    def _reg_scale(proxy_id: str, default: float) -> float:
+        if _MORPH_REG_AVAILABLE:
+            spec = _MORPH_REG.get(proxy_id)
+            if spec and spec.coherence_scale is not None:
+                return spec.coherence_scale
+        return default
+
+    def _reg_frontal_key(proxy_id: str, default: str) -> str:
+        if _MORPH_REG_AVAILABLE:
+            spec = _MORPH_REG.get(proxy_id)
+            if spec and spec.frontal_ref_key:
+                return spec.frontal_ref_key
+        return default
+
     # 1) Coherencia bifacial (característica principal MAO-plus)
     h_bif = _to_f(idx.get("bifacial_homology_index"), 0.0)
 
@@ -2453,26 +2478,36 @@ def _compute_crossdimensional_mao_coherence(
     cv_thk = _to_f(idx.get("transverse_thickness_cv"), 0.0)
     long_stability = _clip01(1.0 - min(1.0, 0.5 * (cv_area + cv_thk)))
 
-    # 3) Consistencia de forma en plano frontal: circularidad 2D vs proxy 3D
-    circ_2d = _to_f_opt(frontal_ref.get("circularity_2d"))
-    circ_3d = _to_f_opt(morphometry.get("circularity_proxy"))
-    shape_consistency = _exp_similarity(circ_2d, circ_3d, scale=0.15) if (circ_2d is not None and circ_3d is not None) else 0.5
+    # 3) Consistencia de forma: circularidad 2D vs proxy PCA 3D
+    # Claves: registry["circularity_proxy"].frontal_ref_key / fuente_3d
+    _circ_frontal_key = _reg_frontal_key("circularity_proxy", "circularity_2d")
+    _circ_3d_key      = "circularity_proxy"
+    _circ_scale       = _reg_scale("circularity_proxy", 0.15)
+    circ_2d = _to_f_opt(frontal_ref.get(_circ_frontal_key))
+    circ_3d = _to_f_opt(morphometry.get(_circ_3d_key))
+    shape_consistency = _exp_similarity(circ_2d, circ_3d, scale=_circ_scale) if (circ_2d is not None and circ_3d is not None) else 0.5
 
-    # 4) Consistencia de espesor: ratio de espesor PCA vs secciones transversales
+    # 4) Consistencia de espesor: ratio PCA vs ratio de secciones transversales
+    # registry["thickness_ratio"]: la contraparte 2D se deriva de dims+t_summary,
+    # no vive en frontal_ref (frontal_ref_key=None) → la derivación se mantiene aquí.
     dims = semantic_orientation.get("dimensions", {}) if isinstance(semantic_orientation, dict) else {}
     ancho = _to_f(dims.get("ancho"), 0.0)
     alto = _to_f(dims.get("alto"), 0.0)
     mean_thk = _to_f_opt(t_summary.get("mean_thickness_z"))
     thk_ratio_sections = (mean_thk / max(max(ancho, alto), eps)) if mean_thk is not None else None
     thk_ratio_pca = _to_f_opt(morphometry.get("thickness_ratio"))
-    thickness_consistency = _exp_similarity(thk_ratio_sections, thk_ratio_pca, scale=0.10) if (thk_ratio_sections is not None and thk_ratio_pca is not None) else 0.5
+    _thk_scale = _reg_scale("thickness_ratio", 0.10)
+    thickness_consistency = _exp_similarity(thk_ratio_sections, thk_ratio_pca, scale=_thk_scale) if (thk_ratio_sections is not None and thk_ratio_pca is not None) else 0.5
 
     # 5) Consistencia de proporción frontal: AR frontal vs AR de reposo
-    ar_2d = _to_f_opt(frontal_ref.get("aspect_ratio_2d"))
+    # registry["aspect_ratio_resting"].frontal_ref_key → clave en frontal_ref
+    _ar_frontal_key = _reg_frontal_key("aspect_ratio_resting", "aspect_ratio_2d")
+    _ar_scale       = _reg_scale("aspect_ratio_resting", 0.35)
+    ar_2d = _to_f_opt(frontal_ref.get(_ar_frontal_key))
     major = max(ancho, alto)
     minor = max(min(ancho, alto), eps)
     ar_rest = (major / minor) if major > 0 else None
-    aspect_consistency = _exp_similarity(ar_2d, ar_rest, scale=0.35) if (ar_2d is not None and ar_rest is not None) else 0.5
+    aspect_consistency = _exp_similarity(ar_2d, ar_rest, scale=_ar_scale) if (ar_2d is not None and ar_rest is not None) else 0.5
 
     # Agregación ponderada
     weights = {
