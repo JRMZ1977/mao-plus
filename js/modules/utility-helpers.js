@@ -175,8 +175,9 @@ export function imageToPerforationCanvasCoords(imgX, imgY) {
 export function aplicarZoomPerforationCanvas(zoomLevel) {
   if (!perforationCanvas) return;
 
-  // Guardar nivel de zoom actual
-  perforationZoomLevel = zoomLevel;
+  // Guardar nivel de zoom actual (en window: este módulo strict no puede asignar
+  // a la global suelta del IIFE; analysis-core la espeja a window al abrir el modal).
+  window.perforationZoomLevel = zoomLevel;
 
   // Aplicar transform CSS para zoom visual
   perforationCanvas.style.transform = `scale(${zoomLevel})`;

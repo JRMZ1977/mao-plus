@@ -7,7 +7,7 @@ import * as MorphometricMetrics from './modules/morphometric-metrics.js';
 import * as ShapeClassification from './modules/shape-classification.js';
 import * as ContourExtraction from './modules/contour-extraction.js';
 import * as ClassificationEngine from './modules/classification-engine.js';
-import * as UtilityHelpers from './modules/utility-helpers.js';
+import * as UtilityHelpers from './modules/utility-helpers.js?v=20260614e';
 import * as MetricsOrchestrator from './modules/metrics-orchestrator.js';
 import * as VisualizationExport from './modules/visualization-export.js';
 import * as BifacialAnalysis from './modules/bifacial-analysis.js';
@@ -11818,8 +11818,13 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         if (typeof setStatus === 'function') {
           UtilityHelpers.setStatus(`Análisis morfológico recuperado para objeto ${obj.id}`, false);
         }
+
+        // ADR-009: los análisis CACHEADOS (incl. objetos IA) no pasaron por el bloque
+        // /contour que captura candidatos P/H → si faltan, detectarlos ahora sobre la
+        // imagen cargada (seedless) y refrescar el chip. Fire-and-forget; no bloquea.
+        detectarCandidatosPHSiFaltan(obj);
       }
-      
+
       return true;
     }
     
@@ -46840,19 +46845,31 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         return;
       }
       
-      // Verificar que hay un objeto en análisis morfológico
-      if (!currentAnalyzedObject) {
+      // Verificar que hay un objeto en análisis morfológico.
+      // window.currentAnalyzedObject es la fuente autoritativa: la sincronizan
+      // visualization-export.js y analysis-core. El flujo IA/tabs renderiza vía
+      // visualization-export.js, que setea ese global pero NO la var local del
+      // IIFE → leer la local daba null y cortaba con el toast. Preferir el global.
+      const cao = window.currentAnalyzedObject || currentAnalyzedObject;
+      if (!cao || !cao.obj) {
         toast.warning('Abre el análisis morfológico de un objeto primero.');
         return;
       }
-      
+
+      // Sincronizar la var local del IIFE con la fuente autoritativa. El flujo IA/tabs
+      // deja `currentAnalyzedObject` (local) en null → finalizarTodosTrazados y los
+      // confirmadores de candidatos, que leen la local, no sincronizaban las P/H al
+      // objeto real ni refrescaban la tabla. Alinearla aquí lo arregla para toda la
+      // sesión del modal (el modal solo se abre por esta vía).
+      currentAnalyzedObject = cao;
+
       // Extraer el objeto real del análisis morfológico
-      const objetoReal = currentAnalyzedObject.obj;
-      
+      const objetoReal = cao.obj;
+
       // Preparar objeto para el modal de trazado
       selectedObjectForPerforation = {
         ...objetoReal,
-        metricas: currentAnalyzedObject.metricas,
+        metricas: cao.metricas,
         perforaciones: objetoReal.perforaciones || [],
         horadaciones: objetoReal.horadaciones || [],
         _imagenCara: objetoReal._imagenCara  // Imagen correcta (Cara A o B)
@@ -47288,7 +47305,17 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     // Offsets: Canvas (0,0) = Imagen (minX, minY)
     perforationCanvasOffsetX = obj.minX;
     perforationCanvasOffsetY = obj.minY;
-    
+
+    // Espejo a window: utility-helpers.js (módulo ES6 strict) referencia estas 4
+    // vars como globales sueltas (perforationCanvas/OffsetX/OffsetY/ZoomLevel), pero
+    // viven como `let` en este IIFE → no son alcanzables desde el módulo. Sin el
+    // espejo, aplicarZoomPerforationCanvas y las funciones de coords revientan
+    // (ReferenceError). Mismo patrón window+local que currentAnalyzedObject.
+    window.perforationCanvas = perforationCanvas;
+    window.perforationCanvasOffsetX = perforationCanvasOffsetX;
+    window.perforationCanvasOffsetY = perforationCanvasOffsetY;
+    window.perforationZoomLevel = perforationZoomLevel;
+
     // Limpiar canvas
     perforationCanvasCtx.clearRect(0, 0, canvasWidth, canvasHeight);
     perforationCanvasCtx.fillStyle = '#ffffff';
@@ -47421,6 +47448,14 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
 
     // Re-escribir en métricas para mantener sincronía tras restauración.
     persistPhAutoUiSettings();
+
+    // Portal a <body>: el modal está anidado en .mao-main / #resultadosPanel, que
+    // tiene `contain: layout` y se oculta/colapsa según la pestaña LAAR activa. Como
+    // hijo de ese panel, su `position:fixed; width/height:100%` resuelve contra el
+    // panel (colapsado → rect 0×0) en vez del viewport, así que el modal "abría"
+    // (display:block) pero quedaba invisible. Reubicarlo a <body> lo hace un overlay
+    // global real, independiente del estado de pestañas. Idempotente (guard).
+    if (modal.parentElement !== document.body) document.body.appendChild(modal);
 
     modal.style.display = 'block';
     setTimeout(() => perforationCanvas.focus(), 100);
@@ -49959,6 +49994,64 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
     if (selectedObjectForPerforation) selectedObjectForPerforation.phCandidatos = restantes;
     if (currentAnalyzedObject && currentAnalyzedObject.obj) {
       currentAnalyzedObject.obj.phCandidatos = restantes;
+    }
+  }
+
+  /**
+   * ADR-009 — Fallback de detección de candidatos P/H para análisis que NO pasaron
+   * por el bloque /contour (cacheados, objetos IA/SAM). Si `obj.phCandidatos` ya existe
+   * no hace nada. Detecta huecos seedless sobre la imagen cargada y refresca el chip.
+   * Fire-and-forget (no bloquea el render). Reversible: si no hay imagen o falla, no-op.
+   */
+  async function detectarCandidatosPHSiFaltan(obj) {
+    if (!obj || Array.isArray(obj.phCandidatos)) return;          // ya resuelto
+    if (obj._canonicalRaster) { obj.phCandidatos = []; return; }  // raster 3D: sin P/H reales
+    if (!(window.PythonBridge && PythonBridge.isModuleActive('contour'))) return;
+
+    // Resolver la imagen fuente (misma prioridad que el bloque /contour).
+    const img = obj._imagenCara ||
+      (obj.cara === 'A' ? imageCaraA : (obj.cara === 'B' ? imageCaraB : null)) ||
+      image;
+    if (!img) return;
+
+    let dataURL = null;
+    try {
+      if (typeof img.src === 'string' && img.src.startsWith('data:')) {
+        dataURL = img.src;
+      } else if (img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0) {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        dataURL = c.toDataURL('image/png');
+      } else if (img instanceof HTMLCanvasElement) {
+        dataURL = img.toDataURL('image/png');
+      }
+    } catch (_e) { return; }
+    if (!dataURL) return;
+
+    try {
+      const r = await PythonBridge.contour.extract(
+        dataURL,
+        { x: obj.minX || 0, y: obj.minY || 0, w: obj.width || 1, h: obj.height || 1 },
+        { subpixel: false, simplify: 2.0 }
+      );
+      const cands = (r && Array.isArray(r.ph_candidates)) ? r.ph_candidates : [];
+      obj.phCandidatos = cands;
+      if (currentAnalyzedObject && currentAnalyzedObject.obj === obj) {
+        currentAnalyzedObject.obj.phCandidatos = cands;
+      }
+      // Persistir en la caché para no re-detectar en aperturas futuras.
+      if (obj.analisisCached && obj.analisisCached.metricas) {
+        obj.analisisCached.metricas.phCandidatos = cands;
+      }
+      if (cands.length) {
+        console.log(`[Python] P/H candidatos seedless (fallback caché/IA): ${cands.length} hueco(s)`);
+      }
+      // Nudge al organizador (observa #morphologicalMetrics) para reconstruir el chip §2.
+      const mm = document.getElementById('morphologicalMetrics');
+      if (mm) { const t = document.createComment('adr009-ph-refresh'); mm.appendChild(t); mm.removeChild(t); }
+    } catch (_e) {
+      console.warn('[Python] detección P/H fallback falló:', _e.message);
     }
   }
 
