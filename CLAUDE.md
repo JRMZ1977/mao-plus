@@ -4,6 +4,27 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Estado de la sesión 2026-06-14 (lote de cierre)
+
+Commits del lote: `526cf42` (ADR-010 E2E hook) · `be20a0e` (webSecurity + cv2 warmup + Resultados organizer + deuda técnica) · `63694bf` (ADR-006).
+
+| Item | Estado | Commit |
+|------|--------|--------|
+| ADR-010 hook E2E `window.__maoE2E` | ✅ | 526cf42 |
+| `webSecurity:true` en ambas ventanas Electron | ✅ | be20a0e |
+| Warmup cv2+numpy antes de uvicorn (iCloud) | ✅ | be20a0e |
+| `mao-resultados-organizer.js` (pestaña Resultados) | ✅ | be20a0e |
+| Deuda técnica: borrar dupes `cargarMetadatos` en utility-helpers | ✅ | be20a0e |
+| ADR-006 Fases 1-3: `morphometric_registry.py` + 19 tests + refactor coherencia | ✅ | 63694bf |
+| ADR-008 C2 rewrite id compuesto | ⏸ DIFERIDO — riesgo alto | — |
+
+**Suite tras el lote:** 288 passed, 2 skipped. `node -c` limpio. Caché: `analysis-core.js?v=20260614h`.
+
+**Verificación E2E pendiente (requiere npm start matar+relanzar, no Cmd+R):**
+`await window.__maoE2E.flujoCompleto('sintetico_escala_objeto_ph.png')` → validar checklist en `docs/ADR-010-hook-verificacion-e2e.md`.
+
+---
+
 ## 🎯 Fase Actual: UI Pestañas LAAR — tratamiento completo (ADR-001…005)
 
 **Estado:** ✅ **Migración + rediseño por pestaña + armonización transversal COMPLETADOS y verificados en Electron.**
