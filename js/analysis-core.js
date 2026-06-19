@@ -44563,6 +44563,13 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       // ── Intento Python (detect clásico; con separación watershed opcional) ──
       let _pyDetUsed = false;
       const _separarPegados = document.getElementById('useSeparateTouchingCheck')?.checked;
+      // Si hay backend Python pero aún no conecta (arranque en frío), espera de forma
+      // acotada antes de decidir — evita caer silenciosamente al fallback JS por una
+      // carrera de readiness (la detección JS da peores resultados / 0 en muchos casos).
+      if (window.PythonBridge && typeof PythonBridge.ensureReady === 'function' && !PythonBridge.isAvailable()) {
+        UtilityHelpers.setStatus('Esperando al backend de análisis…', false);
+        try { await PythonBridge.ensureReady({ timeoutMs: 15000 }); } catch (_) { /* sigue al fallback */ }
+      }
       if (window.PythonBridge && PythonBridge.isAvailable() && PythonBridge.isModuleActive('detection')) {
         try {
           const imageDataURL = image.src || (image instanceof HTMLCanvasElement
@@ -44616,6 +44623,12 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       }
       // ── Fallback JS ───────────────────────────────────────────────────────
       if (!_pyDetUsed) {
+        // Avisar si se esperaba backend Python pero no está disponible: el resultado
+        // en modo JS puede diferir (no es una caída silenciosa).
+        if (window.PythonBridge && !PythonBridge.isAvailable()) {
+          toast.warning('Backend de análisis no disponible — detección en modo JS (los resultados pueden diferir). Reintenta cuando el backend esté listo.');
+          console.warn('[Detección] PythonBridge no disponible — usando fallback JS');
+        }
         // Usar función existente de detección
         await detectObjectsAutomatically();
       }
@@ -44637,7 +44650,10 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
       if (objects.length > 0) {
         actualizarObjetosIndividuales();
       }
-      
+      // Refrescar el contador #objectCount (+ chip «Objetos» de Captura): la ruta de
+      // detección no lo refrescaba, dejando «Objetos detectados: 0» pese a haber objetos.
+      updateDisplays();
+
       const mensaje = `Detección automática completada: ${objects.length} objetos encontrados`;
       actualizarProgreso(progressContainer, 100, mensaje);
       setTimeout(() => removerIndicadorProgreso(progressContainer), 2000);
@@ -52723,8 +52739,40 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
             console.log('[E2E] escala OK');
           },
 
+          // Asigna una identificación por nombre (camino real ADR-003). Prerrequisito
+          // de la detección: ejecutarDeteccionAutomatica() aborta sin identificación
+          // bloqueada (analysis-core.js ~44521 — guard de ADR-003).
+          async identificar(valor = 'E2E_TEST_01') {
+            const radio = document.getElementById('modoIdNombre');
+            if (radio) {
+              radio.checked = true;
+              radio.dispatchEvent(new Event('change', { bubbles: true }));
+              await new Promise(r => setTimeout(r, 150));
+            }
+            const input = document.getElementById('nombreObjetoInput');
+            if (!input) throw new Error('nombreObjetoInput no encontrado');
+            input.value = valor;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            const btn = document.getElementById('btnAsignarNombre');
+            if (!btn) throw new Error('btnAsignarNombre no encontrado');
+            btn.click();
+            await new Promise(r => setTimeout(r, 250));
+            console.log('[E2E] identificar OK —', valor);
+          },
+
           // Pulsa el botón de detección y espera mao:detection:done.
           async detectar() {
+            // Espera a que el backend Python esté disponible antes de detectar.
+            // ejecutarDeteccionAutomatica() cae al fallback JS (0 objetos en muchos
+            // casos) si PythonBridge.isAvailable() es false — frecuente en arranque en
+            // frío (el backend tarda en importar; ver gotcha iCloud cv2). Sin esta
+            // espera la detección corre antes de que el bridge conecte → carrera.
+            const PB = window.PythonBridge;
+            if (PB && typeof PB.isAvailable === 'function') {
+              let w = 0;
+              while (!PB.isAvailable() && w < 60000) { await new Promise(r => setTimeout(r, 500)); w += 500; }
+              if (!PB.isAvailable()) console.warn('[E2E] PythonBridge no disponible tras 60s — detección usará fallback JS');
+            }
             const btn = document.getElementById('detectarObjetosBtn');
             if (!btn) throw new Error('detectarObjetosBtn no encontrado');
             btn.click();
@@ -52732,12 +52780,32 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
             console.log('[E2E] detectar OK');
           },
 
-          // Flujo completo: cargar → escala → detectar.
-          // opts.skipEscala=true para omitir el cálculo de escala (útil si ya está fijada).
-          async flujoCompleto(src, { modo = 'monofacial', cara, tipo = 'jpg', distanciaMm = 1000, skipEscala = false } = {}) {
+          // Analiza todos los objetos detectados (lote ADR-007). Captura P/H y
+          // confianza por objeto, y surge los chips de las pestañas Análisis/Resultados.
+          async analizar() {
+            document.dispatchEvent(new CustomEvent('mao:batch-analyze:request'));
+            await new Promise((resolve) => {
+              const onProg = (e) => {
+                if (e.detail && e.detail.running === false) {
+                  document.removeEventListener('mao:batch-analyze:progress', onProg);
+                  resolve();
+                }
+              };
+              document.addEventListener('mao:batch-analyze:progress', onProg);
+              setTimeout(() => { document.removeEventListener('mao:batch-analyze:progress', onProg); resolve(); }, 30000);
+            });
+            await new Promise(r => setTimeout(r, 500));
+            console.log('[E2E] analizar OK');
+          },
+
+          // Flujo completo: cargar → escala → identificar → detectar (+ analizar si conAnalisis).
+          // opts.skipEscala=true omite la escala; opts.conAnalisis=true corre el análisis en lote.
+          async flujoCompleto(src, { modo = 'monofacial', cara, tipo = 'jpg', distanciaMm = 1000, skipEscala = false, skipId = false, id = 'E2E_TEST_01', conAnalisis = false } = {}) {
             await E2E.cargar(src, { modo, cara, tipo });
             if (!skipEscala) await E2E.escala({ distanciaMm });
+            if (!skipId) await E2E.identificar(id);
             await E2E.detectar();
+            if (conAnalisis) await E2E.analizar();
             console.log('[E2E] flujoCompleto ✓ — chips, P/H y detección listos para inspección visual.');
           },
 
