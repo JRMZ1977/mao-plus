@@ -10,6 +10,7 @@ let mainWindow;
 let comparadorWindow = null;
 let pyServer = null;          // proceso hijo uvicorn
 let pyServerReady = false;    // true cuando /api/health responde OK
+let pyHasBeenReady = false;   // true tras el PRIMER health OK (gracia anti kill-loop en cold-start)
 let pyServerManaged = false;  // true si Electron lanzó este proceso y debe apagarlo
 let pyRestartCount  = 0;      // número de reinicios automáticos en esta sesión
 let pyLastError     = null;   // último mensaje de error del backend
@@ -131,7 +132,7 @@ function checkServerHealthOnce(timeoutMs = 400) {
   return new Promise((resolve) => {
     const req = http.get(HEALTH_URL, (res) => {
       const ok = res.statusCode === 200;
-      if (ok) pyServerReady = true;
+      if (ok) { pyServerReady = true; pyHasBeenReady = true; }
       res.resume();
       resolve(ok);
     });
@@ -174,6 +175,7 @@ async function startPythonServer() {
       pyServer = null;
       pyServerManaged = false;
       pyServerReady = true;
+      pyHasBeenReady = true;
       return;
     }
     console.log('[MAO Python] Puerto 8765 ocupado por otro proceso (no MAO PLUS) — matando y relanzando');
@@ -331,10 +333,18 @@ function startWatchdog() {
     if (!pyServerManaged && !pyServer) return; // no gestionamos este backend
     const alive = await checkServerHealthOnce(800);
     if (alive) {
+      pyHasBeenReady = true;
       if (pyHealthFailCount > 0) {
         pyHealthFailCount = 0;
         emitBackendStatus('ready', { reason: 'watchdog_recovered' });
       }
+      return;
+    }
+    // Gracia de arranque en frío: si el backend NUNCA ha respondido aún, está
+    // importando (cv2/trimesh/onnxruntime desde iCloud tarda ~55s). NO lo matamos:
+    // hacerlo crearía un kill-loop que impide que termine de importar.
+    if (!pyHasBeenReady) {
+      console.log('[MAO Watchdog] backend aún importando (sin primer health OK) — esperando, no se reinicia');
       return;
     }
     pyHealthFailCount++;
@@ -368,6 +378,7 @@ function waitForServer(maxRetries = 30, intervalMs = 300) {
       const req = http.get(HEALTH_URL, (res) => {
         if (res.statusCode === 200) {
           pyServerReady = true;
+          pyHasBeenReady = true;
           bootMetrics.t_python_health_ok = Date.now();
           console.log('[MAO Python] Servidor listo ✓ (respondió en', tries * intervalMs, 'ms)');
           resolve(true);
@@ -1036,24 +1047,29 @@ app.whenReady().then(async () => {
   bootMetrics.t_python_spawn = Date.now();
   await startPythonServer();
 
-  // 2. Esperar a que responda (máx ~15 s = 50 × 300ms) antes de mostrar la ventana
-  console.log('[MAO Boot] ⏳ Esperando servidor Python...');
-  const serverReady = await waitForServer(50, 300);
-  if (serverReady) {
-    console.log('[MAO Boot] ✓ Backend Python operativo — iniciando interfaz');
-    emitBackendStatus('ready', { reason: 'boot_ok' });
-  } else {
-    console.warn('[MAO Boot] ⚠️ Backend Python no disponible — interfaz en modo solo-JS');
-    console.log('[MAO Boot] 💡 Tip: Los reintentos continuarán automáticamente en el modal de IA');
-    emitBackendStatus('down', { reason: 'boot_timeout' });
-  }
-
-  // 3. Crear la ventana principal
+  // 2. Crear la ventana de INMEDIATO — no bloquear el arranque esperando al backend.
+  //    En arranque en frío el import (cv2/trimesh/onnxruntime desde iCloud) tarda ~55s;
+  //    bloquear aquí dejaría la app sin ventana ~1 min. La UI arranca en estado
+  //    'starting' (emitido arriba) y transiciona a 'ready' cuando el backend conecta
+  //    (backend-status-badge y PythonBridge escuchan mao:backend-status).
   createWindow();
 
-  // 4. Lanzar watchdog activo (independiente del estado de boot: detectar
-  //    recuperaciones automáticas si el backend se levanta tarde).
+  // 3. Watchdog activo, con gracia de cold-start (no reinicia un backend que aún no
+  //    respondió por primera vez — ver startWatchdog/pyHasBeenReady).
   startWatchdog();
+
+  // 4. Esperar el health en SEGUNDO PLANO con margen para el cold-start (~120 s) y
+  //    emitir el estado final cuando resuelva (sin bloquear la ventana).
+  console.log('[MAO Boot] ⏳ Esperando servidor Python en segundo plano...');
+  waitForServer(240, 500).then((serverReady) => {
+    if (serverReady) {
+      console.log('[MAO Boot] ✓ Backend Python operativo');
+      emitBackendStatus('ready', { reason: 'boot_ok' });
+    } else {
+      console.warn('[MAO Boot] ⚠️ Backend no respondió en 120 s — modo solo-JS (el watchdog seguirá vigilando)');
+      emitBackendStatus('down', { reason: 'boot_timeout' });
+    }
+  });
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
