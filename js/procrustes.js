@@ -12,6 +12,17 @@
 //   · gpaIterativo      — consensus iterativo (GPA) con distancias al promedio
 // ============================================================================
 const ProcrustesModule = (() => {
+  // ── Producción: console.log silenciado; warn/error siempre activos ────────
+  // Para depuración local: window._MAO_DEBUG = true → recarga la página.
+  /* eslint-disable no-console */
+  const console = !window._MAO_DEBUG ? {  // shadow: silencia logs en producción
+    log: () => {}, dir: () => {}, table: () => {},
+    group: () => {}, groupEnd: () => {}, groupCollapsed: () => {},
+    warn:  window.console.warn.bind(window.console),
+    error: window.console.error.bind(window.console),
+    info:  window.console.info.bind(window.console),
+  } : window.console;
+  /* eslint-enable no-console */
 
   // ─── Estado interno ───────────────────────────────────────────────────────
   let _objetos   = [];        // objetos cargados de la colección

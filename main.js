@@ -452,6 +452,22 @@ function createWindow() {
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.webContents.setZoomLevel(0);
     mainWindow.webContents.setVisualZoomLevelLimits(1, 1);
+
+    // Sonda dev-only reutilizable (ADR-010): ejecuta JS en el renderer y vuelca el
+    // resultado JSON a stdout. Inerte salvo que se defina MAO_PROBE_FILE o MAO_PROBE_JS.
+    //   MAO_PROBE_FILE=/tmp/probe.js MAO_PROBE_QUIT=1 MAO_PROBE_DELAY=9000 npm start
+    if (isDev && (process.env.MAO_PROBE_FILE || process.env.MAO_PROBE_JS)) {
+      const code = process.env.MAO_PROBE_FILE
+        ? fs.readFileSync(process.env.MAO_PROBE_FILE, 'utf8')
+        : process.env.MAO_PROBE_JS;
+      const delayMs = Number(process.env.MAO_PROBE_DELAY || 9000);
+      setTimeout(() => {
+        mainWindow.webContents.executeJavaScript(code, true)
+          .then((r) => console.log('[MAO_PROBE]', JSON.stringify(r)))
+          .catch((e) => console.log('[MAO_PROBE_ERR]', e && e.message))
+          .finally(() => { if (process.env.MAO_PROBE_QUIT === '1') setTimeout(() => app.quit(), 800); });
+      }, delayMs);
+    }
   });
 
   // Manejar apertura de ventana del Comparador (window.open desde el renderer)
@@ -1102,6 +1118,7 @@ ipcMain.handle('fs-trash-item', async (_, { itemPath }) => {
   } catch (error) {
     return { success: false, error: error.message };
   }
+});
 
 // ── Captura de errores del renderer (para mao-console-analyzer) ──────────────
 const rendererErrorLog = path.join(APP_DIR, ".mao_renderer_errors.log");
@@ -1127,6 +1144,4 @@ ipcMain.handle("get-renderer-errors", () => rendererErrors);
 ipcMain.handle("clear-renderer-errors", () => {
   rendererErrors.length = 0;
   return { cleared: true };
-});
-
 });

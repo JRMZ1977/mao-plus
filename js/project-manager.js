@@ -1,5 +1,9 @@
 // MAO Plus — Gestión de Proyectos (ProjectManager)
 
+// Logger de depuración gateado (producción: silenciado; warn/error intactos).
+// Activar con window._MAO_DEBUG = true. Idempotente: sin colisión en scope global.
+window._maoLog = window._maoLog || function () { if (window._MAO_DEBUG) console.log.apply(console, arguments); };
+
 /**
  * Selecciona el adaptador de sistema de archivos disponible.
  * Prioridad: electronAPI (Electron nativo) → PythonBridge.persistence (modo navegador).
@@ -237,7 +241,7 @@ class ProjectManager {
     
     // 🆕 GENERAR ARCHIVO proyecto.mao EN LA CARPETA DEL PROYECTO
     if (sanitizedFolderPath && window.electronAPI) {
-      console.log('🔍 Generando proyecto.mao con folderPath:', sanitizedFolderPath);
+      window._maoLog('🔍 Generando proyecto.mao con folderPath:', sanitizedFolderPath);
       generarArchivoProyecto(project).catch(error => {
         console.error('Error generando archivo proyecto.mao:', error);
       });
@@ -326,8 +330,8 @@ class ProjectManager {
       return false;
     }
     
-    console.log('📝 Agregando análisis al proyecto:', this.activeProject.name);
-    console.log('📁 Carpeta del proyecto:', this.activeProject.folderPath);
+    window._maoLog('📝 Agregando análisis al proyecto:', this.activeProject.name);
+    window._maoLog('📁 Carpeta del proyecto:', this.activeProject.folderPath);
     
     // Objeto completo en memoria (incluye data pesada con imágenes base64)
     const analysis = {
@@ -352,14 +356,14 @@ class ProjectManager {
     this.activeProject.updatedAt = new Date().toISOString();
     this.save();
     
-    console.log(`✅ Referencia de análisis guardada en localStorage (Total: ${this.activeProject.analyses.length})`);
+    window._maoLog(`✅ Referencia de análisis guardada en localStorage (Total: ${this.activeProject.analyses.length})`);
     
     // Si el proyecto tiene carpeta configurada, guardar archivos completos en disco
     if (this.activeProject.folderPath) {
-      console.log('💾 Iniciando guardado en disco...');
+      window._maoLog('💾 Iniciando guardado en disco...');
       try {
         await this.saveAnalysisFiles(analysis);
-        console.log('✅ Guardado en disco completado');
+        window._maoLog('✅ Guardado en disco completado');
       } catch (error) {
         console.error('❌ Error al guardar en disco:', error);
         toast.error(`Error al guardar archivos: ${error.message}`);
@@ -375,13 +379,13 @@ class ProjectManager {
   
   // Guardar archivos del análisis en la carpeta del proyecto
   async saveAnalysisFiles(analysis) {
-    console.log('🔍 saveAnalysisFiles iniciado');
+    window._maoLog('🔍 saveAnalysisFiles iniciado');
 
     // VALIDACIÓN CRÍTICA 1: Proyecto activo
     if (!this.activeProject || !this.activeProject.folderPath) {
       console.error('❌ FALLO: Sin proyecto activo o carpeta');
-      console.log('  - activeProject:', this.activeProject ? 'existe' : 'null');
-      console.log('  - folderPath:', this.activeProject?.folderPath || 'null');
+      window._maoLog('  - activeProject:', this.activeProject ? 'existe' : 'null');
+      window._maoLog('  - folderPath:', this.activeProject?.folderPath || 'null');
       throw new Error('No hay proyecto activo o carpeta configurada');
     }
 
@@ -392,9 +396,9 @@ class ProjectManager {
       console.error('❌ Sin adaptador FS: ni electronAPI ni PythonBridge.persistence disponibles');
       throw new Error('Sin mecanismo de persistencia disponible (requiere Electron o servidor Python)');
     }
-    console.log(`✅ Adaptador FS: ${_fs._source}`);
+    window._maoLog(`✅ Adaptador FS: ${_fs._source}`);
 
-    console.log('✅ Validaciones pasadas: proyecto y adaptador FS OK');
+    window._maoLog('✅ Validaciones pasadas: proyecto y adaptador FS OK');
     
     const projectFolder = this.activeProject.folderPath;
     const timestamp = new Date(analysis.timestamp).toISOString().replace(/[:.]/g, '-').split('T').join('_').split('Z')[0];
@@ -407,36 +411,36 @@ class ProjectManager {
     const analysisFolderName = idArqueologico || `${nombreSanitizado}_${analysisNumber}`;
     const analysisFolderPath = `${projectFolder}/${analysisFolderName}`;
     
-    console.log(`💾 Guardando análisis completo en: ${analysisFolderPath}`);
-    console.log(`  - Proyecto: ${this.activeProject.name}`);
-    console.log(`  - Carpeta proyecto: ${projectFolder}`);
-    console.log(`  - Nombre análisis: ${analysisFolderName}`);
+    window._maoLog(`💾 Guardando análisis completo en: ${analysisFolderPath}`);
+    window._maoLog(`  - Proyecto: ${this.activeProject.name}`);
+    window._maoLog(`  - Carpeta proyecto: ${projectFolder}`);
+    window._maoLog(`  - Nombre análisis: ${analysisFolderName}`);
     
     try {
       // 1. CREAR CARPETA DEL ANÁLISIS
-      console.log('📁 Creando carpeta principal...');
+      window._maoLog('📁 Creando carpeta principal...');
       const folderResult = await _fs.ensureFolder(analysisFolderPath);
       if (!folderResult.success) {
         throw new Error(`No se pudo crear la carpeta: ${folderResult.error}`);
       }
-      console.log('✅ Carpeta principal creada');
+      window._maoLog('✅ Carpeta principal creada');
       
-      console.log('📁 Creando subcarpeta imagenes...');
+      window._maoLog('📁 Creando subcarpeta imagenes...');
       const imagesFolderResult = await _fs.ensureFolder(`${analysisFolderPath}/imagenes`);
       if (!imagesFolderResult.success) {
         throw new Error(`No se pudo crear subcarpeta imagenes: ${imagesFolderResult.error}`);
       }
-      console.log('✅ Subcarpeta imagenes creada');
+      window._maoLog('✅ Subcarpeta imagenes creada');
       
       // 2. METADATA.JSON
-      console.log('📝 Preparando metadata.json...');
+      window._maoLog('📝 Preparando metadata.json...');
       
       // 🐛 FIX: Asegurar que la cara se guarda correctamente
       const identificacionData = analysis.data?.identificacion || {};
       const numeroObjeto = analysis.data?.numeroObjeto || null;
       const cara = analysis.data?.cara || identificacionData.cara || null;
       
-      console.log('🔍 DEBUG - Guardando metadata con:', {
+      window._maoLog('🔍 DEBUG - Guardando metadata con:', {
         id: analysis.id,
         numeroObjeto,
         cara,
@@ -483,9 +487,9 @@ class ProjectManager {
         }
       };
       
-      console.log('💾 Guardando metadata.json...');
+      window._maoLog('💾 Guardando metadata.json...');
       const metadataPath = `${analysisFolderPath}/metadata.json`;
-      console.log(`  Ruta: ${metadataPath}`);
+      window._maoLog(`  Ruta: ${metadataPath}`);
       const metadataResult = await _fs.saveFile(
         metadataPath,
         JSON.stringify(metadata, null, 2)
@@ -493,11 +497,11 @@ class ProjectManager {
       if (!metadataResult.success) {
         throw new Error(`No se pudo guardar metadata.json: ${metadataResult.error}`);
       }
-      console.log('✅ metadata.json guardado exitosamente');
+      window._maoLog('✅ metadata.json guardado exitosamente');
       
       // 3. METRICAS.JSON (métricas completas del objeto y P/H)
-      console.log('📝 Preparando metricas.json...');
-      console.log(`  📊 Verificando datos recibidos:`, {
+      window._maoLog('📝 Preparando metricas.json...');
+      window._maoLog(`  📊 Verificando datos recibidos:`, {
         tieneMetricas: !!analysis.data?.metricas,
         numPropiedadesMetricas: Object.keys(analysis.data?.metricas || {}).length,
         primerasMetricas: Object.keys(analysis.data?.metricas || {}).slice(0, 10),
@@ -542,7 +546,7 @@ class ProjectManager {
       };
       
       // 📊 DIAGNÓSTICO: Verificar métricas antes de escribir a disco
-      console.log('📊 DIAGNÓSTICO - Métricas ANTES de guardar en disco:', {
+      window._maoLog('📊 DIAGNÓSTICO - Métricas ANTES de guardar en disco:', {
         totalPropiedades: Object.keys(metricas.objeto).length,
         primeras10: Object.keys(metricas.objeto).slice(0, 10),
         ultimas10: Object.keys(metricas.objeto).slice(-10),
@@ -558,9 +562,9 @@ class ProjectManager {
         }
       });
       
-      console.log('💾 Guardando metricas.json...');
-      console.log(`  Total perforaciones: ${metricas.estadisticas.totalPerforaciones}`);
-      console.log(`  Total horadaciones: ${metricas.estadisticas.totalHoradaciones}`);
+      window._maoLog('💾 Guardando metricas.json...');
+      window._maoLog(`  Total perforaciones: ${metricas.estadisticas.totalPerforaciones}`);
+      window._maoLog(`  Total horadaciones: ${metricas.estadisticas.totalHoradaciones}`);
       const metricasPath = `${analysisFolderPath}/metricas.json`;
       const metricasResult = await _fs.saveFile(
         metricasPath,
@@ -569,14 +573,14 @@ class ProjectManager {
       if (!metricasResult.success) {
         throw new Error(`No se pudo guardar metricas.json: ${metricasResult.error}`);
       }
-      console.log('✅ metricas.json guardado exitosamente');
+      window._maoLog('✅ metricas.json guardado exitosamente');
       
       // 4. METRICAS.CSV (formato tabular)
-      console.log('📝 Preparando metricas.csv...');
+      window._maoLog('📝 Preparando metricas.csv...');
       const csvContent = this.analysisToCSV(analysis.data);
-      console.log(`  Tamaño CSV: ${csvContent.length} caracteres`);
+      window._maoLog(`  Tamaño CSV: ${csvContent.length} caracteres`);
       
-      console.log('💾 Guardando metricas.csv...');
+      window._maoLog('💾 Guardando metricas.csv...');
       const csvPath = `${analysisFolderPath}/metricas.csv`;
       const csvResult = await _fs.saveFile(
         csvPath,
@@ -585,10 +589,10 @@ class ProjectManager {
       if (!csvResult.success) {
         throw new Error(`No se pudo guardar metricas.csv: ${csvResult.error}`);
       }
-      console.log('✅ metricas.csv guardado exitosamente');
+      window._maoLog('✅ metricas.csv guardado exitosamente');
       
       // 5. GEOMETRIA.JSON (coordenadas crudas para reanálisis)
-      console.log('📝 Preparando geometria.json...');
+      window._maoLog('📝 Preparando geometria.json...');
       
       // 🔧 DEBUG: Verificar que contorno tiene datos antes de guardar
       const contornoParaGuardar = analysis.data?.elementosGeometricos?.contorno;
@@ -596,7 +600,7 @@ class ProjectManager {
         console.warn('⚠️ ALERTA: Contorno vacío detectado. Intentando usar _contour_data como fallback...');
         // Si el contorno guardado está vacío, intentar recuperar de _contour_data
         if (analysis.data?.metricas?._contour_data?.points) {
-          console.log(`  ✅ Fallback: usando _contour_data (${analysis.data.metricas._contour_data.points.length} puntos)`);
+          window._maoLog(`  ✅ Fallback: usando _contour_data (${analysis.data.metricas._contour_data.points.length} puntos)`);
           contornoParaGuardar.puntos = analysis.data.metricas._contour_data.points;
         }
       }
@@ -646,8 +650,8 @@ class ProjectManager {
         }
       };
       
-      console.log('💾 Guardando geometria.json...');
-      console.log('🔍 DEBUG - Contenido de geometria.json:', {
+      window._maoLog('💾 Guardando geometria.json...');
+      window._maoLog('🔍 DEBUG - Contenido de geometria.json:', {
         contornoReal: geometria.contornoReal?.puntos?.length || 0,
         convexHull: geometria.convexHull?.puntos?.length || 0,
         perforaciones: geometria.perforaciones?.length || 0,
@@ -674,7 +678,7 @@ class ProjectManager {
       if (!geometriaResult.success) {
         throw new Error(`No se pudo guardar geometria.json: ${geometriaResult.error}`);
       }
-      console.log('✅ geometria.json guardado exitosamente');
+      window._maoLog('✅ geometria.json guardado exitosamente');
 
       // 6. TRAZADOS.JSON (trazados de P/H y capas de canvas)
       const trazadosData = {
@@ -690,33 +694,33 @@ class ProjectManager {
       if (!trazadosResult.success) {
         throw new Error(`No se pudo guardar trazados.json: ${trazadosResult.error}`);
       }
-      console.log('✅ trazados.json guardado exitosamente');
+      window._maoLog('✅ trazados.json guardado exitosamente');
       
       // 6. 🆕 ACTUALIZAR ÍNDICE DE COLECCIÓN (mover antes de imágenes para asegurar registro)
-      console.log('🗂️ Actualizando índice de colección...');
+      window._maoLog('🗂️ Actualizando índice de colección...');
       try {
         await this.updateCollectionIndex(this.activeProject, analysis, analysisFolderName);
-        console.log('✅ Índice de colección actualizado');
+        window._maoLog('✅ Índice de colección actualizado');
       } catch (indexError) {
         console.error('⚠️ Error actualizando índice (no crítico):', indexError.message);
       }
       
       // 7. GUARDAR IMÁGENES (si existen canvas disponibles)
-      console.log('🖼️ Guardando imágenes...');
+      window._maoLog('🖼️ Guardando imágenes...');
       await this.saveAnalysisImages(analysis, `${analysisFolderPath}/imagenes`);
       
       // 8. ACTUALIZAR RESUMEN.CSV DEL PROYECTO
-      console.log('📊 Actualizando resumen del proyecto...');
+      window._maoLog('📊 Actualizando resumen del proyecto...');
       try {
         await this.updateProjectSummaryCSV();
-        console.log('✅ Resumen actualizado');
+        window._maoLog('✅ Resumen actualizado');
       } catch (csvError) {
         console.error('⚠️ Error actualizando resumen CSV (no crítico):', csvError.message);
       }
       
-      console.log(`\n✅✅✅ Análisis completo guardado exitosamente ✅✅✅`);
-      console.log(`📂 Carpeta: ${analysisFolderName}`);
-      console.log(`📍 Ruta completa: ${analysisFolderPath}`);
+      window._maoLog(`\n✅✅✅ Análisis completo guardado exitosamente ✅✅✅`);
+      window._maoLog(`📂 Carpeta: ${analysisFolderName}`);
+      window._maoLog(`📍 Ruta completa: ${analysisFolderPath}`);
       
       toast.success(`Análisis guardado en carpeta: ${analysisFolderName}`);
       
@@ -728,7 +732,7 @@ class ProjectManager {
         // Asegurar que no haya data pesada en la referencia
         delete this.activeProject.analyses[analysisIndex].data;
         this.save();
-        console.log('✅ Referencia actualizada en localStorage con ruta de disco');
+        window._maoLog('✅ Referencia actualizada en localStorage con ruta de disco');
       }
       
     } catch (error) {
@@ -755,22 +759,22 @@ class ProjectManager {
       return;
     }
     try {
-      console.log('🖼️ Guardando imágenes del análisis...');
-      console.log('📁 Ruta:', imagesFolderPath);
+      window._maoLog('🖼️ Guardando imágenes del análisis...');
+      window._maoLog('📁 Ruta:', imagesFolderPath);
       
       // Crear carpeta de imágenes
       const dirResult = await _fs.ensureFolder(imagesFolderPath);
       if (!dirResult.success) {
         throw new Error(`Error creando carpeta de imágenes: ${dirResult.error}`);
       }
-      console.log('✅ Carpeta de imágenes creada');
+      window._maoLog('✅ Carpeta de imágenes creada');
       
       const data = analysis.data || {};
       const imagenesGuardadas = data.imagenes || {};
       let imagesSaved = 0;
       
       // VERIFICAR DISPONIBILIDAD DE DATOS
-      console.log('🔍 Verificando datos disponibles:', {
+      window._maoLog('🔍 Verificando datos disponibles:', {
         tieneImagenRecortada: !!(data.imagenRecortada || imagenesGuardadas.recortada),
         tipoImagenRecortada: data.imagenRecortada ? typeof data.imagenRecortada : (imagenesGuardadas.recortada ? typeof imagenesGuardadas.recortada : 'undefined'),
         longitudImagenRecortada: (data.imagenRecortada || imagenesGuardadas.recortada) ? (data.imagenRecortada || imagenesGuardadas.recortada).length : 0,
@@ -781,25 +785,25 @@ class ProjectManager {
       
       // 1. IMAGEN DEL OBJETO RECORTADO (la más importante)
       if (data.imagenRecortada || imagenesGuardadas.recortada) {
-        console.log('💾 Intentando guardar objeto_recortado.png...');
+        window._maoLog('💾 Intentando guardar objeto_recortado.png...');
         const imagenRecortadaFuente = data.imagenRecortada || imagenesGuardadas.recortada;
-        console.log('  📊 Tamaño de imagen recortada:', imagenRecortadaFuente.length, 'caracteres');
-        console.log('  📊 Comienza con:', imagenRecortadaFuente.substring(0, 50));
+        window._maoLog('  📊 Tamaño de imagen recortada:', imagenRecortadaFuente.length, 'caracteres');
+        window._maoLog('  📊 Comienza con:', imagenRecortadaFuente.substring(0, 50));
         
         const imgPath = `${imagesFolderPath}/objeto_recortado.png`;
-        console.log('  📁 Ruta destino:', imgPath);
+        window._maoLog('  📁 Ruta destino:', imgPath);
         const imgResult = await _fs.saveFile(imgPath, imagenRecortadaFuente);
-        console.log('📤 Resultado guardado:', imgResult);
+        window._maoLog('📤 Resultado guardado:', imgResult);
         if (imgResult.success) {
           imagesSaved++;
-          console.log('  ✅ objeto_recortado.png guardado exitosamente');
+          window._maoLog('  ✅ objeto_recortado.png guardado exitosamente');
           
           // 🆕 VERIFICAR QUE EL ARCHIVO SE GUARDÓ CORRECTAMENTE
           try {
             const verificacion = await _fs.readFile(imgPath);
             if (verificacion.success) {
-              console.log('  ✅ VERIFICACIÓN: Archivo guardado y puede leerse');
-              console.log('  📊 Tamaño archivo guardado:', verificacion.content.length, 'caracteres');
+              window._maoLog('  ✅ VERIFICACIÓN: Archivo guardado y puede leerse');
+              window._maoLog('  📊 Tamaño archivo guardado:', verificacion.content.length, 'caracteres');
             } else {
               console.error('  ❌ VERIFICACIÓN FALLÓ: Archivo no se puede leer:', verificacion.error);
             }
@@ -821,7 +825,7 @@ class ProjectManager {
       const _savePng = async (rutaRelativa, dataURL) => {
         if (!dataURL) return false;
         const res = await _fs.saveFile(`${imagesFolderPath}/${rutaRelativa}`, dataURL);
-        if (res.success) { imagesSaved++; console.log(`  ✅ ${rutaRelativa} guardado`); }
+        if (res.success) { imagesSaved++; window._maoLog(`  ✅ ${rutaRelativa} guardado`); }
         else console.error(`  ❌ Error guardando ${rutaRelativa}:`, res.error);
         return res.success;
       };
@@ -862,7 +866,7 @@ class ProjectManager {
       await _savePng('esquema_morfometrico.png', schemDataURL);
 
       // 5. METADATA DE IMÁGENES
-      console.log('💾 Guardando metadata.json...');
+      window._maoLog('💾 Guardando metadata.json...');
       const imagesMeta = {
         totalImagenes: imagesSaved,
         fecha: new Date().toISOString(),
@@ -879,7 +883,7 @@ class ProjectManager {
         `${imagesFolderPath}/metadata.json`,
         JSON.stringify(imagesMeta, null, 2)
       );
-      console.log('📤 Metadata guardado:', metaResult.success);
+      window._maoLog('📤 Metadata guardado:', metaResult.success);
 
       // Guardar JSON con base64 para recuperación completa y para el PDF
       const imagenesJSONResult = await _fs.saveFile(
@@ -891,15 +895,15 @@ class ProjectManager {
           esquematica:  schemDataURL  || null
         }, null, 2)
       );
-      console.log('📤 imagenes.json guardado:', imagenesJSONResult.success);
+      window._maoLog('📤 imagenes.json guardado:', imagenesJSONResult.success);
 
-      console.log('✅ Proceso de guardado de imágenes completado');
-      console.log('📊 Resumen final:', {
+      window._maoLog('✅ Proceso de guardado de imágenes completado');
+      window._maoLog('📊 Resumen final:', {
         carpeta: imagesFolderPath,
         imagenesGuardadas: imagesSaved
       });
       
-      console.log(`✅ ${imagesSaved} imágenes guardadas exitosamente`);
+      window._maoLog(`✅ ${imagesSaved} imágenes guardadas exitosamente`);
 
       // 5. IMAGEN ORIGINAL (necesaria para recálculo retroactivo de error óptico)
       // Bifacial: seleccionar la imagen de la cara correcta; monofacial: window.image
@@ -915,7 +919,7 @@ class ProjectManager {
           origCanvas.getContext('2d').drawImage(imagenFuenteGlobal, 0, 0);
           const origDataURL = origCanvas.toDataURL('image/png');
           const origResult  = await _fs.saveFile(`${imagesFolderPath}/original.png`, origDataURL);
-          if (origResult.success) console.log('✅ original.png guardado');
+          if (origResult.success) window._maoLog('✅ original.png guardado');
           else console.warn('⚠️ No se pudo guardar original.png:', origResult.error);
         } catch (origErr) {
           console.warn('⚠️ Error al guardar original.png:', origErr.message);
@@ -981,7 +985,7 @@ class ProjectManager {
       
       const csvPath = `${this.activeProject.folderPath}/resumen.csv`;
       await _fs.saveFile(csvPath, rows.join('\n'));
-      console.log('  ✅ resumen.csv actualizado');
+      window._maoLog('  ✅ resumen.csv actualizado');
     } catch (error) {
       console.warn('Error actualizando resumen.csv:', error);
     }
@@ -1492,7 +1496,7 @@ class ProjectManager {
    */
   async loadAnalysisFromDisk(analysisFolderPath) {
     try {
-      console.log(`📂 Cargando análisis desde: ${analysisFolderPath}`);
+      window._maoLog(`📂 Cargando análisis desde: ${analysisFolderPath}`);
 
       // Resolver electronAPI: ventana actual → ventana abriente → error
       const _api = window.electronAPI
@@ -1540,7 +1544,7 @@ class ProjectManager {
       try { geometria = JSON.parse(geometriaResult.content); } catch { throw new Error('geometria.json corrupto o inválido'); }
 
       // 📊 DIAGNÓSTICO: Verificar métricas cargadas desde disco
-      console.log('📊 DIAGNÓSTICO - Métricas cargadas desde disco:', {
+      window._maoLog('📊 DIAGNÓSTICO - Métricas cargadas desde disco:', {
         totalPropiedades: Object.keys(metricas.objeto || {}).length,
         primeras10: Object.keys(metricas.objeto || {}).slice(0, 10),
         tieneCircularidad: metricas.objeto?.circularity !== undefined,
@@ -1618,7 +1622,7 @@ class ProjectManager {
         analysis.geometria._usandoHullEnProcrustes = true;
       }
       
-      console.log(`✅ Análisis cargado exitosamente: ${analysis.nombreObjeto}`);
+      window._maoLog(`✅ Análisis cargado exitosamente: ${analysis.nombreObjeto}`);
       return analysis;
       
     } catch (error) {
@@ -1649,8 +1653,8 @@ class ProjectManager {
     }
     
     try {
-      console.log(`📚 Cargando colección del proyecto: ${project.name}`);
-      console.log(`📂 Ruta del proyecto: ${project.folderPath}`);
+      window._maoLog(`📚 Cargando colección del proyecto: ${project.name}`);
+      window._maoLog(`📂 Ruta del proyecto: ${project.folderPath}`);
       
       // 1. Verificar que la carpeta del proyecto existe
       const folderExists = await window.electronAPI.folderExists(project.folderPath);
@@ -1671,7 +1675,7 @@ class ProjectManager {
           !i.name.startsWith('.') &&
           !_CARPETAS_SISTEMA.has(i.name.toLowerCase())
         ).length;
-        console.log(`📁 Carpetas candidatas a análisis en disco: ${realFolderCount}`);
+        window._maoLog(`📁 Carpetas candidatas a análisis en disco: ${realFolderCount}`);
       }
       
       // 3. Intentar cargar índice desde disco
@@ -1693,7 +1697,7 @@ class ProjectManager {
       
       // 4. Validar integridad del índice
       const indexObjectCount = (collection.objetos || []).length;
-      console.log(`📊 Índice: ${indexObjectCount} objetos | Disco: ${realFolderCount} carpetas`);
+      window._maoLog(`📊 Índice: ${indexObjectCount} objetos | Disco: ${realFolderCount} carpetas`);
       
       // Si el índice está vacío pero hay carpetas, reconstruir
       if (indexObjectCount === 0 && realFolderCount > 0) {
@@ -1748,7 +1752,7 @@ class ProjectManager {
         await window.electronAPI.saveFile(indexPath, JSON.stringify(collection, null, 2));
       }
 
-      console.log(`✅ Colección cargada: ${collection.objetos.length} objetos`);
+      window._maoLog(`✅ Colección cargada: ${collection.objetos.length} objetos`);
       toast.success(`Colección cargada: ${collection.objetos.length} objetos`);
       
       return collection;
@@ -1768,18 +1772,18 @@ class ProjectManager {
    * @returns {Object|null} Objeto de colección generado o null
    */
   async rebuildCollectionIndex(project) {
-    console.log('🔨 Reconstruyendo índice de colección...');
+    window._maoLog('🔨 Reconstruyendo índice de colección...');
     
     try {
       // 1. Listar todas las carpetas en el directorio del proyecto
-      console.log(`📂 Escaneando directorio: ${project.folderPath}`);
+      window._maoLog(`📂 Escaneando directorio: ${project.folderPath}`);
       const listResult = await window.electronAPI.listDirectory(project.folderPath);
       
       if (!listResult.success) {
         throw new Error(`Error listando directorio: ${listResult.error}`);
       }
       
-      console.log(`📋 Items encontrados: ${listResult.items.length}`);
+      window._maoLog(`📋 Items encontrados: ${listResult.items.length}`);
       
       // 2. Filtrar carpetas que podrían ser análisis:
       //    - El formato nuevo usa prefijo "analisis_"
@@ -1793,7 +1797,7 @@ class ProjectManager {
         !CARPETAS_SISTEMA.has(item.name.toLowerCase())
       );
       
-      console.log(`📁 Encontradas ${analysisFolders.length} carpetas candidatas a análisis`);
+      window._maoLog(`📁 Encontradas ${analysisFolders.length} carpetas candidatas a análisis`);
       
       const objetos = [];
       
@@ -1803,7 +1807,7 @@ class ProjectManager {
           const folderPath = folder.path;
           const folderName = folder.name;
           
-          console.log(`  📖 Procesando: ${folderName}`);
+          window._maoLog(`  📖 Procesando: ${folderName}`);
           
           // Leer archivos
           const metadataResult = await window.electronAPI.readFile(`${folderPath}/metadata.json`);
@@ -1823,7 +1827,7 @@ class ProjectManager {
           try { metadata = JSON.parse(metadataResult.content); } catch { console.warn(`    ⚠️ metadata.json corrupto en ${folderPath}, omitiendo.`); continue; }
           try { metricas  = JSON.parse(metricasResult.content);  } catch { console.warn(`    ⚠️ metricas.json corrupto en ${folderPath}, omitiendo.`);  continue; }
           
-          console.log(`    📊 Métricas cargadas:`, {
+          window._maoLog(`    📊 Métricas cargadas:`, {
             area: metricas.objeto?.area,
             circularidad: metricas.objeto?.circularity,
             perforaciones: metricas.estadisticas?.totalPerforaciones
@@ -1873,7 +1877,7 @@ class ProjectManager {
             completado: true
           });
           
-          console.log(`    ✅ ${metadata.nombreObjeto} agregado al índice`);
+          window._maoLog(`    ✅ ${metadata.nombreObjeto} agregado al índice`);
           
         } catch (error) {
           console.warn(`⚠️ Error procesando carpeta ${folder.name}:`, error.message);
@@ -1897,7 +1901,7 @@ class ProjectManager {
       };
       
       // 7. Guardar índice en disco
-      console.log('💾 Guardando índice de colección...');
+      window._maoLog('💾 Guardando índice de colección...');
       const saveResult = await window.electronAPI.saveFile(
         `${project.folderPath}/collection_index.json`,
         JSON.stringify(collection, null, 2)
@@ -1907,7 +1911,7 @@ class ProjectManager {
         throw new Error(`Error guardando índice: ${saveResult.error}`);
       }
       
-      console.log(`✅ Índice reconstruido exitosamente: ${objetos.length} objetos`);
+      window._maoLog(`✅ Índice reconstruido exitosamente: ${objetos.length} objetos`);
       toast.success(`Índice actualizado: ${objetos.length} objetos en la colección`);
       
       return collection;
@@ -1933,27 +1937,27 @@ class ProjectManager {
       return;
     }
     try {
-      console.log('📇 Actualizando índice de colección...');
+      window._maoLog('📇 Actualizando índice de colección...');
       
       // 1. Cargar índice actual (o crear nuevo si no existe)
       let collection = null;
       const indexPath = `${project.folderPath}/collection_index.json`;
       
       try {
-        console.log(`📖 Buscando índice existente: ${indexPath}`);
+        window._maoLog(`📖 Buscando índice existente: ${indexPath}`);
         const readResult = await _fs.readFile(indexPath);
         
         if (readResult.success) {
           collection = JSON.parse(readResult.content);
-          console.log(`✅ Índice cargado: ${collection.objetos?.length || 0} objetos existentes`);
+          window._maoLog(`✅ Índice cargado: ${collection.objetos?.length || 0} objetos existentes`);
         } else {
           // Error al leer (probablemente archivo no existe)
-          console.log(`ℹ️ Índice no existe todavía (${readResult.error})`);
+          window._maoLog(`ℹ️ Índice no existe todavía (${readResult.error})`);
           throw new Error('Índice no existe');
         }
       } catch (error) {
         // Si no existe, crear estructura nueva
-        console.log('🆕 Creando nuevo índice de colección (primera vez)');
+        window._maoLog('🆕 Creando nuevo índice de colección (primera vez)');
         collection = {
           proyectoId: project.id,
           nombre: project.name,
@@ -1987,10 +1991,10 @@ class ProjectManager {
       // 3. Agregar o actualizar en el índice
       if (existingIndex >= 0) {
         collection.objetos[existingIndex] = nuevoObjeto;
-        console.log('🔄 Objeto actualizado en índice');
+        window._maoLog('🔄 Objeto actualizado en índice');
       } else {
         collection.objetos.push(nuevoObjeto);
-        console.log('➕ Objeto agregado al índice');
+        window._maoLog('➕ Objeto agregado al índice');
       }
       
       // 4. Actualizar metadatos de la colección
@@ -2002,7 +2006,7 @@ class ProjectManager {
       collection.objetos.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       
       // 6. Guardar índice actualizado
-      console.log('💾 Guardando índice actualizado...');
+      window._maoLog('💾 Guardando índice actualizado...');
       const saveResult = await _fs.saveFile(
         `${project.folderPath}/collection_index.json`,
         JSON.stringify(collection, null, 2)
@@ -2012,7 +2016,7 @@ class ProjectManager {
         throw new Error(`Error guardando índice: ${saveResult.error}`);
       }
       
-      console.log(`✅ Índice actualizado exitosamente: ahora ${collection.totalObjetos} objetos`);
+      window._maoLog(`✅ Índice actualizado exitosamente: ahora ${collection.totalObjetos} objetos`);
       
       // 🆕 TAMBIÉN ACTUALIZAR ARCHIVO proyecto.mao
       await actualizarArchivoProyecto(project);
@@ -2039,14 +2043,14 @@ class ProjectManager {
       return { success: false, analyses: [] };
     }
     
-    console.log(`🔍 Escaneando carpeta: ${folderPath}`);
+    window._maoLog(`🔍 Escaneando carpeta: ${folderPath}`);
     toast.info('Escaneando análisis guardados...');
     
     try {
       const result = await window.electronAPI.scanForAnalysis(folderPath, 5);
       
       if (result.success) {
-        console.log(`✅ Escaneo completado: ${result.totalFound} análisis encontrados`);
+        window._maoLog(`✅ Escaneo completado: ${result.totalFound} análisis encontrados`);
         toast.success(`Encontrados ${result.totalFound} análisis`);
         return result;
       } else {
@@ -2071,14 +2075,14 @@ class ProjectManager {
       return { success: false, validation: { valid: false, error: 'Sistema no disponible' } };
     }
     
-    console.log(`🔍 Validando integridad: ${analysisPath}`);
+    window._maoLog(`🔍 Validando integridad: ${analysisPath}`);
     
     try {
       const result = await window.electronAPI.validateAnalysis(analysisPath);
       
       if (result.success) {
         const v = result.validation;
-        console.log(`📋 Validación completada:`, {
+        window._maoLog(`📋 Validación completada:`, {
           válido: v.valid,
           archivosFaltantes: v.missingFiles.length,
           archivosCorruptos: v.corruptedFiles.length,
@@ -2113,8 +2117,8 @@ class ProjectManager {
       return false;
     }
     
-    console.log(`🔄 Recuperando análisis huérfano desde: ${analysisPath}`);
-    console.log(`📂 Destino: ${project.folderPath}`);
+    window._maoLog(`🔄 Recuperando análisis huérfano desde: ${analysisPath}`);
+    window._maoLog(`📂 Destino: ${project.folderPath}`);
     
     try {
       // 1. Validar que el análisis sea válido
@@ -2146,7 +2150,7 @@ class ProjectManager {
       this.activeProject = originalActiveProject;
       
       if (success) {
-        console.log('✅ Análisis recuperado exitosamente');
+        window._maoLog('✅ Análisis recuperado exitosamente');
         toast.success(`Análisis "${analysis.nombreObjeto}" recuperado y asociado al proyecto`);
         return true;
       } else {

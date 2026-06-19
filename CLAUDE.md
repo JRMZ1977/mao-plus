@@ -27,6 +27,9 @@ Commits del lote: `526cf42` (ADR-010 E2E hook) · `be20a0e` (webSecurity + cv2 w
 
 ## 🎯 Fase Actual: UI Pestañas LAAR — tratamiento completo (ADR-001…005)
 
+> 📋 **Estado consolidado de TODOS los ADR (001–010) → `docs/ESTADO-ADRS.md`** (fuente única
+> de verdad: estado real + commit por ADR; reconcilia cabeceras `Estado:` obsoletas de ADR-002/004/005/006).
+
 **Estado:** ✅ **Migración + rediseño por pestaña + armonización transversal COMPLETADOS y verificados en Electron.**
 - Fases A-B (infraestructura de pestañas): commit `5bdfb61` (2026-06-08) · fixes runtime + estética: 2026-06-09.
 - ADR-001 guards de flujo · ADR-002 Análisis · ADR-003 Proyecto · ADR-004 Captura · **ADR-005 armonización transversal** (lenguaje canónico `.laar-chip`/`.laar-header` + base `window.MaoOrganizer`; cierra el de-rainbow + jerarquía de las 4 pestañas) — 2026-06-11/12.

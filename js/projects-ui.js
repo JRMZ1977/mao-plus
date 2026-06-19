@@ -1,4 +1,9 @@
 // MAO Plus — UI del panel de proyectos
+
+// Logger de depuración gateado (producción: silenciado; warn/error intactos).
+// Activar con window._MAO_DEBUG = true. Idempotente: sin colisión en scope global.
+window._maoLog = window._maoLog || function () { if (window._MAO_DEBUG) console.log.apply(console, arguments); };
+
 function initProjectsUI() {
   const openProjectsBtn = document.getElementById('openProjectsBtn');
   const projectsPanel = document.getElementById('projectsPanel');
@@ -20,11 +25,11 @@ function initProjectsUI() {
   const proyectoActivoInfo = document.getElementById('proyectoActivoInfo');
   
   // 🔍 DEBUGGING: Verificar elementos del modal
-  console.log('🔍 Verificación de elementos del modal:');
-  console.log('  - projectModalOverlay:', projectModalOverlay ? '✅ Encontrado' : '❌ NO encontrado');
-  console.log('  - saveProjectBtn:', saveProjectBtn ? '✅ Encontrado' : '❌ NO encontrado');
-  console.log('  - cancelProjectBtn:', cancelProjectBtn ? '✅ Encontrado' : '❌ NO encontrado');
-  console.log('  - projectForm:', projectForm ? '✅ Encontrado' : '❌ NO encontrado');
+  window._maoLog('🔍 Verificación de elementos del modal:');
+  window._maoLog('  - projectModalOverlay:', projectModalOverlay ? '✅ Encontrado' : '❌ NO encontrado');
+  window._maoLog('  - saveProjectBtn:', saveProjectBtn ? '✅ Encontrado' : '❌ NO encontrado');
+  window._maoLog('  - cancelProjectBtn:', cancelProjectBtn ? '✅ Encontrado' : '❌ NO encontrado');
+  window._maoLog('  - projectForm:', projectForm ? '✅ Encontrado' : '❌ NO encontrado');
   
   let editingProjectId = null;
   let selectedFolderPath = null;
@@ -36,9 +41,9 @@ function initProjectsUI() {
   if (selectProjectFolderBtn && window.electronAPI && window.electronAPI.selectFolder) {
     selectProjectFolderBtn.addEventListener('click', async () => {
       try {
-        console.log('🔍 Ejecutando selectFolder...');
+        window._maoLog('🔍 Ejecutando selectFolder...');
         const folderPath = await window.electronAPI.selectFolder();
-        console.log('📁 Resultado de selectFolder:', {
+        window._maoLog('📁 Resultado de selectFolder:', {
           value: folderPath,
           type: typeof folderPath,
           isString: typeof folderPath === 'string'
@@ -47,7 +52,7 @@ function initProjectsUI() {
         if (folderPath) {
           selectedFolderPath = folderPath;
           projectFolderPath.value = selectedFolderPath;
-          console.log('✅ selectedFolderPath actualizado:', selectedFolderPath);
+          window._maoLog('✅ selectedFolderPath actualizado:', selectedFolderPath);
           toast.success('Carpeta seleccionada correctamente');
         } else {
           console.warn('⚠️ folderPath es null o undefined');
@@ -177,7 +182,7 @@ function initProjectsUI() {
   // Guardar proyecto
   if (saveProjectBtn) {
     saveProjectBtn.addEventListener('click', () => {
-      console.log('🔵 Botón Guardar Proyecto clickeado');
+      window._maoLog('🔵 Botón Guardar Proyecto clickeado');
       
       const name = document.getElementById('projectName').value.trim();
       const description = document.getElementById('projectDescription').value.trim();
@@ -192,10 +197,10 @@ function initProjectsUI() {
         // Intentar extraer si es un objeto con propiedad 'path' o similar
         if (folderPath.path && typeof folderPath.path === 'string') {
           folderPath = folderPath.path;
-          console.log('✅ Extraída ruta de objeto:', folderPath);
+          window._maoLog('✅ Extraída ruta de objeto:', folderPath);
         } else if (folderPath.filePaths && Array.isArray(folderPath.filePaths) && folderPath.filePaths[0]) {
           folderPath = folderPath.filePaths[0];
-          console.log('✅ Extraída ruta de filePaths:', folderPath);
+          window._maoLog('✅ Extraída ruta de filePaths:', folderPath);
         } else {
           toast.error('Error: Carpeta seleccionada no válida. Por favor selecciona nuevamente.');
           console.error('⚠️ No se pudo extraer ruta del objeto:', folderPath);
@@ -207,7 +212,7 @@ function initProjectsUI() {
       const investigadorResponsable = document.getElementById('projectResearcher').value.trim();
       const institucionResponsable = document.getElementById('projectInstitution').value.trim();
       
-      console.log('📋 Datos del formulario:', { 
+      window._maoLog('📋 Datos del formulario:', { 
         name, 
         description, 
         commonTrait, 
@@ -237,7 +242,7 @@ function initProjectsUI() {
         return;
       }
       
-      console.log('✅ Validación exitosa, guardando proyecto...');
+      window._maoLog('✅ Validación exitosa, guardando proyecto...');
       
       if (editingProjectId) {
         projectManager.updateProject(editingProjectId, { name, description, commonTrait, folderPath, sitio, investigadorResponsable, institucionResponsable });
@@ -247,7 +252,7 @@ function initProjectsUI() {
         toast.success('Proyecto creado correctamente');
       }
       
-      console.log('✅ Proyecto guardado, cerrando modal...');
+      window._maoLog('✅ Proyecto guardado, cerrando modal...');
 
       // ── LAAR Tab Router: proyecto guardado ──
       document.dispatchEvent(new CustomEvent('mao:project:saved'));
