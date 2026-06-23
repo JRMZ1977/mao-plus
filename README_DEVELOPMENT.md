@@ -45,6 +45,46 @@ The application launches at `http://localhost:3000` (Electron) with backend at `
 
 ---
 
+## Build & Distribution (macOS · Fase A)
+
+El DMG distribuible **embebe su propio Python** (CPython relocatable + deps de runtime), por lo que
+funciona en un Mac que nunca instaló Python. Decisiones congeladas (2026-06-22): **solo arm64** (Apple
+Silicon) y **firma ad-hoc sin notarización**. Plan completo: [docs/PLAN-FASE-A-DISTRIBUCION.md](docs/PLAN-FASE-A-DISTRIBUCION.md).
+
+### Construir el DMG (dos pasos)
+
+```bash
+# 1. Construir el runtime Python embebible (~432 MB): descarga CPython relocatable,
+#    instala requirements-runtime.txt y poda lo no usado (torch/polars/etc.). → ./runtime/
+bash scripts/build-runtime.sh
+
+# 2. Empaquetar la app + runtime en un DMG arm64. → dist/MAO Plus-<versión>-arm64.dmg
+npm run package
+```
+
+`runtime/` está gitignored (se regenera con el script). En **dev** (`npm start`) la app sigue usando el
+`.venv` del repo; el runtime embebido solo se usa cuando `app.isPackaged` (ver `main.js` → `PYTHON_BIN`).
+
+### Primer arranque en un Mac de destino (Gatekeeper)
+
+Como el DMG **no está notarizado**, macOS lo marca en cuarentena al descargarlo. El usuario debe, **una
+sola vez**:
+
+- **Opción A (recomendada):** clic derecho sobre `MAO Plus.app` → **Abrir** → confirmar en el diálogo.
+- **Opción B (terminal):** `xattr -dr com.apple.quarantine "/Applications/MAO Plus.app"`
+
+Tras eso abre normalmente. (Si en el futuro hay Apple Developer ID, se reactiva `hardenedRuntime` +
+entitlements + notarización en `package.json` y este paso desaparece.)
+
+### Entorno de desarrollo fuera de iCloud
+
+El repo en `~/Documents` queda bajo iCloud, que **evicta `cv2.abi3.so`** de forma intermitente y tumba
+el backend en dev. Recomendado: mantener el checkout de desarrollo **fuera de iCloud** (p. ej.
+`~/Developer/MAO_PLUS_PY_01`). Esto **no afecta al DMG** (que lleva su propio runtime), solo a la
+ergonomía de desarrollo.
+
+---
+
 ## Core Features
 
 ### 1. **Morphometric Analysis**

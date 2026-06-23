@@ -15,6 +15,9 @@ dist/
 out/
 build/
 
+# Runtime Python embebible (Fase A) — generado por scripts/build-runtime.sh (~400 MB)
+runtime/
+
 # Logs
 *.log
 logs/

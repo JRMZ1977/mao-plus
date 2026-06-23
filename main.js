@@ -99,7 +99,17 @@ const APP_MIME = {
 
 // Directorio base de la aplicación
 const APP_DIR     = __dirname;
-const PYTHON_BIN  = path.join(APP_DIR, '.venv', 'bin', 'python');
+// Resolución del runtime Python (Fase A — distribución):
+//   dev  → el .venv del repo (su intérprete es un symlink al Python del sistema)
+//   prod → CPython relocatable embebido en Contents/Resources/python-runtime
+const PYTHON_BIN  = app.isPackaged
+  ? path.join(process.resourcesPath, 'python-runtime', 'bin', 'python3')
+  : path.join(APP_DIR, '.venv', 'bin', 'python');
+// Directorio de trabajo del backend: la raíz que contiene el paquete `python/`.
+//   dev  → APP_DIR (repo)
+//   prod → Contents/Resources (python/ viaja como extraResources, fuera del asar,
+//          porque un subproceso no puede importar desde dentro de app.asar)
+const PY_CWD      = app.isPackaged ? process.resourcesPath : APP_DIR;
 const SERVER_HOST = '127.0.0.1';
 const SERVER_PORT = 8765;
 const HEALTH_URL  = `http://${SERVER_HOST}:${SERVER_PORT}/api/health`;
@@ -197,12 +207,12 @@ async function startPythonServer() {
         '--log-level', 'warning',
       ],
       {
-        cwd: APP_DIR,
+        cwd: PY_CWD,
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: false,
       }
     );
-    
+
     if (!pyServer) {
       console.log('[MAO Python] Python del PATH tampoco disponible — modo solo-JS');
       return;
@@ -213,7 +223,7 @@ async function startPythonServer() {
     // Warmup: pre-cargar cv2 antes de lanzar uvicorn para evitar que iCloud
     // interrumpa la carga de cv2.abi3.so durante el arranque del servidor.
     await new Promise(resolve => {
-      const warm = spawn(PYTHON_BIN, ['-c', 'import cv2, numpy'], { cwd: APP_DIR, stdio: 'ignore' });
+      const warm = spawn(PYTHON_BIN, ['-c', 'import cv2, numpy'], { cwd: PY_CWD, stdio: 'ignore' });
       warm.on('close', resolve);
       warm.on('error', resolve); // si falla, continuar igualmente
     });
@@ -229,7 +239,7 @@ async function startPythonServer() {
         '--log-level', 'warning',
       ],
       {
-        cwd: APP_DIR,
+        cwd: PY_CWD,
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: false,
       }

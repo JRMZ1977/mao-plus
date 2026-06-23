@@ -1,0 +1,41 @@
+# MAO Plus — Dependencias de RUNTIME para el bundle embebido (Fase A · distribución)
+# ─────────────────────────────────────────────────────────────────────────────
+# Subconjunto EXACTO de requirements.txt que el backend importa en ejecución.
+# Lo instala scripts/build-runtime.sh dentro del CPython relocatable embebido.
+#
+# EXCLUIDO a propósito (verificado: 0 imports en runtime, solo dev/exporter):
+#   torch, torchvision      → solo el exporter offline de MobileSAM (no runtime). ~313 MB
+#   ultralytics             → idem exporter de SAM. El runtime usa onnxruntime.
+#   polars, matplotlib,     → no se importan en python/ (eran transitivas/leftover)
+#   sympy, pandas
+#   pip, setuptools         → se podan tras instalar (no se ejecutan en producción)
+#
+# INCLUIDO aunque requirements.txt lo marcaba «Fase 3»:
+#   scikit-learn            → comparator.py lo importa (PCA/StandardScaler/KMeans/silhouette)
+
+# ── Servidor web ─────────────────────────────────────────────────────────────
+fastapi==0.128.8
+uvicorn[standard]==0.39.0
+python-multipart==0.0.20
+
+# ── Análisis de imagen ───────────────────────────────────────────────────────
+opencv-python-headless==4.13.0.92
+numpy==2.0.2
+pillow==11.3.0
+scikit-image==0.24.0
+imageio==2.37.2
+
+# ── Geometría y métricas ─────────────────────────────────────────────────────
+shapely==2.0.7
+trimesh==4.5.3
+
+# ── Estadística y ML ─────────────────────────────────────────────────────────
+scipy==1.13.1
+scikit-learn==1.6.1
+
+# ── Inferencia IA (MobileSAM ONNX — runtime, sin torch) ──────────────────────
+onnxruntime==1.19.2
+
+# ── Utilidades ───────────────────────────────────────────────────────────────
+python-dotenv==1.2.1
+pyyaml==6.0.3

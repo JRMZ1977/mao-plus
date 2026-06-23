@@ -26,20 +26,28 @@
     "productName": "MAO Plus",
     "mac": {
       "category": "public.app-category.education",
-      "icon": "build/icon.icns",
-      "hardenedRuntime": true,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "icon": "icon.png",
+      "identity": null,
+      "hardenedRuntime": false,
       "target": [
         {
           "target": "dmg",
           "arch": [
-            "x64",
             "arm64"
           ]
         }
       ]
     },
+    "extraResources": [
+      {
+        "from": "runtime",
+        "to": "python-runtime"
+      },
+      {
+        "from": "python",
+        "to": "python"
+      }
+    ],
     "dmg": {
       "title": "MAO Plus",
       "iconSize": 100,
