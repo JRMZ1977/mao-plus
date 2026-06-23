@@ -56,3 +56,8 @@ TEST_MEJORA*.md
 VALIDACION_*.md
 VALIDACION_*.txt
 VERIFICACION_*.txt
+
+# Higiene de repo (purgados del historial 2026-06-22): backups y modelos binarios
+*.backup
+*.backup.*
+*.pt
