@@ -260,8 +260,7 @@
     const _syncChip = (id, active) => {
       const el = document.getElementById(id);
       if (!el) return;
-      el.classList.toggle('btn-success', active);
-      el.classList.toggle('btn-muted',   !active);
+      el.classList.toggle('is-active', active);   // grupo segmentado .laar-btn-group
     };
     _syncChip('obj3dSecTransBtn', state.showTransverseSections);
     _syncChip('obj3dSecCorBtn',   state.showCoronalSections);

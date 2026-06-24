@@ -534,6 +534,198 @@ header.mao-header select,
   border-color       : var(--laar-wa-bd) !important;
 }
 
+/* ╔═══════════════════════════════════════════════════════════════════════════╗
+   ║  FAMILIA CANÓNICA DE BOTÓN `.laar-btn` (plan simplificación 2026-06-23)    ║
+   ║  Opt-in vía markup. Clase nueva → NO necesita !important ni scope .mao-main║
+   ║  (vence al `button` base por especificidad de clase). Sirve también dentro ║
+   ║  de modales fixed (obj3d/mao-ia/CMO/ps). Reutiliza tokens --laar-*.        ║
+   ╚═══════════════════════════════════════════════════════════════════════════╝ */
+
+/* Base = SECUNDARIO (blanco dominante, igual lenguaje que .btn-sm restyled) */
+.laar-btn {
+  display            : inline-flex;
+  align-items        : center;
+  justify-content    : center;
+  gap                : 5px;
+  padding            : 5px 11px;
+  font-size          : 11px;
+  font-weight        : 500;
+  line-height        : 1.4;
+  white-space        : nowrap;
+  background         : var(--laar-white);
+  color              : var(--laar-g700);
+  border             : var(--laar-border-md);          /* 0.5px g300 */
+  border-radius      : var(--laar-radius);
+  box-shadow         : none;
+  cursor             : pointer;
+  -webkit-user-select: none;
+  user-select        : none;
+  transition         : background var(--laar-transition),
+                       border-color var(--laar-transition),
+                       color var(--laar-transition);
+}
+.laar-btn:hover {
+  background         : var(--laar-g100);
+  border-color       : var(--laar-g400);
+  color              : var(--laar-g900);
+}
+.laar-btn:active     { background: var(--laar-g200); }
+.laar-btn:disabled,
+.laar-btn[disabled]  {
+  background         : var(--laar-g50);
+  border-color       : var(--laar-g200);
+  color              : var(--laar-g400);
+  cursor             : not-allowed;
+}
+
+/* PRIMARIO — acento único azul slate */
+.laar-btn--primary {
+  background         : var(--laar-b500);
+  border-color       : var(--laar-b500);
+  color              : var(--laar-white);
+}
+.laar-btn--primary:hover {
+  background         : var(--laar-b600);
+  border-color       : var(--laar-b600);
+  color              : var(--laar-white);
+}
+.laar-btn--primary:disabled,
+.laar-btn--primary[disabled] {
+  background         : var(--laar-b200);
+  border-color       : var(--laar-b200);
+  color              : var(--laar-white);
+}
+
+/* GHOST — sin borde, para barras densas / acciones terciarias */
+.laar-btn--ghost {
+  background         : transparent;
+  border-color       : transparent;
+  color              : var(--laar-g600);
+}
+.laar-btn--ghost:hover {
+  background         : var(--laar-g100);
+  border-color       : transparent;
+  color              : var(--laar-g900);
+}
+
+/* ICONO — cuadrado, solo símbolo (toolbars de zoom/vista) */
+.laar-btn--icon {
+  padding            : 5px;
+  width              : 28px;
+  height             : 28px;
+  gap                : 0;
+  font-size          : 13px;
+}
+
+/* DESTRUCTIVO — rojo semántico */
+.laar-btn--danger {
+  background         : var(--laar-er-bg);
+  border-color       : var(--laar-er-bd);
+  color              : var(--laar-er-tx);
+}
+.laar-btn--danger:hover {
+  background         : #FEE2E2;
+  border-color       : #F87171;
+  color              : var(--laar-er-tx);
+}
+
+/* Caret del menú desplegable */
+.laar-btn .laar-btn__caret {
+  font-size          : 8px;
+  opacity            : .7;
+  margin-left        : 1px;
+}
+
+/* ─── GRUPO SEGMENTADO `.laar-btn-group` (toggles mutuamente excluyentes) ──── */
+.laar-btn-group {
+  display            : inline-flex;
+  border             : var(--laar-border-md);
+  border-radius      : var(--laar-radius);
+  overflow           : hidden;
+}
+.laar-btn-group .laar-btn {
+  border             : none;
+  border-radius      : 0;
+  border-right       : var(--laar-border-md);
+}
+.laar-btn-group .laar-btn:last-child { border-right: none; }
+.laar-btn-group .laar-btn.is-active {
+  background         : var(--laar-b500);
+  color              : var(--laar-white);
+}
+
+/* ─── MENÚ DE EXPORTACIÓN `[data-export-menu]` (reusa el IIFE de index.html) ── */
+.laar-export-menu {
+  position           : relative;
+  display            : inline-block;
+}
+.laar-export-menu > .laar-export-list {
+  position           : absolute;
+  top                : calc(100% + 4px);
+  right              : 0;
+  z-index            : 50;
+  min-width          : 170px;
+  margin             : 0;
+  padding            : 4px;
+  list-style         : none;
+  background         : var(--laar-white);
+  border             : var(--laar-border-md);
+  border-radius      : var(--laar-radius);
+  box-shadow         : 0 4px 16px rgba(17,24,39,.12);
+  display            : none;
+}
+.laar-export-menu.is-open > .laar-export-list { display: block; }
+.laar-export-list li { margin: 0; }
+/* Ítems de menú: cubre .laar-btn y cualquier botón legacy marcado .export-menu-item
+   (cmo-btn, estilos inline, etc.). !important vence los estilos inline de origen
+   (background/color/border) para que rindan como filas de menú uniformes. */
+.laar-export-list .laar-btn,
+.laar-export-list .export-menu-item {
+  display            : flex !important;
+  align-items        : center;
+  gap                : 6px;
+  width              : 100%;
+  justify-content    : flex-start !important;
+  padding            : 6px 10px !important;
+  margin             : 0 !important;
+  font-size          : 11px !important;
+  font-weight        : 500 !important;
+  color              : var(--laar-g700) !important;
+  border             : none !important;
+  border-radius      : calc(var(--laar-radius) - 1px) !important;
+  background         : transparent !important;
+  box-shadow         : none !important;
+  cursor             : pointer;
+}
+.laar-export-list .laar-btn:hover,
+.laar-export-list .export-menu-item:hover { background: var(--laar-g100) !important; }
+
+/* Caret: rota al abrir */
+.laar-btn__caret { transition: transform var(--laar-transition); }
+.laar-export-menu.is-open .laar-btn__caret { transform: rotate(180deg); }
+
+/* Variante INLINE (acordeón) — para sidebar vertical: la lista empuja el
+   contenido hacia abajo en vez de flotar. */
+.laar-export-menu--inline { display: block; }
+.laar-export-menu--inline > .laar-export-list {
+  position   : static;
+  min-width  : 0;
+  margin     : 4px 0 0;
+  padding    : 0;
+  border     : none;
+  box-shadow : none;
+  background : transparent;
+}
+/* Disparador en el sidebar: el caret se va a la derecha */
+.sidebar-export-trigger .laar-btn__caret { margin-left: auto; font-size: 9px; }
+
+/* Variante UP — abre hacia arriba (para footers/barras al pie del modal) */
+.laar-export-menu--up > .laar-export-list {
+  top                : auto;
+  bottom             : calc(100% + 4px);
+}
+.laar-export-menu--up.is-open .laar-btn__caret { transform: rotate(0deg); }
+
 /* ─── Tabs legacy CMO — neutralizar arcoíris → acento único azul ──────────── */
 .cmo-tabs-bar {
   border-bottom      : 1px solid var(--laar-g200);
@@ -1438,6 +1630,11 @@ details.adr2-sec > .adr2-body { padding: 6px 12px 10px; }
   color             : var(--laar-g700) !important;
   border             : var(--laar-border-md) !important;
 }
+
+/* Herramientas dev (.dev-only) — reveladas solo con window._MAO_DEBUG (clase
+   html.mao-debug seteada al boot). Especificidad (0,2,1)+!important vence a la
+   regla `.dev-only{display:none!important}` de main.css. */
+html.mao-debug .dev-only { display: revert !important; }
 
 /* ─── Prueba Virtual (dev-only): botones con gradiente rosa/gris → secundarios ─ */
 .mao-main #testProgressIndicatorBtn,

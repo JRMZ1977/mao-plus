@@ -20,7 +20,6 @@
     scaleBtn:    'calcularEscalaBtn',
     detectBtn:   'detectarObjetosBtn',
     morphCont:   'morphologicalAnalysisContainer',
-    edgeCont:    'edgeAnalysisContainer',
     metricsCont: 'metricsTableContainer',
     compareCont: 'comparadorMultiObjetoSection',
     identificacionAsignada: 'identificacionAsignada',
@@ -51,7 +50,6 @@
     'sectionImagen',
     'sectionEscala',
     'morphologicalAnalysisContainer',
-    'edgeAnalysisContainer',
     'metricsTableContainer',
     'comparadorMultiObjetoSection',
   ];
@@ -62,7 +60,6 @@
     escalaCalculada:   false,
     objetosDetectados: false,
     morfResultados:    false,
-    edgeResultados:    false,
     metricsResultados: false,
     proyectoActivo:    false,
     objetoNombre:      '',
@@ -370,7 +367,6 @@
     { targetId: 'sectionEscala',            check: () => state.escalaCalculada },
     { targetId: 'sectionCanvas',            check: () => state.objetosDetectados },
     { targetId: 'morphologicalAnalysisContainer', check: () => state.morfResultados },
-    { targetId: 'edgeAnalysisContainer',    check: () => state.edgeResultados  },
     { targetId: 'metricsTableContainer',    check: () => state.metricsResultados },
   ];
 
@@ -490,7 +486,7 @@
 
     // — Botón exportar: deshabilitado si aún no hay resultados —
     if (_exportBtn) {
-      const tieneResultados = state.morfResultados || state.edgeResultados || state.metricsResultados;
+      const tieneResultados = state.morfResultados || state.metricsResultados;
       _exportBtn.disabled = !tieneResultados;
       _exportBtn.style.opacity = tieneResultados ? '1' : '0.45';
       _exportBtn.style.cursor  = tieneResultados ? 'pointer' : 'not-allowed';
@@ -518,7 +514,6 @@
     observeElement(IDS.scaleBtn, updateAllStatus);
     observeElement(IDS.detectBtn, updateAllStatus);
     observeElement(IDS.morphCont, updateAllStatus);
-    observeElement(IDS.edgeCont, updateAllStatus);
     observeElement(IDS.metricsCont, updateAllStatus);
     // Observar el indicador de identificación asignada
     observeElement(IDS.identificacionAsignada, () => {
@@ -734,9 +729,6 @@
       state.morfResultados = morphCont.style.display === 'block' ||
         (morphCont.style.display !== 'none' && morphCont.innerHTML.trim().length > 100);
     }
-    const edgeCont = document.getElementById(IDS.edgeCont);
-    if (edgeCont) state.edgeResultados = edgeCont.style.display !== 'none' && edgeCont.innerHTML.trim().length > 100;
-
     const metricsCont = document.getElementById(IDS.metricsCont);
     if (metricsCont) state.metricsResultados = metricsCont.style.display !== 'none' && metricsCont.innerHTML.trim().length > 100;
 
@@ -817,7 +809,6 @@
     scaleBtn:   'calcularEscalaBtn',
     detectBtn:  'detectarObjetosBtn',
     morphCont:  'morphologicalAnalysisContainer',
-    edgeCont:   'edgeAnalysisContainer',
     metricsCont:'metricsTableContainer',
     compareCont:'comparadorMultiObjetoSection',
   };
@@ -836,7 +827,6 @@
     'sectionImagen',
     'sectionEscala',
     'morphologicalAnalysisContainer',
-    'edgeAnalysisContainer',
     'metricsTableContainer',
     'comparadorMultiObjetoSection',
   ];
@@ -847,7 +837,6 @@
     escalaCalculada:   false,
     objetosDetectados: false,
     morfResultados:    false,
-    edgeResultados:    false,
     metricsResultados: false,
     proyectoActivo:    false,
   };
@@ -960,7 +949,6 @@
       'sectionEscala':            () => state.escalaCalculada,
       'sectionCanvas':            () => state.objetosDetectados,
       'morphologicalAnalysisContainer': () => state.morfResultados,
-      'edgeAnalysisContainer':    () => state.edgeResultados,
       'metricsTableContainer':    () => state.metricsResultados,
     };
   }
@@ -1034,12 +1022,7 @@
       );
     }
 
-    // Bordes y métricas (generalmente aparecen junto al morfológico)
-    const edgeCont = document.getElementById(IDS.edgeCont);
-    if (edgeCont) {
-      state.edgeResultados = edgeCont.style.display !== 'none' && edgeCont.innerHTML.trim().length > 100;
-    }
-
+    // Métricas (generalmente aparecen junto al morfológico)
     const metricsCont = document.getElementById(IDS.metricsCont);
     if (metricsCont) {
       state.metricsResultados = metricsCont.style.display !== 'none' && metricsCont.innerHTML.trim().length > 100;
@@ -1070,7 +1053,6 @@
 
     // Observar display del contenedor morfológico (cambios de style)
     observeAttribute(IDS.morphCont, updateAllStatus);
-    observeAttribute(IDS.edgeCont, updateAllStatus);
     observeAttribute(IDS.metricsCont, updateAllStatus);
 
     // El poll periódico lo maneja la IIFE principal (sidebar-nav.js, primera sección).
