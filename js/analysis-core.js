@@ -25506,7 +25506,11 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   // ============================================================================
   // 🆕 FUNCIÓN PARA GENERAR REPORTE PDF INTEGRAL CON TODAS LAS MÉTRICAS
   // ============================================================================
-  window.generarReportePDFIntegral = VisualizationExport.generarReportePDFIntegral;
+  // NOTA (ADR-011): `generarReportePDFIntegral` NO existe — su definición local está
+  // comentada abajo y nunca se movió al módulo. El PDF integral lo arma por completo
+  // generarPDFDesdeHTML (rama opciones.integral) desde datos REALES (jsPDF). No se
+  // asigna a window: la referencia a un identificador inexistente rompía el init
+  // (ReferenceError → se perdían window.__maoE2E y el resto del arranque).
 
   // Nota: La definición completa de esta función ha sido movida a visualization-export.js
   // La versión anterior inline estaba aquí y ha sido reemplazada por una referencia al módulo.
@@ -26211,8 +26215,16 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         htmlContent += `
         </div>
         `;
+      } else {
+        // ADR-011: SIEMPRE presente (esqueleto estable). Sin P/H confirmadas.
+        htmlContent += `
+        <div class="analisis-ph">
+          <h4>ANÁLISIS DE PERFORACIONES Y HORADACIONES</h4>
+          <p style="color:#666; font-style:italic; margin-top:10px;">Sin perforaciones ni horadaciones detectadas o confirmadas en este objeto.</p>
+        </div>
+        `;
       }
-      
+
       // ======================================================================
       // SECCIÓN: INCERTIDUMBRE ÓPTICA POSICIONAL
       // Si el objeto fue guardado antes de que existiera el modelo óptico,
@@ -29761,6 +29773,38 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
                 ['Rectangularidad s/fragmentación  [0–1]', 'rectangularity_fragmentada'],
                 ['Factor de Forma s/fragmentación  [0–1]', 'shape_factor_fragmentado']
               ]
+            },
+            {
+              // ADR-011: categorías canónicas que faltaban en el PDF (cobertura completa vs Tabla).
+              titulo: 'Convex Hull — Forma Completa Estimada',
+              metricas: [
+                ['Circularidad del Hull  [0–1]', 'hull_circularity'],
+                ['Relación de Aspecto del Hull (L/A)', 'hull_aspect_ratio'],
+                ['Convexidad  [0–1]', 'convexity'],
+                ['Clasificación Convexidad', 'convexity_class'],
+                ['Diferencia de Área Hull vs Real (%)', 'hull_area_difference_percent'],
+                ['Diferencia de Perímetro Hull vs Real (%)', 'hull_perimeter_difference_percent'],
+                ['N° de Puntos del Convex Hull', 'convex_hull_points']
+              ]
+            },
+            {
+              titulo: 'Forma 3D Inferida',
+              metricas: [
+                ['Esfericidad  [0–1]', 'esfericidad'],
+                ['Forma 3D Inferida', 'forma_3d_inferida'],
+                ['Oblongación  [0–1]', 'oblongacion'],
+                ['Clasificación Oblongación', 'oblongacion_clasificacion'],
+                ['Aplanamiento Inferido', 'aplanamiento_inferido']
+              ]
+            },
+            {
+              titulo: 'Centroide y Posición Espacial',
+              metricas: [
+                ['Centroide X — Contorno Real (px)', 'centroide_x'],
+                ['Centroide Y — Contorno Real (px)', 'centroide_y'],
+                ['Centroide X — Convex Hull (px)', 'centroide_hull_x'],
+                ['Centroide Y — Convex Hull (px)', 'centroide_hull_y']
+              ]
             }
           ];
 
@@ -30118,13 +30162,27 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
             const _txVar  = metricas.varianza_interna     != null ? parseFloat(metricas.varianza_interna)    : null;
             const _txEnt  = metricas.entropia_superficie   != null ? parseFloat(metricas.entropia_superficie)  : null;
             const _txGrad = metricas.gradiente_medio       != null ? parseFloat(metricas.gradiente_medio)      : null;
-            if (_txVar !== null || _txEnt !== null || _txGrad !== null) {
+            // ADR-011: GLCM (co-ocurrencia de grises) — faltaba en el PDF vs panel/Tabla.
+            const _glcmC  = metricas.contrast      != null ? parseFloat(metricas.contrast)      : null;
+            const _glcmD  = metricas.dissimilarity != null ? parseFloat(metricas.dissimilarity) : null;
+            const _glcmH  = metricas.homogeneity   != null ? parseFloat(metricas.homogeneity)   : null;
+            const _glcmE  = metricas.energy        != null ? parseFloat(metricas.energy)        : null;
+            const _glcmR  = metricas.correlation   != null ? parseFloat(metricas.correlation)   : null;
+            const _glcmEn = metricas.entropy       != null ? parseFloat(metricas.entropy)       : null;
+            const _tieneGlcm = _glcmC !== null || _glcmH !== null;
+            if (_txVar !== null || _txEnt !== null || _txGrad !== null || _tieneGlcm) {
               ensureSpace(55);
               addText('XIV. Textura de Superficie', 11, true, true);
               const _txFilas = [];
               if (_txVar  !== null) _txFilas.push(['Varianza tonal σ²',         _txVar.toFixed(2),   _txVar >= 400 ? 'Textura heterogénea (σ²≥400)' : 'Textura homogénea (σ²<400)']);
               if (_txEnt  !== null) _txFilas.push(['Entropía superficial H',     _txEnt.toFixed(4) + ' bits', 'Mayor H → mayor diversidad tonal']);
               if (_txGrad !== null) _txFilas.push(['Gradiente medio Ḡ (Sobel)',  _txGrad.toFixed(2),  'Intensidad de bordes internos']);
+              if (_glcmC  !== null) _txFilas.push(['Contraste GLCM',             _glcmC.toFixed(4),   'Variación local de intensidad (co-ocurrencia)']);
+              if (_glcmD  !== null) _txFilas.push(['Disimilaridad GLCM',         _glcmD.toFixed(4),   'Diferencia media entre pares de grises']);
+              if (_glcmH  !== null) _txFilas.push(['Homogeneidad GLCM',          _glcmH.toFixed(4),   'Cercanía a la diagonal (uniformidad)']);
+              if (_glcmE  !== null) _txFilas.push(['Energía GLCM',               _glcmE.toFixed(4),   'Orden/uniformidad textural (ASM)']);
+              if (_glcmR  !== null) _txFilas.push(['Correlación GLCM',           _glcmR.toFixed(4),   'Dependencia lineal de grises vecinos']);
+              if (_glcmEn !== null) _txFilas.push(['Entropía GLCM',              _glcmEn.toFixed(4),  'Aleatoriedad de la textura']);
               addTable(['Métrica (XIV)', 'Valor', 'Interpretación'], _txFilas, 100);
 
               // Nota metodológica XIV
@@ -32311,7 +32369,11 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         // GENERAR PDF CON DATOS + MÉTRICAS COMPLETAS (mismo motor que PDF Integral)
         try {
           console.log('🎨 Generando PDF con métricas completas y P/H...');
-          const htmlContent = VisualizationExport.generarReportePDFIntegral(obj);
+          // ADR-011 fix: el PDF integral lo arma generarPDFDesdeHTML (rama
+          // opciones.integral) desde datos REALES; htmlContent solo debe aportar un
+          // `.contenedor` (la función generarReportePDFIntegral no existe — estaba
+          // comentada y nunca se movió al módulo; llamarla lanzaba el error del botón).
+          const htmlContent = '<div class="contenedor"></div>';
           const nombreBase = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `OBJ_${obj.numeroObjeto}`;
           const filename = `${nombreBase}_reporte`;
           await generarPDFDesdeHTML(htmlContent, filename, obj, metricas, { integral: true });
@@ -32575,7 +32637,11 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           console.log('🎨 Generando PDF INTEGRAL con todas las métricas, P/H y análisis comparativo...');
           
           // Generar HTML del reporte integral
-          const htmlContent = VisualizationExport.generarReportePDFIntegral(obj);
+          // ADR-011 fix: el PDF integral lo arma generarPDFDesdeHTML (rama
+          // opciones.integral) desde datos REALES; htmlContent solo debe aportar un
+          // `.contenedor` (la función generarReportePDFIntegral no existe — estaba
+          // comentada y nunca se movió al módulo; llamarla lanzaba el error del botón).
+          const htmlContent = '<div class="contenedor"></div>';
           
           // Crear nombre de archivo para el PDF
           const nombreBase = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `OBJ_${obj.numeroObjeto}`;
@@ -33362,17 +33428,14 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     // ==========================================================================
     // CATEGORÍA: Fragmentación y Conservación
     // ==========================================================================
-    if (m.area_fragmentada !== undefined) {
-      csvLines += `Fragmentación,Área Fragmentada,${fmt(m.area_fragmentada, 3)},mm²\n`;
-      csvLines += `Fragmentación,Perímetro Fragmentado,${fmt(m.perimeter_fragmentado, 3)},mm\n`;
-      csvLines += `Fragmentación,Pérdida Área (%),${fmt(m.perdida_area_fragmentacion_percent, 1)},%\n`;
-      csvLines += `Fragmentación,Pérdida Perímetro (%),${fmt(m.perdida_perimetro_fragmentacion_percent, 1)},%\n`;
-    }
-    if (m.completitud_estimada !== undefined) {
-      csvLines += `Fragmentación,Completitud Estimada,${fmt(m.completitud_estimada, 1)},%\n`;
-      csvLines += `Fragmentación,Tipo de Fragmento,${m.completitud_tipo_fragmento || 'N/A'},-\n`;
-      csvLines += `Fragmentación,Cobertura Angular,${fmt(m.completitud_cobertura_grados, 1)},grados\n`;
-    }
+    // ADR-011: SIEMPRE presente (esqueleto estable). Sin fragmentación → 0 / pieza completa.
+    csvLines += `Fragmentación,Área Fragmentada,${fmt(m.area_fragmentada, 3)},mm²\n`;
+    csvLines += `Fragmentación,Perímetro Fragmentado,${fmt(m.perimeter_fragmentado, 3)},mm\n`;
+    csvLines += `Fragmentación,Pérdida Área (%),${m.perdida_area_fragmentacion_percent != null ? fmt(m.perdida_area_fragmentacion_percent, 1) : '0.0'},%\n`;
+    csvLines += `Fragmentación,Pérdida Perímetro (%),${m.perdida_perimetro_fragmentacion_percent != null ? fmt(m.perdida_perimetro_fragmentacion_percent, 1) : '0.0'},%\n`;
+    csvLines += `Fragmentación,Completitud Estimada,${m.completitud_estimada != null ? fmt(m.completitud_estimada, 1) : '100.0'},%\n`;
+    csvLines += `Fragmentación,Tipo de Fragmento,${m.completitud_tipo_fragmento || 'Pieza completa'},-\n`;
+    csvLines += `Fragmentación,Cobertura Angular,${fmt(m.completitud_cobertura_grados, 1)},grados\n`;
     
     // ==========================================================================
     // CATEGORÍA: Índices de Forma
@@ -33496,7 +33559,34 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     csvLines += `Forma 3D Inferida,Oblongación,${fmt(m.oblongacion, 4)},-\n`;
     csvLines += `Forma 3D Inferida,Clasificación Oblongación,${m.oblongacion_clasificacion || 'N/A'},-\n`;
     csvLines += `Forma 3D Inferida,Aplanamiento Inferido,${m.aplanamiento_inferido || 'N/A'},-\n`;
-    
+
+    // ==========================================================================
+    // CATEGORÍA: Textura Óptica (GLCM) — ADR-011 (faltaba en CSV; SIEMPRE presente)
+    // ==========================================================================
+    csvLines += `Textura Óptica (GLCM),Contraste GLCM,${fmt(m.contrast, 4)},-\n`;
+    csvLines += `Textura Óptica (GLCM),Disimilaridad,${fmt(m.dissimilarity, 4)},-\n`;
+    csvLines += `Textura Óptica (GLCM),Homogeneidad,${fmt(m.homogeneity, 4)},-\n`;
+    csvLines += `Textura Óptica (GLCM),Energía,${fmt(m.energy, 4)},-\n`;
+    csvLines += `Textura Óptica (GLCM),Correlación,${fmt(m.correlation, 4)},-\n`;
+    csvLines += `Textura Óptica (GLCM),Entropía GLCM,${fmt(m.entropy, 4)},-\n`;
+    csvLines += `Textura Óptica (GLCM),Varianza Interna,${fmt(m.varianza_interna, 2)},-\n`;
+    csvLines += `Textura Óptica (GLCM),Entropía Superficie,${fmt(m.entropia_superficie, 4)},-\n`;
+    csvLines += `Textura Óptica (GLCM),Gradiente Medio,${fmt(m.gradiente_medio, 4)},-\n`;
+    csvLines += `Textura Óptica (GLCM),Interpretación,${m.textura_interpretacion || 'N/A'},-\n`;
+
+    // ==========================================================================
+    // CATEGORÍA: Error e Incertidumbre Óptica — ADR-011 (faltaba en CSV; SIEMPRE presente)
+    // ==========================================================================
+    csvLines += `Error e Incertidumbre Óptica,Error Lineal,${fmt(m.error_optico_lineal_percent, 3)},%\n`;
+    csvLines += `Error e Incertidumbre Óptica,Error Área,${fmt(m.error_optico_area_percent, 3)},%\n`;
+    csvLines += `Error e Incertidumbre Óptica,Error Perspectiva,${fmt(m.error_perspectiva_percent, 3)},%\n`;
+    csvLines += `Error e Incertidumbre Óptica,Error Distorsión,${fmt(m.error_distorsion_percent, 3)},%\n`;
+    csvLines += `Error e Incertidumbre Óptica,Posición Radial Normalizada,${fmt(m.posicion_radial_norm, 4)},-\n`;
+    csvLines += `Error e Incertidumbre Óptica,Ángulo Óptico,${fmt(m.angulo_optico_deg, 2)},grados\n`;
+    csvLines += `Error e Incertidumbre Óptica,FOV Diagonal,${fmt(m.fov_diagonal_deg, 2)},grados\n`;
+    csvLines += `Error e Incertidumbre Óptica,k1 Estimado,${m.k1_estimado != null ? fmt(m.k1_estimado, 6) : 'N/A'},-\n`;
+    csvLines += `Error e Incertidumbre Óptica,Confianza Óptica,${m.confianza_optica || 'Sin datos'},-\n`;
+
     // ==========================================================================
     // CATEGORÍA: Centroide y Posición
     // ==========================================================================
@@ -33520,13 +33610,12 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     // ==========================================================================
     // CATEGORÍA: Patrón de Agrupamiento (Perforaciones/Horadaciones)
     // ==========================================================================
-    if (m.patron_agrupamiento) {
-      csvLines += `Patrón de Agrupamiento,Patrón Detectado,${m.patron_agrupamiento || 'N/A'},-\n`;
-      csvLines += `Patrón de Agrupamiento,Detalles,${m.patron_agrupamiento_detalles || 'N/A'},-\n`;
-      csvLines += `Patrón de Agrupamiento,Confianza,${m.patron_agrupamiento_confianza || 'N/A'},%\n`;
-      csvLines += `Patrón de Agrupamiento,Patrón Específico,${m.patron_agrupamiento_patron || 'N/A'},-\n`;
-      csvLines += `\n`;
-    }
+    // ADR-011: SIEMPRE presente (esqueleto estable). Sin P/H → sin patrón espacial.
+    csvLines += `Patrón de Agrupamiento,Patrón Detectado,${m.patron_agrupamiento || 'Sin patrón (requiere P/H)'},-\n`;
+    csvLines += `Patrón de Agrupamiento,Detalles,${m.patron_agrupamiento_detalles || 'N/A'},-\n`;
+    csvLines += `Patrón de Agrupamiento,Confianza,${m.patron_agrupamiento_confianza != null ? m.patron_agrupamiento_confianza : 'N/A'},%\n`;
+    csvLines += `Patrón de Agrupamiento,Patrón Específico,${m.patron_agrupamiento_patron || 'N/A'},-\n`;
+    csvLines += `\n`;
     
     // ==========================================================================
     // CATEGORÍA: Clasificación Síntesis Final (Forma + Patrón)
@@ -33557,13 +33646,13 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     csvLines += `Métricas Complementarias,Vértices Aproximados,${m.vertices_aproximados || 'N/A'},-\n`;
     csvLines += `Métricas Complementarias,Puntos del Contorno,${m.contour_points || 'N/A'},-\n`;
     
-    // Depuración Estadística de Contorno (si existe)
+    // ADR-011: Depuración Estadística de Contorno — categoría propia, SIEMPRE presente.
     if (m._forma_idealizada) {
       const forma = m._forma_idealizada;
-      csvLines += `Métricas Complementarias,Forma Identificada (Depuración),${forma.nombre || 'N/A'},-\n`;
-      if (forma.parametros?.completitud !== undefined) {
-        csvLines += `Métricas Complementarias,Completitud Estimada,${fmt(forma.parametros.completitud * 100, 0)},%\n`;
-      }
+      csvLines += `Depuración Estadística de Contorno,Forma Identificada,${forma.nombre || 'N/A'},-\n`;
+      csvLines += `Depuración Estadística de Contorno,Completitud,${forma.parametros?.completitud !== undefined ? fmt(forma.parametros.completitud * 100, 0) : 'N/A'},%\n`;
+    } else {
+      csvLines += `Depuración Estadística de Contorno,Forma Identificada,N/A (contorno no depurado en este modo),-\n`;
     }
     csvLines += `\n`;
     
@@ -33634,6 +33723,11 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       const perimetroTotal = perforaciones.reduce((sum, p) => sum + (parseFloat(p.metricas?.perimeter || p.perimetro) || 0), 0);
       csvLines += `Perforaciones,Perímetro Total Perforaciones,${fmt(perimetroTotal, 3)},mm\n`;
       csvLines += `\n`;
+    } else {
+      // ADR-011: SIEMPRE presente (esqueleto estable).
+      csvLines += `Perforaciones,Número de Perforaciones,0,-\n`;
+      csvLines += `Perforaciones,Estado,Sin perforaciones detectadas ni confirmadas,-\n`;
+      csvLines += `\n`;
     }
 
     // ==========================================================================
@@ -33694,8 +33788,13 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       const perimetroTotal = horadaciones.reduce((sum, h) => sum + (parseFloat(h.metricas?.perimeter || h.perimetro) || 0), 0);
       csvLines += `Horadaciones,Perímetro Total Horadaciones,${fmt(perimetroTotal, 3)},mm\n`;
       csvLines += `\n`;
+    } else {
+      // ADR-011: SIEMPRE presente (esqueleto estable).
+      csvLines += `Horadaciones,Número de Horadaciones,0,-\n`;
+      csvLines += `Horadaciones,Estado,Sin horadaciones detectadas ni confirmadas,-\n`;
+      csvLines += `\n`;
     }
-    
+
     // ========================================================================
     // 🆕 COMPARACIÓN MORFOLÓGICA: Objeto vs P/H
     // ========================================================================

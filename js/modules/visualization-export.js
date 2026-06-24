@@ -538,6 +538,24 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
     }
     
     // ============================================================================
+    // 🧭 ESQUELETO ESTABLE DE CATEGORÍAS (agnóstico al modo de detección)
+    // ----------------------------------------------------------------------------
+    // Garantía: las categorías ESTRUCTURALES del informe (derivan del contorno/
+    // métricas y podrían existir en cualquier modo) y las FACTUALES de objeto
+    // (P/H, fragmentación) se renderizan SIEMPRE, con un marcador "sin datos"
+    // cuando un modo o una acción secundaria no las pobló. Así lo que el usuario
+    // ve en Análisis no depende del modo de detección ni de pasos secundarios.
+    // Mismo espíritu que la red de seguridad del error óptico (arriba).
+    // ============================================================================
+    const _hSkel = (titulo, color = '#666') =>
+      `<h5 style="color:${color}; margin:20px 0 10px 0; border-bottom:2px solid ${color}; padding-bottom:5px; font-size:1.1em;">${titulo}</h5>`;
+    const _filaSinDatos = (motivo) =>
+      `<div class="morphological-metric" style="opacity:.6;">
+         <span class="label" style="font-style:italic; color:#888;">Sin datos</span>
+         <span class="value" style="font-style:italic; color:#888;">${motivo || 'no disponible en este modo'}</span>
+       </div>`;
+
+    // ============================================================================
     // 🆕 GENERAR HTML REORGANIZADO - CARACTERIZACIÓN MORFOMÉTRICA LÓGICA
     // Estructura sin duplicaciones y secuencia coherente
     // ============================================================================
@@ -657,6 +675,12 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
           <span class="label">Pérdida por Fragmentación:</span>
           <span class="value">Área: ${metricas.perdida_area_fragmentacion_percent}% | Perímetro: ${metricas.perdida_perimetro_fragmentacion_percent}%</span>
         </div>`;
+      } else {
+        metricsHTML += `
+        <div class="morphological-metric">
+          <span class="label">Pérdida por Fragmentación:</span>
+          <span class="value" style="color:#6c757d;">Sin pérdida estimada (pieza completa)</span>
+        </div>`;
       }
       
       metricsHTML += `
@@ -675,6 +699,12 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
         <div class="morphological-metric" style="background: #f3e5f5; padding: 8px; border-radius: 4px; margin: 5px 0;">
           <span class="label">Completitud Estimada:</span>
           <span class="value" style="color: #6a1b9a; font-weight: bold;">${metricas.completitud_estimada}% → ${metricas.completitud_tipo_fragmento}</span>
+        </div>`;
+      } else {
+        metricsHTML += `
+        <div class="morphological-metric" style="background: #f3e5f5; padding: 8px; border-radius: 4px; margin: 5px 0;">
+          <span class="label">Completitud Estimada:</span>
+          <span class="value" style="color: #6a1b9a;">${metricas.completitud_tipo_fragmento || 'Pieza completa'} (sin fragmentación detectada)</span>
         </div>`;
       }
 
@@ -931,10 +961,15 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
           <strong>resolución geométrica preservada</strong>. NO es una forma abstracta idealizada, sino la 
           <strong>geometría real del objeto</strong> libre de artefactos de digitalización.
         </div>`;
+        } else {
+          // Esqueleto estable: la depuración estadística solo se calcula en algunos
+          // flujos (depende del modo/acción). La categoría se rinde igual.
+          metricsHTML += _hSkel('Depuración Estadística de Contorno', '#666') +
+            _filaSinDatos('contorno no depurado estadísticamente en este modo');
         }
-        
+
         metricsHTML += `
-        
+
         <h5 style="color: #d4af37; margin: 20px 0 10px 0; border-bottom: 2px solid #d4af37; padding-bottom: 5px; font-size: 1.1em;">CARACTERÍSTICAS MORFOMÉTRICAS AVANZADAS</h5>
         
         <div style="background: #fff8dc; padding: 10px; border-left: 4px solid #d4af37; border-radius: 4px; margin: 10px 0; font-size: 0.9em;">
@@ -1229,6 +1264,11 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
       }
 
       metricsHTML += `</div>`;
+    } else {
+      // Esqueleto estable: textura GLCM solo presente si /api/texture corrió y no
+      // fue saltada (raster sintético / fallo). La categoría se rinde igual.
+      metricsHTML += _hSkel('TEXTURA ÓPTICA (Análisis GLCM)', '#7e57c2') +
+        _filaSinDatos('textura no calculada en este modo de detección');
     }
 
     metricsHTML += `
@@ -1802,8 +1842,13 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
         <span class="label">% Área Perforaciones vs Objeto:</span>
         <span class="value">${((areaTotalPerforaciones / metricas.area) * 100).toFixed(2)}%</span>
       </div>`;
+    } else {
+      // Esqueleto estable: confirmar perforaciones es una acción secundaria.
+      // La categoría se rinde igual para que la estructura no dependa de ella.
+      metricsHTML += _hSkel('Resumen de Perforaciones', '#0066cc') +
+        _filaSinDatos('sin perforaciones detectadas ni confirmadas');
     }
-    
+
     // Verificar si hay horadaciones
     if (obj.horadaciones && obj.horadaciones.length > 0) {
       // Área efectiva horadaciones (siempre es el área del contenedor)
@@ -1847,18 +1892,26 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
         <span class="label">% Área Horadaciones vs Objeto:</span>
         <span class="value">${((areaTotalHoradaciones / metricas.area) * 100).toFixed(2)}%</span>
       </div>`;
+    } else {
+      // Esqueleto estable: confirmar horadaciones es una acción secundaria.
+      metricsHTML += _hSkel('Resumen de Horadaciones', '#28a745') +
+        _filaSinDatos('sin horadaciones detectadas ni confirmadas');
     }
-    
+
     // Verificar si hay patrón de agrupamiento (ya se muestra arriba pero lo agregamos como métrica exportable)
     if (metricas.patron_agrupamiento) {
       metricsHTML += `
-      
+
       <h5 style="color: #ff9800; margin: 20px 0 10px 0; border-bottom: 2px solid #ff9800; padding-bottom: 5px;">Análisis de Patrón</h5>
-      
+
       <div class="morphological-metric" style="background: rgba(255, 152, 0, 0.1); padding: 10px; border-radius: 4px; margin: 5px 0; border-left: 4px solid #ff9800;">
         <span class="label">Total P/H Detectadas:</span>
         <span class="value" style="font-weight: bold; color: #ff9800;">${(obj.perforaciones?.length || 0) + (obj.horadaciones?.length || 0)}</span>
       </div>`;
+    } else {
+      // Esqueleto estable: el patrón espacial requiere P/H confirmadas.
+      metricsHTML += _hSkel('Análisis de Patrón', '#ff9800') +
+        _filaSinDatos('sin patrón espacial (requiere perforaciones/horadaciones)');
     }
     
     // ============================================================================
@@ -1974,6 +2027,12 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
           Métricas <em>no afectadas</em>(adimensionales): circularity · compactness · aspect_ratio · solidity · rectangularity · elongation
         </div>
       </div>`;
+    } else {
+      // Esqueleto estable: la red de seguridad del inicio normalmente puebla el
+      // error óptico en cualquier modo. Si el helper no está cargado o faltan
+      // parámetros de cámara, la categoría se rinde igual (no desaparece).
+      metricsHTML += _hSkel('Incertidumbre Óptica Posicional', '#6f42c1') +
+        _filaSinDatos('requiere focal, sensor y distancia de cámara');
     }
 
     // Agregar botones de exportación (solo botones ocultos para futuro uso)
