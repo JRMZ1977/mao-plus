@@ -677,6 +677,7 @@ async def detect(
     min_area: int = 1000,
     max_objects: int = 50,
     separate_touching: bool = False,
+    include_contours: bool = False,
 ) -> dict:
     """
     Detecta objetos en la imagen usando OpenCV.
@@ -898,6 +899,11 @@ async def detect(
             if not cnts:
                 continue
             best_cnt = max(cnts, key=cv2.contourArea)
+            # ADR-012 F3: exponer el contorno del núcleo (coords absolutas) para que
+            # la rama 'auto' del modal IA reuse esta segmentación. Gated → sin coste
+            # ni cambio de salida para los demás llamadores (automático).
+            if include_contours:
+                obj["contour_points"] = best_cnt.reshape(-1, 2).tolist()
             if cv2.contourArea(best_cnt) < min_area * 0.5:
                 continue
             idx_obj = int(obj["id"].split("_")[1]) - 1

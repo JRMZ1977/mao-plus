@@ -1220,7 +1220,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     });
   }
 
-  function ejecutarDeteccionEnAreaManual() {
+  async function ejecutarDeteccionEnAreaManual() {
     if (!manualSelectedArea || !image) {
       console.error('❌ No hay área seleccionada o imagen cargada');
       UtilityHelpers.setStatus('Error: No hay área seleccionada o imagen cargada', true);
@@ -1239,7 +1239,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     
     // Ejecutar detección inmediatamente sin pasos intermedios
     const startTime = performance.now();
-    const objetosDetectados = detectarObjetosEnArea(manualSelectedArea);
+    const objetosDetectados = await detectarObjetosEnArea(manualSelectedArea);
     const tiempo = (performance.now() - startTime).toFixed(1);
     
     // Actualizar estado inmediatamente
@@ -1667,7 +1667,61 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     console.log('🔬 Iniciando análisis morfométrico mejorado para área manual');
     
     // Mostrar progreso
-  
+    manualSelectionInstructions.textContent += '\n Analizando morfología de objetos...';
+    
+    let procesados = 0;
+    let conContorno = 0;
+    let sinContorno = 0;
+    
+    const startTime = performance.now();
+    
+    for (const obj of objects) {
+      try {
+        const metricas = MetricsOrchestrator.calcularMetricasMorfologicas(obj, scale);
+        if (metricas) {
+          obj.metrics = metricas;
+          procesados++;
+          
+          // Contar tipos de análisis
+          if (metricas.analysis_method === "Bounding Box (Fallback)") {
+            sinContorno++;
+          } else {
+            conContorno++;
+          }
+        }
+      } catch (error) {
+        console.warn(`⚠️ Error calculando métricas para objeto ${obj.id}:`, error);
+      }
+    }
+    
+    const endTime = performance.now();
+    const processingTime = ((endTime - startTime) / 1000).toFixed(2);
+    
+    const estadisticasAnalisis = {
+      procesados: procesados,
+      conContorno: conContorno,
+      sinContorno: sinContorno,
+      tiempoProcesamiento: processingTime
+    };
+    
+    console.log(`✅ Análisis morfométrico completado:`, estadisticasAnalisis);
+    
+    // Actualizar interfaz con resultados del análisis
+    const mensajeFinal = `Análisis morfométrico completado:
+    • ${procesados}/${objects.length} objetos analizados
+    • ${conContorno} con contorno real, ${sinContorno} con bounding box
+    • Tiempo de procesamiento: ${processingTime}s
+    • Escala aplicada: ${scale ? (scale * 1000).toFixed(2) + ' μm/píxel' : 'No disponible'}`;
+    
+    manualSelectionInstructions.textContent = mensajeFinal;
+    
+    // Actualizar displays finales
+    UtilityHelpers.updateDisplays();
+    UtilityHelpers.redrawCanvas();
+    
+    UtilityHelpers.setStatus(`Análisis morfométrico completado: ${procesados} objetos procesados`, false);
+  }
+
   // ============================================================================
   // FUNCIÓN DE SELECCIÓN DE COMPONENTE POR CLIC
   // ============================================================================
@@ -1845,60 +1899,6 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       componentInfo: componentInfo,
       metodoDeteccion: 'manual_component_selection'
     };
-  }
-    manualSelectionInstructions.textContent += '\n Analizando morfología de objetos...';
-    
-    let procesados = 0;
-    let conContorno = 0;
-    let sinContorno = 0;
-    
-    const startTime = performance.now();
-    
-    for (const obj of objects) {
-      try {
-        const metricas = MetricsOrchestrator.calcularMetricasMorfologicas(obj, scale);
-        if (metricas) {
-          obj.metrics = metricas;
-          procesados++;
-          
-          // Contar tipos de análisis
-          if (metricas.analysis_method === "Bounding Box (Fallback)") {
-            sinContorno++;
-          } else {
-            conContorno++;
-          }
-        }
-      } catch (error) {
-        console.warn(`⚠️ Error calculando métricas para objeto ${obj.id}:`, error);
-      }
-    }
-    
-    const endTime = performance.now();
-    const processingTime = ((endTime - startTime) / 1000).toFixed(2);
-    
-    const estadisticasAnalisis = {
-      procesados: procesados,
-      conContorno: conContorno,
-      sinContorno: sinContorno,
-      tiempoProcesamiento: processingTime
-    };
-    
-    console.log(`✅ Análisis morfométrico completado:`, estadisticasAnalisis);
-    
-    // Actualizar interfaz con resultados del análisis
-    const mensajeFinal = `Análisis morfométrico completado:
-    • ${procesados}/${objects.length} objetos analizados
-    • ${conContorno} con contorno real, ${sinContorno} con bounding box
-    • Tiempo de procesamiento: ${processingTime}s
-    • Escala aplicada: ${scale ? (scale * 1000).toFixed(2) + ' μm/píxel' : 'No disponible'}`;
-    
-    manualSelectionInstructions.textContent = mensajeFinal;
-    
-    // Actualizar displays finales
-    UtilityHelpers.updateDisplays();
-    UtilityHelpers.redrawCanvas();
-    
-    UtilityHelpers.setStatus(`Análisis morfométrico completado: ${procesados} objetos procesados`, false);
   }
 
   function aplicarAnalisisMorfometricoAreaManual() {
@@ -16247,15 +16247,18 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   }
 
   // DETECCIÓN MANUAL SIMPLIFICADA Y RÁPIDA
-  function detectarObjetosEnArea(areaSeleccionada) {
+  async function detectarObjetosEnArea(areaSeleccionada) {
     console.log('⚡ Usando detección manual simplificada y rápida');
-    return detectarObjetosManualRapida(areaSeleccionada);
+    return await detectarObjetosManualRapida(areaSeleccionada);
   }
   
   /**
-   * Detección manual rápida y eficiente - elimina redundancias
+   * Detección manual de área — ADR-012 (detección monolítica, Fase 1).
+   * Núcleo canónico = OpenCV `/api/detect` (Z-scan + GrabCut + watershed + confianza),
+   * misma fidelidad que auto-backend/IA. Si Python no está disponible,
+   * PythonBridge.detection.detect() devuelve null → cae al motor JS de abajo (fallback).
    */
-  function detectarObjetosManualRapida(areaSeleccionada) {
+  async function detectarObjetosManualRapida(areaSeleccionada) {
     if (!image || !areaSeleccionada) {
       console.error('❌ No hay imagen o área para detectar');
       return [];
@@ -16286,7 +16289,65 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     // Extraer región seleccionada
     ctx.drawImage(image, area.x, area.y, area.width, area.height, 0, 0, area.width, area.height);
     const imageData = ctx.getImageData(0, 0, area.width, area.height);
-    
+
+    // ── ADR-012: núcleo canónico OpenCV (/api/detect) sobre el ROI ──────────────
+    // El ROI recortado es el prior del modo manual; el núcleo separa objetos pegados
+    // (watershed) y emite confianza por objeto, igual que auto-backend/IA. Si Python
+    // no está, PythonBridge.detection.detect() devuelve null → continúa al motor JS.
+    try {
+      if (window.PythonBridge && PythonBridge.isModuleActive('detection')) {
+        const roiDataURL = tempCanvas.toDataURL('image/png');
+        const minAreaRoi = Math.max(50, Math.floor(area.width * area.height * 0.005));
+        const py = await PythonBridge.detection.detect(roiDataURL, {
+          minArea: minAreaRoi,
+          maxObjects: 50,
+          separateTouching: true   // ROI acotado por el usuario → separar artefactos pegados
+        });
+        if (py && Array.isArray(py.objects)) {
+          const objetosNucleo = py.objects.map((o, index) => {
+            const bb = o.bbox || {};
+            const bx = (bb.x || 0) + area.x;
+            const by = (bb.y || 0) + area.y;
+            const bw = bb.w || o.width || 1;
+            const bh = bb.h || o.height || 1;
+            const areaPx = o.area != null ? o.area
+                         : (o.area_px != null ? o.area_px : bw * bh);
+            return {
+              id: `manual_${index + 1}`,
+              label: index + 1,
+              minX: bx,
+              maxX: bx + bw - 1,
+              minY: by,
+              maxY: by + bh - 1,
+              pixelCount: areaPx,
+              area: areaPx,
+              width: bw,
+              height: bh,
+              pixels: [],
+              tight_width: o.tight_width || bw,
+              tight_height: o.tight_height || bh,
+              aspect_ratio: (bw / bh).toFixed(3),
+              area_pixels: areaPx,
+              // ADR-008/012: confianza por objeto desde el núcleo (el manual ya no nace sin confianza)
+              detection_confidence: o.detection_confidence != null ? o.detection_confidence : null,
+              confidence_level: o.confidence_level || null,
+              detectionMethod: 'manual_area',
+              detectionArea: area,
+              has_real_contour: false,
+              contour_pending: true
+            };
+          });
+          const tNucleo = (performance.now() - startTime).toFixed(1);
+          console.log(`⚡ [Núcleo OpenCV] Detección manual: ${objetosNucleo.length} objetos en ${tNucleo}ms (separateTouching + confianza)`);
+          return objetosNucleo;
+        }
+        console.warn('[ADR-012] /api/detect con forma inesperada → fallback motor JS');
+      }
+    } catch (e) {
+      console.warn('[ADR-012] núcleo OpenCV no disponible para detección manual → fallback motor JS:', e && e.message);
+    }
+
+
     // ⚡ OPTIMIZACIÓN INTELIGENTE: Detectar automáticamente el color de fondo del área seleccionada
     const fondoDetectado = detectarColorFondoAutomatico(imageData, {
       borderWidth: Math.min(10, Math.floor(Math.min(area.width, area.height) * 0.05)), // 5% del área o 10px

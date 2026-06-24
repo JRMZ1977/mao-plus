@@ -2814,7 +2814,7 @@
   <script src="js/collection.js"></script>
   <script src="js/export-manager.js"></script>
   <script src="js/tooltips.js"></script>
-  <script type="module" src="js/analysis-core.js?v=20260624e"></script>
+  <script type="module" src="js/analysis-core.js?v=20260624g"></script>
   <script src="js/obj3d-canonical-raster.js"></script>
   <script src="js/obj3d-export.js"></script>
   <script src="js/obj3d-morph-canvas.js"></script>
@@ -3609,7 +3609,8 @@
           <div>
             <label style="font-size:11px;font-weight:600;color:#4a5568;display:block;margin-bottom:4px;">Umbralización</label>
             <select id="maoIaThreshold" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid #cbd5e0;border-radius:5px;background:#fff;color:#2d3748;">
-              <option value="otsu" selected>Otsu (automático)</option>
+              <option value="auto" selected>Auto (núcleo OpenCV) · recomendado</option>
+              <option value="otsu">Otsu (ajuste manual)</option>
               <option value="adaptive">Adaptativo (Gaussiano)</option>
               <option value="manual">Manual</option>
             </select>
@@ -3899,7 +3900,7 @@
   </div>
 
   <!-- ── MAO IA: controlador JS externo ── -->
-  <script src="js/mao-ia.js?v=20260623c"></script>
+  <script src="js/mao-ia.js?v=20260624a"></script>
   <script src="js/procrustes.js"></script>
   <script src="js/aps-save.js"></script>
   <!-- ── Controles de ventana unificados (último, tras todos los módulos) ── -->

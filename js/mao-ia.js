@@ -307,8 +307,16 @@
   sliderClip.addEventListener('input',   () => { dispClip.textContent   = sliderClip.value;   });
   sliderTile.addEventListener('input',   () => { dispTile.textContent   = sliderTile.value;   });
   selThreshold.addEventListener('change', () => {
+    const isAuto = selThreshold.value === 'auto';
     manualRow.style.display = selThreshold.value === 'manual' ? 'block' : 'none';
+    // ADR-012 F3: en modo 'auto' (núcleo OpenCV) la estrategia de umbral/preproceso
+    // la decide el núcleo → los controles de umbral/blur/invert/CLAHE no aplican
+    // (min_area y max_objects sí). Se desactivan para no confundir.
+    [sliderThresh, sliderBlur, chkInvert, chkClahe, sliderClip, sliderTile]
+      .forEach(el => { if (el) el.disabled = isAuto; });
   });
+  // Estado inicial coherente con el default 'auto'.
+  selThreshold.dispatchEvent(new Event('change'));
   chkClahe.addEventListener('change', () => {
     claheControls.style.display = chkClahe.checked ? 'block' : 'none';
   });

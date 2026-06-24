@@ -217,8 +217,8 @@ async def mao_ia_detect(
     """
     from python.modules.mao_ia_analyzer import detect_with_mao_ia
     data = await _read_image(image)
-    if threshold_method not in ("otsu", "adaptive", "manual"):
-        raise HTTPException(status_code=422, detail=f"threshold_method inválido: '{threshold_method}'. Valores permitidos: otsu, adaptive, manual")
+    if threshold_method not in ("otsu", "adaptive", "manual", "auto"):
+        raise HTTPException(status_code=422, detail=f"threshold_method inválido: '{threshold_method}'. Valores permitidos: otsu, adaptive, manual, auto (ADR-012: 'auto' usa el núcleo OpenCV)")
     result = await detect_with_mao_ia(
         image_bytes=data,
         threshold_method=threshold_method,
