@@ -6,7 +6,7 @@ Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
 ## 🎯 Sesión 2026-06-24 — ADR-012 detección monolítica (Fases 1-3 ✅) + fix modo componente
 
-**ADR-012 «detección monolítica»** (`docs/ADR-012-deteccion-monolitica.md`, sin commitear): núcleo de
+**ADR-012 «detección monolítica»** (`docs/ADR-012-deteccion-monolitica.md`, commit `eaf01d3`): núcleo de
 segmentación **único y canónico = OpenCV `detection.detect()`** (Z-scan+CLAHE+GrabCut+watershed+
 confianza); los modos son priors complementarios, no reimplementaciones redundantes. Motor JS
 `detectarObjetosHibrido` = **fallback** solo si Python no está.

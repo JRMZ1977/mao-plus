@@ -19,7 +19,7 @@
 | 008 | Contrato de salida de captura | ✅ Completado (Fases 0-3) | `d3e4628` (F1+2), `d12a2a6` (F3) | ⏸ **C2 DIFERIDO** (rewrite de `id` a compuesto, riesgo alto — `id` es clave de join viva) |
 | 009 | Detección P/H primaria | ✅ Completado (Fases 0-4) + fixes prueba real | `84778ac` | Confirmación visual chip+modal con imagen real (ADR-010) |
 | 010 | Hook verificación E2E `window.__maoE2E` | ✅ Implementado | `526cf42` | Ejecutar el checklist de 8 ítems (tarea F1.2 del roadmap) |
-| 012 | Detección monolítica (núcleo OpenCV canónico) | ✅ Fases 1-3 (auto ya estaba por ADR-007/008; manual=M1; IA=opción «Auto (núcleo)») | _sin commitear_ | Los 4 modos comparten el núcleo; JS = fallback; SAM = prior. Verif: suite 288/2 + HTTP `/api/mao-ia auto`. Caveat: dominancia/relevancia de `detect()` en ROI manual. Pendiente: verif. visual modal IA en Electron |
+| 012 | Detección monolítica (núcleo OpenCV canónico) | ✅ Fases 1-3 (auto ya estaba por ADR-007/008; manual=M1; IA=opción «Auto (núcleo)») | `eaf01d3` | Los 4 modos comparten el núcleo; JS = fallback; SAM = prior. Verif: suite 288/2 + HTTP `/api/mao-ia auto`. Caveat: dominancia/relevancia de `detect()` en ROI manual. Pendiente: verif. visual modal IA en Electron |
 
 ## Único diferido (no es deuda olvidada, es decisión consciente)
 
