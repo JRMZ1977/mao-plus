@@ -76,7 +76,23 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
     console.log(`   - contour_points length: ${obj?.contour_points?.length || 0}`);
     console.log(`   - imagen específica recibida: ${!!imagenEspecifica}`);
     console.log(`   - cara del objeto: ${obj?.cara || 'mono'}`);
-    
+
+    // ============================================================================
+    // 🔭 ERROR ÓPTICO POSICIONAL — red de seguridad AUTÓNOMA y AGNÓSTICA DEL MODO
+    // ============================================================================
+    // ESTE es el renderer que usa el flujo IA/tabs (el de analysis-core es legacy).
+    // Se calcula sobre el MISMO `metricas` que alimenta el panel de la UI y la Tabla
+    // Completa (vía currentAnalyzedObject, más abajo). Así cualquier modo (manual, IA…)
+    // entrega la Sección IX. Solo si aún no hay dato óptico real (no pisa el manual).
+    // window.aplicarErrorOpticoPosicional corre en el scope de analysis-core → resuelve
+    // imgW y los parámetros de cámara (escalaParamsOpticos) correctamente.
+    if (typeof window.aplicarErrorOpticoPosicional === 'function' && metricas &&
+        (!metricas.confianza_optica || metricas.confianza_optica === 'Sin datos')) {
+      const _cx = (metricas.centroide_x != null) ? metricas.centroide_x : ((obj?.minX || 0) + (obj?.width  || 0) / 2);
+      const _cy = (metricas.centroide_y != null) ? metricas.centroide_y : ((obj?.minY || 0) + (obj?.height || 0) / 2);
+      window.aplicarErrorOpticoPosicional(metricas, { x: _cx, y: _cy });
+    }
+
     // ============================================================================
     // 🔶 CALCULAR CONVEX HULL SI NO EXISTE
     // ============================================================================
@@ -3167,184 +3183,9 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
   }
 
 
-export function generarJSON(obj, metricas) {
-    const escala = calcularEscala();
-    
-    // Usar métricas contorno/hull con fallbacks — compatibles con objetos idealizados y no idealizados
-    const ancho = parseFloat(metricas.tight_bounding_width_px || obj.width || 0);
-    const alto = parseFloat(metricas.tight_bounding_height_px || obj.height || 0);
-    const area = parseFloat(metricas.area_real_px || metricas.area_fragmentada_px || metricas.area_px || obj.area || 0);
-    const perimetro = parseFloat(metricas.perimeter_real_px || metricas.perimeter_fragmentado_px || metricas.perimeter_px || (2 * (obj.width + obj.height)) || 0);
-    
-    return {
-      "forma": metricas.forma_detectada || "Forma irregular",
-      "centroide": [parseFloat(metricas.centroide_x), parseFloat(metricas.centroide_y)],
-      "area": parseFloat(area.toFixed(2)),
-      "perimetro": parseFloat(perimetro.toFixed(2)),
-      "ancho": parseFloat(ancho.toFixed(1)),
-      "alto": parseFloat(alto.toFixed(1)),
-      "aspect_ratio": parseFloat(metricas.aspect_ratio_tight || metricas.aspect_ratio_original || (ancho/alto).toFixed(4)),
-      "circularidad": parseFloat(metricas.circularity_real || metricas.circularity || 0),
-      "excentricidad": parseFloat(metricas.excentricidad || 0),
-      "vertices": parseInt(metricas.vertices_aproximados) || 0,
-      "solidez": parseFloat(metricas.solidity_real || metricas.solidity || 0),
-      "convexidad": parseFloat(metricas.convexity_real || metricas.convexity || 1.0),
-      "compacidad": parseFloat(metricas.compactness_real || metricas.compactness || 0),
-      
-      // Áreas MAO desglosadas: Hull (estimada) / Real (contorno) / Neta (descontando P/H)
-      "area_hull": parseFloat((metricas.area || 0).toFixed(3)),
-      "area_real": parseFloat((metricas.area_fragmentada || metricas.area || 0).toFixed(3)),
-      "area_neta": parseFloat((obj.area_neta || metricas.area_neta || metricas.area || 0).toFixed(3)),
-      "perimetro_neto": parseFloat((obj.perimetro_neto || metricas.perimeter || 0).toFixed(3)),
-      
-      // Información adicional del análisis MAO
-      "mao_metadata": {
-        "object_id": metricas.object_id,
-        "analysis_method": metricas.analysis_method,
-        "confidence": parseFloat(metricas.forma_confianza),
-        "classification_reason": metricas.forma_razon,
-        "scale_factor_mm_per_px": escala || null,
-        "scale_corrected": window.escalaCorregida?.activa || false,
-        ...(window.escalaCorregida?.activa && {
-          "scale_correction": {
-            "correction_factor": window.escalaCorregida.factorCorreccion,
-            "original_scale": window.escalaCorregida.escalaOriginal,
-            "corrected_scale": window.escalaCorregida.escalaCorregida,
-            "original_error_percent": window.escalaCorregida.errorOriginal,
-            "verification_zone_percent": window.escalaCorregida.zonaVerificacion,
-            "correction_date": window.escalaCorregida.fecha
-          }
-        }),
-        "contour_points": parseInt(metricas.contour_points) || 0,
-        "tight_bounding_box": {
-          "width": ancho,
-          "height": alto
-        },
-        "original_bounding_box": {
-          "width": obj.width,
-          "height": obj.height
-        },
-        "analysis_timestamp": metricas.analysis_timestamp,
-        
-        // Métricas en unidades métricas si hay escala
-        ...(escala && {
-          "dimensions_mm": {
-            "width": parseFloat((ancho * escala).toFixed(2)),
-            "height": parseFloat((alto * escala).toFixed(2)),
-            "area": parseFloat((area * escala * escala).toFixed(2)),
-            "perimeter": parseFloat((perimetro * escala).toFixed(2))
-          }
-        })
-      },
-
-      // ── Perforaciones — métricas morfológicas individuales ──────────────
-      "perforaciones": (obj.perforaciones || []).map(function(perf, idx) {
-        var pm = perf.metricas || {};
-        return {
-          "id":                     perf.id || (idx + 1),
-          "area_mm2":               parseFloat(pm.area || perf.area) || 0,
-          "perimetro_mm":           parseFloat(pm.perimeter || pm.perimetro || perf.perimetro) || 0,
-          "ancho_mm":               parseFloat(pm.width) || 0,
-          "alto_mm":                parseFloat(pm.height) || 0,
-          "centroide_x":            parseFloat(pm.centroide_x || (pm.centroid && pm.centroid[0])) || 0,
-          "centroide_y":            parseFloat(pm.centroide_y || (pm.centroid && pm.centroid[1])) || 0,
-          "distancia_al_centro_mm": parseFloat(perf.distanciaAlCentro) || 0,
-          "forma_detectada":        pm.forma_detectada || null,
-          "forma_confianza":        parseFloat(pm.forma_confianza) || 0,
-          "circularity":            pm.circularity  !== undefined ? parseFloat(pm.circularity)  : null,
-          "compactness":            pm.compactness  !== undefined ? parseFloat(pm.compactness)  : null,
-          "solidity":               pm.solidity     !== undefined ? parseFloat(pm.solidity)     : null,
-          "convexity":              pm.convexity    !== undefined ? parseFloat(pm.convexity)    : null,
-          "aspect_ratio":           pm.aspect_ratio !== undefined ? parseFloat(pm.aspect_ratio) : null,
-          "excentricidad":          pm.excentricidad !== undefined ? parseFloat(pm.excentricidad) : null,
-          "eje_mayor_mm":           pm.eje_mayor    !== undefined ? parseFloat(pm.eje_mayor)    : null,
-          "eje_menor_mm":           pm.eje_menor    !== undefined ? parseFloat(pm.eje_menor)    : null,
-          "radio_maximo_mm":        pm.radio_maximo !== undefined ? parseFloat(pm.radio_maximo) : null,
-          "radio_minimo_mm":        pm.radio_minimo !== undefined ? parseFloat(pm.radio_minimo) : null,
-          "regularidad_radial":     pm.regularidad_radial !== undefined ? parseFloat(pm.regularidad_radial) : null,
-          "desviacion_radial_mm":   pm.desviacion_radial  !== undefined ? parseFloat(pm.desviacion_radial)  : null,
-          "coef_variacion_radial":  pm.coeficiente_variacion_radial !== undefined ? parseFloat(pm.coeficiente_variacion_radial) : null,
-          "vertices_aproximados":   parseInt(pm.vertices_aproximados) || 0,
-          "shape_factor":           pm.shape_factor     !== undefined ? parseFloat(pm.shape_factor)     : null,
-          "rectangularity":         pm.rectangularity   !== undefined ? parseFloat(pm.rectangularity)   : null,
-          "elongation":             pm.elongation       !== undefined ? parseFloat(pm.elongation)       : null,
-          "feret_max_mm":           pm.feret_max        !== undefined ? parseFloat(pm.feret_max)        : null,
-          "feret_min_mm":           pm.feret_min        !== undefined ? parseFloat(pm.feret_min)        : null,
-          "feret_ratio":            pm.feret_ratio      !== undefined ? parseFloat(pm.feret_ratio)      : null,
-          "feret_angulo_max":       pm.feret_angulo_max !== undefined ? parseFloat(pm.feret_angulo_max) : null,
-          "feret_angulo_min":       pm.feret_angulo_min !== undefined ? parseFloat(pm.feret_angulo_min) : null,
-          "centroide_hull_x":       parseFloat(pm.centroide_hull_x || (pm.centroid && pm.centroid[0])) || 0,
-          "centroide_hull_y":       parseFloat(pm.centroide_hull_y || (pm.centroid && pm.centroid[1])) || 0
-        };
-      }),
-
-      // ── Horadaciones — métricas morfológicas individuales ───────────────
-      "horadaciones": (obj.horadaciones || []).map(function(horad, idx) {
-        var hm = horad.metricas || {};
-        return {
-          "id":                     horad.id || (idx + 1),
-          "area_mm2":               parseFloat(hm.area || horad.area) || 0,
-          "perimetro_mm":           parseFloat(hm.perimeter || hm.perimetro || horad.perimetro) || 0,
-          "ancho_mm":               parseFloat(hm.width) || 0,
-          "alto_mm":                parseFloat(hm.height) || 0,
-          "centroide_x":            parseFloat(hm.centroide_x || (hm.centroid && hm.centroid[0])) || 0,
-          "centroide_y":            parseFloat(hm.centroide_y || (hm.centroid && hm.centroid[1])) || 0,
-          "distancia_al_centro_mm": parseFloat(horad.distanciaAlCentro) || 0,
-          "forma_detectada":        hm.forma_detectada || null,
-          "forma_confianza":        parseFloat(hm.forma_confianza) || 0,
-          "circularity":            hm.circularity  !== undefined ? parseFloat(hm.circularity)  : null,
-          "compactness":            hm.compactness  !== undefined ? parseFloat(hm.compactness)  : null,
-          "solidity":               hm.solidity     !== undefined ? parseFloat(hm.solidity)     : null,
-          "convexity":              hm.convexity    !== undefined ? parseFloat(hm.convexity)    : null,
-          "aspect_ratio":           hm.aspect_ratio !== undefined ? parseFloat(hm.aspect_ratio) : null,
-          "excentricidad":          hm.excentricidad !== undefined ? parseFloat(hm.excentricidad) : null,
-          "eje_mayor_mm":           hm.eje_mayor    !== undefined ? parseFloat(hm.eje_mayor)    : null,
-          "eje_menor_mm":           hm.eje_menor    !== undefined ? parseFloat(hm.eje_menor)    : null,
-          "radio_maximo_mm":        hm.radio_maximo !== undefined ? parseFloat(hm.radio_maximo) : null,
-          "radio_minimo_mm":        hm.radio_minimo !== undefined ? parseFloat(hm.radio_minimo) : null,
-          "regularidad_radial":     hm.regularidad_radial !== undefined ? parseFloat(hm.regularidad_radial) : null,
-          "desviacion_radial_mm":   hm.desviacion_radial  !== undefined ? parseFloat(hm.desviacion_radial)  : null,
-          "coef_variacion_radial":  hm.coeficiente_variacion_radial !== undefined ? parseFloat(hm.coeficiente_variacion_radial) : null,
-          "vertices_aproximados":   parseInt(hm.vertices_aproximados) || 0,
-          "shape_factor":           hm.shape_factor     !== undefined ? parseFloat(hm.shape_factor)     : null,
-          "rectangularity":         hm.rectangularity   !== undefined ? parseFloat(hm.rectangularity)   : null,
-          "elongation":             hm.elongation       !== undefined ? parseFloat(hm.elongation)       : null,
-          "feret_max_mm":           hm.feret_max        !== undefined ? parseFloat(hm.feret_max)        : null,
-          "feret_min_mm":           hm.feret_min        !== undefined ? parseFloat(hm.feret_min)        : null,
-          "feret_ratio":            hm.feret_ratio      !== undefined ? parseFloat(hm.feret_ratio)      : null,
-          "feret_angulo_max":       hm.feret_angulo_max !== undefined ? parseFloat(hm.feret_angulo_max) : null,
-          "feret_angulo_min":       hm.feret_angulo_min !== undefined ? parseFloat(hm.feret_angulo_min) : null,
-          "centroide_hull_x":       parseFloat(hm.centroide_hull_x || (hm.centroid && hm.centroid[0])) || 0,
-          "centroide_hull_y":       parseFloat(hm.centroide_hull_y || (hm.centroid && hm.centroid[1])) || 0
-        };
-      }),
-
-      // ── Métricas agregadas P/H — totales y porcentajes sobre el objeto ─────
-      "analisis_ph": (function() {
-        var _nP = (obj.perforaciones || []).length;
-        var _nH = (obj.horadaciones  || []).length;
-        if (_nP === 0 && _nH === 0) return null;
-        var _mPH  = obj.metricas || {};
-        // Área bruta: suma de todas las P medidas (incluye P inscritas en H) — para display
-        // Área efectiva: excluye P inscritas en H — para cálculo de área neta del objeto
-        var _areaP = parseFloat(_mPH.area_perforaciones_bruta  != null ? _mPH.area_perforaciones_bruta  : (_mPH.area_perforaciones  || 0)) || 0;
-        var _areaH = parseFloat(_mPH.area_horadaciones_bruta   != null ? _mPH.area_horadaciones_bruta   : (_mPH.area_horadaciones   || 0)) || 0;
-        var _pctP  = parseFloat(_mPH.porcentaje_perforado) || 0;
-        var _pctH  = parseFloat(_mPH.porcentaje_horadado)  || 0;
-        return {
-          "num_perforaciones":               _nP,
-          "num_horadaciones":                _nH,
-          "area_total_perforaciones_mm2":    parseFloat(_areaP.toFixed(4)),
-          "area_efectiva_perforaciones_mm2": parseFloat((parseFloat(_mPH.area_perforaciones) || 0).toFixed(4)),
-          "area_total_horadaciones_mm2":     parseFloat(_areaH.toFixed(4)),
-          "porcentaje_perforado":            parseFloat(_pctP.toFixed(4)),
-          "porcentaje_horadado":             parseFloat(_pctH.toFixed(4)),
-          "porosidad_total_pct":             parseFloat((_pctP + _pctH).toFixed(4)),
-          "area_neta_mm2":                   parseFloat((parseFloat(_mPH.area_neta != null ? _mPH.area_neta : (obj.area_neta || 0))) || 0).toFixed(4) * 1
-        };
-      })()
-    };
-  }
+// ── generarJSON: export ELIMINADO (2026-06-24). Era una copia MUERTA e idéntica
+//    a la versión VIVA en analysis-core.js (callers la usan bare). Nada importaba
+//    VisualizationExport.generarJSON. Canónica = la de analysis-core.js.
 
 
 export async function validarCoherenciaPreexportacion(obj, metricas, modo = 'monofacial') {
