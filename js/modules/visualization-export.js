@@ -884,7 +884,7 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
         </div>`;
         
         // Agregar información de contorno depurado estadísticamente
-        if (metricas._forma_idealizada) {
+        if (metricas._forma_idealizada && metricas._forma_idealizada.parametros) {
           const forma = metricas._forma_idealizada;
           const params = forma.parametros;
           metricsHTML += `
@@ -2367,6 +2367,9 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
       }
       
       // Generar estadísticas de depuración
+      // ADR-013: el panel de stats requiere forma.parametros; si falta, se omite
+      // SIN abortar el render del contorno/canvas (evita TypeError puntos_originales).
+      if (params) {
       let paramsHTML = `
         <div style="padding: 10px; background: ${forma.color}20; border-radius: 6px; margin-bottom: 10px;">
           <strong style="font-size: 1.2em; color: ${forma.color};">
@@ -2416,7 +2419,8 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
       `;
       
       idealizedShapeParams.innerHTML = paramsHTML;
-      
+      }
+
     } else {
       // Ocultar el contenedor si no hay forma idealizada
       const idealizedShapeContainer = document.getElementById('idealizedShapeContainer');

@@ -20,6 +20,7 @@
 | 009 | Detección P/H primaria | ✅ Completado (Fases 0-4) + fixes prueba real | `84778ac` | Confirmación visual chip+modal con imagen real (ADR-010) |
 | 010 | Hook verificación E2E `window.__maoE2E` | ✅ Implementado | `526cf42` | Ejecutar el checklist de 8 ítems (tarea F1.2 del roadmap) |
 | 012 | Detección monolítica (núcleo OpenCV canónico) | ✅ Fases 1-3 (auto ya estaba por ADR-007/008; manual=M1; IA=opción «Auto (núcleo)») | `eaf01d3` | Los 4 modos comparten el núcleo; JS = fallback; SAM = prior. Verif: suite 288/2 + HTTP `/api/mao-ia auto`. Caveat: dominancia/relevancia de `detect()` en ROI manual. Pendiente: verif. visual modal IA en Electron |
+| 013 | Figura-fondo primaria; instancias subordinada y no destructiva | 🟡 F1 impl. (sin commitear) · **F2 aprobada (replicabilidad), impl. pendiente** | — | **F1** fix `_separate_touching_watershed`: máscara de siembra limpia (`_fill_holes` + descarte specks, **sin** `MORPH_CLOSE` que fusionaba pegados). Verif: `DRG16` 8→1, `sintetico_pegados`→2, suite 288/2. + fix crash `puntos_originales` (visualization-export.js:887 y 2380). **F2** replicabilidad del contorno: invariante determinista + invariante-ROI/modo + persistente; GrabCut EXCLUIDO (no-determinista); causa ±20% = `_build_binary_mask` estima fondo desde el recorte; gate = tests determinismo/invariancia ≤2%/multi-imagen (módulo math-critical). Pendiente: impl. F2 + verif. visual Electron + commit |
 
 ## Único diferido (no es deuda olvidada, es decisión consciente)
 

@@ -405,22 +405,45 @@ def _excluir_franja_borde(mask: np.ndarray) -> np.ndarray:
     return mask
 
 
+def _fill_holes(mask: np.ndarray) -> np.ndarray:
+    """Rellena huecos internos: cada contorno externo queda sólido (ADR-013).
+
+    Solo se usa para construir la máscara de SIEMBRA del watershed; el contorno
+    real y la detección de huecos P/H (ADR-009) operan sobre la máscara original.
+    """
+    cnts, _ = cv2.findContours(
+        (mask > 0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    out = np.zeros_like(mask, dtype=np.uint8)
+    if cnts:
+        cv2.drawContours(out, cnts, -1, 1, thickness=cv2.FILLED)
+    return out
+
+
 def _separate_touching_watershed(
     mask_uint8: np.ndarray, img_bgr: np.ndarray, min_area: int
 ) -> "np.ndarray | None":
     """
     Separa objetos en contacto/solapados con distance-transform + watershed.
 
-    Reemplaza la rama YOLO borrada (sin dependencias: OpenCV puro). Solo divide
-    cuando la transformada de distancia revela varios máximos (varios centros)
-    dentro de un mismo componente conectado; un blob convexo único queda intacto.
+    Etapa SECUNDARIA de ADR-013 (subordinada a la separación figura-fondo): solo
+    divide con evidencia (≥2 picos de distancia bien separados) sobre una máscara
+    LIMPIA, y de forma no destructiva. Un objeto único —aunque su máscara cruda
+    tenga textura/huecos internos— queda intacto. Sin dependencias (OpenCV puro;
+    reemplaza la rama YOLO borrada).
 
     Estrategia:
+      0. (ADR-013) Máscara de SIEMBRA limpia: relleno de huecos + descarte de
+         componentes < min_area (sin MORPH_CLOSE: fusionaría el cuello entre dos
+         objetos pegados). La textura/huecos de un objeto real
+         crean máximos espurios en la transformada de distancia y fragmentan un
+         objeto único (8 arcos en la imagen real DRG16); limpiar antes de sembrar
+         lo evita (→ 1 componente sólido → 1 pico → no divide).
       1. Semillas de primer plano (sure_fg): por cada componente, los píxeles cuya
          distancia al fondo supera 0.5·max_local. Dos discos pegados → 2 semillas.
       2. Fondo seguro (sure_bg): dilatación amplia de la máscara.
       3. Zona desconocida = sure_bg − sure_fg (el «cuello» entre objetos).
       4. cv2.watershed inunda desde las semillas y traza la frontera en el cuello.
+         El reparto final intersecta con la máscara ORIGINAL → preserva huecos P/H.
 
     Retorna labels int32 (0=fondo, 1..N=objetos) o None si no aporta separación
     (≤1 objeto resultante) para que el llamador use connectedComponents normal.
@@ -429,12 +452,25 @@ def _separate_touching_watershed(
     if int(bin_mask.sum()) == 0:
         return None
 
+    # ── 0. (ADR-013) Máscara de SIEMBRA limpia (relleno de huecos + sin specks) ─
+    # NO usar MORPH_CLOSE aquí: rellenaría el «cuello» entre dos objetos pegados
+    # y los fusionaría (rompe la separación). El relleno de huecos es lo que mata
+    # los máximos espurios de la textura interna sin tocar el cuello entre objetos.
+    seed_mask = _fill_holes(bin_mask)
+    n_cc0, lab0, stats0, _ = cv2.connectedComponentsWithStats(seed_mask, connectivity=8)
+    seed_clean = np.zeros_like(seed_mask)
+    for i in range(1, n_cc0):
+        if stats0[i, cv2.CC_STAT_AREA] >= min_area:
+            seed_clean[lab0 == i] = 1
+    if int(seed_clean.sum()) == 0:
+        return None
+
     # ── 1. Semillas de primer plano por componente (umbral relativo local) ────
-    num_cc, labels_cc = cv2.connectedComponents(bin_mask)
+    num_cc, labels_cc = cv2.connectedComponents(seed_clean)
     if num_cc <= 1:
         return None
-    dist = cv2.distanceTransform(bin_mask, cv2.DIST_L2, 5)
-    sure_fg = np.zeros_like(bin_mask)
+    dist = cv2.distanceTransform(seed_clean, cv2.DIST_L2, 5)
+    sure_fg = np.zeros_like(seed_clean)
     for lbl in range(1, num_cc):
         comp = labels_cc == lbl
         local_max = float(dist[comp].max())
@@ -448,7 +484,7 @@ def _separate_touching_watershed(
 
     # ── 2-3. Fondo seguro y zona desconocida ─────────────────────────────────
     kernel = np.ones((3, 3), np.uint8)
-    sure_bg = cv2.dilate(bin_mask, kernel, iterations=3)
+    sure_bg = cv2.dilate(seed_clean, kernel, iterations=3)
     unknown = cv2.subtract(sure_bg, sure_fg)
 
     # ── 4. Marcadores + watershed ─────────────────────────────────────────────
@@ -460,6 +496,7 @@ def _separate_touching_watershed(
     markers = cv2.watershed(img_bgr, markers)   # fronteras quedan en −1
 
     # Reetiquetar: marcadores ≥2 son objetos; compactar a 1..N filtrando área.
+    # Intersecta con la máscara ORIGINAL → preserva huecos P/H (ADR-009).
     out = np.zeros(bin_mask.shape, dtype=np.int32)
     next_label = 0
     n_objs = 0
