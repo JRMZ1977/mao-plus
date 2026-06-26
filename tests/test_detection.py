@@ -293,6 +293,69 @@ class TestSeparacionWatershed:
         assert body["stats"]["used_watershed_split"] is False
 
 
+def _objeto_grande_y_pequeno(w=300, h=300, bg=245, obj=30):
+    """Fondo blanco con un cuadrado grande (100×100) y otro pequeño (30×30).
+    El pequeño = 900px = 9% del grande (10000px) < 20% → filtro de dominancia
+    lo descarta en imagen completa, pero NO en roi_mode. Ambos separados del
+    borde y entre sí (componentes independientes)."""
+    import numpy as np
+    img = np.full((h, w, 3), bg, dtype=np.uint8)
+    img[60:160, 40:140]  = (obj, obj, obj)   # grande, 100×100
+    img[200:230, 230:260] = (obj, obj, obj)  # pequeño, 30×30
+    return img
+
+
+def _objeto_pegado_al_borde(w=300, h=300, bg=245, obj=30):
+    """Fondo blanco con un cuadrado que toca el borde izquierdo (x=0..99).
+    _excluir_franja_borde borra la franja → en imagen completa el bbox arranca
+    en x≈strip; en roi_mode conserva x=0 (el objeto encuadrado no se recorta)."""
+    import numpy as np
+    img = np.full((h, w, 3), bg, dtype=np.uint8)
+    img[100:200, 0:100] = (obj, obj, obj)
+    return img
+
+
+class TestModoROI:
+    """roi_mode (ADR-012): el ROI lo recortó el usuario → se desactivan las
+    heurísticas de imagen completa (recorte de borde, dominancia, reorden)."""
+
+    def test_dominancia_activa_por_defecto_descarta_pequeno(self, client):
+        """Sin roi_mode el filtro ≥20% descarta el objeto pequeño → queda 1."""
+        body = _post_detect(client, _png(_objeto_grande_y_pequeno()),
+                            min_area=500).json()
+        assert body["count"] == 1, f"esperado 1 (pequeño filtrado), got {body['count']}"
+        assert body["stats"]["roi_mode"] is False
+
+    def test_roi_mode_conserva_objeto_pequeno(self, client):
+        """Con roi_mode el objeto pequeño que el usuario encuadró se conserva → 2."""
+        body = _post_detect(client, _png(_objeto_grande_y_pequeno()),
+                            min_area=500, roi_mode=True).json()
+        assert body["count"] == 2, f"roi_mode no debe filtrar dominancia, got {body['count']}"
+        assert body["stats"]["roi_mode"] is True
+
+    def test_roi_mode_no_recorta_el_borde(self, client):
+        """roi_mode conserva los píxeles del objeto pegados al borde del ROI."""
+        full = _post_detect(client, _png(_objeto_pegado_al_borde()),
+                            min_area=500).json()
+        roi  = _post_detect(client, _png(_objeto_pegado_al_borde()),
+                            min_area=500, roi_mode=True).json()
+        assert full["objects"] and roi["objects"]
+        obj_full = max(full["objects"], key=lambda o: o["area"])
+        obj_roi  = max(roi["objects"],  key=lambda o: o["area"])
+        # En imagen completa la franja de borde recorta el flanco izquierdo:
+        assert obj_full["bbox"]["x"] >= 1, "la franja de borde debería recortar sin roi_mode"
+        # En roi_mode el objeto llega al borde (x=0) y conserva más área:
+        assert obj_roi["bbox"]["x"] == 0, f"roi_mode no debe recortar el borde, x={obj_roi['bbox']['x']}"
+        assert obj_roi["area"] > obj_full["area"]
+
+    def test_roi_mode_default_no_cambia_comportamiento(self, client, png_bytes_white_bg):
+        """roi_mode por defecto (False) → salida idéntica al comportamiento previo."""
+        a = _post_detect(client, png_bytes_white_bg, min_area=500).json()
+        b = _post_detect(client, png_bytes_white_bg, min_area=500, roi_mode=False).json()
+        assert a["count"] == b["count"]
+        assert a["stats"]["roi_mode"] is False
+
+
 class TestConfianzaPorObjeto:
     """detect() expone detection_confidence ∈[0,1] + confidence_level por objeto."""
 

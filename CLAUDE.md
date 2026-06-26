@@ -29,9 +29,14 @@ conf alta) + 422 inválido.
   Des-anidadas a nivel IIFE (cuerpos byte-idénticos).
 - **Verificado**: `node -c` OK · suite 288/2 (frontend-only) · `detect()` sobre ROI de fixture →
   bbox local + conf 0.986/alta (python_zscan_competitive). **Pendiente**: runtime Electron (selección
-  manual con 2+ pegados → ruta backend+watershed+chips; y fallback con backend muerto). **Caveat**:
-  `detect()` filtra dominancia (<20% del mayor) y reordena por relevancia — pensado para imagen
-  completa; en ROI manual podría descartar objetos pequeños (fix futuro: flag `roi_mode`).
+  manual con 2+ pegados → ruta backend+watershed+chips; y fallback con backend muerto). **Caveat
+  RESUELTO (2026-06-25)**: flag `roi_mode` implementado. `detect(roi_mode=True)` desactiva las 3
+  heurísticas de imagen completa que contradecían el encuadre manual: (1) recorte de la franja de
+  borde — el objeto suele tocar el borde del ROI; (2) filtro de dominancia ≥20% del mayor — no
+  descartar lascas/fragmentos que el usuario encuadró; (3) reorden por relevancia arqueológica
+  (esquina/borde = carta de color/escala) — dentro del ROI ya no hay referencias. Cableado:
+  `detectarObjetosManualRapida` → `PythonBridge.detection.detect(..., {roiMode:true})` → `/api/detect`
+  Form `roi_mode` → `detection.detect`. Tests: `TestModoROI` (4) en `tests/test_detection.py`. Suite 292/2.
 - **Fase 3 (IA)**: `detection.detect()` gana flag aditivo `include_contours`; `detect_with_mao_ia` añade
   rama `threshold_method=="auto"` (→ núcleo + enriquecimiento IA); modos manuales del modal ganan
   watershed; `/api/mao-ia` valida `"auto"`. **ADR-012 completo** (4 modos en el núcleo, JS=fallback).

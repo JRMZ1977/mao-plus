@@ -91,10 +91,25 @@ def _refinar_contorno_gradiente(pts: np.ndarray, roi_img: np.ndarray,
               Si se provee, los snaps que caigan en fondo son descartados para
               evitar que gradientes de textura interna o de borde de fondo
               desplacen puntos fuera del objeto real.
+
+    ADR-013 (figura-fondo primaria): en artefactos muy texturizados el máximo
+    |∇I| dentro de ±rango suele ser TEXTURA INTERNA, no el borde real → el snap
+    «enganchaba» la textura y dentaba el contorno (rugosidad +25% en DRG16). Tres
+    salvaguardas localizan la silueta y NO la textura:
+      1. Rango corto y asimétrico (más hacia el fondo que hacia el objeto): la
+         textura vive hacia adentro; se limita cuánto puede entrar el snap.
+      2. Validación figura-fondo: un pico solo es borde si a EDGE_PROBE px más
+         hacia el fondo hay fondo (mask=0). Un pico con objeto a ambos lados es
+         textura interna → se ignora.
+      3. Gate de prominencia: el pico debe superar PROMINENCE× la mediana del
+         perfil; un perfil plano/ruidoso (textura sin borde claro) no dispara snap.
     """
-    SNAP_RANGE  = 6
-    MIN_GRAD    = 8
-    SMOOTH_ITER = 1
+    SNAP_OUT     = 3.0    # alcance hacia el fondo (exterior)
+    SNAP_IN      = 2.0    # alcance hacia el objeto (interior) — corto: la textura vive aquí
+    MIN_GRAD     = 8
+    SMOOTH_ITER  = 2      # antes 1: suavizado final más fuerte para residuos de textura
+    EDGE_PROBE   = 2.0    # px extra hacia el fondo para confirmar transición objeto→fondo
+    PROMINENCE   = 1.4    # el pico debe superar 1.4× la mediana del perfil; si no, textura
 
     h, w = roi_img.shape[:2]
     gray_u8 = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
@@ -139,6 +154,15 @@ def _refinar_contorno_gradiente(pts: np.ndarray, roi_img: np.ndarray,
     n = len(pts)
     snapped = pts.astype(np.float32).copy()
 
+    def _es_fondo(fx, fy):
+        """True si (fx,fy) cae en fondo (mask=0), fuera de la ROI, o no hay máscara."""
+        if mask_u8 is None:
+            return True
+        xi = int(round(fx)); yi = int(round(fy))
+        if not (0 <= xi < w and 0 <= yi < h):
+            return True
+        return mask_u8[yi, xi] == 0
+
     for i in range(n):
         prev = pts[(i - 1) % n]
         curr = pts[i]
@@ -155,30 +179,41 @@ def _refinar_contorno_gradiente(pts: np.ndarray, roi_img: np.ndarray,
         nx_n =  ty / t_len
         ny_n = -tx / t_len
 
-        # Muestreo a lo largo de la normal en pasos de 0.5 px
+        # Perfil de |∇I| a lo largo de la normal (interior corto → exterior).
+        prof = []
+        t_val = -SNAP_IN
+        while t_val <= SNAP_OUT:
+            gv = _grad_bilineal(curr[0] + t_val * nx_n, curr[1] + t_val * ny_n)
+            prof.append((t_val, gv))
+            t_val += 0.5
+        if not prof:
+            continue
+        median_g = sorted(g for _, g in prof)[len(prof) // 2]
+
+        # Mejor pico que SEA transición figura-fondo (no textura interna):
+        # a EDGE_PROBE px más hacia el fondo debe haber fondo.
         best_g = -1.0
         best_t = 0.0
-        t_val = -SNAP_RANGE
-        while t_val <= SNAP_RANGE:
-            gv = _grad_bilineal(curr[0] + t_val * nx_n, curr[1] + t_val * ny_n)
+        for t_s, gv in prof:
+            if gv < effective_min_grad:
+                continue
+            if not _es_fondo(curr[0] + (t_s + EDGE_PROBE) * nx_n,
+                             curr[1] + (t_s + EDGE_PROBE) * ny_n):
+                continue   # objeto aún hacia el fondo → textura interna, no silueta
             if gv > best_g:
                 best_g = gv
-                best_t = t_val
-            t_val += 0.5
+                best_t = t_s
 
-        if best_g >= effective_min_grad and abs(best_t) > 0.25:
+        # Gate de prominencia: el pico debe destacar sobre el perfil.
+        if (best_g >= effective_min_grad
+                and best_g >= PROMINENCE * max(median_g, 1.0)
+                and abs(best_t) > 0.25):
             new_x = round((float(curr[0]) + best_t * nx_n) * 10.0) / 10.0
             new_y = round((float(curr[1]) + best_t * ny_n) * 10.0) / 10.0
-            # Validar que el punto snapeado sigue dentro del objeto (no en fondo).
-            # Evita que gradientes de textura interna o de borde de fondo empujen
-            # puntos fuera del contorno real (causa de radio_max anómalo en Cara A).
-            if mask_u8 is not None:
-                mx_i = int(round(new_x)); my_i = int(round(new_y))
-                if 0 <= mx_i < w and 0 <= my_i < h and mask_u8[my_i, mx_i] > 0:
-                    snapped[i, 0] = new_x
-                    snapped[i, 1] = new_y
-                # Si el snap cae en fondo: mantiene posición original
-            else:
+            # Guard: el punto snapeado debe seguir dentro del objeto (no en fondo).
+            # Evita el radio_max anómalo (Cara A) al impedir snaps a borde de fondo.
+            mx_i = int(round(new_x)); my_i = int(round(new_y))
+            if mask_u8 is None or (0 <= mx_i < w and 0 <= my_i < h and mask_u8[my_i, mx_i] > 0):
                 snapped[i, 0] = new_x
                 snapped[i, 1] = new_y
 

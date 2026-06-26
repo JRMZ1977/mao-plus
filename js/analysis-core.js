@@ -16290,31 +16290,47 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     ctx.drawImage(image, area.x, area.y, area.width, area.height, 0, 0, area.width, area.height);
     const imageData = ctx.getImageData(0, 0, area.width, area.height);
 
-    // ── ADR-012: núcleo canónico OpenCV (/api/detect) sobre el ROI ──────────────
-    // El ROI recortado es el prior del modo manual; el núcleo separa objetos pegados
-    // (watershed) y emite confianza por objeto, igual que auto-backend/IA. Si Python
-    // no está, PythonBridge.detection.detect() devuelve null → continúa al motor JS.
+    // ── ADR-012 + fix segmentación manual: detectar el fondo con CONTEXTO ────────
+    // El ROI es el prior espacial del modo manual; el núcleo separa pegados
+    // (watershed) y emite confianza, igual que auto/IA. PERO si el usuario dibuja
+    // el ROI ajustado al objeto, los bordes del recorte son el propio objeto →
+    // _detectar_color_fondo falla (brillo_min<230 → método erróneo → máscara mala),
+    // mientras IA acierta porque corre sobre la imagen completa (bordes=fondo real).
+    // Solución: ampliar el recorte con un MARGEN de fondo, detectar, y conservar los
+    // objetos que solapan el ROI del usuario (descarta vecinos que capte el margen).
+    // Si Python no está, PythonBridge.detection.detect() → null → motor JS abajo.
     try {
       if (window.PythonBridge && PythonBridge.isModuleActive('detection')) {
-        const roiDataURL = tempCanvas.toDataURL('image/png');
+        // Margen de fondo: 20% del lado menor del ROI, mínimo 25 px (clamp a imagen).
+        const pad = Math.max(25, Math.round(0.20 * Math.min(area.width, area.height)));
+        const px0 = Math.max(0, area.x - pad);
+        const py0 = Math.max(0, area.y - pad);
+        const pw  = Math.min(imageWidth,  area.x + area.width  + pad) - px0;
+        const ph  = Math.min(imageHeight, area.y + area.height + pad) - py0;
+
+        const padCanvas = document.createElement('canvas');
+        padCanvas.width = pw; padCanvas.height = ph;
+        padCanvas.getContext('2d').drawImage(image, px0, py0, pw, ph, 0, 0, pw, ph);
+        const roiDataURL = padCanvas.toDataURL('image/png');
+
         const minAreaRoi = Math.max(50, Math.floor(area.width * area.height * 0.005));
         const py = await PythonBridge.detection.detect(roiDataURL, {
           minArea: minAreaRoi,
           maxObjects: 50,
-          separateTouching: true   // ROI acotado por el usuario → separar artefactos pegados
+          separateTouching: true,  // ROI acotado por el usuario → separar artefactos pegados
+          roiMode: true            // respetar el encuadre (sin recorte de borde, dominancia ni reorden)
         });
         if (py && Array.isArray(py.objects)) {
-          const objetosNucleo = py.objects.map((o, index) => {
+          // Coords absolutas con el offset del recorte AMPLIADO (px0/py0).
+          const mapeados = py.objects.map((o) => {
             const bb = o.bbox || {};
-            const bx = (bb.x || 0) + area.x;
-            const by = (bb.y || 0) + area.y;
+            const bx = (bb.x || 0) + px0;
+            const by = (bb.y || 0) + py0;
             const bw = bb.w || o.width || 1;
             const bh = bb.h || o.height || 1;
             const areaPx = o.area != null ? o.area
                          : (o.area_px != null ? o.area_px : bw * bh);
             return {
-              id: `manual_${index + 1}`,
-              label: index + 1,
               minX: bx,
               maxX: bx + bw - 1,
               minY: by,
@@ -16337,8 +16353,15 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
               contour_pending: true
             };
           });
+          // Conservar los objetos que SOLAPAN el ROI dibujado por el usuario (el
+          // margen de fondo pudo captar vecinos). Si ninguno solapa, devolver todos.
+          const rx1 = area.x + area.width, ry1 = area.y + area.height;
+          const enRoi = mapeados.filter(o =>
+            o.minX < rx1 && o.maxX > area.x && o.minY < ry1 && o.maxY > area.y);
+          const objetosNucleo = enRoi.length ? enRoi : mapeados;
+          objetosNucleo.forEach((o, i) => { o.id = `manual_${i + 1}`; o.label = i + 1; });
           const tNucleo = (performance.now() - startTime).toFixed(1);
-          console.log(`⚡ [Núcleo OpenCV] Detección manual: ${objetosNucleo.length} objetos en ${tNucleo}ms (separateTouching + confianza)`);
+          console.log(`⚡ [Núcleo OpenCV] Detección manual: ${objetosNucleo.length} objetos en ${tNucleo}ms (margen fondo +${pad}px + filtro ROI + confianza)`);
           return objetosNucleo;
         }
         console.warn('[ADR-012] /api/detect con forma inesperada → fallback motor JS');

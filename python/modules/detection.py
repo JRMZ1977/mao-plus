@@ -715,6 +715,7 @@ async def detect(
     max_objects: int = 50,
     separate_touching: bool = False,
     include_contours: bool = False,
+    roi_mode: bool = False,
 ) -> dict:
     """
     Detecta objetos en la imagen usando OpenCV.
@@ -723,6 +724,18 @@ async def detect(
       - Fondo blanco (brillo ≥ 230): umbral estático por blancos absolutos
       - Fondo no blanco: diferencia de color respecto al fondo + Otsu
       - Filtrado por componentes conectados con área mínima
+
+    roi_mode (ADR-012) — la imagen es un ROI que el usuario recortó a mano en el
+    modo de detección manual, no la fotografía completa. Tres heurísticas pensadas
+    para la imagen completa se DESACTIVAN porque contradicen la intención del
+    usuario dentro del recorte:
+      1. Exclusión de la franja de borde: el objeto suele tocar el borde del ROI
+         → no recortar (borraría parte del artefacto encuadrado).
+      2. Filtro de dominancia (≥20% del mayor): no descartar objetos pequeños
+         (lascas/fragmentos) que el usuario seleccionó deliberadamente.
+      3. Reordenamiento por relevancia arqueológica (penaliza esquinas/bordes como
+         carta de color o escala): dentro del ROI el usuario ya excluyó las
+         referencias → se conserva el orden por área.
 
     Retorno:
       {
@@ -782,8 +795,11 @@ async def detect(
     # 3. Construir máscara binaria (sobre imagen posiblemente realzada)
     mask = _build_binary_mask(img_for_mask, fondo, zscan)
 
-    # 4. Excluir franja de borde (artefactos)
-    mask = _excluir_franja_borde(mask)
+    # 4. Excluir franja de borde (artefactos de viñeteo).
+    # roi_mode: el ROI lo dibujó el usuario y el objeto suele tocar el borde del
+    # recorte → no recortar (ver docstring, heurística #1).
+    if not roi_mode:
+        mask = _excluir_franja_borde(mask)
 
     # 5. Operaciones morfológicas adicionales según tipo de fondo (igual JS)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
@@ -818,8 +834,10 @@ async def detect(
                 if 0.005 < cov_gc < 0.95:
                     gc_full = cv2.resize((gc * 255).astype(np.uint8), (w, h),
                                          interpolation=cv2.INTER_NEAREST)
-                    gc_full = _excluir_franja_borde((gc_full > 0).astype(np.uint8)) * 255
-                    mask_uint8 = gc_full.astype(np.uint8)
+                    gc_bin = (gc_full > 0).astype(np.uint8)
+                    if not roi_mode:   # ver docstring, heurística #1
+                        gc_bin = _excluir_franja_borde(gc_bin)
+                    mask_uint8 = (gc_bin * 255).astype(np.uint8)
                     used_grabcut = True
             except Exception:
                 pass   # conservar la máscara de color si GrabCut falla
@@ -878,9 +896,10 @@ async def detect(
             "confidence_level": conf["level"],
         })
 
-    # Ordenar por área descendente; filtrar dominancia (≥20% del mayor — igual JS)
+    # Ordenar por área descendente; filtrar dominancia (≥20% del mayor — igual JS).
+    # roi_mode: no filtrar (ver docstring, heurística #2).
     objects.sort(key=lambda o: o["area"], reverse=True)
-    if len(objects) > 1:
+    if len(objects) > 1 and not roi_mode:
         max_area = objects[0]["area"]
         objects = [o for o in objects if o["area"] >= max_area * 0.20]
 
@@ -895,7 +914,8 @@ async def detect(
     #   1. Objeto en borde + muy elongado (elong>4, centroid >40% semi-diag)
     #      → escala métrica → penalizado
     #   2. Resto → ordenar por centralidad, luego area
-    if len(objects) > 1:
+    # roi_mode: no reordenar (ver docstring, heurística #3).
+    if len(objects) > 1 and not roi_mode:
         cx_img, cy_img = w / 2.0, h / 2.0
         semi_diag = math.sqrt(cx_img ** 2 + cy_img ** 2)
 
@@ -992,6 +1012,7 @@ async def detect(
             "min_area_threshold": min_area,
             "used_grabcut_fallback": used_grabcut,
             "used_watershed_split": used_watershed,
+            "roi_mode": roi_mode,
         },
     }
     if zscan is not None:
