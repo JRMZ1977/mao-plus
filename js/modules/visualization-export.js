@@ -2068,7 +2068,7 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
     currentAnalyzedObject.obj = obj;
     currentAnalyzedObject.metricas = metricas;
     window.currentAnalyzedObject = currentAnalyzedObject; // Sincronizar con scope global
-    
+
     // ❌ LÓGICA DE BOTÓN BIFACIAL COMPLETO ELIMINADA - Ahora usa botón unificado
     
     /* ❌ EVENT LISTENER DEL BOTÓN DE GUARDADO ELIMINADO (UI-only cleanup)

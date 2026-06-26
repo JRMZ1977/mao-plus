@@ -1674,6 +1674,17 @@
         <span id="cmoHeader">Comparador Multi-Objeto</span>
         <button class="cmo-btn cmo-btn-ghost" id="cmoCerrarBtn" style="font-size: 11px; padding: 4px 10px;">&#10005; Cerrar</button>
       </h3>
+
+      <!-- Selector de proyecto / colección -->
+      <div id="cmoProyectoSelectorWrap" style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--bg-secondary,#f7fafc); border-bottom:1px solid var(--border-color,#e2e8f0); font-size:12px;">
+        <label for="cmoProyectoSelect" style="font-weight:600; white-space:nowrap; color:var(--text-secondary,#4a5568);">Colección:</label>
+        <select id="cmoProyectoSelect" style="flex:1; min-width:0; padding:4px 8px; border:1px solid var(--border-color,#e2e8f0); border-radius:4px; font-size:12px; background:#fff;">
+          <option value="">— Seleccionar proyecto —</option>
+        </select>
+        <button id="cmoCargarColeccionBtn" class="cmo-btn cmo-btn-primary" style="white-space:nowrap; font-size:11px; padding:4px 12px;">Cargar colección</button>
+        <button id="cmoActualizarBtn" class="cmo-btn cmo-btn-ghost" style="white-space:nowrap; font-size:11px; padding:4px 10px;" title="Añadir análisis nuevos sin reiniciar la comparación">&#8635; Actualizar</button>
+      </div>
+
       <!-- Barra de estado visible sólo en modo ventana independiente -->
       <div id="cmoStandaloneMsg"></div>
 
@@ -1743,6 +1754,9 @@
             <button class="cmo-tab-btn" data-tab="correlacion">&#8771; Correlaciones</button>
             <button class="cmo-tab-btn" data-tab="morfologia">&#127919; CGeo</button>
             <button class="cmo-tab-btn" data-tab="pca">&#9671; PCA</button>
+            <button class="cmo-tab-btn" data-tab="dendrograma">&#128202; Dendrograma</button>
+            <button class="cmo-tab-btn" data-tab="efa">&#9670; EFA</button>
+            <button class="cmo-tab-btn" data-tab="errores">&#9888; Errores</button>
           </div>
 
           <!-- Tab: Tabla -->
@@ -1815,6 +1829,28 @@
               Colores = agrupamiento automático por k-means.
             </p>
             <div id="cmoPCAContenido"></div>
+          </div>
+
+          <div class="cmo-tab-pane" id="cmoTabEFA">
+            <p style="font-size:11px;color:#718096;margin:0 0 10px;">
+              Descriptores de Fourier Elípticos (EFA) por objeto: complejidad de forma, armónicos necesarios para capturar el 95/99 % de la varianza y espectro de potencia comparado.
+            </p>
+            <!-- contenido generado por renderEFA() -->
+          </div>
+
+          <div class="cmo-tab-pane" id="cmoTabErrores">
+            <p style="font-size:11px;color:#718096;margin:0 0 10px;">
+              Verificación de error por análisis: error óptico posicional, incertidumbre propagada en métricas absolutas y confianza de detección de contorno.
+            </p>
+            <!-- contenido generado por renderErrorVerificacion() -->
+          </div>
+
+          <div class="cmo-tab-pane" id="cmoTabDendrograma">
+            <p style="font-size:11px;color:#718096;margin:0 0 10px;">
+              Clasificación jerárquica aglomerativa (enlace de Ward, distancia euclídea sobre métricas estandarizadas).
+              Los objetos más similares se fusionan primero; la altura de cada nodo indica la distancia de fusión.
+            </p>
+            <div id="cmoDendrogramaContenido"></div>
           </div>
         </div>
       </div>
@@ -2814,7 +2850,7 @@
   <script src="js/collection.js"></script>
   <script src="js/export-manager.js"></script>
   <script src="js/tooltips.js"></script>
-  <script type="module" src="js/analysis-core.js?v=20260626a"></script>
+  <script type="module" src="js/analysis-core.js?v=20260626b"></script>
   <script src="js/obj3d-canonical-raster.js"></script>
   <script src="js/obj3d-export.js"></script>
   <script src="js/obj3d-morph-canvas.js"></script>

@@ -35275,9 +35275,21 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       objetoGuardado.metricas.porcentaje_perforado = _areaBase > 0 ? (_phefSync.areaBrutaPerforaciones / _areaBase * 100) : 0;
       objetoGuardado.metricas.porcentaje_horadado  = _areaBase > 0 ? (_phefSync.areaTotalHoradaciones  / _areaBase * 100) : 0;
       objetoGuardado.metricas.porosidad            = _areaBase > 0 ? (_phefSync.areaTotalPH            / _areaBase * 100) : 0;
-      // Guardar área neta en metricas para que el CMO la lea directamente sin recalcular
+      // Guardar área neta y perímetro neto en metricas para que el CMO los lea directamente sin recalcular
       objetoGuardado.metricas.area_neta            = Math.max(0, _areaBase - _phefSync.areaTotalPH);
-      console.log(`🔄 Métricas P/H recomputadas: ${_perfs.length} perf. → area_perforaciones=${_phefSync.areaTotalPerforaciones.toFixed(3)} mm² | area_neta=${objetoGuardado.metricas.area_neta.toFixed(3)} mm²`);
+      const _scaleSync = (typeof scale !== 'undefined' && scale > 0) ? scale : 1;
+      const _getPeriSync = (ph) => {
+        if (ph.metricas?.perimeter)      return parseFloat(ph.metricas.perimeter)      || 0;
+        if (ph.metricas?.perimeter_real) return (parseFloat(ph.metricas.perimeter_real)||0) * _scaleSync;
+        return parseFloat(ph.perimetro) || 0;
+      };
+      const _periExtSync = parseFloat(objetoGuardado.metricas.perimeter || obj.perimetro || 0);
+      const _periPHSync  = [..._perfs, ..._horads].reduce((s, ph) => s + _getPeriSync(ph), 0);
+      objetoGuardado.metricas.perimetro_neto = parseFloat((_periExtSync + _periPHSync).toFixed(3));
+      console.log(`🔄 Métricas P/H recomputadas: ${_perfs.length} perf. → area_perforaciones=${_phefSync.areaTotalPerforaciones.toFixed(3)} mm² | area_neta=${objetoGuardado.metricas.area_neta.toFixed(3)} mm² | perimetro_neto=${objetoGuardado.metricas.perimetro_neto} mm`);
+    } else if (objetoGuardado.metricas.perimetro_neto == null) {
+      // Sin P/H: perímetro neto = perímetro externo
+      objetoGuardado.metricas.perimetro_neto = parseFloat(parseFloat(objetoGuardado.metricas.perimeter || 0).toFixed(3));
     }
 
     console.log(`✅ Sincronización completada para ${obj.id} (Cara: ${obj.cara || 'Mono'})`);

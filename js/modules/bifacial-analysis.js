@@ -136,8 +136,10 @@ export function calcularComparacionBifacial(caraA, caraB) {
   const radioMinA = caraA.metricas.radio_minimo || 0;
   const radioMinB = caraB.metricas.radio_minimo || 0;
 
-  const simetriaRadioMax = 1 - Math.abs(radioMaxA - radioMaxB) / Math.max(radioMaxA, radioMaxB);
-  const simetriaRadioMin = 1 - Math.abs(radioMinA - radioMinB) / Math.max(radioMinA, radioMinB);
+  const _denomMax = Math.max(radioMaxA, radioMaxB);
+  const _denomMin = Math.max(radioMinA, radioMinB);
+  const simetriaRadioMax = _denomMax > 0 ? 1 - Math.abs(radioMaxA - radioMaxB) / _denomMax : 1;
+  const simetriaRadioMin = _denomMin > 0 ? 1 - Math.abs(radioMinA - radioMinB) / _denomMin : 1;
 
   // ============================================================================
   // 3️⃣ ANÁLISIS DE FORMA Y DIMENSIONES

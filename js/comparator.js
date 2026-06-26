@@ -10,6 +10,20 @@ const ComparadorMultiObjeto = (() => {
   let _selIds  = new Set(); // IDs seleccionados
   let _metrSel = [];        // Keys de la última comparación generada
 
+  const _LS_METR_KEY = 'mao_cmo_metricas_sel'; // clave localStorage para persistencia A1
+
+  function _guardarSeleccionMetricas(keys) {
+    try { localStorage.setItem(_LS_METR_KEY, JSON.stringify(keys)); } catch(e) {}
+  }
+  function _cargarSeleccionMetricas() {
+    try {
+      const raw = localStorage.getItem(_LS_METR_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) && parsed.length ? parsed : null;
+    } catch(e) { return null; }
+  }
+
   // ──── GRUPOS DE MÉTRICAS  (orden = secciones I–VIII + X del Informe PDF) ──
   // src: 'H'=Convex Hull (forma estimada), 'R'=Contorno Real (estado preservado), 'M'=Mixta/derivada
   const GRUPOS = [
@@ -35,7 +49,7 @@ const ComparadorMultiObjeto = (() => {
     ]},
     { id: 'proporciones', label: 'III — Proporciones y forma global', items: [
       { key: 'circularity',                            label: 'Circularidad C [0–1]',                    src: 'H' },
-      { key: 'compactness',                            label: 'Compacidad [0–1]',                        src: 'H' },
+      { key: 'compactness',                            label: 'Compacidad [0–1] ≡ Circularidad',         src: 'H', pcaExclude: true },
       { key: 'solidity',                               label: 'Solidez S [0–1]',                         src: 'M' },
       { key: 'convexity',                              label: 'Convexidad V [0–1]',                      src: 'M' },
       { key: 'rectangularidad',                        label: 'Rectangularidad [0–1]',                   src: 'H' },
@@ -152,8 +166,13 @@ const ComparadorMultiObjeto = (() => {
   ];
 
   const KEY_LABEL = {};
-  const KEY_SRC   = {};
-  GRUPOS.forEach(g => g.items.forEach(it => { KEY_LABEL[it.key] = it.label; KEY_SRC[it.key] = it.src || ''; }));
+  const KEY_SRC        = {};
+  const KEY_PCA_EXCLUDE = new Set();
+  GRUPOS.forEach(g => g.items.forEach(it => {
+    KEY_LABEL[it.key] = it.label;
+    KEY_SRC[it.key]   = it.src || '';
+    if (it.pcaExclude) KEY_PCA_EXCLUDE.add(it.key);
+  }));
 
   // Renderiza un badge HTML según la fuente metodológica
   function srcBadge(src) {
@@ -834,14 +853,18 @@ const ComparadorMultiObjeto = (() => {
   function renderMetricas() {
     const objs = _objetos.filter(o => _selIds.has(String(o.id)));
 
+    const _savedKeys = _cargarSeleccionMetricas(); // A1: restaurar selección previa
+    const _isChecked = key => _savedKeys ? _savedKeys.includes(key) : DEFAULT_KEYS.includes(key);
+
     document.getElementById('cmoGruposMetricas').innerHTML = GRUPOS.map(g => {
       const conDatos = g.items.filter(it =>
         objs.some(o => { const v = getValor(o, it.key); return typeof v === 'number' && isFinite(v); })
       ).length;
+      const grupoChecked = g.items.some(it => _isChecked(it.key));
       return `<div class="cmo-grupo-metricas" data-grupo-id="${g.id}">
         <div class="cmo-grupo-header">
           <input type="checkbox" class="cmo-chk-grupo" data-grupo="${g.id}"
-            ${g.items.some(it => DEFAULT_KEYS.includes(it.key)) ? 'checked' : ''}>
+            ${grupoChecked ? 'checked' : ''}>
           <span>${esc(g.label)}</span>
           <span style="font-size:10px;font-weight:400;color:#a0aec0;margin-left:auto;">${conDatos}/${g.items.length} con datos</span>
         </div>
@@ -850,7 +873,7 @@ const ComparadorMultiObjeto = (() => {
             const tieneData = objs.some(o => { const v = getValor(o, it.key); return typeof v === 'number' && isFinite(v); });
             return `<label class="cmo-metrica-item" data-label="${esc(it.label.toLowerCase())}">
               <input type="checkbox" class="cmo-chk-met" data-key="${it.key}"
-                ${DEFAULT_KEYS.includes(it.key) ? 'checked' : ''}>
+                ${_isChecked(it.key) ? 'checked' : ''}>
               ${it.src ? srcBadge(it.src) : ''}
               <span>${esc(it.label)}</span>
               ${!tieneData ? '<span style="font-size:9px;color:#fc8181;margin-left:4px;">&mdash; sin datos</span>' : ''}
@@ -896,7 +919,7 @@ const ComparadorMultiObjeto = (() => {
       const vals = objs.map(o=>getValor(o,k)).filter(v=>typeof v==='number'&&isFinite(v));
       if (vals.length < 2) continue;
       const med = vals.reduce((a,b)=>a+b,0)/vals.length;
-      const std = Math.sqrt(vals.reduce((a,b)=>a+(b-med)**2,0)/vals.length);
+      const std = Math.sqrt(vals.reduce((a,b)=>a+(b-med)**2,0)/Math.max(vals.length-1,1));
       const cv  = med !== 0 ? Math.abs(std/med)*100 : 0;
       if (cv > maxCV) { maxCV = cv; maxCVLabel = KEY_LABEL[k]||k; }
     }
@@ -928,6 +951,9 @@ const ComparadorMultiObjeto = (() => {
     correlacion:  'cmoTabCorrelacion',
     morfologia:   'cmoTabMorfologia',
     pca:          'cmoTabPCA',
+    efa:          'cmoTabEFA',
+    errores:      'cmoTabErrores',
+    dendrograma:  'cmoTabDendrograma',
   };
   function activarTab(tab) {
     document.querySelectorAll('.cmo-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
@@ -977,7 +1003,7 @@ const ComparadorMultiObjeto = (() => {
       if (!vals.length) continue;
       const n=vals.length, mn=Math.min(...vals), mx=Math.max(...vals);
       const med=vals.reduce((a,b)=>a+b,0)/n;
-      const std=Math.sqrt(vals.reduce((a,b)=>a+(b-med)**2,0)/n);
+      const std=Math.sqrt(vals.reduce((a,b)=>a+(b-med)**2,0)/Math.max(n-1,1));
       const cv=med!==0?Math.abs(std/med)*100:0;
       const sorted=[...vals].sort((a,b)=>a-b), mid=Math.floor(n/2);
       const mediana=n%2===0?(sorted[mid-1]+sorted[mid])/2:sorted[mid];
@@ -1013,6 +1039,7 @@ const ComparadorMultiObjeto = (() => {
     if (objs.length < 2) { if (typeof toast !== 'undefined') toast.warning('Selecciona al menos 2 objetos.'); return; }
     _metrSel = [...document.querySelectorAll('.cmo-chk-met:checked')].map(c => c.dataset.key);
     if (!_metrSel.length) { if (typeof toast !== 'undefined') toast.warning('Selecciona al menos una métrica.'); return; }
+    _guardarSeleccionMetricas(_metrSel); // A1: persistir para la próxima sesión
     renderResumen(objs, _metrSel);
     renderTabla(objs, _metrSel);
     renderRadar(objs, _metrSel);
@@ -1021,6 +1048,9 @@ const ComparadorMultiObjeto = (() => {
     renderCorrelacion(objs, _metrSel);
     renderMorfologia(objs, _metrSel);
     renderPCA(objs, _metrSel);
+    renderDendrograma(objs, _metrSel);
+    renderEFA(objs);
+    renderErrorVerificacion(objs);
     activarTab('tabla');
     actualizarStepper(3);
     document.getElementById('cmoResultados').style.display = 'block';
@@ -1191,7 +1221,7 @@ const ComparadorMultiObjeto = (() => {
       const lbl  = KEY_LABEL[k] || k;
       const vals = objs.map(o => getValor(o, k)).filter(v => typeof v === 'number' && isFinite(v));
       const mean = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-      const std  = vals.length ? Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length) : 0;
+      const std  = vals.length > 1 ? Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (vals.length - 1)) : 0;
       const cv   = mean !== 0 ? Math.abs(std / mean) * 100 : 0;
       const { bg, fg } = cvBgRadar(cv);
       const cells = objs.map((o, oi) => {
@@ -1451,7 +1481,7 @@ const ComparadorMultiObjeto = (() => {
       const sorted = [...vals].sort((a,b)=>a-b);
       const mn  = sorted[0], mx = sorted[n-1];
       const med = vals.reduce((a,b)=>a+b,0)/n;
-      const std = Math.sqrt(vals.reduce((a,b)=>a+(b-med)**2,0)/n);
+      const std = Math.sqrt(vals.reduce((a,b)=>a+(b-med)**2,0)/Math.max(n-1,1));
       const cv  = med !== 0 ? Math.abs(std/med)*100 : 0;
       const q1  = sorted[Math.floor((n-1)*0.25)];
       const q3  = sorted[Math.ceil((n-1)*0.75)];
@@ -1994,7 +2024,7 @@ const ComparadorMultiObjeto = (() => {
       const n      = vv.length;
       const mn     = sorted[0], mx = sorted[n-1];
       const mean   = vv.reduce((a,b)=>a+b,0)/n;
-      const std    = Math.sqrt(vv.reduce((a,b)=>a+(b-mean)**2,0)/n);
+      const std    = Math.sqrt(vv.reduce((a,b)=>a+(b-mean)**2,0)/Math.max(n-1,1));
       const cv     = mean !== 0 ? Math.abs(std/mean)*100 : 0;
       const q1     = percentil(sorted, 25);
       const q2     = percentil(sorted, 50);
@@ -4578,25 +4608,25 @@ const ComparadorMultiObjeto = (() => {
       const best = scores.reduce((b, s) => s.sil > b.sil ? s : b, scores[0]);
       return { k: best.k, scores };
     }
-    // Distancias de Mahalanobis 2D al centroide global (para detección de outliers)
-    function mahalanobisDistances2D(pts) {
-      const n = pts.length;
-      if (n < 3) return pts.map(() => 0);
-      const mx = pts.reduce((s, p) => s + p[0], 0) / n;
-      const my = pts.reduce((s, p) => s + p[1], 0) / n;
-      let sxx = 0, syy = 0, sxy = 0;
-      pts.forEach(p => { sxx += (p[0]-mx)**2; syy += (p[1]-my)**2; sxy += (p[0]-mx)*(p[1]-my); });
-      sxx /= (n-1) || 1; syy /= (n-1) || 1; sxy /= (n-1) || 1;
-      const det = sxx * syy - sxy * sxy;
-      // Matriz singular o mal condicionada → distancia euclídea normalizada como fallback
-      if (!isFinite(det) || Math.abs(det) < 1e-12) {
-        const sx = Math.sqrt(sxx) || 1, sy = Math.sqrt(syy) || 1;
-        return pts.map(p => Math.sqrt(((p[0]-mx)/sx)**2 + ((p[1]-my)/sy)**2));
-      }
-      return pts.map(p => {
-        const dx = p[0] - mx, dy = p[1] - my;
-        return Math.sqrt(Math.max(0, (syy*dx*dx - 2*sxy*dx*dy + sxx*dy*dy) / det));
+    // Distancias de Mahalanobis al centroide global en el espacio completo de métricas
+    // estandarizadas (Z). Más preciso que operar solo en PC1+PC2 para colecciones
+    // donde componentes menores capturan varianza diagnóstica.
+    function mahalanobisDistancesZ(Z) {
+      const n = Z.length;
+      if (n < 3 || !Z[0]?.length) return Z.map(() => 0);
+      const p = Z[0].length;
+      // Centroide
+      const mu = Array.from({length: p}, (_, j) => Z.reduce((s, row) => s + row[j], 0) / n);
+      // Varianza por dimensión (ddof=1) como aproximación diagonal de la covarianza
+      // (la covarianza completa p×p es no invertible cuando n < p+1, situación frecuente
+      //  en MAO con 20-40 métricas y 3-10 objetos → usamos la diagonal regularizada)
+      const variances = Array.from({length: p}, (_, j) => {
+        const v = Z.reduce((s, row) => s + (row[j] - mu[j]) ** 2, 0) / Math.max(n - 1, 1);
+        return v > 1e-10 ? v : 1; // regularización: dimensiones constantes no penalizan
       });
+      return Z.map(row =>
+        Math.sqrt(row.reduce((s, z, j) => s + (z - mu[j]) ** 2 / variances[j], 0))
+      );
     }
 
     // ── Paleta de clusters (diferente a PALETA de objetos) ─────────────────
@@ -4605,8 +4635,9 @@ const ComparadorMultiObjeto = (() => {
     ];
 
     // ── Construcción de la matriz de datos ─────────────────────────────────
-    // Solo métricas numéricas válidas en TODOS los objetos
+    // Solo métricas numéricas válidas en TODOS los objetos; excluir duplicados matemáticos
     const validKeys = keys.filter(k => {
+      if (KEY_PCA_EXCLUDE.has(k)) return false;
       return objs.every(o => {
         const v = getValor(o, k);
         return v !== null && v !== undefined && isFinite(Number(v));
@@ -4717,8 +4748,8 @@ const ComparadorMultiObjeto = (() => {
       : _sil >= 0.25 ? { col:'#744210', bg:'#fefcbf', cls:'status-warn', kpiBg:'#fefce8', kpiCol:'#854d0e', sub:'Separación mod.' }
       :                { col:'#742a2a', bg:'#fed7d7', cls:'status-bad',  kpiBg:'#fff1f2', kpiCol:'#9f1239', sub:'Solapados'       };
     // Outliers (Mahalanobis > umbral)
-    const _mdists   = mahalanobisDistances2D(scores2D);
-    const _OL_THR   = 2.5;
+    const _mdists   = mahalanobisDistancesZ(Z);
+    const _OL_THR   = 2.716; // sqrt(chi²(2, 0.975)) — percentil 97.5%, alineado con Python
     const _outliers = objs.filter((_, i) => _mdists[i] > _OL_THR);
     // Interpretación de ejes (hasta PC5)
     const _nPCs = Math.min(5, loadings.length);
@@ -5211,6 +5242,655 @@ const ComparadorMultiObjeto = (() => {
       .then(() => { if (typeof toast !== 'undefined') toast.success('CSV de comparación exportado.'); });
   }
 
+  // ──── PESTAÑA EFA (Descriptores de Fourier Elípticos) ────────────────────
+  function renderEFA(objs) {
+    const tabBtn    = document.querySelector('.cmo-tab-btn[data-tab="efa"]');
+    const contenedor = document.getElementById('cmoTabEFA');
+    if (!contenedor) return;
+
+    // Extraer _efa_data de cada objeto (guardado en obj.metricas._efa_data)
+    const datos = objs.map(o => ({
+      nombre: o.nombre,
+      cara:   o.cara,
+      efa:    o.metricas?._efa_data || null,
+    }));
+
+    const conEFA = datos.filter(d => d.efa && d.efa.status === 'ok');
+
+    if (!conEFA.length) {
+      if (tabBtn) { tabBtn.style.opacity = '0.4'; tabBtn.disabled = true; }
+      contenedor.innerHTML = `<div style="padding:24px;text-align:center;color:#a0aec0;font-size:12px;">
+        Ningún objeto de esta colección tiene datos EFA calculados.<br>
+        El análisis EFA se ejecuta al hacer clic en «Descriptores de Fourier» en el panel de análisis individual.
+      </div>`;
+      return;
+    }
+    if (tabBtn) { tabBtn.style.opacity = ''; tabBtn.disabled = false; }
+
+    const PALETTE = [
+      '#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6',
+      '#06b6d4','#f97316','#84cc16','#ec4899','#6366f1',
+    ];
+
+    // ── 1. Tabla comparativa ──────────────────────────────────────────────────
+    const thead = `<thead><tr style="background:#f7fafc;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#718096;">
+      <th style="padding:6px 10px;text-align:left;border-bottom:2px solid #e2e8f0;white-space:nowrap;">Objeto</th>
+      <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #e2e8f0;">Cara</th>
+      <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #e2e8f0;" title="Armónicos totales calculados">Arm. totales</th>
+      <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #e2e8f0;" title="Armónicos para capturar el 95% de la varianza de forma">h @ 95 %</th>
+      <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #e2e8f0;" title="Armónicos para capturar el 99% de la varianza de forma">h @ 99 %</th>
+      <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #e2e8f0;" title="Proporción de varianza capturada por el primer armónico (elipse base)">Var h1 (%)</th>
+      <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #e2e8f0;" title="Puntos del contorno usados como entrada">Pts entrada</th>
+      <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #e2e8f0;" title="Índice de complejidad: ratio h@99% / arm.totales (cuanto menor, más simple)">Complejidad</th>
+    </tr></thead>`;
+
+    const filas = conEFA.map((d, i) => {
+      const e   = d.efa;
+      const ps  = Array.isArray(e.power_spectrum) ? e.power_spectrum : [];
+      const h1v = ps.length > 0 ? (ps[0] * 100).toFixed(1) : '—';
+      const nT  = e.n_harmonics ?? '—';
+      const h95 = e.harmonics_for_95pct ?? '—';
+      const h99 = e.harmonics_for_99pct ?? '—';
+      const nPts = e.n_points_input ?? '—';
+      const complejidad = (typeof nT === 'number' && typeof h99 === 'number' && nT > 0)
+        ? (h99 / nT).toFixed(2) : '—';
+      const bg = i % 2 === 0 ? '#ffffff' : '#f9fafb';
+      const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${PALETTE[i % PALETTE.length]};margin-right:5px;"></span>`;
+      const caraLbl = d.cara && d.cara !== 'Mono' ? d.cara : '·';
+      return `<tr style="background:${bg};font-size:11px;">
+        <td style="padding:5px 10px;font-weight:600;">${dot}${esc(d.nombre)}</td>
+        <td style="padding:5px 8px;text-align:center;"><span class="cmo-cara-badge cmo-cara-${caraLbl}">${esc(caraLbl)}</span></td>
+        <td style="padding:5px 8px;text-align:center;">${nT}</td>
+        <td style="padding:5px 8px;text-align:center;font-weight:700;color:#2b6cb0;">${h95}</td>
+        <td style="padding:5px 8px;text-align:center;font-weight:700;color:#276749;">${h99}</td>
+        <td style="padding:5px 8px;text-align:center;">${h1v}</td>
+        <td style="padding:5px 8px;text-align:center;color:#718096;">${nPts}</td>
+        <td style="padding:5px 8px;text-align:center;color:${complejidad !== '—' && parseFloat(complejidad) > 0.5 ? '#c05621' : '#276749'};">${complejidad}</td>
+      </tr>`;
+    });
+
+    const tablaHtml = `<div style="overflow-x:auto;margin-bottom:18px;">
+      <table style="width:100%;border-collapse:collapse;" id="cmoTablaEFA">
+        ${thead}<tbody>${filas.join('')}</tbody>
+      </table>
+    </div>`;
+
+    // ── 2. Gráfico de espectro de potencia acumulado ──────────────────────────
+    const CHART_W = 580, CHART_H = 240;
+    const PAD = { top: 18, right: 20, bottom: 44, left: 52 };
+    const innerW = CHART_W - PAD.left - PAD.right;
+    const innerH = CHART_H - PAD.top  - PAD.bottom;
+
+    // Número máximo de armónicos a mostrar (cap 20 para legibilidad)
+    const maxH = Math.min(20, Math.max(...conEFA.map(d =>
+      Array.isArray(d.efa.power_spectrum) ? d.efa.power_spectrum.length : 0
+    )));
+
+    // Construir varianza acumulada normalizada para cada objeto
+    const series = conEFA.map(d => {
+      const ps = Array.isArray(d.efa.power_spectrum) ? d.efa.power_spectrum : [];
+      const total = ps.reduce((s, v) => s + v, 0) || 1;
+      let cum = 0;
+      return Array.from({ length: maxH }, (_, i) => {
+        cum += (ps[i] || 0);
+        return cum / total * 100;
+      });
+    });
+
+    // Escala X: 1…maxH; Y: 0…100%
+    const xPos = h => PAD.left + (h / (maxH - 1 || 1)) * innerW;
+    const yPos = v => PAD.top  + (1 - v / 100) * innerH;
+
+    // Líneas por objeto
+    const lineas = series.map((pts, i) => {
+      const color = PALETTE[i % PALETTE.length];
+      const d = pts.map((v, h) => `${h === 0 ? 'M' : 'L'}${xPos(h).toFixed(1)},${yPos(v).toFixed(1)}`).join(' ');
+      return `<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
+    });
+
+    // Marcadores en h@95 y h@99 para cada objeto (líneas verticales tenues)
+    const markers95 = conEFA.map((d, i) => {
+      const h = d.efa.harmonics_for_95pct;
+      if (!h || h > maxH) return '';
+      const x = xPos(h - 1).toFixed(1);
+      return `<line x1="${x}" y1="${PAD.top}" x2="${x}" y2="${PAD.top + innerH}" stroke="${PALETTE[i % PALETTE.length]}" stroke-width="1" stroke-dasharray="3,3" opacity=".5"/>`;
+    });
+
+    // Líneas de referencia 95% y 99%
+    const ref95y = yPos(95).toFixed(1);
+    const ref99y = yPos(99).toFixed(1);
+    const refs = `
+      <line x1="${PAD.left}" y1="${ref95y}" x2="${PAD.left + innerW}" y2="${ref95y}" stroke="#3b82f6" stroke-width="1" stroke-dasharray="4,4" opacity=".6"/>
+      <text x="${PAD.left - 4}" y="${parseFloat(ref95y) + 4}" text-anchor="end" font-size="9" fill="#3b82f6">95%</text>
+      <line x1="${PAD.left}" y1="${ref99y}" x2="${PAD.left + innerW}" y2="${ref99y}" stroke="#10b981" stroke-width="1" stroke-dasharray="4,4" opacity=".6"/>
+      <text x="${PAD.left - 4}" y="${parseFloat(ref99y) + 4}" text-anchor="end" font-size="9" fill="#10b981">99%</text>`;
+
+    // Ejes
+    const ejex = Array.from({ length: Math.min(maxH, 10) }, (_, i) => {
+      const h = Math.round(i * (maxH - 1) / 9);
+      const x = xPos(h).toFixed(1);
+      return `<line x1="${x}" y1="${PAD.top + innerH}" x2="${x}" y2="${PAD.top + innerH + 4}" stroke="#cbd5e0" stroke-width="1"/>
+              <text x="${x}" y="${PAD.top + innerH + 14}" text-anchor="middle" font-size="9" fill="#718096">h${h + 1}</text>`;
+    }).join('');
+    const ejey = [0, 25, 50, 75, 100].map(v => {
+      const y = yPos(v).toFixed(1);
+      return `<line x1="${PAD.left - 4}" y1="${y}" x2="${PAD.left + innerW}" y2="${y}" stroke="#e2e8f0" stroke-width="1"/>
+              <text x="${PAD.left - 6}" y="${parseFloat(y) + 3}" text-anchor="end" font-size="9" fill="#718096">${v}</text>`;
+    }).join('');
+
+    // Leyenda (nombres de objetos)
+    const leyenda = conEFA.map((d, i) => {
+      const lbl = d.nombre + (d.cara && d.cara !== 'Mono' ? ` (${d.cara})` : '');
+      return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#4a5568;margin-right:10px;white-space:nowrap;">
+        <span style="display:inline-block;width:14px;height:3px;border-radius:2px;background:${PALETTE[i % PALETTE.length]};"></span>${esc(lbl)}
+      </span>`;
+    }).join('');
+
+    const svgChart = `<svg viewBox="0 0 ${CHART_W} ${CHART_H}" xmlns="http://www.w3.org/2000/svg"
+        style="width:100%;max-width:${CHART_W}px;height:auto;display:block;margin:0 auto;">
+      <!-- fondo -->
+      <rect x="${PAD.left}" y="${PAD.top}" width="${innerW}" height="${innerH}" fill="#f8fafc" rx="3"/>
+      <!-- rejilla Y -->
+      ${ejey}
+      <!-- referencias 95/99 -->
+      ${refs}
+      <!-- marcadores h@95 por objeto -->
+      ${markers95.join('')}
+      <!-- curvas -->
+      ${lineas.join('')}
+      <!-- eje X -->
+      ${ejex}
+      <!-- borde eje -->
+      <line x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${PAD.top + innerH}" stroke="#cbd5e0" stroke-width="1"/>
+      <line x1="${PAD.left}" y1="${PAD.top + innerH}" x2="${PAD.left + innerW}" y2="${PAD.top + innerH}" stroke="#cbd5e0" stroke-width="1"/>
+      <!-- etiquetas ejes -->
+      <text x="${PAD.left + innerW / 2}" y="${CHART_H - 4}" text-anchor="middle" font-size="10" fill="#718096">Armónico</text>
+      <text x="11" y="${PAD.top + innerH / 2}" text-anchor="middle" font-size="10" fill="#718096"
+            transform="rotate(-90,11,${PAD.top + innerH / 2})">Varianza acum. (%)</text>
+    </svg>`;
+
+    const graficoHtml = `<div style="margin-bottom:8px;">
+      <div style="font-size:11px;font-weight:600;color:#4a5568;margin-bottom:6px;">Espectro de potencia acumulado</div>
+      ${svgChart}
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;">${leyenda}</div>
+    </div>`;
+
+    // ── 3. Nota + CSV ──────────────────────────────────────────────────────────
+    const notaHtml = `<div style="margin-top:14px;padding:10px 14px;background:#ebf8ff;border-left:3px solid #63b3ed;border-radius:0 6px 6px 0;font-size:11px;color:#2b6cb0;line-height:1.6;">
+      <strong>Lectura:</strong>
+      Cuanto antes alcanza una curva el 95 %, más simple es la forma del objeto.
+      Un alto h@95 indica geometría irregular o dentada (lascas retocadas, núcleos).
+      El índice de complejidad = h@99 / arm.totales: &lt; 0.35 simple, 0.35–0.60 moderado, &gt; 0.60 complejo.
+      Las líneas discontinuas verticales marcan el armónico h@95 de cada objeto.
+    </div>`;
+
+    // Exportar CSV de coeficientes (todos los objetos con EFA)
+    const btnCSVId = `cmoEFAExportCSV_${Date.now()}`;
+    const btnCSV = `<button class="cmo-btn cmo-btn-ghost" id="${btnCSVId}"
+        style="font-size:11px;padding:4px 10px;margin-top:10px;">
+      &#128190; Exportar CSV de coeficientes EFA
+    </button>`;
+
+    // Aviso si hay objetos sin EFA
+    const sinEFACount = datos.length - conEFA.length;
+    const avisoHtml = sinEFACount > 0
+      ? `<div style="padding:7px 12px;background:#fffbeb;border:1px solid #f6ad55;border-radius:6px;font-size:11px;color:#744210;margin-bottom:12px;">
+          ⚠ ${sinEFACount} objeto(s) sin datos EFA — solo se muestran los ${conEFA.length} con EFA calculado.
+         </div>` : '';
+
+    const pane = contenedor.querySelector('p');
+    const desc = pane ? pane.outerHTML : '';
+    contenedor.innerHTML = desc + avisoHtml + tablaHtml + graficoHtml + notaHtml + btnCSV;
+
+    // Cablear CSV de coeficientes
+    const btnEl = document.getElementById(btnCSVId);
+    if (btnEl) {
+      btnEl.addEventListener('click', () => {
+        const sep = ',';
+        const q   = s => { const t = String(s ?? ''); return t.includes(sep) || t.includes('"') ? `"${t.replace(/"/g,'""')}"` : t; };
+        // Encabezado: Objeto, Cara, Armónico, an, bn, cn, dn
+        const rows = [];
+        rows.push(['Objeto','Cara','Armonico','an','bn','cn','dn'].map(q).join(sep));
+        conEFA.forEach(d => {
+          const coeffs = Array.isArray(d.efa.coefficients) ? d.efa.coefficients : [];
+          coeffs.forEach((c, i) => {
+            const [an, bn, cn, dn] = Array.isArray(c) ? c : [c.an ?? '', c.bn ?? '', c.cn ?? '', c.dn ?? ''];
+            rows.push([d.nombre, d.cara, i + 1, an, bn, cn, dn].map(q).join(sep));
+          });
+        });
+        const csv = '﻿' + rows.join('\n');
+        _guardarCSV(_buildCMOExportFilename('efa', 'coeficientes_efa', 'csv'), csv)
+          .then(() => { if (typeof toast !== 'undefined') toast.success('CSV de coeficientes EFA exportado.'); });
+      });
+    }
+  }
+
+  // ──── PESTAÑA DE VERIFICACIÓN DE ERROR ──────────────────────────────────
+  function renderErrorVerificacion(objs) {
+    const tabBtn    = document.querySelector('.cmo-tab-btn[data-tab="errores"]');
+    const contenedor = document.getElementById('cmoTabErrores');
+    if (!contenedor) return;
+    if (!objs.length) {
+      if (tabBtn) { tabBtn.style.opacity = '0.4'; tabBtn.disabled = true; }
+      return;
+    }
+    if (tabBtn) { tabBtn.style.opacity = ''; tabBtn.disabled = false; }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    const fNum  = (v, dec = 2) => (typeof v === 'number' && isFinite(v)) ? v.toFixed(dec) : '—';
+    const fPct  = v  => (typeof v === 'number' && isFinite(v)) ? v.toFixed(2) + ' %' : '—';
+    const NA    = '<span style="color:#a0aec0;">—</span>';
+
+    // Nivel óptico → color/etiqueta
+    function opticoCls(nivel) {
+      if (!nivel || nivel === 'Sin datos') return { bg: '#f7fafc', fg: '#a0aec0', badge: 'Sin datos', dot: '⬜' };
+      const n = nivel.toLowerCase();
+      if (n.includes('alta') || n.includes('excelente')) return { bg: '#f0fff4', fg: '#276749', badge: nivel, dot: '🟢' };
+      if (n.includes('media') || n.includes('buena'))    return { bg: '#fefce8', fg: '#854d0e', badge: nivel, dot: '🟡' };
+      return { bg: '#fff5f5', fg: '#9b2c2c', badge: nivel, dot: '🔴' };
+    }
+
+    // Confianza de detección → color
+    function detCls(score) {
+      if (score == null || !isFinite(score)) return { bg: '#f7fafc', fg: '#a0aec0', dot: '⬜' };
+      if (score >= 0.75) return { bg: '#f0fff4', fg: '#276749', dot: '🟢' };
+      if (score >= 0.45) return { bg: '#fefce8', fg: '#854d0e', dot: '🟡' };
+      return { bg: '#fff5f5', fg: '#9b2c2c', dot: '🔴' };
+    }
+
+    // Método de detección → etiqueta legible
+    function metodoLabel(m) {
+      if (!m) return '—';
+      const t = m.toLowerCase();
+      if (t.includes('ia') || t.includes('sam') || t.includes('mao_ia')) return 'IA / SAM';
+      if (t.includes('manual_area') || t.includes('manual area'))        return 'Manual área';
+      if (t.includes('manual'))                                            return 'Manual';
+      if (t.includes('auto') || t.includes('zscan'))                      return 'Automático';
+      return m;
+    }
+
+    // ── Por objeto: extraer campos de error ──────────────────────────────────
+    const filas = objs.map(o => {
+      const m = o.metricas || {};
+      return {
+        nombre:            o.nombre,
+        cara:              o.cara,
+        fecha:             o.fecha,
+        // Error óptico posicional
+        errorLineal:       parseFloat(m.error_optico_lineal_percent),
+        errorArea:         parseFloat(m.error_optico_area_percent),
+        confianzaOptica:   m.confianza_optica   || 'Sin datos',
+        notaOptica:        m.nota_error_optico  || '',
+        // Incertidumbre propagada en métricas absolutas clave
+        incertArea:        parseFloat(m.area_incertidumbre_abs),
+        incertPerim:       parseFloat(m.perimeter_incertidumbre_abs),
+        incertEjeMayor:    parseFloat(m.eje_mayor_incertidumbre_abs),
+        incertFeretMax:    parseFloat(m.feret_max_incertidumbre_abs),
+        // Valores nominales para contexto
+        area:              parseFloat(m.area),
+        perimeter:         parseFloat(m.perimeter),
+        // Confianza de detección
+        detScore:          parseFloat(m.detection_confidence),
+        detLevel:          m.detection_confidence_level || null,
+        detMethod:         m.detection_method || null,
+        // Flag de incertidumbre aplicada
+        incertAplicada:    !!m._incertidumbre_optica_aplicada,
+      };
+    });
+
+    // ── Estadísticos colectivos ───────────────────────────────────────────────
+    const conOptica  = filas.filter(f => isFinite(f.errorLineal));
+    const sinOptica  = filas.filter(f => !isFinite(f.errorLineal));
+    const mediaErr   = conOptica.length
+      ? conOptica.reduce((s, f) => s + f.errorLineal, 0) / conOptica.length : null;
+    const maxErr     = conOptica.length
+      ? Math.max(...conOptica.map(f => f.errorLineal)) : null;
+    const conDet     = filas.filter(f => isFinite(f.detScore));
+    const mediaDet   = conDet.length
+      ? conDet.reduce((s, f) => s + f.detScore, 0) / conDet.length : null;
+
+    // ── Resumen colectivo ─────────────────────────────────────────────────────
+    const resumenHtml = `
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+        <div style="background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 16px;min-width:140px;">
+          <div style="font-size:10px;color:#718096;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Error óptico medio</div>
+          <div style="font-size:20px;font-weight:700;color:${mediaErr != null && mediaErr > 3 ? '#c05621' : '#276749'};">
+            ${mediaErr != null ? mediaErr.toFixed(2) + ' %' : '—'}
+          </div>
+          <div style="font-size:10px;color:#a0aec0;">${conOptica.length}/${filas.length} con datos</div>
+        </div>
+        <div style="background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 16px;min-width:140px;">
+          <div style="font-size:10px;color:#718096;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Error óptico máx.</div>
+          <div style="font-size:20px;font-weight:700;color:${maxErr != null && maxErr > 5 ? '#c05621' : '#276749'};">
+            ${maxErr != null ? maxErr.toFixed(2) + ' %' : '—'}
+          </div>
+          <div style="font-size:10px;color:#a0aec0;">lineal posicional</div>
+        </div>
+        <div style="background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 16px;min-width:140px;">
+          <div style="font-size:10px;color:#718096;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Confianza detección media</div>
+          <div style="font-size:20px;font-weight:700;color:${mediaDet != null && mediaDet < 0.5 ? '#c05621' : '#276749'};">
+            ${mediaDet != null ? (mediaDet * 100).toFixed(1) + ' %' : '—'}
+          </div>
+          <div style="font-size:10px;color:#a0aec0;">${conDet.length}/${filas.length} con datos</div>
+        </div>
+        ${sinOptica.length > 0 ? `
+        <div style="background:#fffbeb;border:1px solid #f6ad55;border-radius:6px;padding:10px 16px;min-width:180px;max-width:320px;">
+          <div style="font-size:10px;color:#854d0e;font-weight:600;margin-bottom:4px;">⚠ Sin error óptico</div>
+          <div style="font-size:11px;color:#744210;">${sinOptica.map(f => esc(f.nombre)).join(', ')} — parámetros de cámara no disponibles al momento del análisis.</div>
+        </div>` : ''}
+      </div>`;
+
+    // ── Tabla por objeto ───────────────────────────────────────────────────────
+    const thead = `<thead><tr style="background:#f7fafc;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#718096;">
+      <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #e2e8f0;white-space:nowrap;">Objeto</th>
+      <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #e2e8f0;">Cara</th>
+      <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #e2e8f0;">Fecha</th>
+      <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #e2e8f0;" title="Error óptico posicional lineal">Err. óptico lineal</th>
+      <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #e2e8f0;" title="Error óptico posicional en área">Err. óptico área</th>
+      <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #e2e8f0;">Confianza óptica</th>
+      <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #e2e8f0;" title="Incertidumbre absoluta en área (±mm²)">±Área (mm²)</th>
+      <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #e2e8f0;" title="Incertidumbre absoluta en perímetro (±mm)">±Perímetro (mm)</th>
+      <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #e2e8f0;" title="Incertidumbre absoluta en eje mayor (±mm)">±Eje mayor (mm)</th>
+      <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #e2e8f0;" title="Confianza de detección automática (score 0–1)">Conf. detección</th>
+      <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #e2e8f0;">Método detección</th>
+    </tr></thead>`;
+
+    const tbody = filas.map((f, i) => {
+      const oc  = opticoCls(f.confianzaOptica);
+      const dc  = detCls(f.detScore);
+      const row = i % 2 === 0 ? '#ffffff' : '#f9fafb';
+      const caraLbl = f.cara && f.cara !== 'Mono' ? f.cara : '·';
+
+      // Incertidumbre relativa de área para contexto (%)
+      const incertAreaPct = isFinite(f.incertArea) && isFinite(f.area) && f.area > 0
+        ? ` <span style="color:#a0aec0;font-size:9px;">(${(f.incertArea / f.area * 100).toFixed(1)}%)</span>` : '';
+      const incertPerimPct = isFinite(f.incertPerim) && isFinite(f.perimeter) && f.perimeter > 0
+        ? ` <span style="color:#a0aec0;font-size:9px;">(${(f.incertPerim / f.perimeter * 100).toFixed(1)}%)</span>` : '';
+
+      const notaTitle = f.notaOptica ? ` title="${esc(f.notaOptica)}"` : '';
+
+      return `<tr style="background:${row};font-size:11px;">
+        <td style="padding:5px 8px;font-weight:600;white-space:nowrap;">${esc(f.nombre)}</td>
+        <td style="padding:5px 8px;text-align:center;">
+          <span class="cmo-cara-badge cmo-cara-${caraLbl}">${esc(caraLbl)}</span>
+        </td>
+        <td style="padding:5px 8px;color:#718096;white-space:nowrap;">${esc(f.fecha)}</td>
+        <td style="padding:5px 8px;text-align:center;"${notaTitle}>
+          ${isFinite(f.errorLineal) ? `<span style="font-weight:700;color:${f.errorLineal > 3 ? '#c05621' : '#276749'};">${fPct(f.errorLineal)}</span>` : NA}
+        </td>
+        <td style="padding:5px 8px;text-align:center;">
+          ${isFinite(f.errorArea) ? `<span style="font-weight:700;color:${f.errorArea > 6 ? '#c05621' : '#276749'};">${fPct(f.errorArea)}</span>` : NA}
+        </td>
+        <td style="padding:5px 8px;text-align:center;">
+          <span style="display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;
+            background:${oc.bg};color:${oc.fg};">${oc.dot} ${esc(oc.badge)}</span>
+        </td>
+        <td style="padding:5px 8px;text-align:center;">
+          ${isFinite(f.incertArea) ? `±${fNum(f.incertArea, 3)}${incertAreaPct}` : NA}
+        </td>
+        <td style="padding:5px 8px;text-align:center;">
+          ${isFinite(f.incertPerim) ? `±${fNum(f.incertPerim, 3)}${incertPerimPct}` : NA}
+        </td>
+        <td style="padding:5px 8px;text-align:center;">
+          ${isFinite(f.incertEjeMayor) ? `±${fNum(f.incertEjeMayor, 3)}` : NA}
+        </td>
+        <td style="padding:5px 8px;text-align:center;">
+          ${isFinite(f.detScore)
+            ? `<span style="font-weight:700;color:${dc.fg};">${dc.dot} ${(f.detScore * 100).toFixed(1)} %</span>`
+            : NA}
+        </td>
+        <td style="padding:5px 8px;color:#4a5568;">${esc(metodoLabel(f.detMethod))}</td>
+      </tr>`;
+    }).join('');
+
+    const tabla = `<div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;" id="cmoTablaErrores">
+        ${thead}<tbody>${tbody}</tbody>
+      </table>
+    </div>`;
+
+    // ── Nota metodológica ─────────────────────────────────────────────────────
+    const notaHtml = `<div style="margin-top:14px;padding:10px 14px;background:#ebf8ff;border-left:3px solid #63b3ed;border-radius:0 6px 6px 0;font-size:11px;color:#2b6cb0;line-height:1.6;">
+      <strong>Nota metodológica:</strong>
+      El error óptico posicional es función de la distancia del objeto al centro óptico (efecto de distorsión radial).
+      Un error lineal &lt; 1 % es despreciable; entre 1–3 % es aceptable; &gt; 3 % requiere cautela en métricas absolutas.
+      La incertidumbre en área ≈ 2 × error lineal por propagación cuadrática.
+      La confianza de detección refleja la calidad del contorno extraído (0 = sin datos, 1 = máxima).
+    </div>`;
+
+    // ── Exportar CSV ───────────────────────────────────────────────────────────
+    const btnCSV = `<button class="cmo-btn cmo-btn-ghost" id="cmoErroresExportCSV"
+        style="font-size:11px;padding:4px 10px;margin-top:10px;">
+      &#128190; Exportar CSV de errores
+    </button>`;
+
+    contenedor.innerHTML = resumenHtml + tabla + notaHtml + btnCSV;
+
+    // Cablear exportar CSV
+    const btnEl = document.getElementById('cmoErroresExportCSV');
+    if (btnEl) {
+      btnEl.addEventListener('click', () => {
+        const sep = ',';
+        const q   = s => { const t = String(s ?? ''); return t.includes(sep) || t.includes('"') ? `"${t.replace(/"/g,'""')}"` : t; };
+        const header = ['Objeto','Cara','Fecha','Error óptico lineal (%)','Error óptico área (%)','Confianza óptica',
+          '±Área (mm²)','±Perímetro (mm)','±Eje mayor (mm)','Confianza detección (0-1)','Método detección'].map(q).join(sep);
+        const rows = filas.map(f => [
+          f.nombre, f.cara, f.fecha,
+          isFinite(f.errorLineal)  ? f.errorLineal.toFixed(4)  : '',
+          isFinite(f.errorArea)    ? f.errorArea.toFixed(4)    : '',
+          f.confianzaOptica,
+          isFinite(f.incertArea)   ? f.incertArea.toFixed(4)   : '',
+          isFinite(f.incertPerim)  ? f.incertPerim.toFixed(4)  : '',
+          isFinite(f.incertEjeMayor) ? f.incertEjeMayor.toFixed(4) : '',
+          isFinite(f.detScore)     ? f.detScore.toFixed(4)     : '',
+          metodoLabel(f.detMethod),
+        ].map(q).join(sep));
+        const csv = '﻿' + [header, ...rows].join('\n');
+        _guardarCSV(_buildCMOExportFilename('errores', 'verificacion_error', 'csv'), csv)
+          .then(() => { if (typeof toast !== 'undefined') toast.success('CSV de verificación de errores exportado.'); });
+      });
+    }
+  }
+
+  // ──── DENDROGRAMA (Ward linkage, distancia euclídea) ─────────────────────
+  function renderDendrograma(objs, keys) {
+    const tabBtn = document.querySelector('.cmo-tab-btn[data-tab="dendrograma"]');
+    const contenedor = document.getElementById('cmoDendrogramaContenido');
+    if (!contenedor) return;
+
+    // Métricas numéricas válidas en todos los objetos (mismo filtro que PCA)
+    const vKeys = keys.filter(k =>
+      !KEY_PCA_EXCLUDE.has(k) &&
+      objs.every(o => { const v = getValor(o, k); return v !== null && v !== undefined && isFinite(Number(v)); })
+    );
+    if (vKeys.length < 1 || objs.length < 2) {
+      if (tabBtn) { tabBtn.style.opacity = '0.4'; tabBtn.disabled = true; }
+      contenedor.innerHTML = '<p style="color:#a0aec0;font-size:12px;padding:12px;">Se necesitan al menos 2 objetos y 1 métrica numérica.</p>';
+      return;
+    }
+    if (tabBtn) { tabBtn.style.opacity = ''; tabBtn.disabled = false; }
+
+    const n = objs.length;
+
+    // Estandarizar (z-score, ddof=1)
+    const Z = (() => {
+      const raw = objs.map(o => vKeys.map(k => Number(getValor(o, k))));
+      return raw.map(row =>
+        row.map((v, j) => {
+          const col = raw.map(r => r[j]);
+          const mu  = col.reduce((a, b) => a + b, 0) / n;
+          const sd  = Math.sqrt(col.reduce((a, b) => a + (b - mu) ** 2, 0) / Math.max(n - 1, 1)) || 1;
+          return (v - mu) / sd;
+        })
+      );
+    })();
+
+    // Distancia euclídea entre dos vectores
+    const dist = (a, b) => Math.sqrt(a.reduce((s, v, i) => s + (v - b[i]) ** 2, 0));
+
+    // Matriz de distancias inicial n×n
+    const D = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => dist(Z[i], Z[j])));
+
+    // Ward linkage aglomerativo
+    // Cada clúster almacena: { members: [idx...], centroid: [...], height: número }
+    let clusters = objs.map((_, i) => ({ members: [i], centroid: [...Z[i]], height: 0 }));
+    const merges = []; // [{left, right, height, size}]
+
+    while (clusters.length > 1) {
+      // Encontrar el par de menor distancia de Ward
+      let minD = Infinity, mi = 0, mj = 1;
+      for (let a = 0; a < clusters.length; a++) {
+        for (let b = a + 1; b < clusters.length; b++) {
+          const na = clusters[a].members.length, nb = clusters[b].members.length;
+          // Distancia de Ward: incremento de inercia intra-grupo al fusionar
+          const dab = dist(clusters[a].centroid, clusters[b].centroid);
+          const ward = (na * nb) / (na + nb) * dab * dab;
+          if (ward < minD) { minD = ward; mi = a; mj = b; }
+        }
+      }
+      const ca = clusters[mi], cb = clusters[mj];
+      const na = ca.members.length, nb = cb.members.length;
+      const newMembers = [...ca.members, ...cb.members];
+      const newCentroid = ca.centroid.map((v, i) => (v * na + cb.centroid[i] * nb) / (na + nb));
+      const height = Math.sqrt(minD); // raíz → escala en distancia euclídea
+      merges.push({ left: ca, right: cb, height, size: newMembers.length });
+      clusters.splice(mj, 1);
+      clusters.splice(mi, 1);
+      clusters.push({ members: newMembers, centroid: newCentroid, height });
+    }
+
+    // ── Render en canvas ──────────────────────────────────────────────────────
+    const LEAF_W  = Math.max(60, Math.min(100, Math.floor(680 / n)));
+    const W       = n * LEAF_W + 60;
+    const H       = 320;
+    const PAD_L   = 50, PAD_R = 20, PAD_T = 20, PAD_B = 60;
+    const plotW   = W - PAD_L - PAD_R;
+    const plotH   = H - PAD_T - PAD_B;
+
+    const maxH    = merges.length ? merges[merges.length - 1].height : 1;
+    const yScale  = v => PAD_T + plotH * (1 - v / (maxH * 1.05));
+    const PALETA  = ['#6366f1','#059669','#dc2626','#d97706','#0891b2','#db2777','#7c3aed','#65a30d'];
+
+    // Asignar posición X a cada hoja en el orden de fusión
+    const leafOrder = [];
+    (function extractOrder(node) {
+      if (!node) return;
+      if (!node.left && !node.right) {
+        // hoja raíz (caso n=2 sin sub-nodos)
+        node.members.forEach(i => { if (!leafOrder.includes(i)) leafOrder.push(i); });
+        return;
+      }
+      const walkLeft  = m => { if (m.left || m.right) { walkLeft(m.left); walkLeft(m.right); } else { m.members.forEach(i => { if (!leafOrder.includes(i)) leafOrder.push(i); }); } };
+      const walkRight = m => { if (m.left || m.right) { walkLeft(m.left); walkLeft(m.right); } else { m.members.forEach(i => { if (!leafOrder.includes(i)) leafOrder.push(i); }); } };
+      (function walk(m) {
+        if (!m) return;
+        if (!m.left && !m.right) { m.members.forEach(i => { if (!leafOrder.includes(i)) leafOrder.push(i); }); return; }
+        walk(m.left); walk(m.right);
+      })(node);
+    })(clusters[0]);
+    // Completar con hojas no asignadas (por si acaso)
+    objs.forEach((_, i) => { if (!leafOrder.includes(i)) leafOrder.push(i); });
+
+    const xPos = i => PAD_L + (leafOrder.indexOf(i) + 0.5) * (plotW / n);
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = W;
+    canvas.height = H;
+    canvas.style.cssText = 'max-width:100%;display:block;margin:0 auto;';
+    const ctx = canvas.getContext('2d');
+
+    // Fondo
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+
+    // Eje Y — altura
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    const yTicks = 5;
+    ctx.font = '9px system-ui,sans-serif';
+    ctx.fillStyle = '#a0aec0';
+    ctx.textAlign = 'right';
+    for (let t = 0; t <= yTicks; t++) {
+      const val = maxH * 1.05 * t / yTicks;
+      const y   = yScale(val);
+      ctx.beginPath(); ctx.moveTo(PAD_L - 4, y); ctx.lineTo(PAD_L, y); ctx.stroke();
+      ctx.fillText(val.toFixed(2), PAD_L - 6, y + 3);
+    }
+    // Línea de base
+    ctx.strokeStyle = '#cbd5e0';
+    ctx.beginPath(); ctx.moveTo(PAD_L, PAD_T); ctx.lineTo(PAD_L, PAD_T + plotH); ctx.stroke();
+
+    // Dibujar cada fusión recursivamente
+    function drawNode(node, colorIdx) {
+      if (!node) return { x: 0, y: H - PAD_B };
+      if (!node.left && !node.right) {
+        // hoja
+        const x = xPos(node.members[0]);
+        const y = H - PAD_B;
+        return { x, y };
+      }
+      const col = PALETA[colorIdx % PALETA.length];
+      const lRes = drawNode(node.left,  colorIdx * 2 + 1);
+      const rRes = drawNode(node.right, colorIdx * 2 + 2);
+      const y    = yScale(node.height);
+      // Barra horizontal
+      ctx.strokeStyle = col;
+      ctx.lineWidth   = 2;
+      ctx.beginPath(); ctx.moveTo(lRes.x, y); ctx.lineTo(rRes.x, y); ctx.stroke();
+      // Brazo izquierdo
+      ctx.beginPath(); ctx.moveTo(lRes.x, lRes.y); ctx.lineTo(lRes.x, y); ctx.stroke();
+      // Brazo derecho
+      ctx.beginPath(); ctx.moveTo(rRes.x, rRes.y); ctx.lineTo(rRes.x, y); ctx.stroke();
+      // Etiqueta de altura
+      const midX = (lRes.x + rRes.x) / 2;
+      ctx.font = '8px system-ui,sans-serif';
+      ctx.fillStyle = col;
+      ctx.textAlign = 'center';
+      ctx.fillText(node.height.toFixed(2), midX, y - 4);
+      return { x: midX, y };
+    }
+
+    // Reconstruir árbol con referencias left/right desde merges
+    const nodeMap = objs.map((_, i) => ({ members: [i], left: null, right: null, height: 0 }));
+    let nextId = n;
+    merges.forEach(m => {
+      const node = { members: m.size === 2 ? [...m.left.members, ...m.right.members] : m.left.members.concat(m.right.members),
+                     left: m.left, right: m.right, height: m.height, left: m.left, right: m.right };
+      m.left._node  = m.left;
+      m.right._node = m.right;
+      m._node = node;
+    });
+    const root = merges.length ? merges[merges.length - 1] : null;
+    if (root) drawNode({ left: root.left, right: root.right, height: root.height, members: root.left.members.concat(root.right.members) }, 0);
+
+    // Etiquetas de hojas
+    ctx.font = '10px system-ui,sans-serif';
+    ctx.textAlign = 'center';
+    leafOrder.forEach((i, pos) => {
+      const x   = PAD_L + (pos + 0.5) * (plotW / n);
+      const y   = H - PAD_B + 8;
+      const lbl = (objs[i]?.nombre || `Obj ${i + 1}`).replace(/\s*[\[(]\s*cara\s+[ab]\s*[\])]\s*$/i, '');
+      ctx.fillStyle = '#4a5568';
+      // Rotar etiqueta si hay muchos objetos
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(n > 6 ? -Math.PI / 4 : 0);
+      ctx.fillText(lbl.length > 12 ? lbl.slice(0, 11) + '…' : lbl, 0, 0);
+      ctx.restore();
+    });
+
+    // Exportar PNG
+    const btnExp = document.createElement('button');
+    btnExp.className = 'cmo-btn cmo-btn-ghost';
+    btnExp.style.cssText = 'font-size:11px;padding:4px 10px;margin:8px 0 0;display:block;';
+    btnExp.textContent = '📸 Exportar PNG';
+    btnExp.onclick = () => _guardarPNGDesdeCanvas(canvas, 'dendrograma', 'ward');
+
+    contenedor.innerHTML = '';
+    contenedor.appendChild(canvas);
+    contenedor.appendChild(btnExp);
+  }
+
   // ──── INIT ───────────────────────────────────────────────────────────────
   function actualizarInfoProyecto() {
     const el = document.getElementById('cmoInfoProyecto');
@@ -5224,10 +5904,90 @@ const ComparadorMultiObjeto = (() => {
     } catch(e) { el.textContent = 'Sin proyecto activo'; }
   }
 
+  function poblarSelectorProyecto() {
+    const sel = document.getElementById('cmoProyectoSelect');
+    if (!sel) return;
+    const pm = typeof projectManager !== 'undefined' ? projectManager : null;
+    if (!pm) return;
+    const proyectos = pm.projects || [];
+    // Conservar primera opción placeholder
+    sel.innerHTML = '<option value="">— Seleccionar proyecto —</option>';
+    proyectos.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      const total = (p.analyses || []).length;
+      opt.textContent = `${p.name || p.nombre || p.id}  (${total} análisis)`;
+      if (pm.activeProject && pm.activeProject.id === p.id) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  async function cargarColeccionDesdeSelector() {
+    const sel = document.getElementById('cmoProyectoSelect');
+    const btn = document.getElementById('cmoCargarColeccionBtn');
+    if (!sel || !sel.value) {
+      if (typeof toast !== 'undefined') toast.warning('Selecciona un proyecto primero.');
+      return;
+    }
+    const pm = typeof projectManager !== 'undefined' ? projectManager : null;
+    if (!pm) return;
+    // Cambiar proyecto activo si es distinto
+    if (!pm.activeProject || pm.activeProject.id !== sel.value) {
+      pm.setActiveProject(sel.value);
+    }
+    if (btn) { btn.disabled = true; btn.textContent = 'Cargando…'; }
+    try {
+      const ok = await cargar();
+      if (ok) {
+        renderObjetos();
+        renderMetricas();
+        const $ = id => document.getElementById(id);
+        $('cmoSelectorObjetos').style.display  = 'block';
+        $('cmoSelectorMetricas').style.display = 'block';
+        $('cmoResultados').style.display       = 'none';
+        $('cmoHeader').textContent = `Comparador Multi-Objeto — ${_objetos.length} análisis cargados`;
+        actualizarStepper(2);
+        bindTabs();
+      }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Cargar colección'; }
+      actualizarInfoProyecto();
+    }
+  }
+
   function init() {
     const $ = id => document.getElementById(id);
 
+    poblarSelectorProyecto();
     actualizarInfoProyecto();
+
+    const btnCargar = $('cmoCargarColeccionBtn');
+    if (btnCargar) btnCargar.addEventListener('click', cargarColeccionDesdeSelector);
+
+    // A3: carga incremental — añade solo los análisis nuevos, conserva selección y resultados
+    const btnActualizar = $('cmoActualizarBtn');
+    if (btnActualizar) btnActualizar.addEventListener('click', async () => {
+      if (_objetos.length === 0) { cargarColeccionDesdeSelector(); return; }
+      btnActualizar.disabled = true;
+      btnActualizar.textContent = '⏳ Actualizando…';
+      const idsExistentes = new Set(_objetos.map(o => String(o.id)));
+      try {
+        const ok = await cargar(); // recarga completa en _objetos (interno)
+        if (!ok) return;
+        const nuevos = _objetos.filter(o => !idsExistentes.has(String(o.id)));
+        if (nuevos.length === 0) {
+          if (typeof toast !== 'undefined') toast.info('La colección ya está al día — no hay análisis nuevos.');
+        } else {
+          if (typeof toast !== 'undefined') toast.success(`${nuevos.length} análisis nuevo${nuevos.length > 1 ? 's' : ''} incorporado${nuevos.length > 1 ? 's' : ''}.`);
+          renderObjetos();
+          $('cmoHeader').textContent = `Comparador Multi-Objeto — ${_objetos.length} análisis cargados`;
+        }
+        actualizarInfoProyecto();
+      } finally {
+        btnActualizar.disabled = false;
+        btnActualizar.textContent = '↻ Actualizar';
+      }
+    });
 
     const btnAbrir = $('abrirComparadorBtn');
     if (btnAbrir) {
@@ -5269,6 +6029,31 @@ const ComparadorMultiObjeto = (() => {
         });
       }
     }
+
+    // A2: carga automática cuando el usuario navega a la pestaña Resultados
+    // y hay proyecto activo con análisis — sin bloquear la UI (fire-and-forget)
+    document.addEventListener('mao:tab:change', async (e) => {
+      if (e.detail?.tab !== 'resultados') return;
+      if (_objetos.length > 0) return; // ya cargado — no recargar
+      const pm = typeof projectManager !== 'undefined' ? projectManager : null;
+      if (!pm?.activeProject?.analyses?.length) return;
+      poblarSelectorProyecto();
+      // Actualizar selector para reflejar proyecto activo
+      const sel = $('cmoProyectoSelect');
+      if (sel && pm.activeProject) sel.value = pm.activeProject.id;
+      const ok = await cargar();
+      if (ok) {
+        renderObjetos();
+        renderMetricas();
+        $('cmoSelectorObjetos').style.display  = 'block';
+        $('cmoSelectorMetricas').style.display = 'block';
+        $('cmoResultados').style.display       = 'none';
+        $('cmoHeader').textContent = `Comparador Multi-Objeto — ${_objetos.length} análisis cargados`;
+        actualizarStepper(2);
+        bindTabs();
+        actualizarInfoProyecto();
+      }
+    });
 
     const on = (id, fn) => { const el=$(id); if(el) el.addEventListener('click', fn); };
     on('cmoCompararBtn',  comparar);

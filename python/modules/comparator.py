@@ -32,8 +32,10 @@ from fastapi import HTTPException
 
 IMPLEMENTED = True
 
-# Umbral de distancia de Mahalanobis para considerar outlier (chi² 97.5% con 2 grados)
-_OUTLIER_THRESHOLD = 2.448  # sqrt(chi2(2, 0.975))
+# Umbral de distancia de Mahalanobis para considerar outlier.
+# sqrt(chi²(2, 0.95)) = 2.448 → percentil 95% (nivel operativo)
+# sqrt(chi²(2, 0.975)) = 2.716 → percentil 97.5% (nivel estricto)
+_OUTLIER_THRESHOLD = 2.716  # percentil 97.5%, consistente con el nivel declarado
 
 # ── Utilidades ──────────────────────────────────────────────────────────────
 
