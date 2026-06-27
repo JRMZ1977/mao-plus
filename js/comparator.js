@@ -9,19 +9,94 @@ const ComparadorMultiObjeto = (() => {
   let _objetos = [];        // [{id, nombre, cara, fecha, metricas, perforaciones, estadisticas}]
   let _selIds  = new Set(); // IDs seleccionados
   let _metrSel = [];        // Keys de la última comparación generada
+  let _gruposMetricasUI = []; // Catálogo vigente (grupos base + dinámicos, reconstruido tras cargar)
 
-  const _LS_METR_KEY = 'mao_cmo_metricas_sel'; // clave localStorage para persistencia A1
-
+  // Clave localStorage por proyecto para que distintos proyectos mantengan selecciones distintas
+  function _storageSelMetricasKey() {
+    const pid = (typeof projectManager !== 'undefined' && projectManager?.activeProject?.id)
+      ? projectManager.activeProject.id : 'global';
+    return `mao_cmo_metricas_sel_${pid}`;
+  }
   function _guardarSeleccionMetricas(keys) {
-    try { localStorage.setItem(_LS_METR_KEY, JSON.stringify(keys)); } catch(e) {}
+    try { localStorage.setItem(_storageSelMetricasKey(), JSON.stringify(keys)); } catch(e) {}
   }
   function _cargarSeleccionMetricas() {
     try {
-      const raw = localStorage.getItem(_LS_METR_KEY);
+      // Intentar primero con clave de proyecto, luego con la clave global legada
+      const legacyKey = 'mao_cmo_metricas_sel';
+      const raw = localStorage.getItem(_storageSelMetricasKey())
+               || localStorage.getItem(legacyKey);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed) && parsed.length ? parsed : null;
     } catch(e) { return null; }
+  }
+
+  // ──── CATÁLOGO DINÁMICO DE MÉTRICAS ─────────────────────────────────────────
+  // Igual que en MAO_A: detecta métricas presentes en los análisis cargados que
+  // no estén en el catálogo base GRUPOS y las agrupa en "XV — Métricas adicionales".
+  function _normalizarEtiquetaMetricaDesdeClave(key) {
+    return String(key || '')
+      .replace(/^__+/, '')
+      .replace(/_/g, ' ')
+      .replace(/\b([a-z])/g, (_, c) => c.toUpperCase());
+  }
+
+  function _catalogoKeys(grupos) {
+    const src = grupos ?? _gruposMetricasUI;
+    return new Set((src || []).flatMap(g => (g.items || []).map(it => it.key)));
+  }
+
+  function _ordenarKeysSegunCatalogo(keys = []) {
+    const wanted = new Set(Array.isArray(keys) ? keys : []);
+    const ordered = [];
+    const seen = new Set();
+    (_gruposMetricasUI || []).forEach(g => {
+      (g.items || []).forEach(it => {
+        if (!wanted.has(it.key) || seen.has(it.key)) return;
+        ordered.push(it.key);
+        seen.add(it.key);
+      });
+    });
+    [...wanted]
+      .filter(k => !seen.has(k))
+      .sort((a, b) => String(KEY_LABEL[a] || a).localeCompare(String(KEY_LABEL[b] || b), 'es'))
+      .forEach(k => ordered.push(k));
+    return ordered;
+  }
+
+  function _construirCatalogoMetricas(objs) {
+    // Clonar grupos base
+    const grupos = GRUPOS.map(g => ({
+      id: g.id,
+      label: g.label,
+      items: (g.items || []).map(it => ({ ...it })),
+    }));
+    const known = _catalogoKeys(grupos);
+    const extras = [];
+
+    for (const o of (objs || [])) {
+      const m = o?.metricas || {};
+      for (const k of Object.keys(m)) {
+        if (!k || known.has(k)) continue;
+        const t = typeof m[k];
+        if (!(t === 'number' || t === 'string' || t === 'boolean')) continue;
+        known.add(k);
+        if (!KEY_LABEL[k]) KEY_LABEL[k] = _normalizarEtiquetaMetricaDesdeClave(k);
+        if (!KEY_SRC[k]) KEY_SRC[k] = 'M';
+        extras.push({ key: k, label: KEY_LABEL[k], src: KEY_SRC[k] });
+      }
+    }
+
+    if (extras.length) {
+      extras.sort((a, b) => String(a.label).localeCompare(String(b.label), 'es'));
+      grupos.push({
+        id: 'adicionales_detectadas',
+        label: 'XV — Métricas adicionales detectadas en análisis',
+        items: extras,
+      });
+    }
+    return grupos;
   }
 
   // ──── GRUPOS DE MÉTRICAS  (orden = secciones I–VIII + X del Informe PDF) ──
@@ -173,6 +248,9 @@ const ComparadorMultiObjeto = (() => {
     KEY_SRC[it.key]   = it.src || '';
     if (it.pcaExclude) KEY_PCA_EXCLUDE.add(it.key);
   }));
+
+  // Catálogo inicial = grupos base (se enriquece con _construirCatalogoMetricas tras cargar objetos)
+  _gruposMetricasUI = GRUPOS.map(g => ({ id: g.id, label: g.label, items: (g.items||[]).map(it=>({...it})) }));
 
   // Renderiza un badge HTML según la fuente metodológica
   function srcBadge(src) {
@@ -853,20 +931,24 @@ const ComparadorMultiObjeto = (() => {
   function renderMetricas() {
     const objs = _objetos.filter(o => _selIds.has(String(o.id)));
 
+    // Reconstruir catálogo con los objetos actuales (detecta métricas fuera del catálogo base)
+    _gruposMetricasUI = _construirCatalogoMetricas(_objetos);
+
     const _savedKeys = _cargarSeleccionMetricas(); // A1: restaurar selección previa
     const _isChecked = key => _savedKeys ? _savedKeys.includes(key) : DEFAULT_KEYS.includes(key);
 
-    document.getElementById('cmoGruposMetricas').innerHTML = GRUPOS.map(g => {
+    document.getElementById('cmoGruposMetricas').innerHTML = _gruposMetricasUI.map(g => {
       const conDatos = g.items.filter(it =>
         objs.some(o => { const v = getValor(o, it.key); return typeof v === 'number' && isFinite(v); })
       ).length;
       const grupoChecked = g.items.some(it => _isChecked(it.key));
+      const isExtra = g.id === 'adicionales_detectadas';
       return `<div class="cmo-grupo-metricas" data-grupo-id="${g.id}">
         <div class="cmo-grupo-header">
           <input type="checkbox" class="cmo-chk-grupo" data-grupo="${g.id}"
             ${grupoChecked ? 'checked' : ''}>
           <span>${esc(g.label)}</span>
-          <span style="font-size:10px;font-weight:400;color:#a0aec0;margin-left:auto;">${conDatos}/${g.items.length} con datos</span>
+          <span style="font-size:10px;font-weight:400;color:#a0aec0;margin-left:auto;">${conDatos}/${g.items.length} con datos${isExtra ? ' · detectadas' : ''}</span>
         </div>
         <div class="cmo-grupo-items">
           ${g.items.map(it => {
@@ -885,7 +967,8 @@ const ComparadorMultiObjeto = (() => {
 
     document.querySelectorAll('.cmo-chk-grupo').forEach(chk => {
       chk.addEventListener('change', () => {
-        const g = GRUPOS.find(gr => gr.id === chk.dataset.grupo);
+        const g = _gruposMetricasUI.find(gr => gr.id === chk.dataset.grupo);
+        if (!g) return;
         g.items.forEach(it => {
           const inp = document.querySelector(`.cmo-chk-met[data-key="${it.key}"]`);
           if (inp) inp.checked = chk.checked;
@@ -4335,65 +4418,47 @@ const ComparadorMultiObjeto = (() => {
    * @param {Array}  objs   - Objetos seleccionados (para etiquetas y colores)
    */
   function renderPCAFromPython(pyPCA, objs) {
-    const contenedor = document.getElementById('cmoPCAContenido');
-    if (!contenedor || !pyPCA || !Array.isArray(pyPCA.scores)) return;
-    const coords = pyPCA.scores;           // [[pc1, pc2], ...] — servidor devuelve 'scores'
-    const explained = pyPCA.explained_variance || [0, 0]; // servidor devuelve 'explained_variance'
-    const clusters  = pyPCA.labels || [];                 // servidor devuelve 'labels'
+    // Patrón «enriquecer, no reemplazar»: Python agrega validación sklearn al bloque
+    // de diagnóstico existente sin tocar el canvas JS ni los controles interactivos.
+    if (!pyPCA || !Array.isArray(pyPCA.scores)) return;
+    const diagEl = document.querySelector('#cmoPCAContenido .cmo-pca-diag');
+    if (!diagEl) return; // renderPCA no corrió o mostró mensaje de error — no hay nada que enriquecer
 
-    // Rango de datos para escalar
-    const xs = coords.map(c => c[0]), ys = coords.map(c => c[1]);
-    const xMin = Math.min(...xs), xMax = Math.max(...xs) || 1;
-    const yMin = Math.min(...ys), yMax = Math.max(...ys) || 1;
-    const W = 480, H = 360, P = 50;
-    const sx = v => P + ((v - xMin) / (xMax - xMin || 1)) * (W - P * 2);
-    const sy = v => H - P - ((v - yMin) / (yMax - yMin || 1)) * (H - P * 2);
+    const explained    = pyPCA.explained_variance || [];
+    const sil          = typeof pyPCA.silhouette === 'number' ? pyPCA.silhouette : null;
+    const outlierIdx   = Array.isArray(pyPCA.outliers) ? pyPCA.outliers : [];
+    const nFeat        = pyPCA.n_features ?? '—';
+    const nObj         = pyPCA.n_objects  ?? objs.length;
+    const expl0        = explained[0] != null ? (explained[0] * 100).toFixed(1) : '—';
+    const expl1        = explained[1] != null ? (explained[1] * 100).toFixed(1) : '—';
+    const expl12       = (explained[0] != null && explained[1] != null)
+      ? ((explained[0] + explained[1]) * 100).toFixed(1) : '—';
+    const silCls       = sil === null ? '#718096'
+      : sil >= 0.5 ? '#166534' : sil >= 0.25 ? '#854d0e' : '#9f1239';
+    const outlierNames = outlierIdx
+      .map(i => objs[i] ? esc(objs[i].nombre) : `Obj ${i+1}`).join(', ');
 
-    const dots = coords.map((c, i) => {
-      const col = PALETA[i % PALETA.length].stroke;
-      const label = objs[i] ? esc(objs[i].nombre) : `Obj ${i+1}`;
-      const cx = sx(c[0]).toFixed(1), cy = sy(c[1]).toFixed(1);
-      const clsBadge = clusters[i] != null
-        ? `<tspan fill="${PALETA[clusters[i] % PALETA.length].stroke}"> [C${clusters[i]+1}]</tspan>` : '';
-      return `<g><circle cx="${cx}" cy="${cy}" r="7" fill="${col}" stroke="white" stroke-width="1.5" opacity="0.9"/>`
-        + `<text x="${parseFloat(cx)+9}" y="${parseFloat(cy)+4}" font-size="10" fill="#334155">${label}${clsBadge}</text></g>`;
-    }).join('');
+    // Quitar badge anterior si ya existía (re-comparación)
+    const prev = diagEl.querySelector('.cmo-pca-py-badge');
+    if (prev) prev.remove();
 
-    const expl0 = (explained[0] * 100).toFixed(1), expl1 = (explained[1] * 100).toFixed(1);
-    const svgMarkup = `<svg id="cmoPCAPythonSvg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:${W}px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc">`
-      + `<line x1="${P}" y1="${H/2}" x2="${W-P}" y2="${H/2}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4"/>`
-      + `<line x1="${W/2}" y1="${P}" x2="${W/2}" y2="${H-P}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4"/>`
-      + `<text x="${W/2}" y="${H-10}" text-anchor="middle" font-size="11" fill="#64748b">PC1 (${expl0}%)</text>`
-      + `<text x="14" y="${H/2}" text-anchor="middle" font-size="11" fill="#64748b" transform="rotate(-90,14,${H/2})">PC2 (${expl1}%)</text>`
-      + dots + `</svg>`;
-    contenedor.innerHTML = `<div style="text-align:center;font-size:11px;color:#64748b;margin-bottom:4px">`
-      + `<b>PCA — scikit-learn</b> &nbsp;|&nbsp; PC1: ${expl0}% varianza &nbsp; PC2: ${expl1}% varianza</div>`
-      + `<div class="cmo-pca-ctrl-row" style="margin-bottom:12px;">
-          <button class="cmo-pca-export-btn" id="cmoPCApyExportCSV">Exportar CSV</button>
-          <button class="cmo-pca-export-btn" id="cmoPCApyExportSVG">Exportar SVG</button>
-        </div>`
-      + svgMarkup;
+    const badge = document.createElement('div');
+    badge.className = 'cmo-pca-py-badge';
+    badge.style.cssText = 'margin:0 0 10px;padding:7px 12px;background:#f0f4ff;'
+      + 'border:1px solid #c7d2fe;border-radius:6px;font-size:11px;color:#4a5568;line-height:1.6;';
+    badge.innerHTML = `<span style="color:#6d28d9;font-weight:600">sklearn SVD</span>`
+      + ` &nbsp;·&nbsp; PC1 <strong>${expl0}%</strong>`
+      + ` &nbsp;·&nbsp; PC2 <strong>${expl1}%</strong>`
+      + ` &nbsp;·&nbsp; PC1+PC2 <strong>${expl12}%</strong>`
+      + (sil !== null
+          ? ` &nbsp;·&nbsp; Silhouette <strong style="color:${silCls}">${sil.toFixed(3)}</strong>`
+          : '')
+      + ` &nbsp;<span style="color:#94a3b8">(${nFeat} métricas / ${nObj} objetos)</span>`
+      + (outlierNames
+          ? `<br><span style="color:#c05621">⚠ Outliers sklearn: ${outlierNames}</span>`
+          : '');
 
-    const pyCsvBtn = document.getElementById('cmoPCApyExportCSV');
-    if (pyCsvBtn) {
-      pyCsvBtn.onclick = () => {
-        const header = ['Objeto', 'Cara', 'PC1', 'PC2', 'Cluster'];
-        const rows = coords.map((c, i) => [
-          _csvEscape(objs[i]?.nombre || `Obj ${i+1}`),
-          _csvEscape(objs[i]?.cara || ''),
-          Number(c[0] || 0).toFixed(6),
-          Number(c[1] || 0).toFixed(6),
-          clusters[i] != null ? clusters[i] + 1 : ''
-        ].join(','));
-        const csv = '\uFEFF' + [header.join(','), ...rows].join('\n');
-        _guardarCSV(_buildCMOExportFilename('pca', 'scores_componentes_principales_python', 'csv'), csv);
-      };
-    }
-
-    const pySvgBtn = document.getElementById('cmoPCApyExportSVG');
-    if (pySvgBtn) {
-      pySvgBtn.onclick = () => _guardarSVGMarkup(svgMarkup, 'pca', 'grafico_pca_python');
-    }
+    diagEl.insertBefore(badge, diagEl.firstChild);
   }
 
   // ──── RENDERIZADO PYTHON: ESTADÍSTICOS ───────────────────────────────────
@@ -5132,7 +5197,7 @@ const ComparadorMultiObjeto = (() => {
     const hitAreas = [];
     scores2D.forEach(([sx, sy], i) => {
       const px = toCanvasX(sx), py = toCanvasY(sy);
-      const col = kVal >= 2 ? CLUSTER_COLORS[kLabels[i] % CLUSTER_COLORS.length] : PALETA[i % PALETA.length];
+      const col = kVal >= 2 ? CLUSTER_COLORS[kLabels[i] % CLUSTER_COLORS.length] : PALETA[i % PALETA.length].stroke;
       // Sombra suave
       ctx.shadowColor = 'rgba(0,0,0,0.15)';
       ctx.shadowBlur  = 4;
