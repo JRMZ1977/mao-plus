@@ -43634,7 +43634,36 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
 
     // ADR-007 §D2 — chip de confianza vía MaoOrganizer.setChip (tras el innerHTML).
     _appendConfidenceChip(infoDiv, obj);
-    
+
+    // ADR-014 — Selector de tipología arqueológica (etiqueta para dataset ML)
+    const TIPOS_TIPOLOGIA = [
+      '', 'lasca', 'raedera', 'raedera_lateral', 'raedera_transversal',
+      'punta', 'perforador', 'raspador', 'buril', 'bifaz', 'nucleo', 'fragmento',
+    ];
+    const tipoWrap = document.createElement('div');
+    tipoWrap.style.cssText = 'margin-top:8px;';
+    const tipoLabel = document.createElement('label');
+    tipoLabel.style.cssText = 'font-size:11px;color:#666;display:block;margin-bottom:3px;';
+    tipoLabel.textContent = 'Tipología (dataset ML)';
+    const tipoSel = document.createElement('select');
+    tipoSel.style.cssText = 'width:100%;font-size:12px;padding:4px 6px;border:1px solid #ccc;border-radius:4px;background:#fff;';
+    tipoSel.title = 'Categoría tipológica para entrenar modelos ML';
+    TIPOS_TIPOLOGIA.forEach(function (t) {
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t ? t.replace(/_/g, ' ') : '— sin tipo —';
+      if ((obj.tipologia || '') === t) opt.selected = true;
+      tipoSel.appendChild(opt);
+    });
+    tipoSel.addEventListener('change', function () {
+      obj.tipologia = tipoSel.value || null;
+      document.dispatchEvent(new CustomEvent('mao:objects:changed',
+        { detail: { id: obj.id, tipologia: obj.tipologia } }));
+    });
+    tipoWrap.appendChild(tipoLabel);
+    tipoWrap.appendChild(tipoSel);
+    infoDiv.appendChild(tipoWrap);
+
     // 🆕 Botón "Abrir análisis" que usa caché si existe
     const analyzeBtn = document.createElement('button');
     const tieneCache = obj.analisisCached ? true : false;

@@ -2085,6 +2085,63 @@ async def efa_compare(
 
 
 # ============================================================================
+# DATASET EXPORT — ADR-014
+# ============================================================================
+
+class DatasetExportRequest(BaseModel):
+    image: str                        # base64 PNG/JPG
+    objects: list[dict]               # lista de objetos analizados
+    scale_px_mm: float = 0.0
+    dataset_name: str = "mao_dataset"
+    min_confidence: float = 0.5
+    extra_categories: list[str] = []
+
+
+@app.post(f"{API_PREFIX}/dataset/export")
+async def dataset_export(req: DatasetExportRequest):
+    """
+    Genera un ZIP (base64) con PNGs recortados + annotations.json COCO + metadata.json.
+
+    El campo `mao_attributes` de cada anotación contiene las métricas morfométricas,
+    la confianza de detección y la tipología arqueológica (si fue asignada).
+
+    Estado: IMPLEMENTADO (ADR-014).
+    """
+    import json as _json
+    from python.modules.dataset_exporter import build_coco_dataset
+
+    try:
+        img_bytes = base64.b64decode(req.image)
+        arr = np.frombuffer(img_bytes, np.uint8)
+        image_np = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if image_np is None:
+            raise HTTPException(status_code=400, detail="No se pudo decodificar la imagen")
+
+        zip_bytes = build_coco_dataset(
+            objects_list=req.objects,
+            image_np=image_np,
+            dataset_name=req.dataset_name,
+            min_confidence=req.min_confidence,
+            scale_px_mm=req.scale_px_mm,
+            extra_categories=req.extra_categories or None,
+        )
+
+        return {
+            "status": "ok",
+            "zip_b64": base64.b64encode(zip_bytes).decode("ascii"),
+            "exported_objects": len([o for o in req.objects
+                                     if float(o.get("detection_confidence", 1.0)) >= req.min_confidence]),
+            "skipped_by_confidence": len([o for o in req.objects
+                                          if float(o.get("detection_confidence", 1.0)) < req.min_confidence]),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception("dataset_export error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # DEBUG LOG ENDPOINT (monitoreo en tiempo real)
 # ============================================================================
 

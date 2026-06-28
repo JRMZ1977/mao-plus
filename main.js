@@ -694,12 +694,14 @@ ipcMain.handle('show-save-dialog', async (event, { filename, format = 'csv' }) =
                : format === 'svg' ? '.svg'
                : format === 'png' ? '.png'
                : format === 'html' ? '.html'
+               : format === 'zip' ? '.zip'
                : '.csv';
 
     const filters = format === 'pdf'  ? [{ name: 'PDF Files',     extensions: ['pdf'] }]
                   : format === 'svg'  ? [{ name: 'SVG Vectorial', extensions: ['svg'] }]
                   : format === 'png'  ? [{ name: 'PNG Images',     extensions: ['png'] }]
                   : format === 'html' ? [{ name: 'HTML Files',     extensions: ['html'] }]
+                  : format === 'zip'  ? [{ name: 'ZIP Archive',    extensions: ['zip'] }]
                   :                    [{ name: 'CSV Files',       extensions: ['csv'] }];
 
     let nombreFinal = filename;
