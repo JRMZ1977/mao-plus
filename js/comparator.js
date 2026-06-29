@@ -6067,8 +6067,35 @@ const ComparadorMultiObjeto = (() => {
   function init() {
     const $ = id => document.getElementById(id);
 
+    // Ventana CMO standalone: activar proyecto desde pid URL param y auto-cargar
+    const _urlParams = new URLSearchParams(window.location.search);
+    const _isCMO = _urlParams.get('cmo') === '1';
+    const _pidParam = _urlParams.get('pid');
+    if (_isCMO && _pidParam) {
+      const pm = typeof projectManager !== 'undefined' ? projectManager : null;
+      if (pm && (!pm.activeProject || pm.activeProject.id !== _pidParam)) {
+        pm.setActiveProject(_pidParam);
+      }
+    }
+
     poblarSelectorProyecto();
     actualizarInfoProyecto();
+
+    // Auto-cargar colección en ventana CMO si hay proyecto activo
+    if (_isCMO && typeof projectManager !== 'undefined' && projectManager?.activeProject?.analyses?.length) {
+      cargar().then(ok => {
+        if (!ok) return;
+        renderObjetos();
+        renderMetricas();
+        $('cmoSelectorObjetos').style.display  = 'block';
+        $('cmoSelectorMetricas').style.display = 'block';
+        $('cmoResultados').style.display       = 'none';
+        $('cmoHeader').textContent = `Comparador Multi-Objeto — ${_objetos.length} análisis cargados`;
+        actualizarStepper(2);
+        bindTabs();
+        actualizarInfoProyecto();
+      });
+    }
 
     const btnCargar = $('cmoCargarColeccionBtn');
     if (btnCargar) btnCargar.addEventListener('click', cargarColeccionDesdeSelector);
