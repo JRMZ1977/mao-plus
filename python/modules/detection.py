@@ -405,22 +405,45 @@ def _excluir_franja_borde(mask: np.ndarray) -> np.ndarray:
     return mask
 
 
+def _fill_holes(mask: np.ndarray) -> np.ndarray:
+    """Rellena huecos internos: cada contorno externo queda sólido (ADR-013).
+
+    Solo se usa para construir la máscara de SIEMBRA del watershed; el contorno
+    real y la detección de huecos P/H (ADR-009) operan sobre la máscara original.
+    """
+    cnts, _ = cv2.findContours(
+        (mask > 0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    out = np.zeros_like(mask, dtype=np.uint8)
+    if cnts:
+        cv2.drawContours(out, cnts, -1, 1, thickness=cv2.FILLED)
+    return out
+
+
 def _separate_touching_watershed(
     mask_uint8: np.ndarray, img_bgr: np.ndarray, min_area: int
 ) -> "np.ndarray | None":
     """
     Separa objetos en contacto/solapados con distance-transform + watershed.
 
-    Reemplaza la rama YOLO borrada (sin dependencias: OpenCV puro). Solo divide
-    cuando la transformada de distancia revela varios máximos (varios centros)
-    dentro de un mismo componente conectado; un blob convexo único queda intacto.
+    Etapa SECUNDARIA de ADR-013 (subordinada a la separación figura-fondo): solo
+    divide con evidencia (≥2 picos de distancia bien separados) sobre una máscara
+    LIMPIA, y de forma no destructiva. Un objeto único —aunque su máscara cruda
+    tenga textura/huecos internos— queda intacto. Sin dependencias (OpenCV puro;
+    reemplaza la rama YOLO borrada).
 
     Estrategia:
+      0. (ADR-013) Máscara de SIEMBRA limpia: relleno de huecos + descarte de
+         componentes < min_area (sin MORPH_CLOSE: fusionaría el cuello entre dos
+         objetos pegados). La textura/huecos de un objeto real
+         crean máximos espurios en la transformada de distancia y fragmentan un
+         objeto único (8 arcos en la imagen real DRG16); limpiar antes de sembrar
+         lo evita (→ 1 componente sólido → 1 pico → no divide).
       1. Semillas de primer plano (sure_fg): por cada componente, los píxeles cuya
          distancia al fondo supera 0.5·max_local. Dos discos pegados → 2 semillas.
       2. Fondo seguro (sure_bg): dilatación amplia de la máscara.
       3. Zona desconocida = sure_bg − sure_fg (el «cuello» entre objetos).
       4. cv2.watershed inunda desde las semillas y traza la frontera en el cuello.
+         El reparto final intersecta con la máscara ORIGINAL → preserva huecos P/H.
 
     Retorna labels int32 (0=fondo, 1..N=objetos) o None si no aporta separación
     (≤1 objeto resultante) para que el llamador use connectedComponents normal.
@@ -429,12 +452,25 @@ def _separate_touching_watershed(
     if int(bin_mask.sum()) == 0:
         return None
 
+    # ── 0. (ADR-013) Máscara de SIEMBRA limpia (relleno de huecos + sin specks) ─
+    # NO usar MORPH_CLOSE aquí: rellenaría el «cuello» entre dos objetos pegados
+    # y los fusionaría (rompe la separación). El relleno de huecos es lo que mata
+    # los máximos espurios de la textura interna sin tocar el cuello entre objetos.
+    seed_mask = _fill_holes(bin_mask)
+    n_cc0, lab0, stats0, _ = cv2.connectedComponentsWithStats(seed_mask, connectivity=8)
+    seed_clean = np.zeros_like(seed_mask)
+    for i in range(1, n_cc0):
+        if stats0[i, cv2.CC_STAT_AREA] >= min_area:
+            seed_clean[lab0 == i] = 1
+    if int(seed_clean.sum()) == 0:
+        return None
+
     # ── 1. Semillas de primer plano por componente (umbral relativo local) ────
-    num_cc, labels_cc = cv2.connectedComponents(bin_mask)
+    num_cc, labels_cc = cv2.connectedComponents(seed_clean)
     if num_cc <= 1:
         return None
-    dist = cv2.distanceTransform(bin_mask, cv2.DIST_L2, 5)
-    sure_fg = np.zeros_like(bin_mask)
+    dist = cv2.distanceTransform(seed_clean, cv2.DIST_L2, 5)
+    sure_fg = np.zeros_like(seed_clean)
     for lbl in range(1, num_cc):
         comp = labels_cc == lbl
         local_max = float(dist[comp].max())
@@ -448,7 +484,7 @@ def _separate_touching_watershed(
 
     # ── 2-3. Fondo seguro y zona desconocida ─────────────────────────────────
     kernel = np.ones((3, 3), np.uint8)
-    sure_bg = cv2.dilate(bin_mask, kernel, iterations=3)
+    sure_bg = cv2.dilate(seed_clean, kernel, iterations=3)
     unknown = cv2.subtract(sure_bg, sure_fg)
 
     # ── 4. Marcadores + watershed ─────────────────────────────────────────────
@@ -460,6 +496,7 @@ def _separate_touching_watershed(
     markers = cv2.watershed(img_bgr, markers)   # fronteras quedan en −1
 
     # Reetiquetar: marcadores ≥2 son objetos; compactar a 1..N filtrando área.
+    # Intersecta con la máscara ORIGINAL → preserva huecos P/H (ADR-009).
     out = np.zeros(bin_mask.shape, dtype=np.int32)
     next_label = 0
     n_objs = 0
@@ -677,6 +714,8 @@ async def detect(
     min_area: int = 1000,
     max_objects: int = 50,
     separate_touching: bool = False,
+    include_contours: bool = False,
+    roi_mode: bool = False,
 ) -> dict:
     """
     Detecta objetos en la imagen usando OpenCV.
@@ -685,6 +724,18 @@ async def detect(
       - Fondo blanco (brillo ≥ 230): umbral estático por blancos absolutos
       - Fondo no blanco: diferencia de color respecto al fondo + Otsu
       - Filtrado por componentes conectados con área mínima
+
+    roi_mode (ADR-012) — la imagen es un ROI que el usuario recortó a mano en el
+    modo de detección manual, no la fotografía completa. Tres heurísticas pensadas
+    para la imagen completa se DESACTIVAN porque contradicen la intención del
+    usuario dentro del recorte:
+      1. Exclusión de la franja de borde: el objeto suele tocar el borde del ROI
+         → no recortar (borraría parte del artefacto encuadrado).
+      2. Filtro de dominancia (≥20% del mayor): no descartar objetos pequeños
+         (lascas/fragmentos) que el usuario seleccionó deliberadamente.
+      3. Reordenamiento por relevancia arqueológica (penaliza esquinas/bordes como
+         carta de color o escala): dentro del ROI el usuario ya excluyó las
+         referencias → se conserva el orden por área.
 
     Retorno:
       {
@@ -744,8 +795,11 @@ async def detect(
     # 3. Construir máscara binaria (sobre imagen posiblemente realzada)
     mask = _build_binary_mask(img_for_mask, fondo, zscan)
 
-    # 4. Excluir franja de borde (artefactos)
-    mask = _excluir_franja_borde(mask)
+    # 4. Excluir franja de borde (artefactos de viñeteo).
+    # roi_mode: el ROI lo dibujó el usuario y el objeto suele tocar el borde del
+    # recorte → no recortar (ver docstring, heurística #1).
+    if not roi_mode:
+        mask = _excluir_franja_borde(mask)
 
     # 5. Operaciones morfológicas adicionales según tipo de fondo (igual JS)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
@@ -780,8 +834,10 @@ async def detect(
                 if 0.005 < cov_gc < 0.95:
                     gc_full = cv2.resize((gc * 255).astype(np.uint8), (w, h),
                                          interpolation=cv2.INTER_NEAREST)
-                    gc_full = _excluir_franja_borde((gc_full > 0).astype(np.uint8)) * 255
-                    mask_uint8 = gc_full.astype(np.uint8)
+                    gc_bin = (gc_full > 0).astype(np.uint8)
+                    if not roi_mode:   # ver docstring, heurística #1
+                        gc_bin = _excluir_franja_borde(gc_bin)
+                    mask_uint8 = (gc_bin * 255).astype(np.uint8)
                     used_grabcut = True
             except Exception:
                 pass   # conservar la máscara de color si GrabCut falla
@@ -840,9 +896,10 @@ async def detect(
             "confidence_level": conf["level"],
         })
 
-    # Ordenar por área descendente; filtrar dominancia (≥20% del mayor — igual JS)
+    # Ordenar por área descendente; filtrar dominancia (≥20% del mayor — igual JS).
+    # roi_mode: no filtrar (ver docstring, heurística #2).
     objects.sort(key=lambda o: o["area"], reverse=True)
-    if len(objects) > 1:
+    if len(objects) > 1 and not roi_mode:
         max_area = objects[0]["area"]
         objects = [o for o in objects if o["area"] >= max_area * 0.20]
 
@@ -857,7 +914,8 @@ async def detect(
     #   1. Objeto en borde + muy elongado (elong>4, centroid >40% semi-diag)
     #      → escala métrica → penalizado
     #   2. Resto → ordenar por centralidad, luego area
-    if len(objects) > 1:
+    # roi_mode: no reordenar (ver docstring, heurística #3).
+    if len(objects) > 1 and not roi_mode:
         cx_img, cy_img = w / 2.0, h / 2.0
         semi_diag = math.sqrt(cx_img ** 2 + cy_img ** 2)
 
@@ -898,6 +956,11 @@ async def detect(
             if not cnts:
                 continue
             best_cnt = max(cnts, key=cv2.contourArea)
+            # ADR-012 F3: exponer el contorno del núcleo (coords absolutas) para que
+            # la rama 'auto' del modal IA reuse esta segmentación. Gated → sin coste
+            # ni cambio de salida para los demás llamadores (automático).
+            if include_contours:
+                obj["contour_points"] = best_cnt.reshape(-1, 2).tolist()
             if cv2.contourArea(best_cnt) < min_area * 0.5:
                 continue
             idx_obj = int(obj["id"].split("_")[1]) - 1
@@ -949,6 +1012,7 @@ async def detect(
             "min_area_threshold": min_area,
             "used_grabcut_fallback": used_grabcut,
             "used_watershed_split": used_watershed,
+            "roi_mode": roi_mode,
         },
     }
     if zscan is not None:

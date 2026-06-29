@@ -10,7 +10,13 @@
                  font-src 'self' data:;
                  connect-src 'self' http://127.0.0.1:8765 http://localhost:8765">
   <title>MAO Plus - Morfometría Arqueológica de Objetos</title>
-  
+  <script>
+    /* Modo debug: revela las herramientas .dev-only (Prueba Virtual, etc.).
+       Activar con localStorage.MAO_DEBUG='1' (persiste) o window._MAO_DEBUG=true. */
+    try { if (localStorage.getItem('MAO_DEBUG') === '1') window._MAO_DEBUG = true; } catch (e) {}
+    if (window._MAO_DEBUG) document.documentElement.classList.add('mao-debug');
+  </script>
+
   <!--
   =====================================================================================
   MAO PLUS - MORFOMETRÍA ARQUEOLÓGICA DE OBJETOS
@@ -27,8 +33,8 @@
   
   =====================================================================================
   -->
-  <link rel="stylesheet" href="css/main.css?v=20260403f">
-  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260612e">
+  <link rel="stylesheet" href="css/main.css?v=20260623c">
+  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260623c">
 </head>
 <body>
   <!-- ═══════════════════════════════════════════════════════════════════════
@@ -376,56 +382,68 @@
         <div class="mao-sidebar-sep" style="margin-top:6px;"></div>
         <span class="mao-sidebar-section-header">Exportar</span>
 
-        <button class="sidebar-action-btn sidebar-action-btn--export" id="sidebarExportCSVBtn"
-                title="Exportar métricas morfológicas en formato CSV">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="nav-icon" aria-hidden="true">
-            <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6z"/><path d="M9 2v4h4"/><path d="M5 9h6M5 12h4"/>
-          </svg>
-          <span>CSV — Métricas</span>
-        </button>
-
-        <button class="sidebar-action-btn sidebar-action-btn--export" id="sidebarExportPDFBtn"
-                title="Exportar PDF integral con 140+ métricas e imágenes">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="nav-icon" aria-hidden="true">
-            <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6z"/><path d="M9 2v4h4"/>
-          </svg>
-          <span>PDF — Reporte integral</span>
-        </button>
-
-        <button class="sidebar-action-btn sidebar-action-btn--export" id="sidebarExportSVGBtn"
-                title="Exportar trazado vectorial SVG">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" class="nav-icon" aria-hidden="true">
-            <polyline points="1 9 4 9 6.5 15 9.5 3 12 9 15 9"/>
-          </svg>
-          <span>SVG — Trazado vectorial</span>
-        </button>
-
-        <button class="sidebar-action-btn sidebar-action-btn--export" id="sidebarExportPNGBtn"
-                title="Exportar trazados geométricos como PNG de alta resolución con escala en mm">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="nav-icon" aria-hidden="true">
-            <rect x="1" y="3" width="14" height="10" rx="1"/><circle cx="5.5" cy="7" r="1"/><polyline points="1 11 5 7 8 10 11 7 15 11"/>
-          </svg>
-          <span>PNG — Morfología con escala</span>
-        </button>
-
-        <!-- Exportación bifacial (visible solo en modo bifacial con resultados) -->
-        <div id="sidebarExportBifacialGroup" hidden>
-          <div class="mao-sidebar-sep" style="margin-top:6px;"></div>
-          <span class="mao-sidebar-section-header">Exportar Bifacial</span>
-          <button class="sidebar-action-btn sidebar-action-btn--export" id="sidebarExportBifacialCSVBtn"
-                  title="Exportar comparación bifacial en CSV">
+        <!-- Un solo "Exportar ▾" expandible inline (los ids internos conservan el
+             cableado de setupSidebarActions; cada ítem reenvía a su botón canónico). -->
+        <div class="laar-export-menu laar-export-menu--inline" data-export-menu>
+          <button type="button" class="sidebar-action-btn sidebar-export-trigger" data-export-trigger
+                  aria-haspopup="true" aria-expanded="false" title="Opciones de exportación del análisis">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="nav-icon" aria-hidden="true">
-              <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6z"/><path d="M9 2v4h4"/><path d="M5 9h6M5 12h4"/>
+              <path d="M8 2v8"/><path d="M5 7l3 3 3-3"/><path d="M3 13h10"/>
             </svg>
-            <span>CSV — Comparación bifacial</span>
+            <span>Exportar…</span>
+            <span class="laar-btn__caret" aria-hidden="true">▾</span>
           </button>
-          <button class="sidebar-action-btn sidebar-action-btn--export" id="sidebarExportBifacialPDFBtn"
-                  title="Exportar PDF completo de comparación bifacial">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="nav-icon" aria-hidden="true">
-              <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6z"/><path d="M9 2v4h4"/>
-            </svg>
-            <span>PDF — Reporte bifacial</span>
-          </button>
+          <div class="laar-export-list">
+            <button class="sidebar-action-btn sidebar-action-btn--export export-menu-item" id="sidebarExportCSVBtn"
+                    title="Exportar métricas morfológicas en formato CSV">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="nav-icon" aria-hidden="true">
+                <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6z"/><path d="M9 2v4h4"/><path d="M5 9h6M5 12h4"/>
+              </svg>
+              <span>CSV — Métricas</span>
+            </button>
+
+            <button class="sidebar-action-btn sidebar-action-btn--export export-menu-item" id="sidebarExportPDFBtn"
+                    title="Exportar PDF integral con 140+ métricas e imágenes">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="nav-icon" aria-hidden="true">
+                <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6z"/><path d="M9 2v4h4"/>
+              </svg>
+              <span>PDF — Reporte integral</span>
+            </button>
+
+            <button class="sidebar-action-btn sidebar-action-btn--export export-menu-item" id="sidebarExportSVGBtn"
+                    title="Exportar trazado vectorial SVG">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" class="nav-icon" aria-hidden="true">
+                <polyline points="1 9 4 9 6.5 15 9.5 3 12 9 15 9"/>
+              </svg>
+              <span>SVG — Trazado vectorial</span>
+            </button>
+
+            <button class="sidebar-action-btn sidebar-action-btn--export export-menu-item" id="sidebarExportPNGBtn"
+                    title="Exportar trazados geométricos como PNG de alta resolución con escala en mm">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="nav-icon" aria-hidden="true">
+                <rect x="1" y="3" width="14" height="10" rx="1"/><circle cx="5.5" cy="7" r="1"/><polyline points="1 11 5 7 8 10 11 7 15 11"/>
+              </svg>
+              <span>PNG — Morfología con escala</span>
+            </button>
+
+            <!-- Exportación bifacial (visible solo en modo bifacial con resultados) -->
+            <div id="sidebarExportBifacialGroup" hidden>
+              <button class="sidebar-action-btn sidebar-action-btn--export export-menu-item" id="sidebarExportBifacialCSVBtn"
+                      title="Exportar comparación bifacial en CSV">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="nav-icon" aria-hidden="true">
+                  <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6z"/><path d="M9 2v4h4"/><path d="M5 9h6M5 12h4"/>
+                </svg>
+                <span>CSV — Comparación bifacial</span>
+              </button>
+              <button class="sidebar-action-btn sidebar-action-btn--export export-menu-item" id="sidebarExportBifacialPDFBtn"
+                      title="Exportar PDF completo de comparación bifacial">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="nav-icon" aria-hidden="true">
+                  <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6z"/><path d="M9 2v4h4"/>
+                </svg>
+                <span>PDF — Reporte bifacial</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Nuevo análisis como última acción contextual -->
@@ -1005,10 +1023,10 @@
         <button id="obj3dContourBtn" class="btn-sm btn-muted" disabled
                 title="Requiere análisis 3D para mostrar contornos canónicos">CONTORNOS</button>
         <!-- Chips de tipo de corte — visibles solo cuando Contornos está activo -->
-        <span id="obj3dSectionChips" style="display:none;gap:3px;align-items:center;">
-          <button id="obj3dSecTransBtn" class="btn-sm btn-success" style="padding:2px 7px;font-size:9px;" title="Secciones transversales YZ (paralelas al eje de anchura)">Transv.</button>
-          <button id="obj3dSecCorBtn"   class="btn-sm btn-success" style="padding:2px 7px;font-size:9px;" title="Secciones coronales XZ (paralelas al eje de altura)">Cor.</button>
-          <button id="obj3dSecFrBtn"    class="btn-sm btn-success" style="padding:2px 7px;font-size:9px;" title="Secciones frontales XY (paralelas a las caras canónicas)">Front.</button>
+        <span id="obj3dSectionChips" class="laar-btn-group" style="display:none;align-items:center;">
+          <button id="obj3dSecTransBtn" class="laar-btn" style="padding:2px 7px;font-size:9px;" title="Secciones transversales YZ (paralelas al eje de anchura)">Transv.</button>
+          <button id="obj3dSecCorBtn"   class="laar-btn" style="padding:2px 7px;font-size:9px;" title="Secciones coronales XZ (paralelas al eje de altura)">Cor.</button>
+          <button id="obj3dSecFrBtn"    class="laar-btn" style="padding:2px 7px;font-size:9px;" title="Secciones frontales XY (paralelas a las caras canónicas)">Front.</button>
         </span>
 
         <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--gray-600);">
@@ -1293,12 +1311,9 @@
             </div>
             <div id="errorCalculo" style="display: none; margin-top: 6px; padding: 4px; border-radius: 2px;"></div>
             <div id="advertenciaZona" style="display: none; margin-top: 6px; padding: 4px; background: #fff3cd; color: #856404; border-radius: 2px; font-size: 9px;"></div>
-            <div id="botonesCorreccion" style="display: none; margin-top: 6px; display: flex; gap: 4px;">
-              <button id="aplicarCorreccionBtn" class="btn-sm btn-success" style="flex: 1;">Aplicar Corrección</button>
+            <div id="botonesCorreccion" style="display: none; margin-top: 6px; gap: 4px;">
+              <button id="aplicarCorreccionBtn" class="btn-sm btn-success" style="flex: 1; display: none;">Aplicar Corrección</button>
               <button id="nuevaMedicionBtn" class="btn-sm btn-purple" style="flex: 1;">Nueva Medición</button>
-            </div>
-            <div id="botonNuevaMedicionSolo" style="margin-top: 6px;">
-              <button id="nuevaMedicionBtn2" class="btn-sm btn-purple" style="width: 100%;">Nueva Medición</button>
             </div>
           </div>
         </div>
@@ -1584,7 +1599,7 @@
       
       <!-- Botón Individualizar Bifacial -->
       <div style="margin-top: 12px; text-align: center;">
-        <button id="individualizarBifacialBtn2" style="padding: 10px 24px; background: linear-gradient(135deg, #607D8B 0%, #455A64 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.3s ease;" disabled title="Detecte objetos en ambas caras para individualizar">
+        <button id="individualizarBifacialBtn2" class="laar-btn laar-btn--primary" style="padding: 10px 24px; font-size: 13px;" disabled title="Detecte objetos en ambas caras para individualizar">
           Individualizar Objetos Bifaciales
         </button>
         
@@ -1638,13 +1653,14 @@
             <h4 style="margin: 0; color: #007bff; font-size: 14px; font-weight: 600;">
               Comparación de Métricas: Imagen Espejo (Anclaje por Centroide Convex Hull)
             </h4>
-            <div style="display: flex; gap: 8px;">
-              <button id="exportarComparacionBifacialCSVBtn" style="padding: 6px 12px; background: #455A64; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 4px;">
-                Exportar Comparación CSV
+            <div class="laar-export-menu" data-export-menu>
+              <button type="button" class="laar-btn" data-export-trigger aria-haspopup="true" aria-expanded="false">
+                <span>Exportar</span><span class="laar-btn__caret" aria-hidden="true">▾</span>
               </button>
-              <button id="exportarComparacionBifacialPDFBtn" style="padding: 6px 12px; background: #D32F2F; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 4px;">
-                Exportar PDF Completo
-              </button>
+              <div class="laar-export-list">
+                <button id="exportarComparacionBifacialCSVBtn" class="export-menu-item">Comparación CSV</button>
+                <button id="exportarComparacionBifacialPDFBtn" class="export-menu-item">PDF completo</button>
+              </div>
             </div>
           </div>
           <div id="bifacialComparisonTableContent"></div>
@@ -1658,6 +1674,17 @@
         <span id="cmoHeader">Comparador Multi-Objeto</span>
         <button class="cmo-btn cmo-btn-ghost" id="cmoCerrarBtn" style="font-size: 11px; padding: 4px 10px;">&#10005; Cerrar</button>
       </h3>
+
+      <!-- Selector de proyecto / colección -->
+      <div id="cmoProyectoSelectorWrap" style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--bg-secondary,#f7fafc); border-bottom:1px solid var(--border-color,#e2e8f0); font-size:12px;">
+        <label for="cmoProyectoSelect" style="font-weight:600; white-space:nowrap; color:var(--text-secondary,#4a5568);">Colección:</label>
+        <select id="cmoProyectoSelect" style="flex:1; min-width:0; padding:4px 8px; border:1px solid var(--border-color,#e2e8f0); border-radius:4px; font-size:12px; background:#fff;">
+          <option value="">— Seleccionar proyecto —</option>
+        </select>
+        <button id="cmoCargarColeccionBtn" class="cmo-btn cmo-btn-primary" style="white-space:nowrap; font-size:11px; padding:4px 12px;">Cargar colección</button>
+        <button id="cmoActualizarBtn" class="cmo-btn cmo-btn-ghost" style="white-space:nowrap; font-size:11px; padding:4px 10px;" title="Añadir análisis nuevos sin reiniciar la comparación">&#8635; Actualizar</button>
+      </div>
+
       <!-- Barra de estado visible sólo en modo ventana independiente -->
       <div id="cmoStandaloneMsg"></div>
 
@@ -1727,6 +1754,9 @@
             <button class="cmo-tab-btn" data-tab="correlacion">&#8771; Correlaciones</button>
             <button class="cmo-tab-btn" data-tab="morfologia">&#127919; CGeo</button>
             <button class="cmo-tab-btn" data-tab="pca">&#9671; PCA</button>
+            <button class="cmo-tab-btn" data-tab="dendrograma">&#128202; Dendrograma</button>
+            <button class="cmo-tab-btn" data-tab="efa">&#9670; EFA</button>
+            <button class="cmo-tab-btn" data-tab="errores">&#9888; Errores</button>
           </div>
 
           <!-- Tab: Tabla -->
@@ -1738,8 +1768,15 @@
             </p>
             <div class="cmo-tabla-wrap"><div id="cmoTablaContenido"></div></div>
             <div class="cmo-btn-row" style="margin-top: 12px;">
-              <button class="cmo-btn cmo-btn-success" id="cmoExportarCSV">Exportar Tabla CSV</button>
-              <button class="cmo-btn cmo-btn-primary" id="cmoExportarInformeCSV">&#128196; Exportar Informe Completo</button>
+              <div class="laar-export-menu" data-export-menu>
+                <button type="button" class="laar-btn" data-export-trigger aria-haspopup="true" aria-expanded="false">
+                  <span>Exportar</span><span class="laar-btn__caret" aria-hidden="true">▾</span>
+                </button>
+                <div class="laar-export-list">
+                  <button class="export-menu-item" id="cmoExportarCSV">Tabla CSV</button>
+                  <button class="export-menu-item" id="cmoExportarInformeCSV">Informe completo CSV</button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1792,6 +1829,28 @@
               Colores = agrupamiento automático por k-means.
             </p>
             <div id="cmoPCAContenido"></div>
+          </div>
+
+          <div class="cmo-tab-pane" id="cmoTabEFA">
+            <p style="font-size:11px;color:#718096;margin:0 0 10px;">
+              Descriptores de Fourier Elípticos (EFA) por objeto: complejidad de forma, armónicos necesarios para capturar el 95/99 % de la varianza y espectro de potencia comparado.
+            </p>
+            <!-- contenido generado por renderEFA() -->
+          </div>
+
+          <div class="cmo-tab-pane" id="cmoTabErrores">
+            <p style="font-size:11px;color:#718096;margin:0 0 10px;">
+              Verificación de error por análisis: error óptico posicional, incertidumbre propagada en métricas absolutas y confianza de detección de contorno.
+            </p>
+            <!-- contenido generado por renderErrorVerificacion() -->
+          </div>
+
+          <div class="cmo-tab-pane" id="cmoTabDendrograma">
+            <p style="font-size:11px;color:#718096;margin:0 0 10px;">
+              Clasificación jerárquica aglomerativa (enlace de Ward, distancia euclídea sobre métricas estandarizadas).
+              Los objetos más similares se fusionan primero; la altura de cada nodo indica la distancia de fusión.
+            </p>
+            <div id="cmoDendrogramaContenido"></div>
           </div>
         </div>
       </div>
@@ -1924,8 +1983,8 @@
           <div id="saveAnalysisButtonContainer" style="display:none;"></div>
           <button id="geometriaManualBtn" style="display:none;" aria-hidden="true"></button>
           <button id="trazarPerforacionesBtn" style="display:none;" aria-hidden="true"></button>
-          <div id="exportMenuWrapper" style="display:none;" aria-hidden="true">
-            <button id="exportMenuTrigger" style="display:none;"></button>
+          <div id="exportMenuWrapper" data-export-menu style="display:none;" aria-hidden="true">
+            <button id="exportMenuTrigger" data-export-trigger style="display:none;"></button>
             <ul id="exportMenuDropdown" style="display:none;">
               <li><button id="exportarAnalisisCompletoBtn" style="display:none;"></button></li>
               <li><button id="exportarPDFIntegralBtn" style="display:none;"></button></li>
@@ -2044,7 +2103,7 @@
               <input type="checkbox" id="schematic_labels" checked> Etiquetas
             </label>
           </div>
-          <button id="applySchematicConfig" style="margin-top: 10px; padding: 6px 12px; font-size: 10px; background: #455A64; color: white; border: none; border-radius: 3px; cursor: pointer; width: 100%;">
+          <button id="applySchematicConfig" class="laar-btn" style="margin-top: 10px; width: 100%; font-size: 10px;">
             Aplicar y Redibujar
           </button>
         </div><!-- /schematicLayersConfig -->
@@ -2686,58 +2745,12 @@
 
     <!-- SECCIÓN DEBUG ELIMINADA (UI-only cleanup) - Máscaras de detección ocultas permanentemente -->
 
-    <!-- Sección de análisis de bordes -->
-    <div class="edge-analysis-container" id="edgeAnalysisContainer">
-      <h3 style="color: var(--gray-600); font-size: 13px; font-weight: 600; margin: 15px 0 10px 0; border-bottom: 2px solid var(--border-color); padding-bottom: 6px;">Análisis de Bordes y Texturas</h3>
-      <div class="analysis-controls" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; padding: 8px; background: var(--bg-secondary); border-radius: 4px;">
-        <button class="analysis-btn" id="closeEdgeAnalysisBtn" style="padding: 5px 10px; background: var(--gray-500); color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 11px;">Cerrar</button>
-        <!-- Botón "Exportar"ELIMINADO (UI-only cleanup) -->
-        <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; margin-left: auto;">
-          Umbral Canny: 
-          <input type="range" id="cannyThreshold" min="50" max="200" value="100" style="width: 100px;">
-          <span id="thresholdValue" style="font-weight: 600; color: var(--gray-600);">100</span>
-        </label>
-      </div>
-      <div class="edge-analysis-grid" id="edgeAnalysisGrid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 12px;">
-        <div class="edge-canvas-container">
-          <h4 style="color: var(--gray-600); font-size: 12px; font-weight: 600; margin: 0 0 8px 0; border-bottom: 1px solid var(--border-color); padding-bottom: 4px;">Detección de Bordes</h4>
-          <canvas id="edgeCanvas" class="edge-analysis-canvas" style="border: 1px solid var(--border-color); border-radius: 3px;"></canvas>
-        </div>
-        <div class="edge-metrics-panel">
-          <div class="metrics-tabs" style="display: flex; gap: 4px; margin-bottom: 10px;">
-            <button class="tab-btn active"data-tab="basic"style="flex: 1; padding: 5px 8px; background: var(--gray-600); color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; font-weight: 500;">Básicas</button>
-            <button class="tab-btn"data-tab="physical"style="flex: 1; padding: 5px 8px; background: var(--gray-500); color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; font-weight: 500;">Físicas</button>
-            <button class="tab-btn"data-tab="interpretation"style="flex: 1; padding: 5px 8px; background: var(--gray-500); color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; font-weight: 500;">Interpretación</button>
-          </div>
-          
-          <div class="tab-content active" id="tab-basic">
-            <h4 style="color: var(--gray-600); font-size: 11px; font-weight: 600; margin: 0 0 6px 0;">Análisis de Texturas y Bordes</h4>
-            <div id="edgeMetricsBasic" style="font-size: 11px;"></div>
-          </div>
-          
-          <div class="tab-content" id="tab-physical" style="display: none;">
-            <h4 style="color: var(--gray-600); font-size: 11px; font-weight: 600; margin: 0 0 6px 0;">Características Físicas del Material</h4>
-            <div id="edgeMetricsPhysical" style="font-size: 11px;"></div>
-          </div>
-          
-          <div class="tab-content" id="tab-interpretation" style="display: none;">
-            <h4 style="color: var(--gray-600); font-size: 11px; font-weight: 600; margin: 0 0 6px 0;">Interpretación y Recomendaciones</h4>
-            <div id="edgeMetricsInterpretation" style="font-size: 11px;"></div>
-          </div>
-          
-          <!-- Contenedor legacy para compatibilidad -->
-          <div id="edgeMetrics" style="display: none;"></div>
-        </div>
-      </div>
-    </div>
-
     <!-- Tabla de métricas morfológicas -->
     <div class="metrics-table-container" id="metricsTableContainer">
       <div class="metrics-table-header" style="display: flex; justify-content: space-between; align-items: center; margin: 15px 0 10px 0; padding-bottom: 6px; border-bottom: 2px solid var(--border-color);">
         <h3 style="color: var(--gray-600); font-size: 13px; font-weight: 600; margin: 0;">Tabla de Métricas Morfológicas</h3>
         <div class="table-controls" style="display: flex; gap: 6px; flex-wrap: wrap;">
           <button class="table-btn"id="generateTableBtn"style="padding: 5px 10px; background: var(--gray-600); color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 11px;">Generar</button>
-          <button class="table-btn tertiary"id="toggleViewBtn"style="display: none; padding: 5px 10px; background: var(--gray-500); color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 11px;">Compacta</button>
           <button class="table-btn"id="closeTableBtn"style="display: none; padding: 5px 10px; background: var(--gray-500); color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 11px;">Cerrar</button>
         </div>
       </div>
@@ -2842,7 +2855,7 @@
   <script src="js/obj3d-export.js"></script>
   <script src="js/obj3d-morph-canvas.js"></script>
   <script src="js/obj3d-viewer.js"></script>
-  <script src="js/sidebar-nav.js?v=20260614a"></script>
+  <script src="js/sidebar-nav.js?v=20260623a"></script>
   <script src="js/diagnostics.js"></script>
 
 
@@ -3175,16 +3188,15 @@
           </div>
         </div>
         <div style="display: flex; gap: 8px; align-items: center;">
-          <button class="analysis-viewer-action-btn av-btn--csv" id="viewerExportCSVBtn"
-            title="Descargar CSV con todas las métricas de este análisis">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            CSV
-          </button>
-          <button class="analysis-viewer-action-btn av-btn--pdf" id="viewerExportPDFBtn"
-            title="Exportar reporte PDF integral de este análisis">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-            PDF
-          </button>
+          <div class="laar-export-menu" data-export-menu>
+            <button type="button" class="laar-btn" data-export-trigger aria-haspopup="true" aria-expanded="false">
+              <span>Exportar</span><span class="laar-btn__caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="laar-export-list">
+              <button id="viewerExportCSVBtn" class="export-menu-item" title="Descargar CSV con todas las métricas de este análisis">CSV — métricas</button>
+              <button id="viewerExportPDFBtn" class="export-menu-item" title="Exportar reporte PDF integral de este análisis">PDF — reporte integral</button>
+            </div>
+          </div>
           <button class="analysis-viewer-action-btn av-btn--open" id="openMorphologicalAnalysisBtn"
             title="Abrir análisis en panel morfológico interactivo">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
@@ -3407,12 +3419,15 @@
       </div>
       
       <div class="analysis-viewer-footer">
-        <button class="analysis-action-btn" id="exportAnalysisPDF">
-          Exportar PDF
-        </button>
-        <button class="analysis-action-btn" id="exportAnalysisCSV">
-          Exportar CSV
-        </button>
+        <div class="laar-export-menu laar-export-menu--up" data-export-menu>
+          <button type="button" class="laar-btn" data-export-trigger aria-haspopup="true" aria-expanded="false">
+            <span>Exportar</span><span class="laar-btn__caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="laar-export-list">
+            <button id="exportAnalysisPDF" class="export-menu-item">PDF</button>
+            <button id="exportAnalysisCSV" class="export-menu-item">CSV</button>
+          </div>
+        </div>
         <button class="analysis-action-btn analysis-action-btn-primary" id="closeAnalysisViewerBtn">
           Cerrar
         </button>
@@ -3630,7 +3645,8 @@
           <div>
             <label style="font-size:11px;font-weight:600;color:#4a5568;display:block;margin-bottom:4px;">Umbralización</label>
             <select id="maoIaThreshold" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid #cbd5e0;border-radius:5px;background:#fff;color:#2d3748;">
-              <option value="otsu" selected>Otsu (automático)</option>
+              <option value="auto" selected>Auto (núcleo OpenCV) · recomendado</option>
+              <option value="otsu">Otsu (ajuste manual)</option>
               <option value="adaptive">Adaptativo (Gaussiano)</option>
               <option value="manual">Manual</option>
             </select>
@@ -3704,7 +3720,7 @@
 
           <!-- Botones de acción -->
           <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
-            <button id="maoIaRun" style="width:100%;padding:10px;background:linear-gradient(135deg,#6f42c1,#5a32a3);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#9654;&#160; Ejecutar análisis</button>
+            <button id="maoIaRun" style="width:100%;padding:10px;background:#6f42c1;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#9654;&#160; Ejecutar análisis</button>
             <button id="maoIaModalCancel" style="width:100%;padding:8px;background:#f7fafc;color:#718096;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;cursor:pointer;">Cancelar</button>
           </div>
         </div>
@@ -3751,9 +3767,17 @@
                 <button class="mao-ia-tab" data-tab="table"  style="padding:4px 12px;border:none;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;background:transparent;color:#718096;">Tabla</button>
                 <button class="mao-ia-tab" data-tab="cards"  style="padding:4px 12px;border:none;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;background:transparent;color:#718096;">Fichas</button>
               </div>
-              <!-- Exportación -->
-              <button id="maoIaExportCSV"  title="Exportar CSV"   style="padding:4px 10px;font-size:9.5px;background:#fff;border:1px solid #cbd5e0;border-radius:5px;color:#4a5568;cursor:pointer;white-space:nowrap;">&#11015; CSV</button>
-              <button id="maoIaCopyJSON"   title="Copiar JSON"    style="padding:4px 10px;font-size:9.5px;background:#fff;border:1px solid #cbd5e0;border-radius:5px;color:#4a5568;cursor:pointer;white-space:nowrap;">{} JSON</button>
+              <!-- Exportación / salida -->
+              <div class="laar-export-menu" data-export-menu>
+                <button type="button" class="laar-btn" data-export-trigger aria-haspopup="true" aria-expanded="false"
+                        style="padding:4px 10px;font-size:9.5px;" title="Exportar / copiar resultados">
+                  <span>Exportar</span><span class="laar-btn__caret" aria-hidden="true">▾</span>
+                </button>
+                <div class="laar-export-list">
+                  <button id="maoIaExportCSV"  class="export-menu-item" title="Exportar CSV">&#11015; CSV</button>
+                  <button id="maoIaCopyJSON"   class="export-menu-item" title="Copiar JSON">{} Copiar JSON</button>
+                </div>
+              </div>
             </div>
 
             <!-- Selector de visibilidad por objeto -->
@@ -3912,48 +3936,35 @@
   </div>
 
   <!-- ── MAO IA: controlador JS externo ── -->
-  <script src="js/mao-ia.js?v=20260613b"></script>
+  <script src="js/mao-ia.js?v=20260624a"></script>
   <script src="js/procrustes.js"></script>
   <script src="js/aps-save.js"></script>
   <!-- ── Controles de ventana unificados (último, tras todos los módulos) ── -->
   <script src="js/window-controls.js"></script>
 
-  <!-- ── Menú desplegable de exportación ── -->
+  <!-- ── Menú desplegable de exportación (genérico: todo [data-export-menu]) ── -->
   <script>
   (function () {
     'use strict';
-    var wrapper = document.getElementById('exportMenuWrapper');
-    var trigger = document.getElementById('exportMenuTrigger');
-    if (!wrapper || !trigger) return;
-
-    function open() {
-      wrapper.classList.add('is-open');
-      trigger.setAttribute('aria-expanded', 'true');
+    // Un solo controlador para CUALQUIER menú "Exportar ▾" de la app.
+    // Marca el contenedor con [data-export-menu] y su disparador con
+    // [data-export-trigger]; los ítems con .export-menu-item cierran al elegir.
+    function wireMenu(wrapper) {
+      var trigger = wrapper.querySelector('[data-export-trigger]');
+      if (!trigger) return;
+      function open()  { wrapper.classList.add('is-open');    trigger.setAttribute('aria-expanded', 'true');  }
+      function close() { wrapper.classList.remove('is-open'); trigger.setAttribute('aria-expanded', 'false'); }
+      trigger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        wrapper.classList.contains('is-open') ? close() : open();
+      });
+      document.addEventListener('click', function (e) { if (!wrapper.contains(e.target)) close(); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+      wrapper.querySelectorAll('.export-menu-item').forEach(function (btn) {
+        btn.addEventListener('click', function () { close(); });   // el handler real corre después
+      });
     }
-    function close() {
-      wrapper.classList.remove('is-open');
-      trigger.setAttribute('aria-expanded', 'false');
-    }
-
-    trigger.addEventListener('click', function (e) {
-      e.stopPropagation();
-      wrapper.classList.contains('is-open') ? close() : open();
-    });
-
-    // Cerrar al hacer clic fuera
-    document.addEventListener('click', function (e) {
-      if (!wrapper.contains(e.target)) close();
-    });
-
-    // Cerrar con Escape
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') close();
-    });
-
-    // Cerrar al seleccionar un ítem (el JS del botón hace su trabajo después)
-    wrapper.querySelectorAll('.export-menu-item').forEach(function (btn) {
-      btn.addEventListener('click', function () { close(); });
-    });
+    document.querySelectorAll('[data-export-menu]').forEach(wireMenu);
   })();
   </script>
 
@@ -4569,7 +4580,7 @@
   </script>
 
   <!-- LAAR Tab Router — Migración a pestañas -->
-  <script src="js/mao-tab-router.js?v=20260612a" defer></script>
+  <script src="js/mao-tab-router.js?v=20260623d" defer></script>
   <!-- ADR-005 — Base compartida de los organizers (DEBE cargar antes que ellos) -->
   <script src="js/mao-organizer-base.js?v=20260612e" defer></script>
   <!-- ADR-008 Fase 1 — Contrato de salida de captura: normaliza la forma de objeto

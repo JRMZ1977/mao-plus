@@ -32,10 +32,21 @@ from fastapi import HTTPException
 
 IMPLEMENTED = True
 
-# Umbral de distancia de Mahalanobis para considerar outlier (chi² 97.5% con 2 grados)
-_OUTLIER_THRESHOLD = 2.448  # sqrt(chi2(2, 0.975))
+# Umbral de distancia de Mahalanobis para considerar outlier.
+# sqrt(chi²(2, 0.95)) = 2.448 → percentil 95% (nivel operativo)
+# sqrt(chi²(2, 0.975)) = 2.716 → percentil 97.5% (nivel estricto)
+_OUTLIER_THRESHOLD = 2.716  # percentil 97.5%, consistente con el nivel declarado
 
 # ── Utilidades ──────────────────────────────────────────────────────────────
+
+def _safe_round(val: Any, ndigits: int = 6) -> Any:
+    """Redondea a ndigits si el valor es float finito; devuelve el valor original en caso contrario."""
+    try:
+        f = float(val)
+        return round(f, ndigits) if math.isfinite(f) else val
+    except (TypeError, ValueError):
+        return val
+
 
 def _build_matrix(objects: list[dict], keys: list[str]) -> np.ndarray:
     """Construye matriz numérica de métricas, usando NaN para valores ausentes."""
@@ -261,16 +272,16 @@ async def statistics(
         mean = float(np.mean(col_clean))
         std  = float(np.std(col_clean, ddof=1))
         stats_out[key] = {
-            "mean":     round(mean, 6),
-            "median":   round(float(np.median(col_clean)), 6),
-            "std":      round(std, 6),
-            "min":      round(float(np.min(col_clean)), 6),
-            "max":      round(float(np.max(col_clean)), 6),
-            "q25":      round(float(np.percentile(col_clean, 25)), 6),
-            "q75":      round(float(np.percentile(col_clean, 75)), 6),
-            "skewness": round(float(st.skew(col_clean)), 4),
-            "kurtosis": round(float(st.kurtosis(col_clean)), 4),
-            "cv":       round(abs(std / mean) if mean else 0.0, 4),
+            "mean":     _safe_round(mean, 6),
+            "median":   _safe_round(float(np.median(col_clean)), 6),
+            "std":      _safe_round(std, 6),
+            "min":      _safe_round(float(np.min(col_clean)), 6),
+            "max":      _safe_round(float(np.max(col_clean)), 6),
+            "q25":      _safe_round(float(np.percentile(col_clean, 25)), 6),
+            "q75":      _safe_round(float(np.percentile(col_clean, 75)), 6),
+            "skewness": _safe_round(float(st.skew(col_clean)), 4),
+            "kurtosis": _safe_round(float(st.kurtosis(col_clean)), 4),
+            "cv":       _safe_round(abs(std / mean) if mean else 0.0, 4),
             "n":        int(len(col_clean)),
         }
 

@@ -158,14 +158,11 @@ export function generarTablaMetricasCompleta(obj, metricas) {
   html += generarSeccionOrientacion(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionSimetria(metricas, estiloTabla, estiloTh, estiloTd);
 
-  // Secciones condicionales para perforaciones y horadaciones
-  if (obj.perforaciones && obj.perforaciones.length > 0) {
-    html += generarSeccionPerforaciones(obj, metricas, estiloTabla, estiloTh, estiloTd);
-  }
-
-  if (obj.horadaciones && obj.horadaciones.length > 0) {
-    html += generarSeccionHoradaciones(obj, metricas, estiloTabla, estiloTh, estiloTd);
-  }
+  // P/H: SIEMPRE presentes (coherencia con el panel — esqueleto estable).
+  // Las funciones internas ya rinden "no detectadas" cuando el objeto no tiene
+  // P/H, así que la categoría no depende de haber confirmado P/H (acción 2ª).
+  html += generarSeccionPerforaciones(obj, metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionHoradaciones(obj, metricas, estiloTabla, estiloTh, estiloTd);
 
   // Sección bifacial si aplica
   if (obj.cara && (obj.cara === 'A' || obj.cara === 'B')) {
@@ -2290,7 +2287,12 @@ function generarSeccionMetricasAvanzadas(metricas, estiloTabla, estiloTh, estilo
 }
 
 function generarSeccionClasificacionesIndividuales(metricas, estiloTabla, estiloTh, estiloTd) {
-    const clasif = metricas._clasificaciones_individuales;
+    // ADR-011: robustez de esqueleto estable — si faltan las clasificaciones
+    // individuales (según modo), la categoría se rinde igual con "Sin datos"
+    // en vez de lanzar y tumbar TODA la tabla.
+    const clasif = new Proxy(metricas._clasificaciones_individuales || {}, {
+      get: (t, k) => (k in t ? t[k] : 'Sin datos')
+    });
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #17a2b8;">
         10. CLASIFICACIONES INDIVIDUALES (Métodos Componentes)

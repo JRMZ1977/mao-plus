@@ -99,9 +99,7 @@
         'sidebarResultCard',            // Resumen de resultado (reubicado del sidebar)
         'sidebarActionsSection'         // Perforaciones + exportar + nuevo análisis (reubicado)
       ],
-      /* Guard de prerrequisito (ADR-001 · Opción A): se desbloquea con
-         mao:analysis:done. */
-      locked   : true
+      locked   : false
     }
   ];
 

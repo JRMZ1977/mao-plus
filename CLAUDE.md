@@ -4,6 +4,44 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-06-24 — ADR-012 detección monolítica (Fases 1-3 ✅) + fix modo componente
+
+**ADR-012 «detección monolítica»** (`docs/ADR-012-deteccion-monolitica.md`, commit `eaf01d3`): núcleo de
+segmentación **único y canónico = OpenCV `detection.detect()`** (Z-scan+CLAHE+GrabCut+watershed+
+confianza); los modos son priors complementarios, no reimplementaciones redundantes. Motor JS
+`detectarObjetosHibrido` = **fallback** solo si Python no está.
+
+**Cierre:** los 4 modos (automático, manual de área, IA, manual por componente) comparten el núcleo;
+SAM = prior neuronal. **Fase 2 (automático) ya estaba hecha** desde ADR-007/008 (`ejecutarDeteccionAutomatica`
+→ `PythonBridge.detection.detect`); mi tabla inicial del ADR la describía mal. **Fase 3 (IA)**: nueva opción
+**«Auto (núcleo OpenCV)» por defecto** en el modal (`threshold_method="auto"` → `detect(separate_touching,
+include_contours)` + enriquecimiento IA); modos manuales del modal ganan watershed; `detect()` gana flag
+aditivo `include_contours`. Cache `mao-ia.js?v=20260624a`. Verif: suite 288/2 + HTTP `/api/mao-ia auto` (200,
+conf alta) + 422 inválido.
+- **M1**: `detectarObjetosManualRapida` → `async`; enruta el ROI a `PythonBridge.detection.detect(...,
+  {separateTouching:true})`, mapea bbox con offset y **hereda confianza** (el manual ya no nace sin
+  confianza). Fallback al cuerpo JS intacto (early-return + fall-through). `detectarObjetosEnArea` y
+  `ejecutarDeteccionEnAreaManual` ahora async/await. Cache `analysis-core.js?v=20260624g`.
+- **M2**: el watershed del núcleo individualiza los pegados → el clic-componente JS queda como
+  fallback solo-JS (la etapa de contorno ya era canónica vía `/api/contour`).
+- **Fix de bug**: `manejarSeleccionComponente`/`procesarContornoSeleccionado` estaban anidadas por
+  error dentro de `aplicarAnalisisMorfometricoAreaManualMejorado` → `ReferenceError` al clicar.
+  Des-anidadas a nivel IIFE (cuerpos byte-idénticos).
+- **Verificado**: `node -c` OK · suite 288/2 (frontend-only) · `detect()` sobre ROI de fixture →
+  bbox local + conf 0.986/alta (python_zscan_competitive). **Pendiente**: runtime Electron (selección
+  manual con 2+ pegados → ruta backend+watershed+chips; y fallback con backend muerto). **Caveat
+  RESUELTO (2026-06-25)**: flag `roi_mode` implementado. `detect(roi_mode=True)` desactiva las 3
+  heurísticas de imagen completa que contradecían el encuadre manual: (1) recorte de la franja de
+  borde — el objeto suele tocar el borde del ROI; (2) filtro de dominancia ≥20% del mayor — no
+  descartar lascas/fragmentos que el usuario encuadró; (3) reorden por relevancia arqueológica
+  (esquina/borde = carta de color/escala) — dentro del ROI ya no hay referencias. Cableado:
+  `detectarObjetosManualRapida` → `PythonBridge.detection.detect(..., {roiMode:true})` → `/api/detect`
+  Form `roi_mode` → `detection.detect`. Tests: `TestModoROI` (4) en `tests/test_detection.py`. Suite 292/2.
+- **Fase 3 (IA)**: `detection.detect()` gana flag aditivo `include_contours`; `detect_with_mao_ia` añade
+  rama `threshold_method=="auto"` (→ núcleo + enriquecimiento IA); modos manuales del modal ganan
+  watershed; `/api/mao-ia` valida `"auto"`. **ADR-012 completo** (4 modos en el núcleo, JS=fallback).
+  **Pendiente único**: verif. visual del modal IA en Electron (flakiness app:// en frío bloqueó la headless).
+
 ## 🎯 Estado de la sesión 2026-06-14 (lote de cierre)
 
 Commits del lote: `526cf42` (ADR-010 E2E hook) · `be20a0e` (webSecurity + cv2 warmup + Resultados organizer + deuda técnica) · `63694bf` (ADR-006).

@@ -854,6 +854,10 @@
       margin-top: 20px;
       display: none;
     }
+    /* Visibilidad por CLASE (no inline) para que sobreviva al `style.display=''`
+       que el router LAAR aplica al mostrar la pestaña Captura. .mao-panel--hidden
+       (display:none !important del router) la sigue venciendo al ocultar otras pestañas. */
+    .individual-objects-container.has-objects { display: block; }
     .individual-objects-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -1907,53 +1911,6 @@
       max-width: 100%;
     }
     
-    /* Estilos para análisis de bordes */
-    .edge-analysis-container {
-      margin-top: 15px;
-      display: none;
-      border: 1px solid #e0e0e0;
-      border-radius: 6px;
-      padding: 15px;
-      background: #fafafa;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-    }
-    
-    .edge-analysis-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 15px;
-      margin-top: 12px;
-    }
-    
-    @media (max-width: 1200px) {
-      .edge-analysis-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-    
-    .edge-canvas-container {
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: 10px;
-      background: #fff;
-    }
-    
-    .edge-analysis-canvas {
-      display: block;
-      max-width: 100%;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      background: #fff;
-    }
-    
-    .analysis-controls {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      margin-bottom: 12px;
-      flex-wrap: wrap;
-    }
-    
     .analysis-btn {
       background: #3498db;
       color: white;
@@ -1976,30 +1933,7 @@
     .analysis-btn.secondary:hover {
       background: #7f8c8d;
     }
-    
-    .edge-data {
-      padding: 10px;
-      background: #fff;
-      border-radius: 6px;
-      border: 1px solid #e0e0e0;
-    }
-    
-    /* === NUEVOS ESTILOS PARA MÉTRICAS FÍSICAS === */
-    .edge-metrics-panel {
-      display: flex;
-      flex-direction: column;
-      background: #fff;
-      border-radius: 6px;
-      border: 1px solid #ddd;
-      overflow: hidden;
-    }
-    
-    .metrics-tabs {
-      display: flex;
-      background: #f5f5f5;
-      border-bottom: 2px solid #666;
-    }
-    
+
     .tab-btn {
       flex: 1;
       padding: 12px 8px;
@@ -2166,13 +2100,6 @@
     .morphological-metric .value {
       color: var(--gray-900);
       font-weight: 600;
-    }
-    
-    .analysis-controls {
-      margin-top: 15px;
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
     }
     
     .analysis-btn {
@@ -6215,7 +6142,6 @@ details.morph-result-group > .morph-result-group-body {
 
 /* Ocultar contenedores de resultado no activos (gestionado por sidebar-nav.js) */
 #morphologicalAnalysisContainer.res-hidden,
-#edgeAnalysisContainer.res-hidden,
 #metricsTableContainer.res-hidden {
   display: none !important;
 }

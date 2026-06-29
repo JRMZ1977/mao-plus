@@ -1047,7 +1047,11 @@ app.whenReady().then(async () => {
       const data = await fsP.readFile(filePath);
       const ext  = path.extname(filePath).toLowerCase();
       const type = APP_MIME[ext] || 'application/octet-stream';
-      return new Response(data, { status: 200, headers: { 'Content-Type': type } });
+      // no-cache: el documento de entrada index.html se carga sin `?v=` busteable;
+      // sin esto Chromium cachea app://mao/index.html y los cambios de markup no se
+      // ven al relanzar (raíz del "gotcha de caché" del proyecto). Sirviendo desde
+      // disco local, revalidar no tiene costo perceptible.
+      return new Response(data, { status: 200, headers: { 'Content-Type': type, 'Cache-Control': 'no-cache' } });
     } catch (e) {
       return new Response('Not Found: ' + (e && e.message), { status: 404 });
     }

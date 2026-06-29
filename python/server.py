@@ -158,6 +158,7 @@ async def detect_objects(
     min_area: int           = Form(default=100),
     max_objects: int        = Form(default=50),
     separate_touching: bool = Form(default=False),
+    roi_mode: bool          = Form(default=False),
 ):
     """
     Detecta objetos en una imagen usando OpenCV.
@@ -171,6 +172,10 @@ async def detect_objects(
     separate_touching — distance-transform + watershed para dividir blobs que
                         fusionan varios artefactos en contacto (reemplaza la
                         antigua rama YOLO, sin dependencias externas).
+    roi_mode          — la imagen es un ROI recortado a mano (modo manual): se
+                        desactivan las heurísticas de imagen completa (recorte de
+                        borde, filtro de dominancia, reorden arqueológico) para
+                        respetar exactamente lo que el usuario encuadró. ADR-012.
 
     Estado: IMPLEMENTADO (✅) — módulo detection.detect() funcional.
     """
@@ -181,6 +186,7 @@ async def detect_objects(
         min_area=min_area,
         max_objects=max_objects,
         separate_touching=separate_touching,
+        roi_mode=roi_mode,
     )
     return result
 
@@ -217,8 +223,8 @@ async def mao_ia_detect(
     """
     from python.modules.mao_ia_analyzer import detect_with_mao_ia
     data = await _read_image(image)
-    if threshold_method not in ("otsu", "adaptive", "manual"):
-        raise HTTPException(status_code=422, detail=f"threshold_method inválido: '{threshold_method}'. Valores permitidos: otsu, adaptive, manual")
+    if threshold_method not in ("otsu", "adaptive", "manual", "auto"):
+        raise HTTPException(status_code=422, detail=f"threshold_method inválido: '{threshold_method}'. Valores permitidos: otsu, adaptive, manual, auto (ADR-012: 'auto' usa el núcleo OpenCV)")
     result = await detect_with_mao_ia(
         image_bytes=data,
         threshold_method=threshold_method,

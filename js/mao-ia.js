@@ -307,8 +307,16 @@
   sliderClip.addEventListener('input',   () => { dispClip.textContent   = sliderClip.value;   });
   sliderTile.addEventListener('input',   () => { dispTile.textContent   = sliderTile.value;   });
   selThreshold.addEventListener('change', () => {
+    const isAuto = selThreshold.value === 'auto';
     manualRow.style.display = selThreshold.value === 'manual' ? 'block' : 'none';
+    // ADR-012 F3: en modo 'auto' (núcleo OpenCV) la estrategia de umbral/preproceso
+    // la decide el núcleo → los controles de umbral/blur/invert/CLAHE no aplican
+    // (min_area y max_objects sí). Se desactivan para no confundir.
+    [sliderThresh, sliderBlur, chkInvert, chkClahe, sliderClip, sliderTile]
+      .forEach(el => { if (el) el.disabled = isAuto; });
   });
+  // Estado inicial coherente con el default 'auto'.
+  selThreshold.dispatchEvent(new Event('change'));
   chkClahe.addEventListener('change', () => {
     claheControls.style.display = chkClahe.checked ? 'block' : 'none';
   });
@@ -2236,22 +2244,29 @@
     // Este cálculo FALTABA en el flujo IA (solo existía en análisis manual).
     // Sin este paso, la sección IX (Error Óptico) no se renderizaba en fichas de IA.
     try {
-      // Obtener parámetros de cámara: primero desde inputs, luego desde localStorage
-      const focalVal = parseFloat(document.getElementById('focalInput')?.value) ||
+      // Parámetros de cámara: PRIMERO los que usó la escala (fuente canónica =
+      // window.escalaParamsOpticos, fijada en calcularEscala/Hibrida). Garantiza los
+      // MISMOS datos que la escala — el camino híbrido RAW no escribe #focalInput, por
+      // eso la IA leía focal=0. Respaldo: inputs y localStorage.
+      const _ep = window.escalaParamsOpticos || {};
+      const focalVal = _ep.focalMM ||
+                       parseFloat(document.getElementById('focalInput')?.value) ||
                        parseFloat(localStorage.getItem('focalLength') || '') || 0;
-      const swVal    = parseFloat(document.getElementById('sensorWidthInput')?.value) ||
+      const swVal    = _ep.sensorW ||
+                       parseFloat(document.getElementById('sensorWidthInput')?.value) ||
                        parseFloat(localStorage.getItem('sensorWidth') || '') || 0;
-      const shVal    = parseFloat(document.getElementById('sensorHeightInput')?.value) ||
+      const shVal    = _ep.sensorH ||
+                       parseFloat(document.getElementById('sensorHeightInput')?.value) ||
                        parseFloat(localStorage.getItem('sensorHeight') || '') || 0;
-      const distVal  = parseFloat(document.getElementById('distanciaInput')?.value) ||
+      const distVal  = _ep.distanciaObjMM ||
+                       parseFloat(document.getElementById('distanciaInput')?.value) ||
                        parseFloat(localStorage.getItem('distancia') || '') || 0;
-      
-      // Obtener dimensiones de imagen desde la imagen actual
-      // (los getters no exponen imageHeightCaraA, etc., así que se obtiene desde la imagen)
-      let imgW = 0, imgH = 0;
+
+      // Dimensiones de imagen: las de la escala, o desde la imagen activa
+      let imgW = _ep.imgW || 0, imgH = _ep.imgH || 0;
       const modo = callGetter('_maoGetModo') || 'monofacial';
       const imgActiva = getActiveImage();
-      if (imgActiva) {
+      if (!imgW && imgActiva) {
         imgW = imgActiva.naturalWidth  || imgActiva.width  || 0;
         imgH = imgActiva.naturalHeight || imgActiva.height || 0;
       }
@@ -2351,6 +2366,22 @@
             scale_factor:                 metricas.scale_factor,
             original_bounding_box:        metricas.original_bounding_box,
             analysis_timestamp:           metricas.analysis_timestamp,
+
+            // ── Error óptico posicional (Sección IX): calculado en JS (estimarErrorOptico),
+            //    Python NO lo conoce. Sin preservarlo aquí, la fusión `...pyM` lo descartaba
+            //    y la re-aplicación posterior (lee metricasFinal.error_optico_*) recibía NaN
+            //    → se saltaba → Sección IX quedaba vacía en fichas IA. (validación científica)
+            error_optico_lineal_percent:  metricas.error_optico_lineal_percent,
+            error_optico_area_percent:    metricas.error_optico_area_percent,
+            error_perspectiva_percent:    metricas.error_perspectiva_percent,
+            error_distorsion_percent:     metricas.error_distorsion_percent,
+            posicion_radial_norm:         metricas.posicion_radial_norm,
+            posicion_radial_px:           metricas.posicion_radial_px,
+            angulo_optico_deg:            metricas.angulo_optico_deg,
+            k1_estimado:                  metricas.k1_estimado,
+            fov_diagonal_deg:             metricas.fov_diagonal_deg,
+            confianza_optica:             metricas.confianza_optica,
+            nota_error_optico:            metricas.nota_error_optico,
 
             // ── _contour_data completo con coords absolutas (necesario para los canvas de trazado) ──
             _contour_data: objMorf.has_real_contour ? {
@@ -2619,6 +2650,16 @@
         : { objeto: objMonitor.id || objMonitor.nombreObjeto || null, modo: 'ia', timestamp: new Date().toISOString() };
       console.info(`[MONITOR_ANALISIS] ${JSON.stringify(payload)}`);
     };
+
+    // 🔭 ERROR ÓPTICO POSICIONAL — función AUTÓNOMA y agnóstica del modo, sobre el
+    //    objeto FINAL (tras toda fusión Python/clasificación). Es la MISMA función que
+    //    usa cualquier modo: el error óptico depende solo de (ópticas de la imagen) ×
+    //    (centroide del objeto), no del método de detección. Garantiza la Sección IX en
+    //    fichas IA sin merge-drop ni lógica duplicada.
+    if (typeof window.aplicarErrorOpticoPosicional === 'function') {
+      const _okEO = window.aplicarErrorOpticoPosicional(metricasFinal, { x: hcx || cx, y: hcy || cy });
+      console.log(`[IA→Card] Error óptico (autónomo): ${_okEO ? 'OK ±' + metricasFinal.error_optico_lineal_percent + '%' : 'sin datos — ' + (metricasFinal.nota_error_optico || '')}`);
+    }
 
     // ── Crear tarjeta en panel de resultados ────────────────────────────────
     try {
