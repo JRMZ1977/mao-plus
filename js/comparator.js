@@ -985,6 +985,11 @@ const ComparadorMultiObjeto = (() => {
       const conDatos = g.items.filter(it =>
         objs.some(o => { const v = getValor(o, it.key); return typeof v === 'number' && isFinite(v); })
       ).length;
+      // Catálogo dinámico: ocultar grupos sin ningún dato en la colección actual
+      // (salvo que la métrica esté en la selección guardada → el usuario la eligió antes)
+      const tieneDatosOSeleccionado = conDatos > 0 ||
+        g.items.some(it => _savedKeys && _savedKeys.includes(it.key));
+      if (!tieneDatosOSeleccionado) return '';
       const grupoChecked = g.items.some(it => _isChecked(it.key));
       const isExtra = g.id === 'adicionales_detectadas';
       return `<div class="cmo-grupo-metricas" data-grupo-id="${g.id}">
