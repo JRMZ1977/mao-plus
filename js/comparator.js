@@ -822,7 +822,22 @@ const ComparadorMultiObjeto = (() => {
         toast.warning('Sin análisis en disco. Guarda los análisis con el menú de guardado.');
       return false;
     }
+    // Pre-cargar thumbnails como data URLs vía IPC (los archivos pueden estar fuera de APP_DIR,
+    // donde file:// y app:// no pueden acceder desde el renderer con webSecurity:true).
+    if (typeof electronAPI !== 'undefined' && electronAPI.getThumbnailDataUrl) {
+      await Promise.all(_objetos.map(async obj => {
+        if (!obj.thumbnailPath) return;
+        const dataUrl = await electronAPI.getThumbnailDataUrl(obj.thumbnailPath);
+        if (dataUrl) obj.thumbnailDataUrl = dataUrl;
+      }));
+    }
     return true;
+  }
+
+  // Devuelve la URL de thumbnail lista para usar en <img src>.
+  // Prioriza el data URL pre-cargado vía IPC (funciona con rutas fuera de APP_DIR).
+  function _thumbUrl(obj) {
+    return obj.thumbnailDataUrl || '';
   }
 
   // ──── RENDER OBJETOS (lista compacta con buscador) ───────────────────────
@@ -870,7 +885,7 @@ const ComparadorMultiObjeto = (() => {
           const obj = g.caras[0];
           const caraLbl = obj.cara !== 'Mono' ? obj.cara : 'Mono';
           const sel = _selIds.has(String(obj.id));
-          const thumbSrc = obj.thumbnailPath ? `file://${obj.thumbnailPath}` : '';
+          const thumbSrc = _thumbUrl(obj);
           const thumbHtml = thumbSrc ? `<img class="cmo-thumb-img" src="${thumbSrc}" onerror="this.style.display='none'" alt="">` : '';
           h += `<label class="cmo-sel-row${sel ? ' sel' : ''}">
             <input type="checkbox" class="cmo-chk-obj" data-id="${esc(String(obj.id))}"${sel ? ' checked' : ''}>
@@ -895,7 +910,7 @@ const ComparadorMultiObjeto = (() => {
           for (const obj of g.caras) {
             const caraLbl = obj.cara !== 'Mono' ? obj.cara : 'Mono';
             const sel = _selIds.has(String(obj.id));
-            const thumbSrcC = obj.thumbnailPath ? `file://${obj.thumbnailPath}` : '';
+            const thumbSrcC = _thumbUrl(obj);
             const thumbHtmlC = thumbSrcC ? `<img class="cmo-thumb-img cmo-thumb-sm" src="${thumbSrcC}" onerror="this.style.display='none'" alt="">` : '';
             h += `<label class="cmo-sel-row cmo-sel-child${sel ? ' sel' : ''}">
               <input type="checkbox" class="cmo-chk-obj" data-id="${esc(String(obj.id))}"${sel ? ' checked' : ''}>

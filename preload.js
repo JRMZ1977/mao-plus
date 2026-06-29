@@ -10,6 +10,7 @@ console.log('🌍 Context Isolation:', process.contextIsolated);
 // ── Información de la plataforma (solo-lectura) ───────────────────────────────
 contextBridge.exposeInMainWorld('electronInfo', {
   platform: process.platform,
+  appDir:   __dirname,          // ruta absoluta de la app — para construir app:// URLs
   versions: {
     node:     process.versions.node,
     chrome:   process.versions.chrome,
@@ -50,6 +51,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   fileExists: (filePath) =>
     ipcRenderer.invoke('fs-file-exists', { filePath }),
+
+  getThumbnailDataUrl: (filePath) =>
+    ipcRenderer.invoke('fs-thumbnail-data-url', { filePath }),
 
   getStats: (itemPath) =>
     ipcRenderer.invoke('fs-get-stats', { itemPath }),

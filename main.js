@@ -911,6 +911,20 @@ ipcMain.handle('fs-list-directory', async (_, { dirPath }) => {
   }
 });
 
+// Devuelve una imagen de ruta absoluta como data URL base64 (para miniaturas fuera de APP_DIR).
+ipcMain.handle('fs-thumbnail-data-url', async (_, { filePath }) => {
+  try {
+    const data = await fsP.readFile(filePath);
+    const ext  = path.extname(filePath).toLowerCase();
+    const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
+               : ext === '.png' ? 'image/png'
+               : ext === '.webp' ? 'image/webp' : 'image/png';
+    return `data:${mime};base64,${data.toString('base64')}`;
+  } catch {
+    return null;
+  }
+});
+
 ipcMain.handle('fs-file-exists', async (_, { filePath }) => {
   try {
     _assertSafePath(filePath);
