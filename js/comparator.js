@@ -6097,6 +6097,17 @@ const ComparadorMultiObjeto = (() => {
       });
     }
 
+    // A1: guardar selección de métricas en tiempo real (delegación persistente)
+    const _gruposEl = $('cmoGruposMetricas');
+    if (_gruposEl) {
+      _gruposEl.addEventListener('change', (e) => {
+        if (e.target.classList.contains('cmo-chk-met')) {
+          const keys = [...document.querySelectorAll('.cmo-chk-met:checked')].map(c => c.dataset.key);
+          _guardarSeleccionMetricas(keys);
+        }
+      });
+    }
+
     const btnCargar = $('cmoCargarColeccionBtn');
     if (btnCargar) btnCargar.addEventListener('click', cargarColeccionDesdeSelector);
 
