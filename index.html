@@ -1871,6 +1871,20 @@
         <span class="adr3-chip-label">Exportado</span>
         <span id="adr5ChipExportado" class="laar-chip laar-chip--none">—</span>
       </div>
+      <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+        <button id="adr5BtnVerColeccion" class="laar-btn" title="Abrir gestor de proyectos y colecciones" style="font-size:11px;padding:3px 10px;">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="width:11px;height:11px;margin-right:4px;vertical-align:middle;" aria-hidden="true"><line x1="3" y1="5" x2="13" y2="5"/><line x1="3" y1="9" x2="13" y2="9"/><line x1="3" y1="13" x2="8" y2="13"/><circle cx="12" cy="12" r="2.5"/><path d="M12 10.5v1.5l1 1"/></svg>
+          Ver Colección
+        </button>
+        <button id="adr5BtnAbrirCMO" class="laar-btn" title="Comparar múltiples objetos morfométricamente en una ventana nueva" style="font-size:11px;padding:3px 10px;">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="width:11px;height:11px;margin-right:4px;vertical-align:middle;" aria-hidden="true"><path d="M8 3v10M4 5l-2 3 2 3M12 5l2 3-2 3"/><path d="M2 8h5M9 8h5"/></svg>
+          CMO
+        </button>
+        <button id="adr5BtnAbrirProcrustes" class="laar-btn" title="Abrir módulo de Análisis Procrustes" style="font-size:11px;padding:3px 10px;">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="width:11px;height:11px;margin-right:4px;vertical-align:middle;" aria-hidden="true"><circle cx="4" cy="8" r="2.5"/><circle cx="12" cy="4" r="2.5"/><circle cx="12" cy="12" r="2.5"/><path d="M6.2 7.2L9.8 5M6.2 8.8L9.8 11"/></svg>
+          Procrustes
+        </button>
+      </div>
     </div>
 
     <!-- ═══ PANEL MAESTRO DE RESULTADOS ═══════════════════════════════════ -->
@@ -2847,10 +2861,10 @@
   <script src="js/project-manager.js"></script>
   <script src="js/file-io.js"></script>
   <script src="js/projects-ui.js"></script>
-  <script src="js/collection.js"></script>
+  <script src="js/collection.js?v=20260628e"></script>
   <script src="js/export-manager.js"></script>
   <script src="js/tooltips.js"></script>
-  <script type="module" src="js/analysis-core.js?v=20260629a"></script>
+  <script type="module" src="js/analysis-core.js?v=20260628d"></script>
   <script src="js/obj3d-canonical-raster.js"></script>
   <script src="js/obj3d-export.js"></script>
   <script src="js/obj3d-morph-canvas.js"></script>
@@ -4580,7 +4594,7 @@
   </script>
 
   <!-- LAAR Tab Router — Migración a pestañas -->
-  <script src="js/mao-tab-router.js?v=20260623d" defer></script>
+  <script src="js/mao-tab-router.js?v=20260628b" defer></script>
   <!-- ADR-005 — Base compartida de los organizers (DEBE cargar antes que ellos) -->
   <script src="js/mao-organizer-base.js?v=20260612e" defer></script>
   <!-- ADR-008 Fase 1 — Contrato de salida de captura: normaliza la forma de objeto
@@ -4593,7 +4607,7 @@
   <!-- ADR-004 Fase 2 — Organizador de la pestaña Captura (chips de estado) -->
   <script src="js/mao-captura-organizer.js?v=20260612e" defer></script>
   <!-- ADR-005 Resultados — Organizador de la pestaña Resultados (chips de estado) -->
-  <script src="js/mao-resultados-organizer.js?v=20260629a" defer></script>
+  <script src="js/mao-resultados-organizer.js?v=20260628f" defer></script>
 
 </body>
 </html>

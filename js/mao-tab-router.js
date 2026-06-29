@@ -95,10 +95,14 @@
       sections : [
         'adr5ResultadosHeader',         // Cabecera de chips de estado (ADR-005 Resultados)
         'resultadosPanel',              // Panel maestro de resultados
-        'comparadorMultiObjetoSection', // Comparador multi-objeto (CMO)
+        /* comparadorMultiObjetoSection excluido: en ventana principal solo abre
+           ventana nueva (?cmo=1); mostrarlo inline deja Step 1 vacío y confuso.
+           Se accede vía botón «CMO» en adr5ResultadosHeader. */
         'sidebarResultCard',            // Resumen de resultado (reubicado del sidebar)
         'sidebarActionsSection'         // Perforaciones + exportar + nuevo análisis (reubicado)
       ],
+      /* Sin guard: Resultados siempre accesible para revisar colecciones
+         y datos guardados independientemente del flujo de análisis. */
       locked   : false
     }
   ];

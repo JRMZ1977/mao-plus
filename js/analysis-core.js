@@ -12195,7 +12195,11 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         console.log(`✅ Métricas calculadas para objeto ${obj.id}:`, metricas);
         
         // Mostrar el análisis morfológico solo si no está en modo silencioso
+        if (obj && (obj.id || obj.nombreObjeto || obj.numeroObjeto)) {
+          window.currentAnalysisId = obj.id || obj.nombreObjeto || `Objeto ${obj.numeroObjeto || '?'}`;
+        }
         VisualizationExport.mostrarAnalisisMorfologico(obj, metricas);
+        document.dispatchEvent(new CustomEvent('mao:analysis:done'));
         
         // COMPARACIÓN ESPECÍFICA: CONTORNO REAL vs CAJA CONTENEDORA
         compararGeometriaReal(obj, metricas);

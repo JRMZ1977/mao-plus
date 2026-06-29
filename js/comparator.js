@@ -106,6 +106,7 @@ const ComparadorMultiObjeto = (() => {
       { key: 'forma_confianza',                        label: 'Confianza de clasificación [0–1]',        src: 'H' },
       { key: 'symmetry_score',                         label: 'Simetría bilateral [0–1]',                src: 'R' },
       { key: 'simetria_distancia_asimetria',           label: 'Desplazamiento de asimetría (mm)',        src: 'R' },
+      { key: 'simetria_distancia_asimetria_px',        label: 'Desplazamiento de asimetría (px)',        src: 'R' },
     ]},
     { id: 'dimensiones', label: 'II — Dimensiones métricas', items: [
       { key: 'area',                                   label: 'Área bruta (mm²)',                        src: 'H' },
@@ -233,10 +234,29 @@ const ComparadorMultiObjeto = (() => {
       { key: 'perforaciones_homogeneidad_morfologica',       label: 'Homogeneidad morfológica P [0–1]',           src: 'M' },
       { key: 'horadaciones_homogeneidad_morfologica',        label: 'Homogeneidad morfológica H [0–1]',           src: 'M' },
     ]},
-    { id: 'textura_superficie', label: 'XIV — Textura de superficie (píxeles internos)', items: [
-      { key: 'varianza_interna',    label: 'Varianza interna σ² (dispersión tonal)',   src: 'R' },
-      { key: 'entropia_superficie', label: 'Entropía superficial H [bits, 0–8]',        src: 'R' },
-      { key: 'gradiente_medio',     label: 'Gradiente medio Sobel Ḡ (bordes intern.)', src: 'R' },
+    { id: 'textura_superficie', label: 'XIV — Textura de superficie', items: [
+      { key: 'varianza_interna',    label: 'Varianza interna σ² (dispersión tonal)',    src: 'R' },
+      { key: 'entropia_superficie', label: 'Entropía superficial H [bits, 0–8]',         src: 'R' },
+      { key: 'gradiente_medio',     label: 'Gradiente medio Sobel Ḡ (bordes intern.)',  src: 'R' },
+      { key: 'glcm_contrast',       label: 'GLCM — Contraste (heterogeneidad local)',    src: 'R' },
+      { key: 'glcm_dissimilarity',  label: 'GLCM — Disimilaridad',                       src: 'R' },
+      { key: 'glcm_homogeneity',    label: 'GLCM — Homogeneidad (uniformidad local)',    src: 'R' },
+      { key: 'glcm_energy',         label: 'GLCM — Energía ASM (uniformidad global)',    src: 'R' },
+      { key: 'glcm_correlation',    label: 'GLCM — Correlación (dependencia lineal)',    src: 'R' },
+      { key: 'glcm_entropy',        label: 'GLCM — Entropía (complejidad textural)',     src: 'R' },
+    ]},
+    { id: 'efa', label: 'EFA — Análisis elíptico de Fourier', items: [
+      { key: 'efa_n_harmonics',       label: 'Armónicos calculados (N)',                  src: 'R' },
+      { key: 'efa_harmonics_95pct',   label: 'Armónicos para 95% varianza (h)',           src: 'R' },
+      { key: 'efa_harmonics_99pct',   label: 'Armónicos para 99% varianza (h)',           src: 'R' },
+      { key: 'efa_n_points',          label: 'Puntos de contorno entrada (N)',            src: 'R' },
+    ]},
+    { id: 'error_optico', label: 'IX — Incertidumbre óptica posicional', items: [
+      { key: 'error_optico_lineal_percent', label: 'Error óptico lineal ± (%)',           src: 'M' },
+      { key: 'error_optico_area_percent',   label: 'Error óptico de área ± (%)',           src: 'M' },
+    ]},
+    { id: 'deteccion', label: 'XV — Confianza de detección (ADR-008)', items: [
+      { key: 'detection_confidence',  label: 'Confianza de detección [0–1]',              src: 'M' },
     ]},
   ];
 
@@ -376,6 +396,20 @@ const ComparadorMultiObjeto = (() => {
     horadaciones_densidad_espacial:               ['densidad_espacial_hora','spatial_density_hora'],
     perforaciones_homogeneidad_morfologica:       ['homogeneidad_perf','morpho_homogeneity_perf'],
     horadaciones_homogeneidad_morfologica:        ['homogeneidad_hora','morpho_homogeneity_hora'],
+    // ── Simetría extendida ────────────────────────────────────────────────
+    simetria_distancia_asimetria_px:              ['simetria_distancia_px','asymmetry_distance_px'],
+    // ── Textura GLCM (backend /api/texture) ──────────────────────────────
+    glcm_contrast:                                ['contrast','glcm_contrast_value','texture_contrast'],
+    glcm_dissimilarity:                           ['dissimilarity','glcm_dissim','texture_dissimilarity'],
+    glcm_homogeneity:                             ['homogeneity','glcm_homog','texture_homogeneity'],
+    glcm_energy:                                  ['energy','glcm_asm','texture_energy'],
+    glcm_correlation:                             ['correlation','glcm_corr','texture_correlation'],
+    glcm_entropy:                                 ['entropy','glcm_entr','texture_entropy'],
+    // ── Error óptico posicional (Sección IX) ─────────────────────────────
+    error_optico_lineal_percent:                  ['error_lineal_percent','error_optico_lineal','optical_error_linear'],
+    error_optico_area_percent:                    ['error_area_percent','error_optico_area','optical_error_area'],
+    // ── Confianza de detección (ADR-008) ─────────────────────────────────
+    detection_confidence:                         ['detectionConfidence','detection_confidence_score','confianza_deteccion'],
   };
 
   const PALETA = [
@@ -579,6 +613,16 @@ const ComparadorMultiObjeto = (() => {
     if (val === undefined || val === null) {
       const computed = _phAgg(obj, key);
       if (computed !== undefined) val = computed;
+    }
+    // Extracción especial: escalares EFA desde metricas._efa_data (nested object)
+    if (val === undefined && m._efa_data) {
+      const efa = m._efa_data;
+      switch (key) {
+        case 'efa_n_harmonics':     val = efa.n_harmonics     != null ? efa.n_harmonics     : null; break;
+        case 'efa_harmonics_95pct': val = efa.harmonics_for_95pct != null ? efa.harmonics_for_95pct : null; break;
+        case 'efa_harmonics_99pct': val = efa.harmonics_for_99pct != null ? efa.harmonics_for_99pct : null; break;
+        case 'efa_n_points':        val = efa.n_points_input   != null ? efa.n_points_input  : null; break;
+      }
     }
     if (val === undefined || val === null) return null;
     // Coerce numeric strings → number so statistics work

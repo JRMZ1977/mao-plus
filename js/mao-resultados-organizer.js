@@ -62,7 +62,46 @@
 
   /* ── Cableado de señales ─────────────────────────────────────────────────── */
 
+  /* ── Botón «Ver Colección» en cabecera ──────────────────────────────────── */
+
+  function onVerColeccion() {
+    var panel = document.getElementById('projectsPanel');
+    if (panel) {
+      panel.classList.add('active');
+      if (typeof window.renderProjectsList === 'function') window.renderProjectsList();
+    } else {
+      var legacyBtn = document.getElementById('btnGestionarProyectos');
+      if (legacyBtn) legacyBtn.click();
+    }
+  }
+
+  function onAbrirCMO() {
+    /* Delega en el botón oculto que comparator.js ya cableó con window.open */
+    var btn = document.getElementById('abrirComparadorBtn');
+    if (btn) btn.click();
+  }
+
+  function onAbrirProcrustes() {
+    /* sidebarAbrirProcrustesBtn está cableado directamente por procrustes.js */
+    var btn = document.getElementById('sidebarAbrirProcrustesBtn');
+    if (btn) btn.click();
+  }
+
+  /* ── Cableado de señales ─────────────────────────────────────────────────── */
+
   function bindEvents() {
+    /* Botón Ver Colección */
+    var btnCol = document.getElementById('adr5BtnVerColeccion');
+    if (btnCol) btnCol.addEventListener('click', onVerColeccion);
+
+    /* Botón CMO */
+    var btnCMO = document.getElementById('adr5BtnAbrirCMO');
+    if (btnCMO) btnCMO.addEventListener('click', onAbrirCMO);
+
+    /* Botón Procrustes */
+    var btnPS = document.getElementById('adr5BtnAbrirProcrustes');
+    if (btnPS) btnPS.addEventListener('click', onAbrirProcrustes);
+
     /* Análisis completado */
     document.addEventListener('mao:analysis:done', setAnalisisDone);
 

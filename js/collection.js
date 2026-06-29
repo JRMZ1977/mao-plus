@@ -3433,15 +3433,27 @@ async function abrirAnalisisMorfologicoDesdeGuardado() {
             }
           }
           
-          // Scroll al contenedor de análisis morfológico
-          const morphContainer = document.getElementById('morphologicalAnalysisContainer');
-          if (morphContainer) {
-            morphContainer.style.display = 'block';
-            setTimeout(() => {
-              morphContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }, 300);
+          // Navegar al tab Análisis donde vive morphologicalAnalysisContainer
+          if (window.maoTabRouter) {
+            window.maoTabRouter.unlock('analisis');
+            window.maoTabRouter.go('analisis');
+          } else {
+            // Fallback sin LAAR: scroll directo
+            const morphContainer = document.getElementById('morphologicalAnalysisContainer');
+            if (morphContainer) {
+              morphContainer.style.display = 'block';
+              setTimeout(() => {
+                morphContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }, 300);
+            }
           }
-          
+
+          // Cerrar paneles flotantes para no tapar el análisis
+          const projectsPanel = document.getElementById('projectsPanel');
+          if (projectsPanel) projectsPanel.classList.remove('active');
+          const collPanel = document.getElementById('collectionPanel');
+          if (collPanel) collPanel.classList.remove('active');
+
           console.log(`Análisis morfológico recuperado y mostrado: ${analysis.nombreObjeto}`);
           resolve();
           
