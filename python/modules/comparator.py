@@ -54,7 +54,7 @@ def _build_matrix(objects: list[dict], keys: list[str]) -> np.ndarray:
     for obj in objects:
         metricas = obj.get("metricas", obj)   # acepta {metricas:{...}} o {...}
         rows.append([
-            float(metricas.get(k, math.nan))
+            float(metricas.get(k) if metricas.get(k) is not None else math.nan)
             for k in keys
         ])
     return np.array(rows, dtype=float)
@@ -89,14 +89,15 @@ def _get_numeric_keys(objects: list[dict]) -> list[str]:
 
 
 def _impute_median(X: np.ndarray) -> np.ndarray:
-    """Imputa NaN con la mediana de cada columna."""
-    out = X.copy()
+    """Imputa NaN e Inf con la mediana de cada columna."""
+    out = X.astype(float).copy()
     for j in range(out.shape[1]):
         col = out[:, j]
-        nan_mask = np.isnan(col)
-        if nan_mask.any():
-            median = float(np.nanmedian(col))
-            col[nan_mask] = median
+        bad = ~np.isfinite(col)
+        if bad.any():
+            finite_vals = col[np.isfinite(col)]
+            median = float(np.nanmedian(finite_vals)) if len(finite_vals) else 0.0
+            col[bad] = median
     return out
 
 
@@ -296,9 +297,14 @@ async def statistics(
                 corr_mat[i][j] = 1.0
                 pval_mat[i][j] = 0.0
             else:
-                r, p = st.pearsonr(X_imp[:, i], X_imp[:, j])
-                corr_mat[i][j] = round(float(r), 4) if math.isfinite(r) else 0.0
-                pval_mat[i][j] = round(float(p), 4) if math.isfinite(p) else 1.0
+                ci, cj = X_imp[:, i], X_imp[:, j]
+                if np.std(ci) == 0 or np.std(cj) == 0:
+                    corr_mat[i][j] = 0.0
+                    pval_mat[i][j] = 1.0
+                else:
+                    r, p = st.pearsonr(ci, cj)
+                    corr_mat[i][j] = round(float(r), 4) if math.isfinite(r) else 0.0
+                    pval_mat[i][j] = round(float(p), 4) if math.isfinite(p) else 1.0
 
     return {
         "status":             "ok",
