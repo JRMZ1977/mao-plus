@@ -1191,7 +1191,7 @@ const ComparadorMultiObjeto = (() => {
     // ── Intento Python (asíncrono, enriquece PCA y estadísticos si disponible) ─
     if (window.PythonBridge && PythonBridge.isModuleActive('comparator')) {
       Promise.all([
-        PythonBridge.comparator.pca(objs),
+        PythonBridge.comparator.pca(objs, { keys: _metrSel }),
         PythonBridge.comparator.statistics(objs, _metrSel),
       ]).then(([pyPCA, pyStats]) => {
         if (pyPCA && !pyPCA.error) {

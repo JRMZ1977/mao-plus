@@ -107,6 +107,7 @@ async def pca(
     objects: list[dict[str, Any]],
     n_components: int = 2,
     n_clusters: int = 0,
+    selected_keys: list[str] | None = None,
 ) -> dict:
     """
     PCA + K-Means + Silhouette sobre colección de objetos arqueológicos.
@@ -138,7 +139,11 @@ async def pca(
     if len(objects) < 2:
         raise HTTPException(status_code=422, detail="Se necesitan al menos 2 objetos para PCA.")
 
-    keys = _get_numeric_keys(objects)
+    # Respetar selección del usuario; si no se pasa, auto-detectar
+    if selected_keys:
+        keys = [k for k in selected_keys if k and not k.startswith("_")]
+    else:
+        keys = _get_numeric_keys(objects)
     if len(keys) < 2:
         raise HTTPException(status_code=422, detail="Se necesitan al menos 2 métricas numéricas.")
 

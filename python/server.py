@@ -1343,32 +1343,24 @@ async def analyze_color(
 
 @app.post(f"{API_PREFIX}/pca")
 async def pca_analysis(
-    objects_json: str = Form(...),   # JSON: [{id, metricas: {...}}, ...]
+    objects_json: str = Form(...),        # JSON: [{id, metricas: {...}}, ...]
     n_components: int = Form(default=2),
-    n_clusters:   int = Form(default=0),   # 0 = auto (by silhouette)
+    n_clusters:   int = Form(default=0),  # 0 = auto (by silhouette)
+    keys_json:    str = Form(default=""), # JSON: ["area", ...] — respetar selección del usuario
 ):
     """
     Análisis de Componentes Principales sobre colección de objetos.
-
-    Reemplaza:
-      - renderPCA()           comparator.js ~línea 69292 (JS manual)
-      - jacobiEigen()         comparator.js ~línea 69337 (propio!)
-      - kMeans()              comparator.js ~línea 69386 (propio!)
-      - silhouetteScore()     comparator.js ~línea 69441
-
-    Mejoras sobre implementación JS:
-      - sklearn.PCA: SVD numérico estable (vs. Jacobi iterativo)
-      - sklearn.KMeans: convergencia garantizada (Lloyd's algorithm)
-      - sklearn.metrics.silhouette_score: cálculo exacto
-
-    Estado: IMPLEMENTADO (✅) — módulo comparator.pca() funcional.
+    keys_json (opcional): si se proporciona, el PCA usa solo esas métricas
+    en lugar de auto-detectar todas las disponibles.
     """
     import json
     objects = json.loads(objects_json)
+    selected_keys = json.loads(keys_json) if keys_json else None
     result  = await modules.comparator.pca(
         objects=objects,
         n_components=n_components,
         n_clusters=n_clusters,
+        selected_keys=selected_keys,
     )
     return result
 
