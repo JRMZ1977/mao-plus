@@ -1911,8 +1911,8 @@
     // En bifacial, incluir la cara en el ID para que Cara A y Cara B
     // no colisionen en el array `objects` ni en la deduplicación de tarjetas.
     const caraSufx   = modo === 'bifacial' ? ('_Cara' + selectedFace) : '';
-    const objId      = (nombreSafe ? nombreSafe + '_IA_' + numPad : 'IAobj_' + numPad) + caraSufx;
-    const objLabel   = (nombreBase ? nombreBase + ' — obj. IA #' + id : (maoObj.label || 'Obj. IA #' + id))
+    const objId      = (nombreSafe ? nombreSafe + '_' + numPad : 'obj_' + numPad) + caraSufx;
+    const objLabel   = (nombreBase ? nombreBase + ' — obj. #' + id : (maoObj.label || 'Obj. #' + id))
                        + (modo === 'bifacial' ? ' (Cara ' + selectedFace + ')' : '');
 
     // ── bbox ─────────────────────────────────────────────────────────────────

@@ -55,6 +55,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getThumbnailDataUrl: (filePath) =>
     ipcRenderer.invoke('fs-thumbnail-data-url', { filePath }),
 
+  generatePDFFromHTML: (htmlContent, outputPath) =>
+    ipcRenderer.invoke('generate-pdf-from-html', { htmlContent, outputPath }),
+
+  openFolder: (folderPath) =>
+    ipcRenderer.invoke('shell-open-path', { folderPath }),
+
+  ensureFolder: (folderPath) =>
+    ipcRenderer.invoke('fs-ensure-folder', { folderPath }),
+
   getStats: (itemPath) =>
     ipcRenderer.invoke('fs-get-stats', { itemPath }),
 

@@ -125,6 +125,12 @@ async function openCollectionExplorer(projectId) {
     
     currentCollection = collection;
     filteredObjects = [...(collection.objetos || [])];
+
+    // Sincronizar activeProject para que el organizer de Resultados
+    // pueda identificar el proyecto sin depender del flujo de apertura
+    if (projectId && typeof projectManager.setActiveProject === 'function') {
+      projectManager.setActiveProject(projectId);
+    }
     
     // Actualizar subtítulo
     const totalObj = (collection.objetos || []).length;
@@ -188,17 +194,16 @@ function renderCollectionTable() {
   const _projectFolderPath = currentCollection.folderPath ||
     projectManager.getProject(currentCollection.proyectoId)?.folderPath || '';
 
-  const _thumbSrc = obj => {
-    const p = obj.thumbnailPath || (_projectFolderPath
-      ? `${_projectFolderPath}/${obj.carpeta}/imagenes/objeto_recortado.png`
-      : null);
-    return p ? `file://${p}` : null;
-  };
+  const _thumbPath = obj => obj.thumbnailPath || (_projectFolderPath
+    ? `${_projectFolderPath}/${obj.carpeta}/imagenes/objeto_recortado.png`
+    : null);
 
-  const _thumbCell = obj => {
-    const src = _thumbSrc(obj);
-    if (!src) return '<td class="col-thumb"></td>';
-    return `<td class="col-thumb"><img class="coll-thumb-img" src="${src}" onerror="this.closest('td').classList.add('col-thumb--empty'); this.remove();" alt=""></td>`;
+  // Renderiza un placeholder; la imagen real se carga vía IPC tras insertar el HTML
+  // (webSecurity:true bloquea file:// en el renderer — usamos getThumbnailDataUrl)
+  const _thumbCell = (obj, rowIdx) => {
+    const p = _thumbPath(obj);
+    if (!p) return '<td class="col-thumb"></td>';
+    return `<td class="col-thumb"><img class="coll-thumb-img" data-thumb-path="${p.replace(/"/g, '&quot;')}" data-thumb-idx="${rowIdx}" alt="" style="opacity:0;transition:opacity .2s;"></td>`;
   };
 
   // Helper: extrae nombre base y cara efectiva
@@ -328,7 +333,28 @@ function renderCollectionTable() {
   }
 
   tableBody.innerHTML = html;
-  
+
+  // Cargar thumbnails vía IPC (webSecurity:true bloquea file:// en renderer)
+  if (typeof window.electronAPI?.getThumbnailDataUrl === 'function') {
+    tableBody.querySelectorAll('img[data-thumb-path]').forEach(async (img) => {
+      const path = img.dataset.thumbPath;
+      if (!path) return;
+      try {
+        const dataUrl = await window.electronAPI.getThumbnailDataUrl(path);
+        if (dataUrl) {
+          img.src = dataUrl;
+          img.style.opacity = '1';
+        } else {
+          img.closest('td')?.classList.add('col-thumb--empty');
+          img.remove();
+        }
+      } catch (_) {
+        img.closest('td')?.classList.add('col-thumb--empty');
+        img.remove();
+      }
+    });
+  }
+
   // Event listeners para las filas con data-carpeta
   tableBody.querySelectorAll('tr[data-carpeta]').forEach(row => {
     const viewBtn = row.querySelector('.view-analysis-btn');
@@ -2177,6 +2203,7 @@ function renderAnalysisMetadata(analysis) {
           <span></span>
           <span>INCERTIDUMBRE ÓPTICA POSICIONAL</span>
           ${m._error_optico_retroactivo ? '<span style="background:#6c757d; color:white; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:600; margin-left:8px;">recalculado</span>' : ''}
+          ${m.enriched_at && !m._error_optico_retroactivo ? '<span style="background:#1565c0; color:white; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:600; margin-left:8px;" title="Enriquecido por lote · ' + (m.enriched_at || '') + '">enriquecido</span>' : ''}
           <span style="margin-left:auto; background:${colorConfianza}; color:white; padding:3px 10px; border-radius:4px; font-size:11px; font-weight:600;">${m.confianza_optica || ''}</span>
         </h3>
         <div style="${estiloFila}">
@@ -2297,8 +2324,75 @@ function renderAnalysisMetadata(analysis) {
     // ─────────────────────────────────────────────────────────────────────────────
   }
 
+  // ── IX-B. INCERTIDUMBRE PROPAGADA POR MÉTRICA ────────────────────────────────
+  // Rangos [mín · valor · máx] derivados del error óptico posicional.
+  const areaAbs = parseFloat(m.area_incertidumbre_abs);
+  const periAbs = parseFloat(m.perimeter_incertidumbre_abs);
+  const ejMajAbs = parseFloat(m.eje_mayor_incertidumbre_abs);
+  const ejMinAbs = parseFloat(m.eje_menor_incertidumbre_abs);
+
+  if (!isNaN(areaAbs) || !isNaN(periAbs) || !isNaN(ejMajAbs) || !isNaN(ejMinAbs)) {
+    const _fi = (v, d) => { const n = parseFloat(v); return isNaN(n) ? '—' : n.toFixed(d != null ? d : 3); };
+    const _rg = (lo, mid, hi, unit) => {
+      const L = parseFloat(lo), H = parseFloat(hi), V = parseFloat(mid);
+      if (isNaN(L) || isNaN(H)) return '—';
+      return `<span style="color:#888;font-size:11px;">${L.toFixed(3)}</span> `
+           + (!isNaN(V) ? `<strong>${V.toFixed(3)}</strong>` : '—')
+           + ` <span style="color:#888;font-size:11px;">${H.toFixed(3)}</span> ${unit}`;
+    };
+    const enrAt  = m.enriched_at ? m.enriched_at.slice(0, 10) : null;
+    const maoVer = m.mao_version || null;
+    const provTag = (enrAt || maoVer)
+      ? `<span style="font-size:10px;background:#1565c0;color:#fff;padding:2px 7px;border-radius:3px;margin-left:8px;">
+           enriquecido${enrAt ? ' · ' + enrAt : ''}${maoVer ? ' · v' + maoVer : ''}
+         </span>`
+      : '';
+
+    const estiloFila2 = 'display:flex;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid #dee2e6;';
+    const estiloLb2   = 'width:130px;min-width:130px;font-size:11px;color:#546e7a;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;';
+
+    html += `
+      <div style="${estiloCard}; border-left:4px solid #1565c0;">
+        <h3 style="${estiloTitulo}">
+          <span></span>
+          <span>INCERTIDUMBRE PROPAGADA${provTag}</span>
+        </h3>
+        <div style="font-size:11px;color:#546e7a;margin-bottom:10px;padding:6px 8px;background:#e3f2fd;border-radius:4px;">
+          Rangos de confianza por métrica derivados del error óptico posicional (IX).
+          Formato: <span style="color:#888;">mín</span> · <strong>valor</strong> · <span style="color:#888;">máx</span>
+        </div>`;
+
+    if (!isNaN(areaAbs)) html += `
+        <div style="${estiloFila2}">
+          <div style="${estiloLb2}">Área</div>
+          <div style="flex:1;">${_rg(m.area_rango_min, m.area, m.area_rango_max, 'mm²')}</div>
+          <div style="color:#d32f2f;font-weight:600;font-size:12px;white-space:nowrap;">±${_fi(areaAbs, 4)} mm²</div>
+        </div>`;
+    if (!isNaN(periAbs)) html += `
+        <div style="${estiloFila2}">
+          <div style="${estiloLb2}">Perímetro</div>
+          <div style="flex:1;">${_rg(m.perimeter_rango_min, m.perimeter, m.perimeter_rango_max, 'mm')}</div>
+          <div style="color:#d32f2f;font-weight:600;font-size:12px;white-space:nowrap;">±${_fi(periAbs, 4)} mm</div>
+        </div>`;
+    if (!isNaN(ejMajAbs)) html += `
+        <div style="${estiloFila2}">
+          <div style="${estiloLb2}">Eje mayor</div>
+          <div style="flex:1;">${_rg(m.eje_mayor_rango_min, m.eje_mayor_real_longitud || m.eje_mayor, m.eje_mayor_rango_max, 'mm')}</div>
+          <div style="color:#d32f2f;font-weight:600;font-size:12px;white-space:nowrap;">±${_fi(ejMajAbs, 4)} mm</div>
+        </div>`;
+    if (!isNaN(ejMinAbs)) html += `
+        <div style="${estiloFila2}; border-bottom:none;">
+          <div style="${estiloLb2}">Eje menor</div>
+          <div style="flex:1;">${_rg(m.eje_menor_rango_min, m.eje_menor_real_longitud || m.eje_menor, m.eje_menor_rango_max, 'mm')}</div>
+          <div style="color:#d32f2f;font-weight:600;font-size:12px;white-space:nowrap;">±${_fi(ejMinAbs, 4)} mm</div>
+        </div>`;
+
+    html += `</div>`;
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   html += '<div style="height:1px;"></div></div>';
-  
+
   metadataInfo.innerHTML = html;
   console.log('✅ Metadatos renderizados correctamente');
 }
@@ -2585,17 +2679,46 @@ async function exportarCSVDesdeViewer() {
     toast.error('No hay análisis cargado');
     return;
   }
-  const csvPath = `${window.currentAnalysisPath}/metricas.csv`;
   toast.info('Preparando descarga CSV...');
+  const nombreObjeto = (window.currentAnalysisData?.nombreObjeto || 'analisis').replace(/[^a-z0-9]/gi, '_');
+  const _idArqCsv = window.currentAnalysisData?.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || nombreObjeto;
+  const filename = `${_idArqCsv}_metricas`;
+
+  // Si el análisis fue enriquecido, regenerar el CSV desde los datos en memoria
+  // (metricas.json actualizado) en lugar de leer el metricas.csv de disco (obsoleto).
+  // Requiere que window.generarCSVMetricasDesdeObjeto esté expuesta por analysis-core.js.
+  try {
+    const m = window.currentAnalysisData?.metricas;
+    if (m && m.enriched_at && typeof window.generarCSVMetricasDesdeObjeto === 'function') {
+      const csvContent = window.generarCSVMetricasDesdeObjeto(window.currentAnalysisData, m);
+      if (csvContent) {
+        const _descarga = (contenido) => {
+          if (window.electronAPI?.saveFileWithDialog) {
+            return window.electronAPI.saveFileWithDialog(filename, contenido, 'csv')
+              .then(r => { if (r.success) toast.success('CSV actualizado guardado'); });
+          }
+          const blob = new Blob([contenido], { type: 'text/csv' });
+          const url  = URL.createObjectURL(blob);
+          const a    = document.createElement('a');
+          a.href = url; a.download = filename + '.csv';
+          document.body.appendChild(a); a.click();
+          document.body.removeChild(a); URL.revokeObjectURL(url);
+          toast.success('CSV actualizado descargado');
+        };
+        await _descarga(csvContent);
+        return;
+      }
+    }
+  } catch (_) { /* fallback al CSV de disco si la regeneración falla */ }
+
+  // Camino original: leer metricas.csv desde disco
+  const csvPath = `${window.currentAnalysisPath}/metricas.csv`;
   try {
     const result = await window.electronAPI.readFile(csvPath);
     if (!result.success) {
       toast.error('No se encontró el archivo CSV del análisis');
       return;
     }
-    const nombreObjeto = (window.currentAnalysisData?.nombreObjeto || 'analisis').replace(/[^a-z0-9]/gi, '_');
-    const _idArqCsv = window.currentAnalysisData?.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || nombreObjeto;
-    const filename = `${_idArqCsv}_metricas`;
     if (window.electronAPI?.saveFileWithDialog) {
       const saveResult = await window.electronAPI.saveFileWithDialog(filename, result.content, 'csv');
       if (saveResult.success) {

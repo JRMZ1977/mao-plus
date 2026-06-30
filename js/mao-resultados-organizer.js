@@ -87,6 +87,155 @@
     if (btn) btn.click();
   }
 
+  /* ── Enriquecimiento retroactivo de métricas por lote ───────────────────── */
+
+  var _enrichRunning = false;
+
+  function _showProgress(visible) {
+    var bar = document.getElementById('enrichProgressBar');
+    if (bar) bar.style.display = visible ? 'flex' : 'none';
+  }
+
+  function _setProgress(done, total, label) {
+    var fill  = document.getElementById('enrichProgressFill');
+    var lbl   = document.getElementById('enrichProgressLabel');
+    var pct   = total > 0 ? Math.round(done / total * 100) : 0;
+    if (fill) fill.style.width = pct + '%';
+    if (lbl)  lbl.textContent  = label || (done + ' / ' + total);
+  }
+
+  function _setEnrichBtn(disabled) {
+    var btn = document.getElementById('adr5BtnEnriquecer');
+    if (!btn) return;
+    btn.disabled = disabled;
+    btn.style.opacity = disabled ? '0.5' : '';
+    btn.style.cursor  = disabled ? 'not-allowed' : '';
+  }
+
+  function onEnriquecerColeccion() {
+    if (_enrichRunning) return;
+    var pm = window.projectManager;
+
+    // Derivar projectId — 3 fuentes en orden de prioridad:
+    // 1. activeProject (seteado al abrir colección o al activar proyecto)
+    // 2. currentCollection.proyectoId (colección cargada en el explorer)
+    // 3. Si hay un único proyecto registrado con folderPath, usarlo automáticamente
+    var projectId = (pm && pm.activeProject && pm.activeProject.id) ||
+                    (window.currentCollection && window.currentCollection.proyectoId);
+
+    // Fuente 3: único proyecto con folderPath en projectManager
+    if (!projectId && pm && pm.projects) {
+      var conCarpeta = pm.projects.filter(function (p) { return p.folderPath; });
+      if (conCarpeta.length === 1) {
+        projectId = conCarpeta[0].id;
+        pm.setActiveProject(projectId);
+      }
+    }
+
+    // Fuente 4: currentCollection con folderPath directo (proyecto externo sin proyectoId)
+    var overrideFolderPath = null;
+    if (!projectId && window.currentCollection && window.currentCollection.folderPath) {
+      overrideFolderPath = window.currentCollection.folderPath;
+    }
+
+    if (!projectId && !overrideFolderPath) {
+      if (window.toast) window.toast.warning('Abre primero la colección de un proyecto usando "Ver Colección".');
+      return;
+    }
+    _enrichRunning = true;
+    _setEnrichBtn(true);
+    _showProgress(true);
+    _setProgress(0, 1, 'Cargando colección…');
+    document.dispatchEvent(new CustomEvent('mao:enrich:request', {
+      detail: {
+        projectId: projectId,
+        folderPath: overrideFolderPath,   // para proyectos externos sin proyectoId
+        options: {}
+      }
+    }));
+  }
+
+  function onEnrichProgress(e) {
+    var d = e && e.detail || {};
+    var label = d.fase === 'guardado'
+      ? (d.done + ' / ' + d.total + ' — ' + (d.nombreObjeto || ''))
+      : d.fase === 'efa'
+      ? ('EFA ' + d.done + ' / ' + d.total + ' — ' + (d.nombreObjeto || ''))
+      : d.fase === 'pdf'
+      ? ('PDF ' + d.done + ' / ' + d.total + ' — ' + (d.nombreObjeto || ''))
+      : ('Leyendo ' + (d.done + 1) + ' / ' + d.total + '…');
+    _setProgress(d.done || 0, d.total || 1, label);
+  }
+
+  function onEnrichComplete(e) {
+    _enrichRunning = false;
+    _setEnrichBtn(false);
+    var d = e && e.detail || {};
+    _setProgress(d.total || 0, d.total || 0, '✓ ' + (d.enriched || 0) + ' actualizados' +
+      (d.skipped ? ' · ' + d.skipped + ' omitidos' : ''));
+
+    var exportDir = d.exportDir || null;
+
+    if (window.toast) {
+      var msg = (d.enriched || 0) + ' análisis actualizados';
+      if (d.skipped) msg += ' · ' + d.skipped + ' omitidos';
+      if (exportDir) msg += ' · PDFs y EFAs en _exportados/';
+      window.toast.success(msg);
+    }
+
+    // Mostrar botón "Abrir exportados" si la carpeta existe
+    if (exportDir && window.electronAPI && window.electronAPI.openFolder) {
+      var bar = document.getElementById('enrichProgressBar');
+      if (bar) {
+        var btnAbrir = document.createElement('button');
+        btnAbrir.className = 'laar-btn laar-btn--sm';
+        btnAbrir.textContent = '📂 Abrir exportados';
+        btnAbrir.style.marginTop = '6px';
+        btnAbrir.onclick = function () {
+          window.electronAPI.openFolder(exportDir);
+        };
+        // Reemplazar si ya existe uno previo
+        var prev = bar.querySelector('.btn-abrir-exportados');
+        if (prev) prev.remove();
+        btnAbrir.classList.add('btn-abrir-exportados');
+        bar.appendChild(btnAbrir);
+      }
+    }
+  }
+
+  function onEnrichCsvReady(e) {
+    var d = e && e.detail || {};
+    if (!d.csvContent || !d.csvName) return;
+    try {
+      var blob = new Blob([d.csvContent], { type: 'text/csv;charset=utf-8;' });
+      var url  = URL.createObjectURL(blob);
+      var a    = document.createElement('a');
+      a.href     = url;
+      a.download = d.csvName;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () {
+        URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }, 3000);
+      if (window.toast) window.toast.success('CSV colección descargado: ' + d.csvName);
+      /* Marcar chip Exportado */
+      var ce = document.getElementById('adr5ChipExportado');
+      if (ce && window.MaoOrganizer) window.MaoOrganizer.setChip(ce, 'ok', 'CSV colección');
+    } catch (err) {
+      console.warn('[Enrich] Error descargando CSV:', err && err.message);
+    }
+  }
+
+  function onEnrichError(e) {
+    _enrichRunning = false;
+    _setEnrichBtn(false);
+    var msg = (e && e.detail && e.detail.message) || 'Error desconocido';
+    _setProgress(0, 1, '✗ ' + msg);
+    if (window.toast) window.toast.error('Error al actualizar colección: ' + msg);
+  }
+
   /* ── Cableado de señales ─────────────────────────────────────────────────── */
 
   function bindEvents() {
@@ -101,6 +250,20 @@
     /* Botón Procrustes */
     var btnPS = document.getElementById('adr5BtnAbrirProcrustes');
     if (btnPS) btnPS.addEventListener('click', onAbrirProcrustes);
+
+    /* Botón Actualizar colección */
+    var btnEnrich = document.getElementById('adr5BtnEnriquecer');
+    if (btnEnrich) btnEnrich.addEventListener('click', onEnriquecerColeccion);
+
+    /* Cerrar barra de progreso manualmente */
+    var btnClose = document.getElementById('enrichProgressClose');
+    if (btnClose) btnClose.addEventListener('click', function () { _showProgress(false); });
+
+    /* Eventos de progreso / resultado del enriquecimiento */
+    document.addEventListener('mao:enrich:progress',   onEnrichProgress);
+    document.addEventListener('mao:enrich:complete',   onEnrichComplete);
+    document.addEventListener('mao:enrich:error',      onEnrichError);
+    document.addEventListener('mao:enrich:csv-ready',  onEnrichCsvReady);
 
     /* Análisis completado */
     document.addEventListener('mao:analysis:done', setAnalisisDone);

@@ -1191,3 +1191,47 @@ ipcMain.handle("clear-renderer-errors", () => {
   rendererErrors.length = 0;
   return { cleared: true };
 });
+
+// ── Abrir carpeta en Finder/Explorer ────────────────────────────────────────
+ipcMain.handle('shell-open-path', async (_, { folderPath }) => {
+  try {
+    await shell.openPath(folderPath);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+
+
+// ── Generación de PDF desde HTML para batch de colección ────────────────────
+ipcMain.handle('generate-pdf-from-html', async (_, { htmlContent, outputPath }) => {
+  let win = null;
+  const tmpHtml = path.join(os.tmpdir(), `mao_report_${Date.now()}.html`);
+  try {
+    // Escribir HTML a archivo temporal (evita límite ~2MB de data: URLs en Chromium)
+    await fsP.writeFile(tmpHtml, htmlContent, 'utf8');
+
+    win = new BrowserWindow({
+      width: 900, height: 1200,
+      show: false,
+      webPreferences: { javascript: true, images: true },
+    });
+    await win.loadFile(tmpHtml);
+    // Esperar render completo (imágenes base64 ya embebidas, sin carga de red)
+    await new Promise(res => setTimeout(res, 600));
+    const pdfBuffer = await win.webContents.printToPDF({
+      marginsType: 1,
+      pageSize: 'A4',
+      printBackground: true,
+      landscape: false,
+    });
+    await fsP.writeFile(outputPath, pdfBuffer);
+    return { success: true, outputPath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  } finally {
+    if (win && !win.isDestroyed()) win.close();
+    fsP.unlink(tmpHtml).catch(() => {});
+  }
+});

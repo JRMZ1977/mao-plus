@@ -130,8 +130,12 @@
       if (!wrap) return;
       const ww = wrap.clientWidth  || wrap.offsetWidth || 0;
       const wh = wrap.clientHeight || wrap.offsetHeight || 0;
-      const cw = canvas.width * scale;
-      const ch = canvas.height * scale;
+      // offsetWidth/Height = tamaño CSS renderizado ignorando transforms
+      // Necesario cuando canvas tiene width:100% (CSS-scaled) en vez de tamaño intrínseco
+      const baseCw = canvas.offsetWidth  || canvas.width;
+      const baseCh = canvas.offsetHeight || canvas.height;
+      const cw = baseCw * scale;
+      const ch = baseCh * scale;
 
       if (cw <= ww) {
         tx = (ww - cw) / 2;
@@ -169,16 +173,23 @@
 
     /**
      * Cambia la escala. Si se facilita un pivot {mx,my} (coord. relativas al
-     * canvas en px post-escala), el punto bajo el cursor permanece fijo.
+     * borde visual del canvas, i.e. e.clientX - getBoundingClientRect().left),
+     * el punto bajo el cursor permanece fijo en cualquier nivel de pan.
+     *
+     * pivot.mx = cursor_en_wrap - tx  (getBoundingClientRect ya incluye tx)
+     * contenido_bajo_cursor = pivot.mx / scale  (en coordenadas CSS del canvas)
+     * cursor_en_wrap = pivot.mx + tx
+     * new_tx = cursor_en_wrap - contenido * newScale
+     *        = pivot.mx + tx - (pivot.mx / scale) * newScale
      */
     function applyZoom(newScale, pivot) {
       newScale = Math.max(MIN, Math.min(MAX, newScale));
       if (newScale === scale) return;
       if (pivot) {
-        const cx = (pivot.mx - tx) / scale;
-        const cy = (pivot.my - ty) / scale;
-        tx = pivot.mx - cx * newScale;
-        ty = pivot.my - cy * newScale;
+        const cx = pivot.mx / scale;
+        const cy = pivot.my / scale;
+        tx = pivot.mx + tx - cx * newScale;
+        ty = pivot.my + ty - cy * newScale;
       }
       scale = newScale;
       applyTransform();
@@ -194,11 +205,13 @@
       if (!wrap) return;
       const ww = wrap.clientWidth  || wrap.offsetWidth;
       const wh = wrap.clientHeight || wrap.offsetHeight;
-      const cw = canvas.width  * scale;
-      const ch = canvas.height * scale;
-      // Solo centrar si el canvas cabe; si es más grande que el wrapper, ir a (0,0)
-      tx = cw < ww ? (ww - cw) / 2 : tx;
-      ty = ch < wh ? (wh - ch) / 2 : ty;
+      const baseCw = canvas.offsetWidth  || canvas.width;
+      const baseCh = canvas.offsetHeight || canvas.height;
+      const cw = baseCw * scale;
+      const ch = baseCh * scale;
+      // <= para manejar también el caso cw === ww (canvas llena exactamente el wrap)
+      tx = cw <= ww ? (ww - cw) / 2 : tx;
+      ty = ch <= wh ? (wh - ch) / 2 : ty;
       applyTransform();
     }
 

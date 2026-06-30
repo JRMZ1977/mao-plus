@@ -970,7 +970,7 @@ const ProcrustesModule = (() => {
   // ──────────────────────────────────────────────────────────────────────────
   //  CANVAS HELPERS
   // ──────────────────────────────────────────────────────────────────────────
-  const CX = 280, CY = 280, CR = 240; // centro y radio del área de dibujo (canvas 560×560)
+  const CX = 360, CY = 360, CR = 308; // centro y radio del área de dibujo (canvas 720×720)
 
   /**
    * Escala puntos normalizados (rango ≈[-1,1]) al canvas.
@@ -982,7 +982,7 @@ const ProcrustesModule = (() => {
   }
 
   /**
-   * Dibuja una polilínea cerrada en el canvas context.
+   * Dibuja una polilínea cerrada (lineTo) — usado solo para formas muy pequeñas o el consensus.
    */
   function drawShape(ctx, pts, color, lineWidth, fill, fillAlpha) {
     if (!pts || pts.length < 2) return;
@@ -992,15 +992,115 @@ const ProcrustesModule = (() => {
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
     ctx.closePath();
     if (fill) {
-      ctx.globalAlpha = fillAlpha || 0.12;
+      ctx.globalAlpha = fillAlpha ?? 0.14;
       ctx.fillStyle = color;
       ctx.fill();
     }
     ctx.globalAlpha = 1;
     ctx.strokeStyle = color;
     ctx.lineWidth = lineWidth || 1.5;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.stroke();
     ctx.restore();
+  }
+
+  /**
+   * Dibuja un contorno suavizado con splines Catmull-Rom.
+   * Reemplaza drawShape para los semi-landmarks de Procrustes (N=64).
+   */
+  function drawShapeSmooth(ctx, pts, color, lineWidth, fill, fillAlpha) {
+    if (!pts || pts.length < 2) return;
+    ctx.save();
+    const n = pts.length;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 0; i < n; i++) {
+      const p0 = pts[(i - 1 + n) % n];
+      const p1 = pts[i];
+      const p2 = pts[(i + 1) % n];
+      const p3 = pts[(i + 2) % n];
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+    }
+    ctx.closePath();
+    if (fill) {
+      ctx.globalAlpha = fillAlpha ?? 0.14;
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth ?? 1.5;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Fondo canónico para los canvas Procrustes:
+   * fondo blanco + gradiente radial sutil + círculos concéntricos (25/50/75/100% CR) + ejes.
+   * Reemplaza el fondo gris + grilla rectangular.
+   */
+  function drawCanvasBackground(ctx, W, H, CX, CY, CR, zlw) {
+    ctx.clearRect(0, 0, W, H);
+    // Fondo blanco
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, W, H);
+    // Gradiente radial: sutil oscurecimiento en bordes para enfocar el centro
+    const grad = ctx.createRadialGradient(CX, CY, 0, CX, CY, W * 0.72);
+    grad.addColorStop(0,   'rgba(255,255,255,0)');
+    grad.addColorStop(0.6, 'rgba(226,232,240,0.12)');
+    grad.addColorStop(1,   'rgba(203,213,224,0.28)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    // Círculos concéntricos (espacio morfométrico de Procrustes)
+    ctx.save();
+    const rings = [0.25, 0.5, 0.75, 1.0];
+    for (const pct of rings) {
+      ctx.beginPath();
+      ctx.arc(CX, CY, CR * pct, 0, Math.PI * 2);
+      ctx.strokeStyle = pct === 1.0 ? '#cbd5e0' : '#e2e8f0';
+      ctx.lineWidth = zlw(pct === 1.0 ? 0.9 : 0.5, 0.2, 2.2);
+      ctx.setLineDash(pct < 1.0 ? [3, 5] : []);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
+    // Ejes (línea de punto y raya)
+    ctx.save();
+    ctx.strokeStyle = '#cbd5e0';
+    ctx.lineWidth = zlw(0.7, 0.22, 2.2);
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath(); ctx.moveTo(CX, CY - CR * 1.05); ctx.lineTo(CX, CY + CR * 1.05); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(CX - CR * 1.05, CY); ctx.lineTo(CX + CR * 1.05, CY); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+    // Punto central
+    ctx.save();
+    ctx.beginPath(); ctx.arc(CX, CY, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#a0aec0'; ctx.fill();
+    ctx.restore();
+  }
+
+  /**
+   * Calcula la escala óptima para que un conjunto de formas en espacio Procrustes
+   * llene `padding * targetRadius` px desde el centro del canvas.
+   * Usa Chebyshev (max(|x|, |y|)) para evitar que un outlier de un solo eje distorsione.
+   */
+  function bestFitScale(shapesInProcSpace, targetRadius, padding = 0.86) {
+    let maxExt = 0;
+    for (const shape of shapesInProcSpace) {
+      if (!shape) continue;
+      for (const p of shape) {
+        const ext = Math.max(Math.abs(p.x), Math.abs(p.y));
+        if (ext > maxExt) maxExt = ext;
+      }
+    }
+    if (maxExt < 1e-6) maxExt = 0.5;
+    return (targetRadius * padding) / maxExt;
   }
 
   /** Obtiene el factor de zoom visual aplicado por canvas-zoom.js */
@@ -1226,163 +1326,13 @@ const ProcrustesModule = (() => {
     resultados.sort((a,b) => a.dist - b.dist);
     const _validProbs = resultados.filter(r => r.validation && r.validation.score < 75);
 
-    const methodHtmlParcial = `
-      <details class="ps-method-details" open>
-        <summary>&#9671; PS Parcial — Método (ver detalles)</summary>
-        <div class="ps-desc-panel">
-          <div class="ps-desc-title">&#9671; PS Parcial — Método</div>
-          <ol class="ps-desc-steps">
-            <li><strong>Winding</strong>: normalización del sentido de recorrido del contorno (CW en pantalla), corrigiendo la inversión especular entre caras A&#8596;B.</li>
-            <li><strong>Remuestreo por arco</strong>: cada contorno se convierte en <strong>${N_PUNTOS} semi-landmarks</strong> equidistantes en longitud de arco.</li>
-            <li><strong>Centrado + escala</strong>: traslación al centroide y normalización por CS<sub>k</sub> = &radic;(&Sigma;&#8214;x<sub>i</sub>&#8214;&sup2;).</li>
-            <li><strong>Rotación óptima</strong>: SVD 2&times;2 de A<sup>T</sup>B &rarr; R* = VU<sup>T</sup>. ${modo==='especular'?'Para pares bifaciales, se prueba <strong>con y sin reflexión</strong> — permite espejo A↔B':'(con corrección de reflexión si es necesario.)'}</li>
-            <li><strong>Distancia &rho;</strong>: &rho; = arccos(&Sigma;&sigma;<sub>k</sub>) &isin; [0,&nbsp;&pi;/2]. ${modo==='especular'?'Mide <em>asimetría bilateral</em> — bajo = alta simetría.':'Mide <em>disimilitud morfológica</em> — bajo = formas similares.'}</li>
-            ${modo!=='comparacion'?'<li><strong>ISB</strong>: Índice de Simetría Bilateral = (1 − ρ/(π/2)) × 100%. 100% = simetría perfecta.</li>':''}
-          </ol>
-          <div class="ps-desc-note">&#9432; El tamaño (CS<sub>k</sub>) se excluye del análisis — solo se compara la <em>forma pura</em>. ${modo==='especular'?'🪞 Las caras bifaciales son imágenes especulares, por eso el análisis permite reflexión para obtener alineamiento óptimo.':''}</div>
-        </div>
-      </details>`;
-
-    let summaryHtmlParcial = '';
-    if (modo === 'especular' && paresBifaciales.length > 0) {
-      const bfV = paresBifaciales.filter(bf => bf.i>=0 && bf.j>=0);
-      const isbMed = bfV.length ? bfV.reduce((s,bf)=>s+isb(bf.dist),0)/bfV.length : 0;
-      const bfMax = bfV.length ? bfV.reduce((a,b)=>isb(a.dist)>isb(b.dist)?a:b, bfV[0]) : null;
-      const bfMin = bfV.length ? bfV.reduce((a,b)=>isb(a.dist)<isb(b.dist)?a:b, bfV[0]) : null;
-      summaryHtmlParcial = (
-        '<div class="ps-chip ps-chip-green">'+
-        '<span class="ps-chip-label">&#8596; Más simétrico</span>'+
-        '<span class="ps-chip-val">'+(bfMax?esc(bfMax.nombre):'—')+'</span>'+
-        '<span class="ps-chip-sub">ISB = '+(bfMax?isb(bfMax.dist).toFixed(1):'0')+'% &nbsp;|&nbsp; &rho; = '+(bfMax?bfMax.dist.toFixed(4):'0')+' rad</span>'+
-        '</div>'+
-        '<div class="ps-chip ps-chip-red">'+
-        '<span class="ps-chip-label">&#8596; Menos simétrico</span>'+
-        '<span class="ps-chip-val">'+(bfMin?esc(bfMin.nombre):'—')+'</span>'+
-        '<span class="ps-chip-sub">ISB = '+(bfMin?isb(bfMin.dist).toFixed(1):'0')+'% &nbsp;|&nbsp; &rho; = '+(bfMin?bfMin.dist.toFixed(4):'0')+' rad</span>'+
-        '</div>'+
-        '<div class="ps-chip ps-chip-gray">'+
-        '<span class="ps-chip-label">ISB medio del conjunto</span>'+
-        '<span class="ps-chip-val">'+isbMed.toFixed(1)+'%</span>'+
-        '<span class="ps-chip-sub">'+bfV.length+' par'+(bfV.length!==1?'es bifaciales':' bifacial')+' analizados</span>'+
-        '</div>'
-      );
-    } else {
-      const media = resultados.reduce((s,r)=>s+r.dist,0)/resultados.length;
-      summaryHtmlParcial = (
-        '<div class="ps-chip ps-chip-green">'+
-        '<span class="ps-chip-label">Par más similar</span>'+
-        '<span class="ps-chip-val">'+esc(conPuntos[resultados[0].i].nombre)+' &#8596; '+esc(conPuntos[resultados[0].j].nombre)+'</span>'+
-        '<span class="ps-chip-sub">&rho; = '+resultados[0].dist.toFixed(4)+' rad</span>'+
-        '</div>'+
-        '<div class="ps-chip ps-chip-red">'+
-        '<span class="ps-chip-label">Par más diferente</span>'+
-        '<span class="ps-chip-val">'+esc(conPuntos[resultados[resultados.length-1].i].nombre)+' &#8596; '+esc(conPuntos[resultados[resultados.length-1].j].nombre)+'</span>'+
-        '<span class="ps-chip-sub">&rho; = '+resultados[resultados.length-1].dist.toFixed(4)+' rad</span>'+
-        '</div>'+
-        '<div class="ps-chip ps-chip-gray">'+
-        '<span class="ps-chip-label">&rho; media (todos los pares)</span>'+
-        '<span class="ps-chip-val">'+media.toFixed(4)+' rad</span>'+
-        '<span class="ps-chip-sub">'+resultados.length+' pares comparados</span>'+
-        '</div>'
-      );
-    }
-
-    const rankingHtmlParcial = paresBifaciales.filter(bf=>bf.i>=0&&bf.j>=0).length ? (
-      '<div class="ps-matrix-title" style="margin-top:14px;">'+(modo==='especular'?'🔀 Simetría bilateral — Anverso ↔ Reverso':'&#9670; Pares bifaciales en la selección')+'</div>'+
-      '<table class="ps-ranking-table" style="margin-bottom:12px;">'+
-      '<thead><tr><th>Objeto</th><th style="text-align:center">A</th><th style="text-align:center">B</th><th>&rho; (rad)</th><th>ISB (%)</th><th>Interpretación</th></tr></thead>'+
-      '<tbody>'+
-      paresBifaciales.filter(bf=>bf.i>=0&&bf.j>=0).map(bf => {
-        const isbVal = isb(bf.dist);
-        const nivel = isbVal>=94 ? '&#128994; Alta simetría bilateral'
-                    : isbVal>=84 ? '&#128993; Simetría moderada'
-                    : isbVal>=65 ? '&#128992; Asimetría notable'
-                    :              '&#128308; Asimetría significativa';
-        const isbColor = isbVal>=84?'#276749':isbVal>=65?'#744210':'#9b2c2c';
-        const refIndicador = (_usedReflectionMat && bf.i >= 0 && bf.j >= 0 && _usedReflectionMat[bf.i][bf.j])
-          ? ' <span style="color:#d69e2e;font-weight:700;">(🪞)</span>'
-          : '';
-        return '<tr style="background:#fffbeb;">'+
-          '<td style="font-weight:600">'+esc(bf.nombre)+refIndicador+'</td>'+
-          '<td style="text-align:center"><span class="cmo-cara-badge cmo-cara-A">A</span></td>'+
-          '<td style="text-align:center"><span class="cmo-cara-badge cmo-cara-B">B</span></td>'+
-          '<td class="ps-rank-dist">'+bf.dist.toFixed(4)+'</td>'+
-          '<td class="ps-rank-dist" style="font-weight:700;color:'+isbColor+'">'+isbVal.toFixed(1)+'%</td>'+
-          '<td style="font-size:11px">'+nivel+'</td>'+
-          '</tr>';
-      }).join('')+
-      '</tbody></table>'+
-      '<div class="ps-desc-note" style="margin-bottom:10px;">&#9432; <strong>ISB</strong> = (1&nbsp;&minus;&nbsp;&rho;/(&pi;/2))&nbsp;&times;&nbsp;100%. 100% = simetría perfecta. La normalización de <em>winding</em> y la corrección de reflexión SVD compensan el espejo A&nbsp;&#8596;&nbsp;B.</div>'
-    ) : '';
-
-    const matrixHtmlParcial = `
-      <div class="ps-matrix-title">Matriz de distancias Procrustes (&rho;)${modo!=='comparacion'?' — celdas bifaciales incluyen ISB':''}</div>
-      <div class="ps-table-scroll">
-        <table class="ps-dist-table">
-          <thead><tr>
-            <th class="ps-th-corner"></th>
-            ${conPuntos.map((o,i) => `<th><span class="ps-obj-dot" style="background:${PALETA[i%PALETA.length]}"></span>${esc(o.nombre)}${o.cara&&o.cara!=='Mono'?` <span class="cmo-cara-badge cmo-cara-${o.cara}">${esc(o.cara)}</span>`:''}</th>`).join('')}
-          </tr></thead>
-          <tbody>
-            ${conPuntos.map((rowObj,i) => `<tr>
-              <td class="ps-th-row"><span class="ps-obj-dot" style="background:${PALETA[i%PALETA.length]}"></span>${esc(rowObj.nombre)}${rowObj.cara&&rowObj.cara!=='Mono'?` <span class="cmo-cara-badge cmo-cara-${rowObj.cara}">${esc(rowObj.cara)}</span>`:''}</td>
-              ${conPuntos.map((_, j) => {
-                if (i === j) return `<td class="ps-cell-diag">—</td>`;
-                const v = distMat[i][j];
-                const vmax = Math.max(...resultados.map(r=>r.dist));
-                const vmin = Math.min(...resultados.map(r=>r.dist));
-                const t = vmax > vmin ? (v - vmin)/(vmax - vmin) : 0;
-                const r = Math.round(t * 200);
-                const g = Math.round((1-t) * 180);
-                const esBifacial = bifacialSet.has(i+'_'+j);
-                const extraStyle = esBifacial ? 'outline:2px solid #d69e2e;outline-offset:-2px;font-weight:700;' : '';
-                const isbLabel = (esBifacial && modo !== 'comparacion') ? ' ('+isb(v).toFixed(0)+'%)' : '';
-                const titulo = esBifacial ? 'ISB='+isb(v).toFixed(1)+'% · '+esc(rowObj.nombre)+' ↔ '+esc(conPuntos[j].nombre) : esc(rowObj.nombre)+' ↔ '+esc(conPuntos[j].nombre);
-                return '<td class="ps-cell-val ps-cell-clickable'+(esBifacial?' ps-cell-bifacial':'')+'" data-pi="'+i+'" data-pj="'+j+'" style="background:rgba('+r+','+g+',80,0.25);'+extraStyle+'cursor:pointer;" title="👁 Clic para visualizar · '+titulo+'">'+v.toFixed(4)+isbLabel+(esBifacial?' ✶':'')+'</td>';
-              }).join('')}
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>`;
-
-    const inferenciasHtmlParcial = _validProbs.length > 0 ? `
-      <div style="margin-top:10px;padding:12px 16px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;">
-        <div style="font-weight:700;font-size:12px;color:#2d3748;margin-bottom:8px;">⚡ Inferencias — Pares con baja calidad de alineamiento</div>
-        <table style="width:100%;border-collapse:collapse;font-size:11px;">
-          <thead>
-            <tr style="background:#f7fafc;">
-              <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #e2e8f0;font-weight:600;">Par</th>
-              <th style="padding:5px 8px;text-align:center;border-bottom:1px solid #e2e8f0;font-weight:600;">Score</th>
-              <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #e2e8f0;font-weight:600;">Interpretación</th>
-              <th style="padding:5px 8px;text-align:left;border-bottom:1px solid #e2e8f0;font-weight:600;">Advertencias</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${_validProbs.map(r => {
-              const sc = r.validation.score;
-              const clr = sc >= 60 ? '#744210' : '#9b2c2c';
-              const bg  = sc >= 60 ? '#fefcbf' : '#fed7d7';
-              return `<tr style="border-bottom:1px solid #f0f0f0;">
-                <td style="padding:5px 8px;">${esc(conPuntos[r.i].nombre)} ↔ ${esc(conPuntos[r.j].nombre)}</td>
-                <td style="padding:5px 8px;text-align:center;"><span style="background:${bg};color:${clr};padding:2px 6px;border-radius:3px;font-weight:700;">${sc.toFixed(0)}</span></td>
-                <td style="padding:5px 8px;color:#4a5568;">${esc(r.validation.interpretacion)}</td>
-                <td style="padding:5px 8px;color:#718096;font-size:10px;">${(r.validation.flags||[]).join('; ') || '—'}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>`
-      : '<div class="ps-desc-note" style="margin-top:10px;">✅ Inferencias: no se detectaron pares con calidad de alineamiento crítica.</div>';
-
     let html = `
       <!-- Banner de modo de análisis -->
-      <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;margin-bottom:14px;
-        border-radius:7px;border-left:4px solid ${modo==='especular'?'#3182ce':modo==='comparacion'?'#38a169':'#d69e2e'};
-        background:${modo==='especular'?'#ebf4ff':modo==='comparacion'?'#f0fff4':'#fffaf0'};">
-        <span style="font-size:20px;line-height:1;flex-shrink:0;">${iconoModo}</span>
+      <div class="ps-mode-banner ps-mode-banner--${modo}">
+        <span class="ps-mode-banner-icon">${iconoModo}</span>
         <div>
-          <div style="font-weight:700;font-size:13px;margin-bottom:3px;">${esc(etiqueta)}</div>
-          <div style="font-size:11px;color:#4a5568;line-height:1.4;">${descripcion}</div>
+          <div class="ps-mode-banner-title">${esc(etiqueta)}</div>
+          <div class="ps-mode-banner-desc">${descripcion}</div>
         </div>
       </div>
 
@@ -1409,28 +1359,27 @@ const ProcrustesModule = (() => {
           <div class="ps-canvas-title" style="display:flex;align-items:center;gap:8px;justify-content:space-between;">
             <div style="display:flex;align-items:center;gap:8px;">
               <span id="psParcialCanvasTitle">${modo==='especular' && conPuntos.length <= 2 ? 'Superposici\u00f3n bifacial: <em>' + esc(conPuntos[par0.i]?.nombre||'') + '</em> &middot; A &#8596; B' : modo==='especular' ? 'Superposici\u00f3n bilateral \u2014 todos los objetos' : 'Vista de alineaci\u00f3n: <em>' + esc(conPuntos[par0.i]?.nombre||'') + '</em> &rarr; <em>' + esc(conPuntos[par0.j]?.nombre||'') + '</em>'}</span>
-              ${(_usedReflectionMat && par0.i >= 0 && par0.j >= 0 && _usedReflectionMat[par0.i][par0.j]) ? '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:3px;font-size:11px;border:1px solid #f59e0b;">🪞 Reflexión detectada</span>' : ''}
+              ${(_usedReflectionMat && par0.i >= 0 && par0.j >= 0 && _usedReflectionMat[par0.i][par0.j]) ? '<span class="laar-chip laar-chip--wa" style="font-size:11px;">🪞 Reflexión detectada</span>' : ''}
             </div>
-            ${modo!=='comparacion' ? '<button id="psToggleReflectionBtn" class="ps-toggle-btn" style="background:#f0f7ff;color:#1e40af;border:1px solid #93c5fd;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;font-weight:500;transition:all 0.2s;">🪞 Aplicar reflexión bilateral</button>' : ''}
+            ${modo!=='comparacion' ? '<button id="psToggleReflectionBtn" class="ps-toggle-btn" style="background:#f0f7ff;color:#1e40af;border-color:#93c5fd;">🪞 Reflexión bilateral</button>' : ''}
           </div>
           <!-- ── Panel de alineación manual (al estilo CGeo) ───────────────────── -->
-          <div id="psAlignPanel" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:5px 0 3px;padding:6px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:11px;">
-            <span style="color:#92400e;font-weight:600;white-space:nowrap;">↻ Alinear:</span>
-            <select id="psAlignObjSel" style="font-size:11px;padding:2px 4px;border:1px solid #fcd34d;border-radius:4px;background:#fff;max-width:160px;">
+          <div id="psAlignPanel" class="ps-align-panel">
+            <span class="ps-align-label">↻ Alinear:</span>
+            <select id="psAlignObjSel" style="max-width:160px;">
               <option value="__all__">— todos —</option>
               ${conPuntos.map((p, i) => `<option value="${i}">${esc(p.nombre)}${p.cara && p.cara !== 'Mono' ? ' (' + p.cara + ')' : ''}</option>`).join('')}
             </select>
-            <input id="psAlignAngle" type="number" value="0" min="-360" max="360" step="1"
-              style="width:58px;font-size:11px;padding:2px 4px;border:1px solid #fcd34d;border-radius:4px;text-align:right;">
-            <span style="color:#78350f;">°</span>
-            <button id="psAlignApply" style="font-size:10px;padding:2px 8px;background:#f59e0b;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">Aplicar</button>
-            <button id="psAlignReset" style="font-size:10px;padding:2px 8px;background:#e5e7eb;color:#374151;border:none;border-radius:4px;cursor:pointer;">Reset</button>
-            <span style="color:#fcd34d;">│</span>
-            <button id="psAlignFlip" style="font-size:10px;padding:2px 8px;background:#7c3aed;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;" title="Reflejo horizontal visual (no afecta al cálculo de ρ)">⟺ Reflejar</button>
-            <span id="psAlignStatus" style="color:#92400e;font-style:italic;font-size:10px;margin-left:2px;"></span>
+            <input id="psAlignAngle" type="number" value="0" min="-360" max="360" step="1">
+            <span>°</span>
+            <button id="psAlignApply" class="cmo-btn cmo-btn-ghost" style="font-size:10px;padding:2px 8px;">Aplicar</button>
+            <button id="psAlignReset"  class="cmo-btn cmo-btn-ghost" style="font-size:10px;padding:2px 8px;">Reset</button>
+            <span class="ps-align-sep">│</span>
+            <button id="psAlignFlip" class="cmo-btn" style="font-size:10px;padding:2px 8px;background:#7c3aed;color:#fff;border-color:#7c3aed;" title="Reflejo horizontal visual (no afecta al cálculo de ρ)">⟺ Reflejar</button>
+            <span id="psAlignStatus" class="ps-align-status"></span>
           </div>
           <div class="ps-canvas-viewport">
-            <canvas id="psParcialCanvas" width="560" height="560"></canvas>
+            <canvas id="psParcialCanvas" width="720" height="720"></canvas>
           </div>
           <div class="ps-canvas-legend" id="psParcialLeyenda"></div>
         </div>
@@ -1544,22 +1493,12 @@ const ProcrustesModule = (() => {
       </div>
     `;
 
-    // DEBUGGING: verificar antes de asignar
-    // Limpiar canvas zoom anterior antes de reemplazar DOM
     if (window.detachCanvasZoom) {
       cont.querySelectorAll('canvas[data-zoom-attached], canvas._zoomAttached').forEach(c => window.detachCanvasZoom(c));
       cont.querySelectorAll('canvas').forEach(c => window.detachCanvasZoom(c));
     }
 
-    console.log('🔍 [ejecutarParcial] cont element existe:', !!cont);
-    console.log('🔍 [ejecutarParcial] cont.id:', cont?.id);
-    console.log('🔍 [ejecutarParcial] html length:', html.length);
-    console.log('🔍 [ejecutarParcial] html preview:', html.substring(0, 200));
-    
     cont.innerHTML = html;
-    
-    console.log('🔍 [ejecutarParcial] DESPUÉS de innerHTML - cont.children.length:', cont.children.length);
-    console.log('🔍 [ejecutarParcial] DESPUÉS de innerHTML - cont.innerHTML.length:', cont.innerHTML.length);
 
     // ─── Refinamiento de estructura: método → resumen → ranking → matriz → inferencias
     const parcialLayout = cont.querySelector('.ps-layout-2col');
@@ -1648,8 +1587,6 @@ const ProcrustesModule = (() => {
         }
       }
     }
-    const _efaPorPar = new Map(efaPares.map(e => (`${e.i}_${e.j}`), e => e));
-
     window._lastAPS = {
       id: null, // se asigna al guardar
       timestamp: new Date().toISOString(),
@@ -1680,6 +1617,38 @@ const ProcrustesModule = (() => {
       }),
       gpa: null // se rellena en ejecutarGPA
     };
+
+    // ─── Tabla EFA: mostrar similitud combinada si hay datos ─────────────────
+    if (efaDisponible && efaPares.some(e => e.simCombinada !== null)) {
+      const _efaStatsCol = cont.querySelector('.ps-sequence-col') || cont.querySelector('.ps-stats-col');
+      if (_efaStatsCol) {
+        const efaTit = document.createElement('div');
+        efaTit.className = 'ps-matrix-title';
+        efaTit.style.marginTop = '14px';
+        efaTit.textContent = '✦ Similitud combinada PS + EFA';
+        const efaTable = document.createElement('table');
+        efaTable.className = 'ps-ranking-table';
+        efaTable.style.marginBottom = '8px';
+        efaTable.innerHTML = '<thead><tr><th>Par</th><th>ρ (rad)</th><th>ρ EFA</th><th>Sim. %</th></tr></thead><tbody>' +
+          [...efaPares].sort((a, b) => (b.simCombinada || 0) - (a.simCombinada || 0)).map(e => {
+            const rhoRaw = resultados.find(r => r.i === e.i && r.j === e.j)?.dist ?? null;
+            const sc = e.simCombinada;
+            const scColor = sc === null ? '#718096' : sc >= 80 ? '#276749' : sc >= 60 ? '#744210' : '#9b2c2c';
+            return '<tr>' +
+              '<td style="font-size:11px">' + esc(conPuntos[e.i].nombre) + ' ↔ ' + esc(conPuntos[e.j].nombre) + '</td>' +
+              '<td class="ps-rank-dist">' + (rhoRaw !== null ? rhoRaw.toFixed(4) : '—') + '</td>' +
+              '<td class="ps-rank-dist">' + (e.rhoEFA !== null ? e.rhoEFA.toFixed(4) : '—') + '</td>' +
+              '<td class="ps-rank-dist" style="font-weight:700;color:' + scColor + '">' + (sc !== null ? sc.toFixed(1) + '%' : '—') + '</td>' +
+              '</tr>';
+          }).join('') + '</tbody>';
+        const efaNote = document.createElement('div');
+        efaNote.className = 'ps-desc-note';
+        efaNote.innerHTML = '✔ Sim. combinada = 100×(1−(0.5·ρ<sub>EFA</sub>+0.3·ρ<sub>raw</sub>+0.2·d<sub>EFA</sub>)) / π·2. 100% = formas idénticas.';
+        _efaStatsCol.appendChild(efaTit);
+        _efaStatsCol.appendChild(efaTable);
+        _efaStatsCol.appendChild(efaNote);
+      }
+    }
 
     // ─── Celdas de la matriz clickeables para cambiar par visualizado ─────────
     let _activePar = { i: par0.i, j: par0.j };
@@ -1713,11 +1682,7 @@ const ProcrustesModule = (() => {
       });
     });
 
-    // Agregar botones de exportación CSV/JSON
-    setTimeout(() => {
-      agregarBotonesExportacion();
-      console.log('✅ Botones de exportación agregados');
-    }, 100);
+    agregarBotonesExportacion();
 
     // ─── Event listener para el toggle de reflexión ──────────────────────────
     const toggleBtn = $('psToggleReflectionBtn');
@@ -1814,144 +1779,108 @@ const ProcrustesModule = (() => {
     // ─── Dibujar canvas ─────────────────────────────────────────────────────
     // Índices de Cara B en pares bifaciales — usados para aplicar espejo x→-x
     const _bFaceCanvasSet = new Set();
+    let _parcialHits = []; // centroides de formas para tooltip hover
     for (const bf of paresBifaciales) {
       if (bf.j >= 0) _bFaceCanvasSet.add(bf.j);
     }
 
+    // ── Helpers internos del render Parcial ──────────────────────────────────
+    // (definidos fuera de la closure del rAF para no recrearlos en cada redibujado)
+
+    const _prepPts = (rawPts, idx, explicitMirror = null) => {
+      const filtered = detectarYFiltrarOutliers(rawPts, 2.5);
+      const usePts = filtered.length >= 3 ? filtered : rawPts;
+      const aplicarEspejo = explicitMirror !== null
+        ? explicitMirror
+        : (_bFaceCanvasSet.has(idx) && !_forceReflectionToggle);
+      const workPts = aplicarEspejo ? usePts.map(p => ({ x: -p.x, y: p.y })) : usePts;
+      const { pts } = centrarNormalizarYAlinearPorEjeInercia(resampleByArc(workPts, N_PUNTOS));
+      return pts;
+    };
+
+    const _rotCanvasPts = (pts, angleRad) => {
+      if (!pts || !pts.length || !angleRad) return pts;
+      const cos = Math.cos(angleRad), sin = Math.sin(angleRad);
+      return pts.map(p => {
+        const dx = p.x - CX, dy = p.y - CY;
+        return { x: CX + dx * cos - dy * sin, y: CY + dx * sin + dy * cos };
+      });
+    };
+    const _flipCanvasPts = (pts) => pts.map(p => ({ x: 2 * CX - p.x, y: p.y }));
+    const _applyTransform = (canvPts, idx) => {
+      let r = canvPts;
+      if (_psManualRot.has(idx)) r = _rotCanvasPts(r, _psManualRot.get(idx));
+      if (_psManualFlip.has(idx)) r = _flipCanvasPts(r);
+      return r;
+    };
+
+    const _psLeyItem = (idx, nombre, extra) => {
+      const hid = _psHiddenSet.has(idx);
+      const col = PALETA[idx % PALETA.length];
+      return '<span class="ps-ley-item ps-ley-toggle" data-idx="' + idx + '"' +
+        ' style="opacity:' + (hid ? 0.28 : 1) + ';' + (hid ? 'text-decoration:line-through;' : '') + '"' +
+        ' title="' + (hid ? 'Click para mostrar' : 'Click para ocultar') + '">' +
+        '<span class="ps-ley-dot" style="background:' + col + ';"></span>' +
+        esc(nombre) + (extra || '') + '</span>';
+    };
+
+    /**
+     * Renderizado del canvas PS Parcial.
+     * ARQUITECTURA: Paso 1 = recopilar formas en espacio Procrustes →
+     *               Paso 2 = calcular escala auto-fit →
+     *               Paso 3 = dibujar.
+     * Esto garantiza que las formas siempre llenen el espacio disponible
+     * independientemente de su tamaño en espacio Procrustes normalizado.
+     */
     const renderizarCanvasParcialFn = (conPuntos, modo, par0) => {
       const canvas = $('psParcialCanvas');
       if (!canvas) return;
+      _parcialHits = [];
       const ctx = canvas.getContext('2d');
       const zoomScale = getCanvasZoomScale(canvas);
       const zlw = (w, min = 0.35, max = 6) => zoomCompensatedLineWidth(w, zoomScale, min, max);
-      ctx.clearRect(0,0,560,560);
-      // Fondo
-      ctx.fillStyle = '#f7fafc';
-      ctx.fillRect(0,0,560,560);
-      // Grilla
-      ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = zlw(0.5, 0.22, 2.2);
-      for (let g = 0; g <= 560; g += 70) {
-        ctx.beginPath(); ctx.moveTo(g,0); ctx.lineTo(g,560); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(0,g); ctx.lineTo(560,g); ctx.stroke();
-      }
-      // Cruz central
-      ctx.strokeStyle = '#cbd5e0'; ctx.lineWidth = zlw(1, 0.3, 2.8);
-      ctx.beginPath(); ctx.moveTo(CX,CY-CR); ctx.lineTo(CX,CY+CR); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(CX-CR,CY); ctx.lineTo(CX+CR,CY); ctx.stroke();
 
-      // Helper: prepara puntos de un objeto aplicando espejo si corresponde.
-      // explicitMirror: null = automático (modo comparación/mixto, usa _bFaceCanvasSet + toggle)
-      //                 true  = forzar espejo   (modo especular: decisión explícita)
-      //                 false = forzar sin espejo (modo especular: decisión explícita)
-      const _prepPts = (rawPts, idx, explicitMirror = null) => {
-        const filtered = detectarYFiltrarOutliers(rawPts, 2.5);
-        // Fallback: si el filtro elimina demasiados puntos, usar los originales
-        const usePts = filtered.length >= 3 ? filtered : rawPts;
-        let aplicarEspejo;
-        if (explicitMirror !== null) {
-          // Modo especular: decisión explícita sincronizada con resultado matemático
-          aplicarEspejo = explicitMirror;
-        } else {
-          // Modo comparación/mixto: lógica genérica para todo el conjunto de Cara B
-          aplicarEspejo = _bFaceCanvasSet.has(idx) && !_forceReflectionToggle;
-        }
-        const workPts = aplicarEspejo ? usePts.map(p => ({ x: -p.x, y: p.y })) : usePts;
-        const { pts } = centrarNormalizarYAlinearPorEjeInercia(resampleByArc(workPts, N_PUNTOS));
-        return pts;
-      };
-
-      // ── Transformaciones visuales en canvas (no afectan ρ calculado) ──────────
-      // Equivalente a rotateCanvasPts / reflectCanvasPts de CGeo, pero para el
-      // espacio canvas de APS donde el origen es (CX, CY).
-      const _rotCanvasPts = (pts, angleRad) => {
-        if (!pts || !pts.length || !angleRad) return pts;
-        const cos = Math.cos(angleRad), sin = Math.sin(angleRad);
-        return pts.map(p => {
-          const dx = p.x - CX, dy = p.y - CY;
-          return { x: CX + dx * cos - dy * sin, y: CY + dx * sin + dy * cos };
-        });
-      };
-      // Reflejo horizontal visual: x → 2·CX − x
-      const _flipCanvasPts = (pts) => pts.map(p => ({ x: 2 * CX - p.x, y: p.y }));
-      // Aplicar rotación y/o flip manual al objeto con índice idx
-      const _applyTransform = (canvPts, idx) => {
-        let r = canvPts;
-        if (_psManualRot.has(idx)) r = _rotCanvasPts(r, _psManualRot.get(idx));
-        if (_psManualFlip.has(idx)) r = _flipCanvasPts(r);
-        return r;
-      };
-
-      // Helper: genera item de leyenda con toggle de visibilidad (click para ocultar/mostrar)
-      const _psLeyItem = (idx, nombre, extra) => {
-        const hid = _psHiddenSet.has(idx);
-        const col = PALETA[idx % PALETA.length];
-        return '<span class="ps-ley-item ps-ley-toggle" data-idx="' + idx + '"' +
-          ' style="cursor:pointer;opacity:' + (hid ? 0.28 : 1) + ';' + (hid ? 'text-decoration:line-through;' : '') + 'transition:all 0.15s;user-select:none;"' +
-          ' title="' + (hid ? '🟢 Click para mostrar' : '🔴 Click para ocultar') + '">' +
-          '<span class="ps-ley-dot" style="background:' + col + ';"></span>' +
-          esc(nombre) + (extra || '') + '</span>';
-      };
-
+      // ── PASO 1: recopilar todas las formas en espacio Procrustes ────────────
+      // { procPts, idx, lw, fa, rho }
+      const _shapeQueue = [];
       const leyendaEl = $('psParcialLeyenda');
-      let leyHtml = '';
 
       if (modo === 'especular' && par0 && par0.i >= 0 && par0.j >= 0 && conPuntos.length <= 2) {
-        // ── Modo bifacial con par único: mostrar sólo el par activo (A vs B espejada) ──
-        const idxA = par0.i;
-        const idxB = par0.j;
-        // ── Decisión de espejo sincronizada con el resultado matemático ───────
-        // _usedReflectionMat[i][j] = true si psParcialBifacial determinó que
-        // la reflexión produce menor ρ (mejor alineamiento bilateral).
-        // _forceReflectionToggle permite al usuario invertir la decisión manual.
-        // Si reflejo no mejora: el canvas usa rotación pura (racionalización de formas).
+        const idxA = par0.i, idxB = par0.j;
         const mathMirrorB = _usedReflectionMat?.[idxA]?.[idxB] ?? true;
         const doMirrorB   = _forceReflectionToggle ? !mathMirrorB : mathMirrorB;
         console.log(`[PS] Par (${idxA},${idxB}): mathMirror=${mathMirrorB}, toggle=${_forceReflectionToggle}, doMirror=${doMirrorB}`);
         const refPts = getPuntos(conPuntos[idxA]);
         if (!refPts || refPts.length < 3) {
           console.error(`❌ [PS] refPts inválido para ${conPuntos[idxA]?.nombre}`);
-          if (leyendaEl) leyendaEl.innerHTML = `<p style="color:red;font-weight:bold;" class="ps-ley-item">Error: Coordenadas no disponibles</p>`;
+          if (leyendaEl) leyendaEl.innerHTML = '<p class="ps-aviso ps-aviso-error">Error: coordenadas no disponibles</p>';
           return;
         }
-        // ── Ruta 1: usar puntos ya alineados del cálculo matemático (modo normal) ─
-        // Garantiza coincidencia perfecta entre visual y ρ reportado.
+        const _rhoPar = distMat[idxA]?.[idxB] ?? null;
         const preAligned = _alignedMat?.[idxA]?.[idxB];
         if (preAligned && !_forceReflectionToggle) {
-          // aligned_A = A rotada hacia B; norm_B = B referencia — ya en espacio Procrustes
-          const canvA = _applyTransform(toCanvas(preAligned.aligned_A, CR * 0.95), idxA);
-          if (!_psHiddenSet.has(idxA)) drawShape(ctx, canvA, PALETA[idxA % PALETA.length], zlw(2, 0.5, 4.2), true, 0.10);
-          leyHtml += _psLeyItem(idxA, conPuntos[idxA].nombre);
-          const canvB = _applyTransform(toCanvas(preAligned.norm_B, CR * 0.95), idxB);
-          if (!_psHiddenSet.has(idxB)) drawShape(ctx, canvB, PALETA[idxB % PALETA.length], zlw(1.5, 0.45, 3.6), true, 0.10);
-          leyHtml += _psLeyItem(idxB, conPuntos[idxB].nombre);
+          _shapeQueue.push({ procPts: preAligned.aligned_A, idx: idxA, lw: 2.0, fa: 0.15, rho: _rhoPar });
+          _shapeQueue.push({ procPts: preAligned.norm_B,    idx: idxB, lw: 1.5, fa: 0.14, rho: _rhoPar });
         } else {
-          // ── Ruta 2: toggle manual activo — re-normalizar con espejo invertido ─
-          // (exploración visual; el ρ reportado sigue siendo el óptimo)
           const refNorm = _prepPts(refPts, idxA, false);
-          const canvA = _applyTransform(toCanvas(refNorm, CR * 0.95), idxA);
-          if (!_psHiddenSet.has(idxA)) drawShape(ctx, canvA, PALETA[idxA % PALETA.length], zlw(2, 0.5, 4.2), true, 0.10);
-          leyHtml += _psLeyItem(idxA, conPuntos[idxA].nombre);
+          _shapeQueue.push({ procPts: refNorm, idx: idxA, lw: 2.0, fa: 0.15, rho: _rhoPar });
           const ptsB = getPuntos(conPuntos[idxB]);
           if (ptsB && ptsB.length >= 3) {
             const normB = _prepPts(ptsB, idxB, doMirrorB);
             const { Ar: arB } = rotar(normB, refNorm);
-            const canvB = _applyTransform(toCanvas(arB, CR * 0.95), idxB);
-            if (!_psHiddenSet.has(idxB)) drawShape(ctx, canvB, PALETA[idxB % PALETA.length], zlw(1.5, 0.45, 3.6), true, 0.10);
-            leyHtml += _psLeyItem(idxB, conPuntos[idxB].nombre);
+            _shapeQueue.push({ procPts: arB, idx: idxB, lw: 1.5, fa: 0.14, rho: _rhoPar });
           }
         }
       } else {
-        // ── Modo comparación/mixto (o especular con múltiples pares): mostrar todos ─
         const refPts = getPuntos(conPuntos[0]);
         if (!refPts || refPts.length < 3) {
-          console.error(`❌ [PS] No se puede renderizar canvas: refPts vacío o inválido para ${conPuntos[0]?.nombre}`);
-          if (leyendaEl) {
-            leyendaEl.innerHTML = `<p style="color:red;font-weight:bold;" class="ps-ley-item">Error: Coordenadas no disponibles</p>`;
-          }
+          console.error(`❌ [PS] refPts vacío para ${conPuntos[0]?.nombre}`);
+          if (leyendaEl) leyendaEl.innerHTML = '<p class="ps-aviso ps-aviso-error">Error: coordenadas no disponibles</p>';
           return;
         }
         const refNorm = _prepPts(refPts, 0);
-        for (let i = 0; i < conPuntos.length; i++) {
+        _shapeQueue.push({ procPts: refNorm, idx: 0, lw: 2.0, fa: 0.15, rho: null });
+        for (let i = 1; i < conPuntos.length; i++) {
           const pts = getPuntos(conPuntos[i]);
           if (!pts || pts.length < 3) {
             console.warn(`⚠️ [PS] Objeto ${i} (${conPuntos[i]?.nombre}) omitido: puntos inválidos`);
@@ -1959,14 +1888,37 @@ const ProcrustesModule = (() => {
           }
           const norm = _prepPts(pts, i);
           const { Ar } = rotar(norm, refNorm);
-          const canv = _applyTransform(toCanvas(Ar, CR * 0.95), i);
-          if (!_psHiddenSet.has(i)) drawShape(ctx, canv, PALETA[i%PALETA.length], i===0 ? zlw(2, 0.5, 4.2) : zlw(1.5, 0.45, 3.6), true, 0.10);
-          leyHtml += _psLeyItem(i, conPuntos[i].nombre);
+          _shapeQueue.push({ procPts: Ar, idx: i, lw: 1.5, fa: 0.13, rho: null });
         }
       }
+
+      if (_shapeQueue.length === 0) return;
+
+      // ── PASO 2: escala auto-fit — las formas llenan el 86% del radio ────────
+      const autoScale = bestFitScale(_shapeQueue.map(s => s.procPts), CR, 0.86);
+
+      // ── PASO 3: fondo ───────────────────────────────────────────────────────
+      drawCanvasBackground(ctx, 720, 720, CX, CY, CR, zlw);
+
+      // ── PASO 4: dibujar formas ──────────────────────────────────────────────
+      const _centr = canvPts => ({
+        cx: canvPts.reduce((s,p) => s + p.x, 0) / canvPts.length,
+        cy: canvPts.reduce((s,p) => s + p.y, 0) / canvPts.length,
+      });
+      let leyHtml = '';
+
+      for (const sh of _shapeQueue) {
+        const col = PALETA[sh.idx % PALETA.length];
+        const canvPts = _applyTransform(toCanvas(sh.procPts, autoScale), sh.idx);
+        if (!_psHiddenSet.has(sh.idx)) {
+          drawShapeSmooth(ctx, canvPts, col, zlw(sh.lw, 0.45, 4.5), true, sh.fa);
+        }
+        _parcialHits.push({ ..._centr(canvPts), nombre: conPuntos[sh.idx].nombre, color: col, rho: sh.rho });
+        leyHtml += _psLeyItem(sh.idx, conPuntos[sh.idx].nombre);
+      }
+
       if (leyendaEl) {
         leyendaEl.innerHTML = leyHtml;
-        // Attach toggle listeners after each render
         leyendaEl.querySelectorAll('.ps-ley-toggle').forEach(el => {
           el.addEventListener('click', () => {
             const idx = parseInt(el.dataset.idx, 10);
@@ -1981,6 +1933,37 @@ const ProcrustesModule = (() => {
     requestAnimationFrame(() => {
       renderizarCanvasParcialFn(conPuntos, modo, par0);
       const _pCanv = $('psParcialCanvas');
+
+      // Tooltip hover — paridad con canvas GPA
+      let _ttParcial = document.getElementById('psParcialTooltip');
+      if (!_ttParcial) {
+        _ttParcial = document.createElement('div');
+        _ttParcial.id = 'psParcialTooltip';
+        _ttParcial.style.cssText = 'display:none;position:fixed;background:rgba(26,32,44,0.93);color:#fff;font-size:11px;padding:6px 10px;border-radius:7px;pointer-events:none;z-index:9999;line-height:1.7;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.25);';
+        document.body.appendChild(_ttParcial);
+      }
+      if (_pCanv) {
+        _pCanv.onmousemove = e => {
+          const rect = _pCanv.getBoundingClientRect();
+          const scX = 560 / rect.width, scY = 560 / rect.height;
+          const mx = (e.clientX - rect.left) * scX, my = (e.clientY - rect.top) * scY;
+          let best = null, bestD = Infinity;
+          for (const h of _parcialHits) {
+            const d = Math.hypot(mx - h.cx, my - h.cy);
+            if (d < bestD) { bestD = d; best = h; }
+          }
+          if (best && bestD < CR * 0.9) {
+            _ttParcial.innerHTML = `<span style="color:${best.color};">●</span> <b>${esc(best.nombre)}</b>${best.rho !== null ? `<br>&rho; = ${best.rho.toFixed(4)} rad` : ''}`;
+            _ttParcial.style.display = 'block';
+            _ttParcial.style.left = (e.clientX + 14) + 'px';
+            _ttParcial.style.top  = (e.clientY - 14) + 'px';
+          } else {
+            _ttParcial.style.display = 'none';
+          }
+        };
+        _pCanv.onmouseleave = () => { _ttParcial.style.display = 'none'; };
+      }
+
       if (_pCanv && window.attachCanvasZoom) {
         window.attachCanvasZoom(_pCanv);
         let _rq = null;
@@ -2409,7 +2392,7 @@ const ProcrustesModule = (() => {
             <span id="psGPAAlignStatus" style="color:#92400e;font-style:italic;font-size:10px;margin-left:2px;"></span>
           </div>
           <div class="ps-canvas-viewport">
-            <canvas id="psGPACanvas" width="560" height="560"></canvas>
+            <canvas id="psGPACanvas" width="720" height="720"></canvas>
           </div>
           <div class="ps-canvas-legend" id="psGPALeyenda"></div>
         </div>
@@ -2436,14 +2419,14 @@ const ProcrustesModule = (() => {
             CS = Centroid Size (px) — tamaño del objeto antes de normalizar.<br>
             El GPA excluye el tamaño; solo compara <em>forma pura</em>.
           </div>
-          <!-- Dispersión de semi-landmarks — debajo del ranking en la columna derecha -->
-          <div class="ps-matrix-title" style="margin-top:12px;">Dispersión de semi-landmarks</div>
-          <div class="ps-canvas-viewport" style="width:340px;height:340px;">
-            <canvas id="psDeformCanvas" width="340" height="340"></canvas>
+          <!-- Dispersión de semi-landmarks — zona 3 del grid de stats -->
+          <div class="ps-deform-wrap">
+            <div class="ps-matrix-title">Dispersión de semi-landmarks</div>
+            <div class="ps-deform-viewport">
+              <canvas id="psDeformCanvas" width="340" height="340"></canvas>
+            </div>
+            <p class="ps-deform-caption">Heatmap: azul=baja varianza · rojo=alta varianza por semi-landmark</p>
           </div>
-          <p style="font-size:10px;color:#718096;text-align:center;margin:4px 0 0;">
-            Heatmap: azul=baja varianza · rojo=alta varianza por semi-landmark
-          </p>
         </div>
       </div>
 
@@ -2571,21 +2554,11 @@ const ProcrustesModule = (() => {
       </div>
     `;
 
-    // DEBUGGING: verificar antes de asignar
-    // Limpiar canvas zoom anterior antes de reemplazar DOM
     if (window.detachCanvasZoom) {
       cont.querySelectorAll('canvas').forEach(c => window.detachCanvasZoom(c));
     }
 
-    console.log('🔍 [ejecutarGPA] cont element existe:', !!cont);
-    console.log('🔍 [ejecutarGPA] cont.id:', cont?.id);
-    console.log('🔍 [ejecutarGPA] html length:', html.length);
-    console.log('🔍 [ejecutarGPA] html preview:', html.substring(0, 200));
-    
     cont.innerHTML = html;
-    
-    console.log('🔍 [ejecutarGPA] DESPUÉS de innerHTML - cont.children.length:', cont.children.length);
-    console.log('🔍 [ejecutarGPA] DESPUÉS de innerHTML - cont.innerHTML.length:', cont.innerHTML.length);
 
     // ─── Refinamiento de estructura GPA: método → resumen → ranking → matriz → inferencias
     const gpaLayout = cont.querySelector('.ps-layout-2col');
@@ -2657,11 +2630,7 @@ const ProcrustesModule = (() => {
     const _btnGuardar = document.getElementById('psGuardarAPSBtn');
     if (_btnGuardar) _btnGuardar.style.display = 'inline-block';
     
-    // Agregar botones de exportación CSV/JSON
-    setTimeout(() => {
-      agregarBotonesExportacion();
-      console.log('✅ Botones de exportación agregados (GPA)');
-    }, 100);
+    agregarBotonesExportacion();
 
     // ─── Estado de transformaciones visuales del canvas GPA ──────────────────
     // (no afectan ρ ni el consensus — sólo ayuda a inspeccionar orientación)
@@ -2693,17 +2662,6 @@ const ProcrustesModule = (() => {
         const ctx = canvas.getContext('2d');
         const zoomScale = getCanvasZoomScale(canvas);
         const zlw = (w, min = 0.35, max = 6) => zoomCompensatedLineWidth(w, zoomScale, min, max);
-        ctx.clearRect(0,0,560,560);
-        ctx.fillStyle = '#f7fafc'; ctx.fillRect(0,0,560,560);
-        ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = zlw(0.5, 0.22, 2.2);
-        for (let g = 0; g <= 560; g += 70) {
-          ctx.beginPath(); ctx.moveTo(g,0); ctx.lineTo(g,560); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(0,g); ctx.lineTo(560,g); ctx.stroke();
-        }
-        ctx.strokeStyle = '#cbd5e0'; ctx.lineWidth = zlw(1, 0.3, 2.8);
-        ctx.beginPath(); ctx.moveTo(CX,CY-CR); ctx.lineTo(CX,CY+CR); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(CX-CR,CY); ctx.lineTo(CX+CR,CY); ctx.stroke();
-
         // ── Helpers de transformación visual del canvas GPA ────────────────
         const _rotGPA = (pts, rad) => {
           if (!pts || !pts.length || !rad) return pts;
@@ -2721,6 +2679,12 @@ const ProcrustesModule = (() => {
           return r;
         };
 
+        // Auto-fit: escala óptima para que aligned+consensus llenen el canvas
+        const _gpaAllProc = aligned.filter((a, i) => a && a.length > 0).concat(consensus ? [consensus] : []);
+        const _gpaAutoScale = bestFitScale(_gpaAllProc, CR, 0.86);
+
+        drawCanvasBackground(ctx, 720, 720, CX, CY, CR, zlw);
+
         const leyendaEl = $('psGPALeyenda');
         let leyHtml = '';
         // Hit-zones: centroides de cada forma para tooltip
@@ -2729,20 +2693,23 @@ const ProcrustesModule = (() => {
         // Dibujar cada forma alineada
         for (let i = 0; i < n; i++) {
           if (!aligned[i] || aligned[i].length === 0) continue;
-          const canv = _applyGPATr(toCanvas(aligned[i], CR * 0.95), i);
+          const canv = _applyGPATr(toCanvas(aligned[i], _gpaAutoScale), i);
           const isMirrored = _bFaceIndicesGPA.has(i);
-          if (!_gpaHiddenSet.has(i)) drawShape(ctx, canv, PALETA[i%PALETA.length], zlw(1.5, 0.45, 3.6), true, 0.08);
+          if (!_gpaHiddenSet.has(i)) drawShapeSmooth(ctx, canv, PALETA[i%PALETA.length], zlw(1.5, 0.45, 3.6), true, 0.13);
           leyHtml += _gpaLeyItem(i, conPuntos[i].nombre, isMirrored ? ' <span style="font-size:10px;opacity:.8" title="Cara B reflejada (espejo)">🪞</span>' : '');
           // Guardar centroide de la forma en coordenadas canvas para hover
           const cx_ = canv.reduce((s,p)=>s+p.x,0)/canv.length;
           const cy_ = canv.reduce((s,p)=>s+p.y,0)/canv.length;
           _gpaHits.push({ cx: cx_, cy: cy_, pts: canv, nombre: conPuntos[i].nombre, color: PALETA[i%PALETA.length], dist: dists[i], mirrored: isMirrored });
         }
-        // Consensus encima (línea gruesa blanca/negra) — sin transform: forma de referencia fija
-        const consensusCanv = toCanvas(consensus, CR * 0.95);
-        drawShape(ctx, consensusCanv, '#000', zlw(2.5, 0.6, 5), false);
-        drawShape(ctx, consensusCanv, '#fff', zlw(1.0, 0.3, 2.8), false);
-        leyHtml += '<span class="ps-ley-item"><span class="ps-ley-dot" style="background:#000;border:1px solid #999"></span><em>Consensus</em></span>';
+        // Consensus encima — sombra suave + stroke dorado sobre negro
+        const consensusCanv = toCanvas(consensus, _gpaAutoScale);
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.30)'; ctx.shadowBlur = 8;
+        drawShape(ctx, consensusCanv, '#1a202c', zlw(3.0, 0.7, 5.5), false);
+        ctx.restore();
+        drawShape(ctx, consensusCanv, '#f6e05e', zlw(1.3, 0.35, 3.0), false);
+        leyHtml += '<span class="ps-ley-item"><span class="ps-ley-dot" style="background:#1a202c;box-shadow:0 0 0 2px #f6e05e;"></span><em>Consensus</em></span>';
         if (leyendaEl) {
           leyendaEl.innerHTML = leyHtml;
           leyendaEl.querySelectorAll('.ps-ley-toggle').forEach(el => {
@@ -2791,46 +2758,52 @@ const ProcrustesModule = (() => {
         const ctx = dc.getContext('2d');
         const zoomScale = getCanvasZoomScale(dc);
         const zlw = (w, min = 0.3, max = 4) => zoomCompensatedLineWidth(w, zoomScale, min, max);
-        ctx.clearRect(0,0,340,340);
-        ctx.fillStyle = '#f7fafc'; ctx.fillRect(0,0,340,340);
-        ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = zlw(0.5, 0.2, 1.8);
-        for (let g = 0; g <= 340; g += 40) {
-          ctx.beginPath(); ctx.moveTo(g,0); ctx.lineTo(g,340); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(0,g); ctx.lineTo(340,g); ctx.stroke();
-        }
-        // Líneas de variación: desde consensus, para cada objeto
-        const DCX=170,DCY=170,sc=142;
+        const DCX = 170, DCY = 170;
+        const _defAllProc = aligned.filter(a => a && a.length > 0).concat(consensus ? [consensus] : []);
+        const sc = bestFitScale(_defAllProc, 148, 0.86);
+        // Fondo con círculos de referencia (escala morfométrica)
+        drawCanvasBackground(ctx, 340, 340, DCX, DCY, sc, zlw);
+
+        // Outline del consensus como referencia de forma
+        const _consensusDC = consensus.map(p => ({ x: DCX + p.x * sc, y: DCY - p.y * sc }));
+        ctx.save();
+        ctx.globalAlpha = 0.22;
+        drawShape(ctx, _consensusDC, '#4a5568', zlw(1.2, 0.3, 2.5), true, 0.06);
+        ctx.restore();
+
+        // Vectores de desplazamiento landmark→objeto (por objeto, en su color)
         for (let i = 0; i < n; i++) {
           if (!aligned[i] || aligned[i].length === 0) continue;
-          // Aplicar transform visual al objeto alineado
           const alignedCanv = _applyGPATr(aligned[i].map(p => ({ x: DCX + p.x * sc, y: DCY - p.y * sc })), i);
-          ctx.strokeStyle = PALETA[i%PALETA.length] + '80'; // ~50% alpha
-          ctx.lineWidth = zlw(0.8, 0.25, 2.2);
+          ctx.strokeStyle = PALETA[i%PALETA.length] + '60';
+          ctx.lineWidth = zlw(0.7, 0.22, 2.0);
           for (let k = 0; k < N_PUNTOS; k++) {
             const cx_ = DCX + consensus[k].x * sc;
             const cy_ = DCY - consensus[k].y * sc;
             ctx.beginPath(); ctx.moveTo(cx_, cy_); ctx.lineTo(alignedCanv[k].x, alignedCanv[k].y); ctx.stroke();
           }
         }
-        // Consensus: dots coloreados por varianza por landmark (heatmap azul→rojo)
+
+        // Puntos de cada objeto alineado (pequeños, semi-transparentes)
+        for (let i = 0; i < n; i++) {
+          if (!aligned[i] || aligned[i].length === 0) continue;
+          ctx.fillStyle = PALETA[i%PALETA.length] + 'b0';
+          const alignedCanv = _applyGPATr(aligned[i].map(p => ({ x: DCX + p.x * sc, y: DCY - p.y * sc })), i);
+          for (const p of alignedCanv) {
+            ctx.beginPath(); ctx.arc(p.x, p.y, zlw(1.8, 0.8, 2.8), 0, Math.PI * 2); ctx.fill();
+          }
+        }
+
+        // Consensus: dots heatmap azul (baja var) → rojo (alta var), encima de todo
         const _lmkVarMax = Math.max(...lmkVar, 1e-10);
         for (let k = 0; k < N_PUNTOS; k++) {
           const tc = lmkVar[k] / _lmkVarMax;
-          const rr = Math.round(tc * 220), bb = Math.round((1 - tc) * 220);
+          const rr = Math.round(tc * 230), bb = Math.round((1 - tc) * 220);
+          // Halo blanco para contraste
+          ctx.fillStyle = '#fff';
+          ctx.beginPath(); ctx.arc(DCX + consensus[k].x * sc, DCY - consensus[k].y * sc, zlw(4.5, 1.5, 6.5), 0, Math.PI * 2); ctx.fill();
           ctx.fillStyle = `rgb(${rr},50,${bb})`;
-          ctx.beginPath();
-            ctx.arc(DCX + consensus[k].x * sc, DCY - consensus[k].y * sc, zlw(3.5, 1.2, 5), 0, Math.PI * 2);
-          ctx.fill();
-        }
-        // Puntos de cada objeto alineado (con transform visual)
-        for (let i = 0; i < n; i++) {
-          ctx.fillStyle = PALETA[i%PALETA.length];
-          const alignedCanv = _applyGPATr(aligned[i].map(p => ({ x: DCX + p.x * sc, y: DCY - p.y * sc })), i);
-          for (const p of alignedCanv) {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, zlw(2, 0.9, 3.2), 0, Math.PI*2);
-            ctx.fill();
-          }
+          ctx.beginPath(); ctx.arc(DCX + consensus[k].x * sc, DCY - consensus[k].y * sc, zlw(3.2, 1.1, 5.0), 0, Math.PI * 2); ctx.fill();
         }
       }
 
@@ -2846,7 +2819,7 @@ const ProcrustesModule = (() => {
           const pcaCtx = pcaC.getContext('2d');
           const W2 = 280, H2 = 280, pad = 34;
           pcaCtx.clearRect(0, 0, W2, H2);
-          pcaCtx.fillStyle = '#f8fafc'; pcaCtx.fillRect(0, 0, W2, H2);
+          pcaCtx.fillStyle = '#fff'; pcaCtx.fillRect(0, 0, W2, H2);
           const allPc1 = shapePCA.scores.map(s => s.pc1).filter(isFinite);
           const allPc2 = shapePCA.scores.map(s => s.pc2).filter(isFinite);
           console.log('[GPA-PCA] allPc1=', allPc1, 'allPc2=', allPc2);
@@ -2863,34 +2836,51 @@ const ProcrustesModule = (() => {
               x: pad + ((isFinite(pc1) ? (pc1 - pc1min) / pc1r : 0.5) * 0.7 + 0.15) * usableW,
               y: H2 - pad - ((isFinite(pc2) ? (pc2 - pc2min) / pc2r : 0.5) * 0.7 + 0.15) * usableH
             });
-            // Grid
-            pcaCtx.strokeStyle = '#e2e8f0'; pcaCtx.lineWidth = 0.5;
+            // Fondo blanco + grid sutil
+            pcaCtx.strokeStyle = '#f0f4f8'; pcaCtx.lineWidth = 0.5;
             for (let g = pad; g <= W2 - pad + 1; g += usableW / 4) {
               pcaCtx.beginPath(); pcaCtx.moveTo(g, pad); pcaCtx.lineTo(g, H2 - pad); pcaCtx.stroke();
             }
             for (let g = pad; g <= H2 - pad + 1; g += usableH / 4) {
               pcaCtx.beginPath(); pcaCtx.moveTo(pad, g); pcaCtx.lineTo(W2 - pad, g); pcaCtx.stroke();
             }
-            // Ejes en el centro del scatter
+            // Ejes (dashed, cruce centrado)
             const cx0 = pad + usableW * 0.5, cy0 = H2 - pad - usableH * 0.5;
-            pcaCtx.strokeStyle = '#cbd5e0'; pcaCtx.lineWidth = 1;
+            pcaCtx.save();
+            pcaCtx.strokeStyle = '#cbd5e0'; pcaCtx.lineWidth = 0.8; pcaCtx.setLineDash([4, 4]);
             pcaCtx.beginPath(); pcaCtx.moveTo(pad, cy0); pcaCtx.lineTo(W2 - pad, cy0); pcaCtx.stroke();
             pcaCtx.beginPath(); pcaCtx.moveTo(cx0, pad); pcaCtx.lineTo(cx0, H2 - pad); pcaCtx.stroke();
-            // Puntos de cada objeto
+            pcaCtx.setLineDash([]); pcaCtx.restore();
+            // Punto cero
+            pcaCtx.fillStyle = '#a0aec0';
+            pcaCtx.beginPath(); pcaCtx.arc(cx0, cy0, 2.5, 0, Math.PI * 2); pcaCtx.fill();
+            // Puntos de cada objeto (halo blanco + dot de color + label)
             for (let i = 0; i < n; i++) {
               const sc = shapePCA.scores[i];
               if (!sc) continue;
               const {x, y} = toXY(sc.pc1, sc.pc2);
+              // Halo
+              pcaCtx.fillStyle = '#fff'; pcaCtx.strokeStyle = PALETA[i % PALETA.length]; pcaCtx.lineWidth = 2;
+              pcaCtx.beginPath(); pcaCtx.arc(x, y, 9.5, 0, Math.PI * 2); pcaCtx.fill(); pcaCtx.stroke();
+              // Dot
               pcaCtx.fillStyle = PALETA[i % PALETA.length];
-              pcaCtx.strokeStyle = '#fff'; pcaCtx.lineWidth = 1.5;
-              pcaCtx.beginPath(); pcaCtx.arc(x, y, 7.5, 0, Math.PI * 2); pcaCtx.fill(); pcaCtx.stroke();
-              pcaCtx.fillStyle = '#1a202c'; pcaCtx.font = 'bold 9px sans-serif';
-              pcaCtx.fillText(conPuntos[i].nombre.substring(0, 14), x + 10, y + 4);
+              pcaCtx.beginPath(); pcaCtx.arc(x, y, 6.5, 0, Math.PI * 2); pcaCtx.fill();
+              // Número de orden (centrado en el dot)
+              pcaCtx.fillStyle = '#fff'; pcaCtx.font = 'bold 8px sans-serif'; pcaCtx.textAlign = 'center'; pcaCtx.textBaseline = 'middle';
+              pcaCtx.fillText(String(i + 1), x, y);
+              pcaCtx.textAlign = 'left'; pcaCtx.textBaseline = 'alphabetic';
+              // Label con shadow
+              pcaCtx.fillStyle = 'rgba(255,255,255,0.85)';
+              const lbl = conPuntos[i].nombre.substring(0, 13);
+              const lm = pcaCtx.measureText(lbl);
+              pcaCtx.fillRect(x + 12, y - 8, lm.width + 4, 13);
+              pcaCtx.fillStyle = '#1a202c'; pcaCtx.font = '9px sans-serif';
+              pcaCtx.fillText(lbl, x + 14, y + 3);
             }
             // Etiquetas de ejes
             const ve0 = (shapePCA.varExpl[0] * 100).toFixed(1);
             const ve1 = (shapePCA.varExpl[1] * 100).toFixed(1);
-            pcaCtx.fillStyle = '#4a5568'; pcaCtx.font = '9px sans-serif';
+            pcaCtx.fillStyle = '#718096'; pcaCtx.font = '9px sans-serif';
             pcaCtx.fillText(`PC1 (${ve0}%)`, W2 - pad - 52, H2 - 5);
             pcaCtx.save(); pcaCtx.translate(10, H2 / 2 + 28); pcaCtx.rotate(-Math.PI / 2);
             pcaCtx.fillText(`PC2 (${ve1}%)`, 0, 0);
@@ -2982,7 +2972,7 @@ const ProcrustesModule = (() => {
 
       // Helper descargar canvas como PNG (busca viewport o parent)
       const _addPNG = (canv, fname, title) => {
-        const wrap = canv?.closest('.ps-canvas-viewport') || canv?.closest('.ps-canvas-wrap') || canv?.parentElement;
+        const wrap = canv?.closest('.ps-canvas-viewport') || canv?.closest('.ps-deform-viewport') || canv?.closest('.ps-canvas-wrap') || canv?.parentElement;
         if (wrap && canv && !wrap.querySelector('.cmo-export-png-btn')) {
           const b = document.createElement('button');
           b.className = 'cmo-export-png-btn';
@@ -3320,19 +3310,10 @@ const ProcrustesModule = (() => {
                         setTimeout(() => {
                           try {
                             tick('render');
-                            console.log('🔍 [ejecutar] Mostrando paso 2...');
                             const step1 = $('psStep1Panel');
                             const step2 = $('psStep2Panel');
-                            console.log('🔍 [ejecutar] step1 existe:', !!step1, 'step2 existe:', !!step2);
-                            if (step1) {
-                              step1.style.display = 'none';
-                              console.log('🔍 [ejecutar] step1.style.display cambió a none');
-                            }
-                            if (step2) {
-                              step2.style.display = 'block';
-                              console.log('🔍 [ejecutar] step2.style.display cambió a block');
-                              console.log('🔍 [ejecutar] psStep2Panel visible - children:', step2.children.length);
-                            }
+                            if (step1) step1.style.display = 'none';
+                            if (step2) step2.style.display = 'block';
                             actualizarStepper(2);
                             switchTab(_tabActiva);
 
@@ -3385,21 +3366,9 @@ const ProcrustesModule = (() => {
   // ──────────────────────────────────────────────────────────────────────────
 
   function switchTab(tab) {
-    console.log('🔍 [switchTab] Cambiando a tab:', tab);
     _tabActiva = tab;
-    
-    const btnElements = document.querySelectorAll('.ps-tab-btn');
-    const paneElements = document.querySelectorAll('.ps-tab-pane');
-    
-    console.log('🔍 [switchTab] Encontrados', btnElements.length, 'botones de tab');
-    console.log('🔍 [switchTab] Encontrados', paneElements.length, 'panes de tab');
-    
-    btnElements.forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-    paneElements.forEach(p => {
-      const shouldBeActive = p.id === `psTab_${tab}`;
-      p.classList.toggle('active', shouldBeActive);
-      console.log('🔍 [switchTab] psTab_' + tab + ' -> active =', shouldBeActive, '| display:', window.getComputedStyle(p).display);
-    });
+    document.querySelectorAll('.ps-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document.querySelectorAll('.ps-tab-pane').forEach(p => p.classList.toggle('active', p.id === `psTab_${tab}`));
   }
 
   function bindTabs() {
@@ -3639,61 +3608,32 @@ const ProcrustesModule = (() => {
     // Verificar si ya existen botones (para no duplicarlos)
     if (statsCol.querySelector('.ps-export-buttons')) return;
     
-    // Crear contenedor de botones
     const btnContainer = document.createElement('div');
     btnContainer.className = 'ps-export-buttons';
     btnContainer.style.cssText = 'display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;';
-    
-    // Botón exportar CSV
+
     const btnCSV = document.createElement('button');
-    btnCSV.textContent = '📊 Exportar CSV';
-    btnCSV.style.cssText = `
-      background: #10b981;
-      color: white;
-      border: none;
-      padding: 8px 14px;
-      border-radius: 5px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s;
-    `;
-    btnCSV.onmouseover = () => btnCSV.style.background = '#059669';
-    btnCSV.onmouseout = () => btnCSV.style.background = '#10b981';
+    btnCSV.className = 'laar-btn laar-btn--ok';
+    btnCSV.textContent = '↓ CSV';
+    btnCSV.title = 'Exportar análisis Procrustes como CSV';
     btnCSV.onclick = () => {
       if (window._lastResultados) {
         const csv = exportarCSV(window._lastResultados, window._lastConPuntos);
-        const timestamp = new Date().toISOString().slice(0,10);
-        descargarArchivo(csv, `PS_Analisis_${timestamp}.csv`, 'text/csv');
-        console.log('✅ CSV exportado correctamente');
+        descargarArchivo(csv, `PS_Analisis_${new Date().toISOString().slice(0,10)}.csv`, 'text/csv');
       }
     };
-    
-    // Botón exportar JSON
+
     const btnJSON = document.createElement('button');
-    btnJSON.textContent = '{ } Exportar JSON';
-    btnJSON.style.cssText = `
-      background: #3b82f6;
-      color: white;
-      border: none;
-      padding: 8px 14px;
-      border-radius: 5px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s;
-    `;
-    btnJSON.onmouseover = () => btnJSON.style.background = '#2563eb';
-    btnJSON.onmouseout = () => btnJSON.style.background = '#3b82f6';
+    btnJSON.className = 'laar-btn';
+    btnJSON.textContent = '↓ JSON';
+    btnJSON.title = 'Exportar análisis Procrustes como JSON';
     btnJSON.onclick = () => {
       if (window._lastResultados) {
         const json = exportarJSON(window._lastResultados, window._lastModo, window._lastConPuntos);
-        const timestamp = new Date().toISOString().slice(0,10);
-        descargarArchivo(JSON.stringify(json, null, 2), `PS_Analisis_${timestamp}.json`, 'application/json');
-        console.log('✅ JSON exportado correctamente');
+        descargarArchivo(JSON.stringify(json, null, 2), `PS_Analisis_${new Date().toISOString().slice(0,10)}.json`, 'application/json');
       }
     };
-    
+
     btnContainer.appendChild(btnCSV);
     btnContainer.appendChild(btnJSON);
     statsCol.appendChild(btnContainer);

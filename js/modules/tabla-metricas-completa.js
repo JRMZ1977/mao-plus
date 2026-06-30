@@ -171,6 +171,7 @@ export function generarTablaMetricasCompleta(obj, metricas) {
 
   html += generarSeccionEstadoConservacion(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionErrorOptico(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionIncertidumbrePropagada(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionEjesOrientacion(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionAnalisisRadial(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionPropiedadesContorno(metricas, estiloTabla, estiloTh, estiloTd);
@@ -1614,6 +1615,90 @@ function generarSeccionErrorOptico(metricas, estiloTabla, estiloTh, estiloTd) {
         <span style="font-size: 12px; color: #333;">${notaErrorOptico}</span>
       </div>
     `;
+}
+
+/**
+ * IX-B. INCERTIDUMBRE PROPAGADA POR MÉTRICA
+ * Rangos [min, max] derivados del error óptico posicional.
+ * Solo se renderiza si hay campos de incertidumbre en las métricas.
+ */
+function generarSeccionIncertidumbrePropagada(metricas, estiloTabla, estiloTh, estiloTd) {
+  const areaAbs  = parseFloat(metricas.area_incertidumbre_abs);
+  const periAbs  = parseFloat(metricas.perimeter_incertidumbre_abs);
+  const ejMajAbs = parseFloat(metricas.eje_mayor_incertidumbre_abs);
+  const ejMinAbs = parseFloat(metricas.eje_menor_incertidumbre_abs);
+
+  // Si no hay ningún campo de incertidumbre, no renderizar la sección
+  if (isNaN(areaAbs) && isNaN(periAbs) && isNaN(ejMajAbs) && isNaN(ejMinAbs)) return '';
+
+  const _f  = (v, d) => isNaN(parseFloat(v)) ? '—' : parseFloat(v).toFixed(d != null ? d : 3);
+  const _rg = (min, val, max, unit) => {
+    const lo = parseFloat(min), hi = parseFloat(max), v = parseFloat(val);
+    if (isNaN(lo) || isNaN(hi)) return '—';
+    const ok = !isNaN(v);
+    return `<span style="color:#888;">${lo.toFixed(3)}</span> `
+         + (ok ? `<strong>${v.toFixed(3)}</strong>` : '—')
+         + ` <span style="color:#888;">${hi.toFixed(3)}</span> ${unit}`;
+  };
+
+  const enrAt   = metricas.enriched_at ? metricas.enriched_at.slice(0, 10) : null;
+  const maoVer  = metricas.mao_version || null;
+  const provTag = (enrAt || maoVer)
+    ? `<span style="font-size:10px;background:#1565c0;color:#fff;padding:1px 6px;border-radius:3px;margin-left:8px;">
+         enriquecido${enrAt ? ' · ' + enrAt : ''}${maoVer ? ' · v' + maoVer : ''}
+       </span>`
+    : '';
+
+  return `
+    <h3 style="color:#495057;margin:30px 0 15px 0;padding-bottom:8px;border-bottom:3px solid #1565c0;">
+      IX-B. INCERTIDUMBRE PROPAGADA POR MÉTRICA${provTag}
+    </h3>
+    <div style="padding:12px;background:#e3f2fd;border-left:4px solid #1565c0;border-radius:4px;margin-bottom:15px;">
+      <strong>📐 Rangos de confianza métrica a métrica</strong><br>
+      <span style="font-size:12px;color:#546e7a;">
+        Cada métrica lineal y de área se expresa como [mín · <strong>valor</strong> · máx] propagando
+        el error óptico posicional de la sección IX. Los rangos son orientativos (modelo k₁ estimado ±30%).
+      </span>
+    </div>
+    <table style="${estiloTabla}">
+      <thead>
+        <tr>
+          <th style="${estiloTh};width:28%;">Métrica</th>
+          <th style="${estiloTh};width:22%;">Valor central (mm / mm²)</th>
+          <th style="${estiloTh};width:30%;">Rango [mín · valor · máx]</th>
+          <th style="${estiloTh};width:20%;">± Incertidumbre</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background:#e3f2fd;">
+          <td style="${estiloTd};font-weight:700;color:#1565c0;">Área</td>
+          <td style="${estiloTd};">${_f(metricas.area, 3)} mm²</td>
+          <td style="${estiloTd};">${_rg(metricas.area_rango_min, metricas.area, metricas.area_rango_max, 'mm²')}</td>
+          <td style="${estiloTd};font-weight:600;color:#d32f2f;">±${_f(areaAbs, 4)} mm²</td>
+        </tr>
+        <tr>
+          <td style="${estiloTd};font-weight:700;color:#1565c0;">Perímetro</td>
+          <td style="${estiloTd};">${_f(metricas.perimeter, 3)} mm</td>
+          <td style="${estiloTd};">${_rg(metricas.perimeter_rango_min, metricas.perimeter, metricas.perimeter_rango_max, 'mm')}</td>
+          <td style="${estiloTd};font-weight:600;color:#d32f2f;">±${_f(periAbs, 4)} mm</td>
+        </tr>
+        ${!isNaN(ejMajAbs) ? `
+        <tr style="background:#e3f2fd;">
+          <td style="${estiloTd};font-weight:700;color:#1565c0;">Eje Mayor</td>
+          <td style="${estiloTd};">${_f(metricas.eje_mayor_real_longitud || metricas.eje_mayor, 3)} mm</td>
+          <td style="${estiloTd};">${_rg(metricas.eje_mayor_rango_min, metricas.eje_mayor_real_longitud || metricas.eje_mayor, metricas.eje_mayor_rango_max, 'mm')}</td>
+          <td style="${estiloTd};font-weight:600;color:#d32f2f;">±${_f(ejMajAbs, 4)} mm</td>
+        </tr>` : ''}
+        ${!isNaN(ejMinAbs) ? `
+        <tr>
+          <td style="${estiloTd};font-weight:700;color:#1565c0;">Eje Menor</td>
+          <td style="${estiloTd};">${_f(metricas.eje_menor_real_longitud || metricas.eje_menor, 3)} mm</td>
+          <td style="${estiloTd};">${_rg(metricas.eje_menor_rango_min, metricas.eje_menor_real_longitud || metricas.eje_menor, metricas.eje_menor_rango_max, 'mm')}</td>
+          <td style="${estiloTd};font-weight:600;color:#d32f2f;">±${_f(ejMinAbs, 4)} mm</td>
+        </tr>` : ''}
+      </tbody>
+    </table>
+  `;
 }
 
   /**
