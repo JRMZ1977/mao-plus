@@ -140,7 +140,6 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   window._maoGetImageCaraB = () => imageCaraB;
   window._maoGetModo       = () => modoAnalisis;
   window._maoGetScale      = () => scale;
-  window._maoAbrirMetricas = (obj, m) => abrirModalTablaMetricas(obj, m);
   let morphologicalCtx = null; // Contexto del canvas morfológico
   let idealizedShapeCtx = null; // Contexto del canvas de forma idealizada
   let lastDetectionStats = { filtered: 0, detected: 0 }; // Estadísticas de la última detección
@@ -14706,8 +14705,8 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       if (typeof actualizarSeccionComparacionesBifaciales === 'function') {
         actualizarSeccionComparacionesBifaciales();
       }
-      if (typeof window.generarComparacionBifacialSimple === 'function') {
-        window.generarComparacionBifacialSimple(par.caraA, par.caraB, obj.numeroObjeto);
+      if (typeof generarComparacionBifacialSimple === 'function') {
+        generarComparacionBifacialSimple(par.caraA, par.caraB, obj.numeroObjeto);
       }
       const tc = document.getElementById('bifacialComparisonTableContainer');
       if (tc) tc.style.display = 'block';
@@ -20137,7 +20136,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 
   // ── Generador de HTML de reporte para batch PDF ─────────────────────────────
   // Coherente con generarReportePDFIntegral: mismas secciones, mismo orden.
-  window.generarHTMLReporteParaBatch = async function(ref, metricasFinal, metricasDoc, pngs) {
+  const generarHTMLReporteParaBatch = async function(ref, metricasFinal, metricasDoc, pngs) {
     const m     = metricasFinal || {};
     const doc   = metricasDoc  || {};
     const perfs = doc.perforaciones || [];
@@ -24027,7 +24026,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       validaciones.errores.forEach((e, i) => console.error(`   ${i+1}. ${e}`));
     }
     
-    window.ultimaValidacionCoherencia = validaciones;
+    if (window._MAO_DEBUG) window.ultimaValidacionCoherencia = validaciones;
     return validaciones;
   }
   
@@ -27241,7 +27240,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           ],
           timestamp: new Date().toISOString()
         };
-        window.ultimaAuditoriaPDF = auditoriaBifacial;
+        if (window._MAO_DEBUG) window.ultimaAuditoriaPDF = auditoriaBifacial;
         console.log('📄 Auditoría exportación PDF (bifacial)', auditoriaBifacial);
       } catch (auditError) {
         console.warn('⚠️ No se pudo completar la auditoría de exportación PDF bifacial:', auditError);
@@ -28690,7 +28689,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           },
           timestamp: new Date().toISOString()
         };
-        window.ultimaAuditoriaPDF = auditoria;
+        if (window._MAO_DEBUG) window.ultimaAuditoriaPDF = auditoria;
         console.log('📄 Auditoría exportación PDF (morfológico)', auditoria);
       } catch (auditError) {
         console.warn('⚠️ No se pudo completar la auditoría de exportación PDF (morfológico):', auditError);
@@ -36700,13 +36699,13 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * 🗑️ FUNCIÓN ANTIGUA DESHABILITADA
    * Ya no se usa - reemplazada por generarComparacionBifacialSimple()
    */
-  window.mostrarComparacionBifacial = function(numeroObjeto) {
+  const mostrarComparacionBifacial = function(numeroObjeto) {
     console.log(`⚠️ mostrarComparacionBifacial() deshabilitada - usar nuevo sistema simplificado`);
     // Esta función ya no se usa, el nuevo sistema usa generarComparacionBifacialSimple()
     return;
   }
 
-  window.generarTablaComparativa = function(caraA, caraB, comp) {
+  const generarTablaComparativa = function(caraA, caraB, comp) {
     console.log('🔧 generarTablaComparativa() llamada', {
       caraA: caraA,
       caraB: caraB,
@@ -37081,7 +37080,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Generar gráficos comparativos (usando caracteres ASCII/barras)
    */
-  window.generarGraficosComparativos = function(caraA, caraB, comp) {
+  const generarGraficosComparativos = function(caraA, caraB, comp) {
     const container = document.getElementById('graficosContainer');
     
     // Función auxiliar para obtener valor numérico seguro
@@ -37145,7 +37144,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Generar análisis detallado con interpretación
    */
-  window.generarAnalisisDetallado = function(caraA, caraB, comp) {
+  const generarAnalisisDetallado = function(caraA, caraB, comp) {
     const container = document.getElementById('analisisDetalladoContainer');
     
     // 🔒 Función auxiliar para valores numéricos seguros
@@ -37475,7 +37474,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Generar interpretación arqueológica basada en las métricas
    */
-  window.generarInterpretacionArqueologica = function(comp, caraA, caraB) {
+  const generarInterpretacionArqueologica = function(comp, caraA, caraB) {
     let interpretacion = '';
     
     // Análisis de simetría
@@ -37516,7 +37515,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Cerrar panel de comparación bifacial
    */
-  window.cerrarComparacionBifacial = function() {
+  const cerrarComparacionBifacial = function() {
     const container = document.getElementById('bifacialComparisonContainer');
     container.style.display = 'none';
   }
@@ -37524,7 +37523,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Manejar cambio de tabs
    */
-  window.setupBifacialTabs = function() {
+  const setupBifacialTabs = function() {
     const tabs = document.querySelectorAll('.bifacial-tab');
     const contents = document.querySelectorAll('.bifacial-tab-content');
     
@@ -37562,7 +37561,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Actualizar visibilidad del botón de comparación bifacial
    * NUEVA VERSIÓN: Gestiona sección centralizada de botones
    */
-  window.actualizarVisibilidadBotonComparacion = function(numeroObjeto) {
+  const actualizarVisibilidadBotonComparacion = function(numeroObjeto) {
     // Actualizar toda la sección de comparaciones centralizadas
     actualizarSeccionComparacionesBifaciales();
   }
@@ -37575,7 +37574,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * 🆕 ACTUALIZAR SECCIÓN DE COMPARACIÓN BIFACIAL SIMPLIFICADA
    * Crea un botón simple para mostrar/ocultar tabla de comparación
    */
-  window.actualizarSeccionComparacionesBifaciales = function() {
+  const actualizarSeccionComparacionesBifaciales = function() {
     const seccion = document.getElementById('bifacialComparisonsSection');
     const buttonContainer = document.getElementById('bifacialComparisonButtonContainer');
     
@@ -37709,7 +37708,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Tabla organizada por categorías con todas las métricas morfométricas
    * Categorías: Dimensiones Básicas, Estado de Conservación, Clasificación Geométrica
    */
-  window.generarComparacionBifacialSimple = function(caraA, caraB, numeroObjeto) {
+  const generarComparacionBifacialSimple = function(caraA, caraB, numeroObjeto) {
     console.log(`📊 Generando comparación bifacial completa para Objeto ${numeroObjeto}`);
     
     // 💾 GUARDAR REFERENCIA GLOBAL para exportación CSV
@@ -45349,7 +45348,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Actualizar la tabla de trazos con los puntos registrados
    * @param {string} modo - 'monofacial' o 'bifacial'
    */
-  window.actualizarTablaTrazos = function(modo) {
+  const actualizarTablaTrazos = function(modo) {
     const sufijo = modo.charAt(0).toUpperCase() + modo.slice(1);
     const tbody = document.getElementById(`trazosBody${sufijo}`);
     const totalesSpan = document.getElementById(`trazosTotales${sufijo}`);
@@ -45517,7 +45516,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * @param {number} index - Índice del trazo
    * @param {string} modo - 'monofacial' o 'bifacial'
    */
-  window.eliminarTrazo = function(index, modo) {
+  const eliminarTrazo = function(index, modo) {
     if (index >= 0 && index < trazadoPuntos.length) {
       const punto = trazadoPuntos.splice(index, 1)[0];
       console.log(`🗑️ Trazo ${index + 1} eliminado: (${punto.x.toFixed(1)}, ${punto.y.toFixed(1)})`);
@@ -49031,8 +49030,8 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     }
   }
 
-  // Función para ejecutar pruebas desde consola del navegador
-  window.probarGeneradorID = probarGeneradorID;
+  // Función para ejecutar pruebas desde consola del navegador (solo debug)
+  if (window._MAO_DEBUG) window.probarGeneradorID = probarGeneradorID;
 
   function actualizarID() {
     if (!idGeneradoSpan) {
@@ -49584,8 +49583,8 @@ CASOS DONDE LA DIFERENCIA ES CRÍTICA:
    • Formas orgánicas irregulares
    • Herramientas con muescas o perforaciones`);
 
-    // Función de prueba para demostrar diferencias
-    if (typeof window !== 'undefined') {
+    // Función de prueba para demostrar diferencias (solo debug)
+    if (typeof window !== 'undefined' && window._MAO_DEBUG) {
       window.demostrarDiferencias = function() {
         console.log(`
 EJECUTAR PRUEBA PRÁCTICA:
@@ -50289,10 +50288,10 @@ TODAS ESTAS MEJORAS SON:
    • Testeable con la prueba virtual`);
   }
 
-  // Hacer función disponible globalmente
-  window.generarImagenVirtualPrueba = generarImagenVirtualPrueba;
-  window.validarResultadosPrueba = validarResultadosPrueba;
-  window.auditoriaSistemaMAO = auditoriaSistemaMAO;
+  // Funciones de prueba/auditoría — solo en modo debug
+  if (window._MAO_DEBUG) window.generarImagenVirtualPrueba = generarImagenVirtualPrueba;
+  if (window._MAO_DEBUG) window.validarResultadosPrueba = validarResultadosPrueba;
+  if (window._MAO_DEBUG) window.auditoriaSistemaMAO = auditoriaSistemaMAO;
   window.detectarObjetos = detectarObjetos;
   window.analizarObjetoMorfologicamente = analizarObjetoMorfologicamente;
   
@@ -50666,8 +50665,8 @@ TODAS ESTAS MEJORAS SON:
   // FIN DE FUNCIONES DE TABLA COMPARATIVA
   // ============================================================================
   
-  // Función de test manual para debugging
-  window.testAnalisisMorfologico = function() {
+  // Función de test manual para debugging (solo _MAO_DEBUG)
+  if (window._MAO_DEBUG) window.testAnalisisMorfologico = function() {
     console.log('🧪 === TEST MANUAL DE ANÁLISIS MORFOLÓGICO ===');
     
     if (!objects || objects.length === 0) {
