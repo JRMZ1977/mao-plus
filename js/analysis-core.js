@@ -13127,6 +13127,9 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   // Exponer globalmente para recálculo retroactivo desde el visor de colección
   window.estimarErrorOptico        = MetricsOrchestrator.estimarErrorOptico;
   window.aplicarIncertidumbreOptica = MetricsOrchestrator.aplicarIncertidumbreOptica;
+  // Exponer generarCSVMetricas para que collection.js pueda regenerar el CSV
+  // cuando un análisis fue enriquecido retroactivamente (metricas.csv de disco es obsoleto)
+  window.generarCSVMetricasDesdeObjeto = (obj, metricas) => generarCSVMetricas(obj, metricas);
 
   /**
    * Error óptico posicional AUTÓNOMO y AGNÓSTICO del modo de detección.
@@ -20149,6 +20152,208 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    */
   window.generarTablaMetricasCompleta = VisualizationExport.generarTablaMetricasCompleta;
 
+  // ── Generador de HTML de reporte para batch PDF ─────────────────────────────
+  // Coherente con generarReportePDFIntegral: mismas secciones, mismo orden.
+  window.generarHTMLReporteParaBatch = async function(ref, metricasFinal, metricasDoc, pngs) {
+    const m     = metricasFinal || {};
+    const doc   = metricasDoc  || {};
+    const perfs = doc.perforaciones || [];
+    const horas = doc.horadaciones  || [];
+    const morfBase64  = pngs?.morf  || null;
+    const esquBase64  = pngs?.esqu  || null;
+    const idealBase64 = pngs?.ideal || null;
+
+    // ── Bloque visual: 3 PNG de análisis en fila, mismo tamaño, escala y leyenda fuera ──
+    const CANVAS_PX = 240;   // ancho/alto fijo de cada canvas (3 × 240 = 720px ≈ A4)
+
+    // Helper: genera el <img> de un PNG base64 con caption
+    const _panel = (b64, caption) => {
+      if (!b64) return '';
+      return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+        <p style="font-size:9px;color:#64748b;margin:0;font-weight:600;text-align:center;">${caption}</p>
+        <img src="${b64}"
+          style="width:${CANVAS_PX}px;height:${CANVAS_PX}px;object-fit:contain;
+                 border:1px solid #cbd5e1;border-radius:4px;background:#f1f5f9;display:block;"
+          alt="${caption}"/>
+      </div>`;
+    };
+
+    // Referencia de escala real (texto, no barra sobre el PNG)
+    const _ejaMm  = parseFloat(m.eje_mayor), _ejMinMm = parseFloat(m.eje_menor);
+    const escalaRef = (!isNaN(_ejaMm) && _ejaMm > 0)
+      ? `<p style="font-size:9px;color:#374151;margin:4px 0 0;font-style:italic;">
+           Escala de referencia: eje mayor ${_ejaMm.toFixed(1)} mm
+           ${!isNaN(_ejMinMm) && _ejMinMm > 0 ? `· eje menor ${_ejMinMm.toFixed(1)} mm` : ''}
+         </p>`
+      : '';
+
+    // Leyenda gráfica (fuera de los canvases)
+    const leyendaHtml = morfBase64 ? `
+      <table style="border-collapse:collapse;font-size:10px;margin-top:4px;color:#374151;">
+        <tr>
+          ${[
+            ['#3b82f6','2','','Contorno'],
+            ['#dc2626','1.5','','Eje mayor'],
+            ['#16a34a','1.2','4,3','Eje menor'],
+            ['#f97316','1','2,3','Radio máx/mín'],
+            ['#94a3b8','1','5,3','Convex hull'],
+          ].map(([c,w,d,l]) => `<td style="padding:2px 8px 2px 0;white-space:nowrap;">
+            <svg width="24" height="10" xmlns="http://www.w3.org/2000/svg">
+              <line x1="0" y1="5" x2="24" y2="5" stroke="${c}" stroke-width="${w}"
+                ${d?`stroke-dasharray="${d}"`:''}/>
+            </svg> ${l}</td>`).join('')}
+          <td style="padding:2px 0;white-space:nowrap;">
+            <svg width="12" height="12" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="6" cy="6" r="3" fill="#ef4444" stroke="white" stroke-width="0.8"/>
+            </svg> Centroide</td>
+        </tr>
+      </table>` : '';
+
+    const panelsHtml = [
+      _panel(morfBase64,  'Análisis morfológico'),
+      _panel(esquBase64,  'Esquema morfométrico'),
+      _panel(idealBase64, 'Forma idealizada'),
+    ].filter(Boolean).join('');
+
+    const visualBlock = panelsHtml ? `
+      <div style="margin:12px 0 4px;">
+        <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:nowrap;">
+          ${panelsHtml}
+        </div>
+        ${escalaRef}
+        ${leyendaHtml}
+      </div>` : '';
+
+    // ── Estilos inline (coherentes con @media print del reporte integral) ──────
+    const eT  = 'width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11px;';
+    const eTh = 'background:#1e3a5f;color:#fff;padding:5px 8px;text-align:left;font-weight:600;';
+    const eTd = 'padding:4px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top;';
+
+    const objProxy = { metricas: m, perforaciones: perfs, horadaciones: horas,
+      id: ref.carpeta, numeroObjeto: ref.nombreObjeto, cara: ref.cara };
+
+    // ── Secciones — orden secuencial por índice romano ──────────────────────────
+    const secs = [
+      // I   — Clasificación morfológica
+      generarSeccionMetricasMorfologicas(m, eT, eTh, eTd),
+      // II  — Dimensiones métricas
+      generarSeccionDimensiones(objProxy, m, eT, eTh, eTd),
+      // III — Proporciones y forma global
+      generarSeccionIndicesForma(m, eT, eTh, eTd),
+      // IV  — Regularidad del contorno (análisis radial)
+      generarSeccionAnalisisRadial(m, eT, eTh, eTd),
+      // IV-b — Envolvente convexa
+      generarSeccionConvexHull(m, eT, eTh, eTd),
+      // V   — Rugosidad y complejidad del borde
+      generarSeccionPropiedadesContorno(m, eT, eTh, eTd),
+      // V-b — Curvatura
+      generarSeccionCurvatura(m, eT, eTh, eTd),
+      // VI  — Orientación y posición espacial
+      generarSeccionEjesOrientacion(m, eT, eTh, eTd),
+      // VIII-a — Fragmentación
+      generarSeccionFragmentacion(m, eT, eTh, eTd),
+      // VIII-b — Defectos y conservación
+      generarSeccionEstadoConservacion(m, eT, eTh, eTd),
+      // IX  — Error óptico posicional
+      generarSeccionErrorOptico(m, eT, eTh, eTd),
+      // IX-B — Incertidumbre propagada (sigue a IX)
+      (() => {
+        if (!m._incertidumbre_optica_aplicada) return '';
+        const _campos = [
+          ['area','mm²'], ['area_fragmentada','mm²'],
+          ['perimeter','mm'], ['width','mm'], ['height','mm'],
+          ['eje_mayor','mm'], ['eje_menor','mm'],
+          ['feret_max','mm'], ['feret_min','mm'],
+        ];
+        const _filas = _campos.map(([k, u]) => {
+          const v = parseFloat(m[k]), abs = parseFloat(m[`${k}_incertidumbre_abs`]);
+          const mn = parseFloat(m[`${k}_rango_min`]), mx = parseFloat(m[`${k}_rango_max`]);
+          if (isNaN(v) || isNaN(abs)) return '';
+          return `<tr>
+            <td style="${eTd}">${k}</td>
+            <td style="${eTd};text-align:right;">${v.toFixed(4)} ${u}</td>
+            <td style="${eTd};text-align:right;">±${abs.toFixed(4)} ${u}</td>
+            <td style="${eTd};text-align:right;">[${mn.toFixed(4)} — ${mx.toFixed(4)}]</td>
+          </tr>`;
+        }).filter(Boolean).join('');
+        if (!_filas) return '';
+        return `
+          <h3 style="color:#1e3a5f;border-bottom:2px solid #1e3a5f;padding-bottom:4px;margin-top:16px;">
+            IX-B — Incertidumbre propagada por error óptico</h3>
+          <table style="${eT}"><thead><tr>
+            <th style="${eTh}">Métrica</th><th style="${eTh}">Valor</th>
+            <th style="${eTh}">Incertidumbre abs.</th><th style="${eTh}">Rango posible</th>
+          </tr></thead><tbody>${_filas}</tbody></table>`;
+      })(),
+      // X   — Perforaciones (siempre presente; muestra placeholder si no hay)
+      generarSeccionPerforaciones(objProxy, m, eT, eTh, eTd),
+      // X-b — Horadaciones (siempre presente; muestra placeholder si no hay)
+      generarSeccionHoradaciones(objProxy, m, eT, eTh, eTd),
+      // XI-a — Orientación y ejes principales
+      generarSeccionOrientacion(m, eT, eTh, eTd),
+      // XI-b — Simetría y morfología avanzada
+      generarSeccionSimetria(m, eT, eTh, eTd),
+      // XII-a — Características geométricas avanzadas
+      generarSeccionMetricasAvanzadas(m, eT, eTh, eTd),
+    ].join('');
+
+    // ── EFA resumen ────────────────────────────────────────────────────────────
+    const efa = m._efa_data || {};
+    const efaPs = Array.isArray(efa.power_spectrum) ? efa.power_spectrum : [];
+    const efaHtml = efa.n_harmonics ? `
+      <h3 style="color:#1e3a5f;border-bottom:2px solid #1e3a5f;padding-bottom:4px;margin-top:16px;">
+        EFA — Análisis Elíptico de Fourier (Kuhl &amp; Giardina 1982)</h3>
+      <table style="${eT}"><thead><tr>
+        <th style="${eTh}">Parámetro</th><th style="${eTh}">Valor</th>
+      </tr></thead><tbody>
+        <tr><td style="${eTd}">Armónicos calculados</td><td style="${eTd}">${efa.n_harmonics}</td></tr>
+        <tr><td style="${eTd}">Armónicos para 95% varianza</td><td style="${eTd}">h${efa.harmonics_for_95pct ?? 'N/A'}</td></tr>
+        <tr><td style="${eTd}">Armónicos para 99% varianza</td><td style="${eTd}">h${efa.harmonics_for_99pct ?? 'N/A'}</td></tr>
+        <tr><td style="${eTd}">Puntos de entrada</td><td style="${eTd}">${efa.n_points_input ?? 'N/A'}</td></tr>
+        ${efaPs.length > 0 ? `<tr><td style="${eTd}">Varianza H1 (dominante)</td><td style="${eTd}">${Number(efaPs[0]).toFixed(4)}</td></tr>` : ''}
+        ${efaPs.length > 1 ? `<tr><td style="${eTd}">Varianza H2</td><td style="${eTd}">${Number(efaPs[1]).toFixed(4)}</td></tr>` : ''}
+        ${efaPs.length > 2 ? `<tr><td style="${eTd}">Varianza H3</td><td style="${eTd}">${Number(efaPs[2]).toFixed(4)}</td></tr>` : ''}
+      </tbody></table>
+      <p style="font-size:9px;color:#64748b;margin-top:-8px;">
+        Coeficientes completos en <code>${ref.carpeta}_efa_contorno.csv</code></p>` : '';
+
+    const fecha = new Date().toLocaleDateString('es-ES',
+      { year:'numeric', month:'long', day:'numeric' });
+
+    return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+    <title>Reporte MAO — ${ref.nombreObjeto || ref.carpeta}</title>
+    <style>
+      body { font-family:'Segoe UI',Arial,sans-serif; font-size:11px; color:#111; margin:20px; }
+      h2   { color:#1e3a5f; font-size:16px; margin-bottom:2px; }
+      h3   { color:#1e3a5f; font-size:12px; margin:14px 0 4px; border-bottom:2px solid #1e3a5f; padding-bottom:3px; }
+      @media print { body { margin:8mm; } h3 { page-break-after:avoid; } table { page-break-inside:avoid; } }
+    </style></head><body>
+
+    <h2>Reporte Morfométrico MAO Plus</h2>
+    <p style="color:#64748b;font-size:10px;margin-top:2px;">
+      Generado: ${fecha} &nbsp;·&nbsp; MAO ${m.mao_version || '1.2'}
+      &nbsp;·&nbsp; Enriquecido: ${m.enriched_at ? m.enriched_at.slice(0,10) : 'N/A'}
+    </p>
+    <hr style="border:none;border-top:1px solid #e2e8f0;margin:8px 0 12px;"/>
+
+    <h3>Identificación</h3>
+    <table style="${eT}"><tbody>
+      <tr><td style="${eTd};width:38%;"><b>ID / Carpeta</b></td><td style="${eTd}">${ref.carpeta}</td></tr>
+      <tr><td style="${eTd}"><b>Nombre objeto</b></td><td style="${eTd}">${ref.nombreObjeto || '—'}</td></tr>
+      <tr><td style="${eTd}"><b>Cara</b></td><td style="${eTd}">${ref.cara || 'Monofacial'}</td></tr>
+      <tr><td style="${eTd}"><b>Fecha análisis</b></td><td style="${eTd}">${ref.timestamp ? ref.timestamp.slice(0,10) : 'N/A'}</td></tr>
+      <tr><td style="${eTd}"><b>Forma detectada</b></td><td style="${eTd}">${m.forma_detectada || 'N/A'}</td></tr>
+      <tr><td style="${eTd}"><b>Método detección</b></td><td style="${eTd}">${m.detection_method || 'N/A'}</td></tr>
+      <tr><td style="${eTd}"><b>Confianza detección</b></td><td style="${eTd}">${m.confidence_level || '—'} (${m.detection_confidence != null ? Number(m.detection_confidence).toFixed(3) : 'N/A'})</td></tr>
+    </tbody></table>
+
+    ${visualBlock}
+
+    ${secs}
+    ${efaHtml}
+    </body></html>`;
+  };
+
   // Nota: La definición de función ha sido movida a visualization-export.js
   // Para mantener compatibilidad con el closure, se expone como referencia al módulo.
 
@@ -20398,7 +20603,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #fd7e14;">
-        3. MÉTRICAS MORFOLÓGICAS PRINCIPALES
+        I. MÉTRICAS MORFOLÓGICAS PRINCIPALES
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -20481,7 +20686,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6610f2;">
-        4. ORIENTACIÓN Y EJES PRINCIPALES
+        XI-a. ORIENTACIÓN Y EJES PRINCIPALES
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -20517,73 +20722,24 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     `;
   }
 
-  function generarSeccionSimetria(metricas, estiloTabla, estiloTh, estiloTd) {
-    // Convertir a número para evitar errores de toFixed()
-    const simetriaBilateral = parseFloat(metricas.simetria_bilateral) || 0;
-    const distanciaAsimetria = parseFloat(metricas.simetria_distancia_asimetria) || 0;
-    const indiceEstrellamiento = parseFloat(metricas.indice_estrellamiento) || 0;
-    
-    return `
-      <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #e83e8c;">
-        5. SIMETRÍA Y MORFOLOGÍA AVANZADA
-      </h3>
-      <table style="${estiloTabla}">
-        <thead>
-          <tr>
-            <th style="${estiloTh}; width: 40%;">Métrica</th>
-            <th style="${estiloTh}; width: 30%;">Valor</th>
-            <th style="${estiloTh}; width: 30%;">Descripción</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Simetría Bilateral</td>
-            <td style="${estiloTd}; font-weight: 600;">${(simetriaBilateral * 100).toFixed(1)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Grado de simetría respecto al eje mayor</td>
-          </tr>
-          <tr>
-            <td style="${estiloTd}; font-weight: 600;">Clasificación de Simetría</td>
-            <td style="${estiloTd}">${metricas.simetria_clasificacion || 'N/A'}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Categoría de simetría</td>
-          </tr>
-          <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Distancia de Asimetría</td>
-            <td style="${estiloTd}">${distanciaAsimetria.toFixed(2)} mm</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Desplazamiento de simetría</td>
-          </tr>
-          <tr>
-            <td style="${estiloTd}; font-weight: 600;">Índice de Estrellamiento</td>
-            <td style="${estiloTd}">${indiceEstrellamiento.toFixed(3)}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Presencia de protuberancias</td>
-          </tr>
-          <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Clasificación de Estrellamiento</td>
-            <td style="${estiloTd}">${metricas.estrellamiento_clasificacion || 'N/A'}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Tipo de estrellamiento</td>
-          </tr>
-        </tbody>
-      </table>
-    `;
-  }
-
   /**
-   * 20. PERFORACIONES (detalle completo de cada perforación)
+   * X. PERFORACIONES (detalle completo de cada perforación)
    */
   function generarSeccionPerforaciones(obj, metricas, estiloTabla, estiloTh, estiloTd) {
     if (!obj.perforaciones || obj.perforaciones.length === 0) {
       return `
         <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #0066cc;">
-          20. PERFORACIONES (Orificios Pasantes)
+          X. PERFORACIONES (Orificios Pasantes)
         </h3>
-        <div style="padding: 20px; background: #f0f2f5; border-left: 4px solid #0066cc; border-radius: 4px; text-align: center;">
-          <strong>No se detectaron perforaciones en este objeto</strong>
+        <div style="padding:10px 14px;background:#f0f4fa;border-left:3px solid #0066cc;border-radius:3px;font-size:10px;color:#374151;">
+          <strong>Sin datos —</strong> No se registraron perforaciones (orificios pasantes) en este objeto. El análisis morfométrico no incluye esta categoría.
         </div>
       `;
     }
     
     let html = `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #0066cc;">
-        20. PERFORACIONES (Orificios Pasantes) - ${obj.perforaciones.length} detectada(s)
+        X. PERFORACIONES (Orificios Pasantes) - ${obj.perforaciones.length} detectada(s)
       </h3>
     `;
     
@@ -20848,23 +21004,23 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   }
 
   /**
-   * 21. HORADACIONES (detalle completo de cada horadación)
+   * X-b. HORADACIONES (detalle completo de cada horadación)
    */
   function generarSeccionHoradaciones(obj, metricas, estiloTabla, estiloTh, estiloTd) {
     if (!obj.horadaciones || obj.horadaciones.length === 0) {
       return `
         <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #28a745;">
-          21. HORADACIONES (Concavidades Ciegas)
+          X-b. HORADACIONES (Concavidades Ciegas)
         </h3>
-        <div style="padding: 20px; background: #d4edda; border-left: 4px solid #28a745; border-radius: 4px; text-align: center;">
-          <strong>No se detectaron horadaciones en este objeto</strong>
+        <div style="padding:10px 14px;background:#f0faf3;border-left:3px solid #28a745;border-radius:3px;font-size:10px;color:#374151;">
+          <strong>Sin datos —</strong> No se registraron horadaciones (concavidades ciegas) en este objeto. El análisis morfométrico no incluye esta categoría.
         </div>
       `;
     }
     
     let html = `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #28a745;">
-        21. HORADACIONES (Concavidades Ciegas) - ${obj.horadaciones.length} detectada(s)
+        X-b. HORADACIONES (Concavidades Ciegas) - ${obj.horadaciones.length} detectada(s)
       </h3>
     `;
     
@@ -22113,7 +22269,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6c757d;">
-        VI-b. Simetría Bilateral
+        XI-b. SIMETRÍA Y MORFOLOGÍA AVANZADA
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -30840,6 +30996,20 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   // ADR-007 §D3 — cableado event-driven con el organizer de Captura (presentación):
   //   organizer → batch / toggle de filtro ; core → lógica + re-render del grid.
   document.addEventListener('mao:batch-analyze:request', function () { _analizarTodos(); });
+
+  // Enriquecimiento retroactivo de métricas por lote
+  document.addEventListener('mao:enrich:request', function (e) {
+    if (typeof window.projectManager?.enrichCollection !== 'function') return;
+    const d          = e && e.detail || {};
+    const projectId  = d.projectId;
+    const folderPath = d.folderPath;   // proyectos externos sin proyectoId registrado
+    if (!projectId && !folderPath) return;
+    window.projectManager.enrichCollection(projectId, d.options || {}, folderPath)
+      .then(s  => document.dispatchEvent(new CustomEvent('mao:enrich:complete', { detail: s })))
+      .catch(err => document.dispatchEvent(new CustomEvent('mao:enrich:error',
+        { detail: { message: err && err.message } })));
+  });
+
   document.addEventListener('mao:triage-filter:toggle', function () {
     _filtroSoloRevisar = !_filtroSoloRevisar;
     individualizarObjetos();
@@ -34519,6 +34689,9 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           }, 0) / obj.horadaciones.length) / (obj.metricas.area || 1)) : 0
       },
       
+      // EFA — coeficientes y espectro del contorno principal (si fue calculado)
+      _efa_data: obj.metricas._efa_data || obj._efa_data || null,
+
       // Clasificación de forma
       clasificacionForma: obj.metricas.forma_detectada || obj.metricas.shape_classification || 'no_clasificada',
       metodoClasificacion: obj.metricas.classification_method || 'meta-clasificacion',
@@ -52438,10 +52611,10 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       // tengan IDs distintos y no se sobreescriban mutuamente en objects[].
       const numPad   = String(o.object_id).padStart(3, '0');
       const caraSufx = cara ? ('_Cara' + cara) : '';
-      const objId    = (nombreSafe ? nombreSafe + '_IA_' + numPad : 'IAobj_' + numPad) + caraSufx;
+      const objId    = (nombreSafe ? nombreSafe + '_' + numPad : 'obj_' + numPad) + caraSufx;
       const label    = (nombreBase
-        ? nombreBase + ' — obj. IA #' + o.object_id
-        : (o.label || 'Obj. IA #' + o.object_id))
+        ? nombreBase + ' — obj. #' + o.object_id
+        : (o.label || 'Obj. #' + o.object_id))
         + (cara ? ' (Cara ' + cara + ')' : '');
 
       // Métricas básicas disponibles desde la respuesta AIA (sin Python adicional)

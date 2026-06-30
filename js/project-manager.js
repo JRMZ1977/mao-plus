@@ -1668,7 +1668,11 @@ class ProjectManager {
       //    Incluye formatos nuevo (analisis_*) y antiguo (ID arqueológico directo)
       const listCheck = await window.electronAPI.listDirectory(project.folderPath);
       let realFolderCount = 0;
-      const _CARPETAS_SISTEMA = new Set(['imagenes', 'img', 'images', 'thumbnails']);
+      const _CARPETAS_SISTEMA = new Set([
+        'imagenes', 'img', 'images', 'thumbnails',
+        'aps', 'cmo', '_exportados', 'exportados',
+        'exports', 'export', 'csv', 'pdf', 'reports', 'temp', 'tmp', 'cache',
+      ]);
       if (listCheck.success) {
         realFolderCount = listCheck.items.filter(i =>
           i.isDirectory &&
@@ -1790,7 +1794,12 @@ class ProjectManager {
       //    - El formato antiguo usa el ID arqueológico directamente (ej: DRG21_25069_01_ca)
       //    - Se incluyen TODAS las subcarpetas no ocultas (la presencia de metadata.json
       //      confirma si es un análisis; la lectura fallida descarta carpetas no-análisis)
-      const CARPETAS_SISTEMA = new Set(['imagenes', 'img', 'images', 'thumbnails']);
+      const CARPETAS_SISTEMA = new Set([
+        'imagenes', 'img', 'images', 'thumbnails',
+        'aps', 'cmo', '_exportados', 'exportados',
+        'exports', 'export', 'csv', 'pdf', 'reports',
+        'temp', 'tmp', 'cache',
+      ]);
       const analysisFolders = listResult.items.filter(item =>
         item.isDirectory &&
         !item.name.startsWith('.') &&
@@ -2390,7 +2399,479 @@ class ProjectManager {
 
     return true;
   }
+
+  // ============================================================================
+  // ENRIQUECIMIENTO RETROACTIVO DE MÉTRICAS POR LOTE
+  // Lee todos los análisis guardados en disco, computa las métricas nuevas
+  // (error óptico + incertidumbre) desde los parámetros ya almacenados, y
+  // escribe metricas.json de vuelta sin tocar las métricas originales.
+  //
+  // Requiere que window.estimarErrorOptico y window.aplicarIncertidumbreOptica
+  // estén disponibles (exportados por analysis-core.js al arrancar).
+  //
+  // Emite:  mao:enrich:progress  { done, total, nombreObjeto, fase }
+  //         mao:enrich:complete  { enriched, skipped, errors }
+  //         mao:enrich:error     { message }
+  // ============================================================================
+  async enrichCollection(projectId, options = {}, overrideFolderPath = null) {
+    const MAO_VERSION = '1.2.0';
+    const _emit = (nombre, detail) =>
+      document.dispatchEvent(new CustomEvent(nombre, { detail }));
+
+    // Resolver project: desde projectId o desde folderPath directo (proyectos externos)
+    let project = projectId ? this.getProject(projectId) : null;
+    if (!project && overrideFolderPath) {
+      // Proyecto externo no registrado en projectManager — construir referencia mínima
+      project = this.projects.find(p => p.folderPath === overrideFolderPath) || {
+        id: null,
+        name: overrideFolderPath.split('/').pop(),
+        folderPath: overrideFolderPath
+      };
+    }
+    if (!project || !project.folderPath) {
+      _emit('mao:enrich:error', { message: 'Proyecto no encontrado o sin carpeta configurada' });
+      return { enriched: 0, skipped: 0, errors: ['Proyecto no encontrado'] };
+    }
+
+    // Verificar que las funciones de cálculo están disponibles
+    if (typeof window.estimarErrorOptico !== 'function') {
+      _emit('mao:enrich:error', { message: 'Motor de cálculo no disponible — recargar la aplicación' });
+      return { enriched: 0, skipped: 0, errors: ['estimarErrorOptico no disponible'] };
+    }
+
+    const _fs = _getFsAdapter();
+    if (!_fs) {
+      _emit('mao:enrich:error', { message: 'Sin acceso al sistema de archivos' });
+      return { enriched: 0, skipped: 0, errors: ['Sin adaptador FS'] };
+    }
+
+    // 1. Cargar índice de la colección
+    // Cargar colección: desde projectId si existe, o desde currentCollection en memoria,
+    // o reconstruyendo el índice desde el folderPath del proyecto
+    let collection = null;
+    if (project.id) {
+      collection = await this.loadProjectCollection(project.id);
+    }
+    if (!collection && window.currentCollection &&
+        window.currentCollection.folderPath === project.folderPath) {
+      collection = window.currentCollection;
+    }
+    if (!collection) {
+      collection = await this.rebuildCollectionIndex(project);
+    }
+    if (!collection || !(collection.objetos || []).length) {
+      _emit('mao:enrich:error', { message: 'La colección está vacía o no pudo cargarse' });
+      return { enriched: 0, skipped: 0, errors: ['Colección vacía'] };
+    }
+
+    const objetos   = collection.objetos;
+    const total     = objetos.length;
+    let enriched = 0, skipped = 0;
+    const errors = [];
+    const filasCsv = []; // acumula una fila por objeto para el CSV colección
+
+    // Carpeta centralizada de exportación: {proyecto}/_exportados/YYYY-MM-DD/
+    const fechaExport = new Date().toISOString().slice(0, 10);
+    const exportDir   = `${project.folderPath}/_exportados/${fechaExport}`;
+    let   exportDirOk = false;
+    try {
+      if (window.electronAPI?.ensureFolder) {
+        const mkRes = await window.electronAPI.ensureFolder(exportDir);
+        exportDirOk = !!(mkRes && mkRes.success);
+      }
+    } catch (_) { /* no crítico — los PDFs/EFAs se omitirán si falla */ }
+    window._maoLog(`[enrichCollection] Carpeta exportados: ${exportDir} — ok=${exportDirOk}`);
+
+    for (let i = 0; i < objetos.length; i++) {
+      const ref = objetos[i];
+      const folderPath = `${project.folderPath}/${ref.carpeta}`;
+      const nombreObj  = ref.nombreObjeto || ref.carpeta;
+
+      _emit('mao:enrich:progress', { done: i, total, nombreObjeto: nombreObj, fase: 'leyendo' });
+
+      try {
+        // 2. Leer análisis completo desde disco
+        const analysis = await this.loadAnalysisFromDisk(folderPath);
+        if (!analysis) { skipped++; errors.push(`${nombreObj}: no pudo cargarse`); continue; }
+
+        const metricas = analysis.metricas || {};
+        const cap      = analysis.configuracion?.parametros_captura || {};
+
+        // 3. Normalizar ID heredado con _IA_ (análisis anteriores al fix canónico)
+        const metadataPath = `${folderPath}/metadata.json`;
+        if (analysis.nombreObjeto && typeof analysis.nombreObjeto === 'string') {
+          // Solo leer/reescribir si el id del objeto en disco tiene _IA_ embebido
+          const metaResult = await _fs.readFile ? _fs.readFile(metadataPath) :
+                             (window.electronAPI ? await window.electronAPI.readFile(metadataPath) : { success: false });
+          if (metaResult && metaResult.success) {
+            try {
+              const meta = JSON.parse(metaResult.content);
+              const oldId = meta.id || '';
+              if (typeof oldId === 'string' && oldId.includes('_IA_')) {
+                const newId = oldId.replace(/_IA_/g, '_');
+                meta.id = newId;
+                meta._id_legacy = oldId; // trazabilidad
+                const _writeApi = window.electronAPI || null;
+                if (_writeApi) await _writeApi.saveFile(metadataPath, JSON.stringify(meta, null, 2));
+              }
+            } catch (_) { /* metadata legible pero no crítica para el enriquecimiento */ }
+          }
+        }
+
+        // 4. Calcular error óptico desde parámetros de captura almacenados
+        const focalMM       = parseFloat(cap.focal_mm)    || 0;
+        const sensorW       = parseFloat(cap.sensor_w_mm) || 0;
+        const sensorH       = parseFloat(cap.sensor_h_mm) || sensorW;
+        const distanciaObjMM = parseFloat(cap.distancia_mm) || 0;
+        const imgW          = parseFloat(cap.img_w)       || 0;
+        const imgH          = parseFloat(cap.img_h)       || 0;
+        const cx            = parseFloat(metricas.centroide_hull_x || metricas.centroide_x) || (imgW / 2);
+        const cy            = parseFloat(metricas.centroide_hull_y || metricas.centroide_y) || (imgH / 2);
+
+        let nuevasMetricas = {};
+
+        if (focalMM && sensorW && imgW && distanciaObjMM) {
+          const eo = window.estimarErrorOptico({
+            objCentroide: { x: cx, y: cy },
+            imgW, imgH, focalMM, sensorW, sensorH, distanciaObjMM
+          });
+          if (eo) {
+            nuevasMetricas.error_optico_lineal_percent  = eo.error_lineal_percent;
+            nuevasMetricas.error_optico_area_percent    = eo.error_area_percent;
+            nuevasMetricas.error_perspectiva_percent    = eo.error_perspectiva_percent;
+            nuevasMetricas.error_distorsion_percent     = eo.error_distorsion_percent;
+            nuevasMetricas.posicion_radial_norm         = eo.posicion_radial_norm;
+            nuevasMetricas.posicion_radial_px           = eo.posicion_radial_px;
+            nuevasMetricas.angulo_optico_deg            = eo.angulo_optico_deg;
+            nuevasMetricas.k1_estimado                  = eo.k1_estimado;
+            nuevasMetricas.fov_diagonal_deg             = eo.fovDiagDeg;
+            nuevasMetricas.confianza_optica             = eo.confianza_optica;
+            nuevasMetricas.nota_error_optico            = eo.nota;
+            // La propagación de incertidumbre necesita las métricas base (area, perimeter…)
+            // que están en metricas (leído del disco), no en nuevasMetricas.
+            // Se aplica después del merge en el paso 5 — guardamos eo para usarlo allí.
+            nuevasMetricas._eo_pendiente = eo;
+          } else {
+            nuevasMetricas.nota_error_optico = `Error óptico no calculado — estimarErrorOptico retornó null`;
+          }
+        } else {
+          const faltantes = [
+            !focalMM       && 'focal_mm',
+            !sensorW       && 'sensor_w_mm',
+            !imgW          && 'img_w',
+            !distanciaObjMM && 'distancia_mm'
+          ].filter(Boolean).join(', ');
+          nuevasMetricas.nota_error_optico =
+            `Parámetros de captura insuficientes para error óptico: faltan [${faltantes}]. ` +
+            `Recalibrar escala con parámetros completos y re-enriquecer.`;
+        }
+
+        // 4b. EFA retroactivo: si no hay _efa_data pero hay puntos de contorno, calcular ahora
+        if (!metricas._efa_data && window.PythonBridge && typeof window.PythonBridge.efa?.calculate === 'function') {
+          const _contourPts = metricas._contour_data?.points;
+          if (Array.isArray(_contourPts) && _contourPts.length >= 8) {
+            try {
+              _emit('mao:enrich:progress', { done: i + 1, total, nombreObjeto: nombreObj, fase: 'efa' });
+              const _efaResult = await window.PythonBridge.efa.calculate(_contourPts, { n_harmonics: 40 });
+              if (_efaResult && _efaResult.status === 'ok') {
+                nuevasMetricas._efa_data = _efaResult;
+              }
+            } catch (_efaErr) {
+              window._maoLog(`[enrichCollection] EFA retroactivo fallido para ${nombreObj}:`, _efaErr.message);
+            }
+          }
+        }
+
+        // 5. Merge ADITIVO: nuevas métricas se añaden; las originales nunca se sobreescriben
+        //    salvo si options.forceOverwrite es true
+        const eoPendiente = nuevasMetricas._eo_pendiente || null;
+        delete nuevasMetricas._eo_pendiente;
+
+        const metricasFinal = { ...metricas };
+        for (const [k, v] of Object.entries(nuevasMetricas)) {
+          if (options.forceOverwrite || metricasFinal[k] == null) {
+            metricasFinal[k] = v;
+          }
+        }
+
+        // Propagar incertidumbre sobre metricasFinal (que ya tiene area, perimeter, etc.)
+        if (eoPendiente && typeof window.aplicarIncertidumbreOptica === 'function') {
+          window.aplicarIncertidumbreOptica(metricasFinal, eoPendiente);
+          // aplicarIncertidumbreOptica ya escribe _incertidumbre_optica_aplicada = true
+        }
+
+        // 6. Sellar con trazabilidad de versión
+        metricasFinal.enriched_at   = new Date().toISOString();
+        metricasFinal.mao_version   = MAO_VERSION;
+
+        // 7. Escribir metricas.json actualizado (sin tocar el resto de la carpeta)
+        const metricasPath = `${folderPath}/metricas.json`;
+        const metricasActual = await (window.electronAPI
+          ? window.electronAPI.readFile(metricasPath)
+          : { success: false });
+
+        let metricasDoc = { objeto: {}, perforaciones: [], horadaciones: [], estadisticas: {} };
+        if (metricasActual && metricasActual.success) {
+          try { metricasDoc = JSON.parse(metricasActual.content); } catch (_) { /* usar default */ }
+        }
+        metricasDoc.objeto = metricasFinal;
+
+        const writeApi = window.electronAPI || null;
+        if (!writeApi) { skipped++; errors.push(`${nombreObj}: sin API de escritura`); continue; }
+
+        const writeResult = await writeApi.saveFile(
+          metricasPath,
+          JSON.stringify(metricasDoc, null, 2)
+        );
+        if (!writeResult || !writeResult.success) {
+          errors.push(`${nombreObj}: error escribiendo metricas.json`);
+          skipped++;
+          continue;
+        }
+
+        // 7b-7c. Exportar EFA (CSV) y PDF a carpeta centralizada _exportados/FECHA/
+        if (exportDirOk) {
+          const objSlug = ref.carpeta.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+          // EFA contorno principal
+          const efaContorno = metricasDoc.objeto && metricasDoc.objeto._efa_data;
+          if (efaContorno && Array.isArray(efaContorno.coefficients) && efaContorno.coefficients.length > 0) {
+            try {
+              await writeApi.saveFile(
+                `${exportDir}/${objSlug}_efa_contorno.csv`,
+                _buildEfaCsvContent(efaContorno, nombreObj, 'contorno')
+              );
+            } catch (_) { /* no crítico */ }
+          }
+
+          // EFA perforaciones y horadaciones
+          for (let _phIdx = 0; _phIdx < (metricasDoc.perforaciones || []).length; _phIdx++) {
+            const _phEfa = metricasDoc.perforaciones[_phIdx]._efa_data;
+            if (_phEfa && Array.isArray(_phEfa.coefficients) && _phEfa.coefficients.length > 0) {
+              try {
+                await writeApi.saveFile(
+                  `${exportDir}/${objSlug}_efa_perforacion_${_phIdx + 1}.csv`,
+                  _buildEfaCsvContent(_phEfa, nombreObj, `perforacion_${_phIdx + 1}`)
+                );
+              } catch (_) { /* no crítico */ }
+            }
+          }
+          for (let _hoIdx = 0; _hoIdx < (metricasDoc.horadaciones || []).length; _hoIdx++) {
+            const _hoEfa = metricasDoc.horadaciones[_hoIdx]._efa_data;
+            if (_hoEfa && Array.isArray(_hoEfa.coefficients) && _hoEfa.coefficients.length > 0) {
+              try {
+                await writeApi.saveFile(
+                  `${exportDir}/${objSlug}_efa_horadacion_${_hoIdx + 1}.csv`,
+                  _buildEfaCsvContent(_hoEfa, nombreObj, `horadacion_${_hoIdx + 1}`)
+                );
+              } catch (_) { /* no crítico */ }
+            }
+          }
+
+          // PDF del reporte enriquecido
+          if (typeof window.generarHTMLReporteParaBatch === 'function' &&
+              typeof window.electronAPI?.generatePDFFromHTML === 'function') {
+            try {
+              _emit('mao:enrich:progress', { done: i + 1, total, nombreObjeto: nombreObj, fase: 'pdf' });
+              // Imagen recortada del objeto
+              let imgBase64 = null;
+              for (const imgPath of [
+                `${folderPath}/imagenes/objeto_recortado.png`,
+                `${folderPath}/imagenes/objeto_recortado.jpg`,
+                `${folderPath}/imagenes/objeto.png`,
+              ]) {
+                const imgRes = await window.electronAPI.readFile(imgPath);
+                if (imgRes && imgRes.success && imgRes.content) { imgBase64 = imgRes.content; break; }
+              }
+              // PNGs de análisis ya renderizados — fuente canónica, sin recálculo
+              const _readImg = async (p) => {
+                const r = await window.electronAPI.readFile(p);
+                return (r && r.success && r.content) ? r.content : null;
+              };
+              const pngs = {
+                morf:  await _readImg(`${folderPath}/imagenes/analisis_morfologico.png`),
+                esqu:  await _readImg(`${folderPath}/imagenes/esquema_morfometrico.png`),
+                ideal: await _readImg(`${folderPath}/imagenes/forma_idealizada.png`),
+              };
+              const htmlReporte = await window.generarHTMLReporteParaBatch(
+                ref, metricasFinal, metricasDoc, pngs);
+              await window.electronAPI.generatePDFFromHTML(
+                htmlReporte, `${exportDir}/${objSlug}_reporte_MAO.pdf`);
+            } catch (_pdfErr) {
+              console.warn(`[enrichCollection] PDF error ${nombreObj}:`, _pdfErr.message, _pdfErr.stack);
+            }
+          }
+        }
+
+        // Acumular fila para el CSV colección
+        filasCsv.push(_buildEnrichCsvRow(ref, metricasFinal));
+
+        enriched++;
+        _emit('mao:enrich:progress', { done: i + 1, total, nombreObjeto: nombreObj, fase: 'guardado' });
+
+      } catch (err) {
+        console.warn(`[enrichCollection] ${nombreObj}:`, err && err.message);
+        errors.push(`${nombreObj}: ${err && err.message}`);
+        skipped++;
+      }
+
+      // Ceder el hilo entre objetos (mismo patrón que _analizarTodos)
+      await new Promise(res => setTimeout(res, 0));
+    }
+
+    // 8. Regenerar resumen CSV del proyecto con datos actualizados
+    try { await this.updateProjectSummaryCSV(); } catch (_) { /* no crítico */ }
+
+    // 9. Guardar CSV de colección en _exportados/ + descarga en browser
+    if (filasCsv.length > 0) {
+      try {
+        const csvContent = _buildEnrichCsvContent(collection.nombre || project.name, filasCsv);
+        const csvSlug    = (collection.nombre || project.name).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const csvName    = `${csvSlug}_enriquecido_${fechaExport}.csv`;
+        // Guardar copia en _exportados/ para tenerlo junto a PDFs y EFAs
+        if (exportDirOk) {
+          try {
+            await (window.electronAPI || _fs).saveFile(`${exportDir}/${csvName}`, csvContent);
+          } catch (_) { /* no crítico */ }
+        }
+        // Descarga automática en el navegador (comportamiento previo)
+        _emit('mao:enrich:csv-ready', { csvContent, csvName });
+      } catch (_) { /* CSV no crítico */ }
+    }
+
+    // El evento mao:enrich:complete lo emite el listener en analysis-core.js
+    // desde el .then() del Promise — no emitirlo aquí para evitar doble disparo.
+    return { enriched, skipped, errors, total, exportDir: exportDirOk ? exportDir : null };
+  }
+}
+
+// ── Helpers CSV para el enriquecimiento por lote ────────────────────────────
+
+function _csvVal(v) {
+  if (v == null || v === '') return '';
+  const s = String(v);
+  // Escapar comillas y envolver en comillas si contiene coma, comilla o salto
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function _f(v, dec) {
+  const n = parseFloat(v);
+  return isNaN(n) ? '' : n.toFixed(dec != null ? dec : 4);
+}
+
+function _buildEnrichCsvRow(ref, m) {
+  // Columnas: identificación + morfología base + error óptico + incertidumbre + EFA resumen
+  const efa = (m && m._efa_data) || {};
+  const efaPs = Array.isArray(efa.power_spectrum) ? efa.power_spectrum : [];
+  return [
+    ref.carpeta,
+    ref.nombreObjeto,
+    ref.cara || 'Mono',
+    ref.modo || 'monofacial',
+    ref.timestamp ? ref.timestamp.slice(0, 10) : '',
+    // — Morfología base —
+    _f(m.area, 3),
+    _f(m.perimeter, 3),
+    _f(m.circularity, 4),
+    _f(m.elongation, 4),
+    _f(m.solidity, 4),
+    _f(m.convexity, 4),
+    _f(m.aspect_ratio, 4),
+    _csvVal(m.forma_detectada),
+    // — Detección —
+    _csvVal(m.detection_method),
+    _f(m.detection_confidence, 4),
+    _csvVal(m.confidence_level),
+    // — Error óptico (campos nuevos) —
+    _f(m.error_optico_lineal_percent, 4),
+    _f(m.error_optico_area_percent, 4),
+    _f(m.error_perspectiva_percent, 4),
+    _f(m.error_distorsion_percent, 4),
+    _f(m.posicion_radial_norm, 4),
+    _f(m.angulo_optico_deg, 2),
+    _f(m.confianza_optica, 4),
+    _csvVal(m.nota_error_optico),
+    // — Incertidumbre propagada (métricas clave) —
+    _f(m.area_incertidumbre_abs, 4),
+    _f(m.area_rango_min, 3),
+    _f(m.area_rango_max, 3),
+    _f(m.perimeter_incertidumbre_abs, 4),
+    _f(m.eje_mayor_incertidumbre_abs, 4),
+    _f(m.eje_menor_incertidumbre_abs, 4),
+    // — EFA resumen (contorno principal) —
+    efa.n_harmonics != null ? String(efa.n_harmonics) : '',
+    efa.harmonics_for_95pct != null ? String(efa.harmonics_for_95pct) : '',
+    efa.harmonics_for_99pct != null ? String(efa.harmonics_for_99pct) : '',
+    efaPs.length > 0 ? _f(efaPs[0], 6) : '',   // varianza H1 (armónico dominante)
+    efaPs.length > 1 ? _f(efaPs[1], 6) : '',   // varianza H2
+    efaPs.length > 2 ? _f(efaPs[2], 6) : '',   // varianza H3
+    efa.n_points_input != null ? String(efa.n_points_input) : '',
+    // — Trazabilidad —
+    _csvVal(m.enriched_at),
+    _csvVal(m.mao_version),
+  ].map(_csvVal).join(',');
+}
+
+function _buildEnrichCsvContent(projectName, filas) {
+  const headers = [
+    'Carpeta', 'Objeto', 'Cara', 'Modo', 'Fecha_análisis',
+    // Morfología
+    'Área_mm2', 'Perímetro_mm', 'Circularidad', 'Elongación', 'Solidez',
+    'Convexidad', 'Aspect_ratio', 'Forma_detectada',
+    // Detección
+    'Método_detección', 'Confianza_score', 'Confianza_nivel',
+    // Error óptico
+    'Error_óptico_lineal_%', 'Error_óptico_área_%', 'Error_perspectiva_%',
+    'Error_distorsión_%', 'Posición_radial_norm', 'Ángulo_óptico_deg',
+    'Confianza_óptica', 'Nota_error_óptico',
+    // Incertidumbre
+    'Área_incertidumbre_abs', 'Área_min', 'Área_max',
+    'Perímetro_incertidumbre_abs', 'Eje_mayor_incertidumbre_abs', 'Eje_menor_incertidumbre_abs',
+    // EFA — resumen del contorno principal
+    'EFA_armónicos', 'EFA_h95pct', 'EFA_h99pct',
+    'EFA_varH1', 'EFA_varH2', 'EFA_varH3', 'EFA_puntos_entrada',
+    // Trazabilidad
+    'Enriched_at', 'MAO_version',
+  ];
+  const meta = [
+    '# MAO Plus — Colección enriquecida: ' + _csvVal(projectName),
+    '# Generado: ' + new Date().toISOString(),
+    '# Las columnas de incertidumbre (rango_min / rango_max) son propagadas desde el error óptico posicional',
+    '# EFA_varH1-H3: varianza acumulada de los 3 primeros armónicos (espectro de potencia normalizado)',
+    '# Los coeficientes completos (an/bn/cn/dn) se guardan por objeto en efa_contorno.csv / efa_ph_N.csv',
+    '',
+  ];
+  return meta.join('\n') + headers.join(',') + '\n' + filas.join('\n');
+}
+
+function _buildEfaCsvContent(efaData, nombreObj, tipoContorno) {
+  // Genera el contenido del CSV de coeficientes EFA para un contorno (principal o P/H)
+  // Formato: harmonic,an,bn,cn,dn[,power_spectrum]
+  const coeffs = Array.isArray(efaData.coefficients) ? efaData.coefficients : [];
+  const ps     = Array.isArray(efaData.power_spectrum) ? efaData.power_spectrum : [];
+  const meta = [
+    `# MAO Plus — EFA coeficientes: ${_csvVal(nombreObj)} / ${tipoContorno}`,
+    `# Generado: ${new Date().toISOString()}`,
+    `# Armónicos: ${efaData.n_harmonics || coeffs.length} | Puntos entrada: ${efaData.n_points_input || 'N/A'}`,
+    `# 95% varianza en: h${efaData.harmonics_for_95pct || 'N/A'} | 99%: h${efaData.harmonics_for_99pct || 'N/A'}`,
+    `# Método: Kuhl & Giardina (1982). Normalización: primer armónico = referencia de escala/fase`,
+    '',
+  ];
+  const hasPs = ps.length > 0;
+  const header = hasPs ? 'harmonic,an,bn,cn,dn,power_spectrum' : 'harmonic,an,bn,cn,dn';
+  const rows = coeffs.map((c, idx) => {
+    if (!Array.isArray(c) || c.length < 4) return null;
+    const base = `${idx + 1},${c[0]},${c[1]},${c[2]},${c[3]}`;
+    return hasPs && ps[idx] != null ? `${base},${ps[idx]}` : base;
+  }).filter(Boolean);
+  return meta.join('\n') + header + '\n' + rows.join('\n') + '\n';
 }
 
 // Instancia global
 const projectManager = new ProjectManager();
+// Exponer en window para que organizers y módulos externos puedan acceder
+// (const a nivel de script clásico NO se asigna automáticamente a window)
+window.projectManager = projectManager;
