@@ -49923,6 +49923,7 @@ TODAS ESTAS MEJORAS SON:
   if (window._MAO_DEBUG) window.auditoriaSistemaMAO = auditoriaSistemaMAO;
   window.detectarObjetos = detectarObjetos;
   window.analizarObjetoMorfologicamente = analizarObjetoMorfologicamente;
+  window.eliminarTrazo = eliminarTrazo;
   
   // ============================================================================
   // 🆕 FUNCIONES PARA TABLA COMPARATIVA DE MÚLTIPLES OBJETOS
