@@ -11,6 +11,9 @@ import * as UtilityHelpers from './modules/utility-helpers.js?v=20260614e';
 import * as MetricsOrchestrator from './modules/metrics-orchestrator.js';
 import * as VisualizationExport from './modules/visualization-export.js';
 import * as BifacialAnalysis from './modules/bifacial-analysis.js';
+import * as MetricPresenter from './modules/metric-presenter.js';  // fuente única de rótulos (ADR-016)
+// Exponer en window para superficies que NO son ES modules (p. ej. project-manager.js, script clásico)
+if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
 
 (() => {
   // ── Producción: console.log silenciado; warn/error siempre activos ────────
@@ -6106,19 +6109,8 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     const umbralEsquina = curvaturaMedia + 3 * desviacionCurvatura;
     const puntosEsquina = curvaturas.filter(k => k > umbralEsquina).length;
     
-    // Clasificación de suavidad
-    let clasificacion = '';
-    if (desviacionCurvatura < 0.005) {
-      clasificacion = 'Muy suave (circular/elíptico)';
-    } else if (desviacionCurvatura < 0.02) {
-      clasificacion = 'Suave (bordes redondeados)';
-    } else if (desviacionCurvatura < 0.05) {
-      clasificacion = 'Moderado (algunas inflexiones)';
-    } else if (desviacionCurvatura < 0.10) {
-      clasificacion = 'Irregular (múltiples inflexiones)';
-    } else {
-      clasificacion = 'Muy irregular (esquinas pronunciadas)';
-    }
+    // Clasificación de suavidad — fuente única (metric-presenter.js)
+    const clasificacion = MetricPresenter.clasificarCurvatura(desviacionCurvatura);
     
     return {
       curvatura_media: curvaturaMedia,
@@ -6182,19 +6174,8 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     // Rugosidad = desviación / media (coeficiente de variación)
     const rugosidad = mediaLongitud > 0 ? desviacion / mediaLongitud : 0;
     
-    // Clasificación
-    let clasificacion = '';
-    if (rugosidad < 0.05) {
-      clasificacion = 'Muy suave (pulido/regular)';
-    } else if (rugosidad < 0.15) {
-      clasificacion = 'Suave (ligera irregularidad)';
-    } else if (rugosidad < 0.30) {
-      clasificacion = 'Moderado (irregular)';
-    } else if (rugosidad < 0.50) {
-      clasificacion = 'Rugoso (muy irregular)';
-    } else {
-      clasificacion = 'Muy rugoso (fracturado/erosionado)';
-    }
+    // Clasificación — fuente única (metric-presenter.js)
+    const clasificacion = MetricPresenter.clasificarRugosidad(rugosidad);
     
     return {
       rugosidad: rugosidad,
@@ -32905,8 +32886,10 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   csvLines += `Dimensiones Básicas,Perímetro,${fmt(m.perimeter, 2)},${m.perimeter_unit || 'mm'}\n`;
   csvLines += `Dimensiones Básicas,Ancho (BB Ajustado),${fmt(m.width, 2)},mm\n`;
   csvLines += `Dimensiones Básicas,Alto (BB Ajustado),${fmt(m.height, 2)},mm\n`;
-  csvLines += `Dimensiones Básicas,Ancho (BB Original),${fmt(m.bounding_width, 2)},mm\n`;
-  csvLines += `Dimensiones Básicas,Alto (BB Original),${fmt(m.bounding_height, 2)},mm\n`;
+  // ADR-016 #1: bounding_width/height a veces quedan en px (path IA). Conversor px→mm fuente única.
+  const _bbOrigF = MetricPresenter.conversorBBaMm(m);
+  csvLines += `Dimensiones Básicas,Ancho (BB Original),${fmt(_bbOrigF(m.bounding_width), 2)},mm\n`;
+  csvLines += `Dimensiones Básicas,Alto (BB Original),${fmt(_bbOrigF(m.bounding_height), 2)},mm\n`;
     csvLines += `Dimensiones Básicas,Puntos del Contorno,${m.contour_points || 'N/A'},-\n`;
     
     // ==========================================================================
@@ -32994,12 +32977,14 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     csvLines += `Convex Hull,Perímetro,${fmt(_csvHullP || parseFloat(m.hull_perimeter_px)||0, 2)},${_csvHullPUnit}\n`;
     csvLines += `Convex Hull,Ancho,${fmt(_csvHullW, 2)},${_csvHullDUnit}\n`;
     csvLines += `Convex Hull,Alto,${fmt(_csvHullH, 2)},${_csvHullDUnit}\n`;
-    csvLines += `Convex Hull,Circularidad,${fmt(m.hull_circularity, 4)},-\n`;
-    csvLines += `Convex Hull,Relación Aspecto,${fmt(m.hull_aspect_ratio, 4)},-\n`;
+    // ADR-016 #4/#7: derivados del hull vía fuente única (metric-presenter).
+    const _hullD = MetricPresenter.hullDerivados(m);
+    csvLines += `Convex Hull,Circularidad,${fmt(_hullD.circularidad, 4)},-\n`;
+    csvLines += `Convex Hull,Relación Aspecto,${fmt(_hullD.aspectRatio, 4)},-\n`;
     csvLines += `Convex Hull,Convexidad,${fmt(m.convexity, 4)},-\n`;
     csvLines += `Convex Hull,Clasificación Convexidad,${m.convexity_class || 'N/A'},-\n`;
-    csvLines += `Convex Hull,Diferencia Área (%),${fmt(m.hull_area_difference_percent, 1)},%\n`;
-    csvLines += `Convex Hull,Diferencia Perímetro (%),${fmt(m.hull_perimeter_difference_percent, 1)},%\n`;
+    csvLines += `Convex Hull,Diferencia Área (%),${fmt(_hullD.difAreaPct, 1)},%\n`;
+    csvLines += `Convex Hull,Diferencia Perímetro (%),${fmt(_hullD.difPerimetroPct, 1)},%\n`;
     csvLines += `Convex Hull,Número de Puntos,${m.convex_hull_points || 'N/A'},-\n`;
     
     // ==========================================================================

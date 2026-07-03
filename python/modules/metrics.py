@@ -256,7 +256,7 @@ def _curvatura_local(pts: np.ndarray) -> dict:
     elif desv < 0.02:   cls = "Suave (bordes redondeados)"
     elif desv < 0.05:   cls = "Moderado (algunas inflexiones)"
     elif desv < 0.10:   cls = "Irregular (múltiples inflexiones)"
-    else:               cls = "Muy irregular (esquinas pronunciadas)"
+    else:               cls = "Muy variable (alta variación de curvatura local)"  # ADR-016 #6: rótulo neutral (medición fiel; no diagnostica daño)
 
     return {"curvatura_media": media, "curvatura_maxima": maxima,
             "desviacion_curvatura": desv, "puntos_inflexion": n_inf,
@@ -278,7 +278,7 @@ def _rugosidad(pts: np.ndarray) -> dict:
     elif rug < 0.15:  cls = "Suave (ligera irregularidad)"
     elif rug < 0.30:  cls = "Moderado (irregular)"
     elif rug < 0.50:  cls = "Rugoso (muy irregular)"
-    else:             cls = "Muy rugoso (fracturado/erosionado)"
+    else:             cls = "Muy rugoso (contorno de alta variabilidad)"  # ADR-016 #6: rótulo neutral — describe la medición, NO diagnostica fractura/erosión (que contradecía la conservación)
 
     return {"rugosidad": rug, "longitud_segmento_media_px": media,
             "desviacion_segmentos_px": desv, "clasificacion_rugosidad": cls}

@@ -1058,10 +1058,15 @@ class ProjectManager {
     rows.push(`02_Dimensiones,Escala Calibrada,${metricas.sin_escala_calibrada ? 'NO - valores en px' : 'Si - valores en mm'},,Si las dimensiones estan calibradas a mm o quedaron en pixeles`);
     rows.push(`02_Dimensiones,Area Total,${metricas.area || 0},mm²,Área total del objeto`);
     rows.push(`02_Dimensiones,Perimetro,${metricas.perimeter || 0},mm,Perímetro del contorno`);
-    rows.push(`02_Dimensiones,Ancho BB Ajustado,${metricas.tight_width || metricas.width || 0},mm,Ancho del bounding box ajustado`);
-    rows.push(`02_Dimensiones,Alto BB Ajustado,${metricas.tight_height || metricas.height || 0},mm,Alto del bounding box ajustado`);
-    rows.push(`02_Dimensiones,Ancho BB Original,${metricas.bounding_width || 0},mm,Ancho del bounding box original`);
-    rows.push(`02_Dimensiones,Alto BB Original,${metricas.bounding_height || 0},mm,Alto del bounding box original`);
+    // ADR-016 #1 (Stage B): conversor px→mm del BB desde la fuente única (window.MetricPresenter,
+    // expuesta por analysis-core.js). project-manager.js es script clásico → no puede import.
+    const _bbMM = (window.MetricPresenter
+      ? window.MetricPresenter.conversorBBaMm(metricas)
+      : (v => parseFloat(v) || 0));  // fallback defensivo: sin conversión si el módulo no cargó
+    rows.push(`02_Dimensiones,Ancho BB Ajustado,${_bbMM(metricas.tight_width || metricas.width)},mm,Ancho del bounding box ajustado`);
+    rows.push(`02_Dimensiones,Alto BB Ajustado,${_bbMM(metricas.tight_height || metricas.height)},mm,Alto del bounding box ajustado`);
+    rows.push(`02_Dimensiones,Ancho BB Original,${_bbMM(metricas.bounding_width)},mm,Ancho del bounding box original`);
+    rows.push(`02_Dimensiones,Alto BB Original,${_bbMM(metricas.bounding_height)},mm,Alto del bounding box original`);
     rows.push(`02_Dimensiones,Puntos Contorno,${metricas.contour_points || 0},,Resolución del contorno`);
     
     // ========================================================================
@@ -1148,12 +1153,16 @@ class ProjectManager {
     rows.push(`04_Regularidad,Perimetro Hull,${metricas.hull_perimeter_px || metricas.convex_hull_perimeter || 0},px,Perímetro envolvente`);
     rows.push(`04_Regularidad,Ancho Hull,${metricas.hull_width_px || 0},px,Ancho mínimo envolvente`);
     rows.push(`04_Regularidad,Alto Hull,${metricas.hull_height_px || 0},px,Alto mínimo envolvente`);
-    rows.push(`04_Regularidad,Circularidad Hull,${metricas.hull_circularity || 0},,Circularidad del hull`);
-    rows.push(`04_Regularidad,Relacion Aspecto Hull (AR),${metricas.hull_aspect_ratio || 0},,Relación eje mayor/eje menor del hull`);
+    // ADR-016 #4/#7 (Stage B): derivados del hull desde la fuente única (window.MetricPresenter).
+    const _hullD = (window.MetricPresenter
+      ? window.MetricPresenter.hullDerivados(metricas)
+      : { circularidad: 0, aspectRatio: 0, difAreaPct: 0, difPerimetroPct: 0 });
+    rows.push(`04_Regularidad,Circularidad Hull,${+_hullD.circularidad.toFixed(4)},,Circularidad del hull`);
+    rows.push(`04_Regularidad,Relacion Aspecto Hull (AR),${_hullD.aspectRatio},,Relación eje mayor/eje menor del hull`);
     rows.push(`04_Regularidad,Convexidad,${metricas.convexity || metricas.convexidad || 0},,1.0 = totalmente convexo`);
     rows.push(`04_Regularidad,Clasificacion Convexidad,${metricas.convexity_class || metricas.convexidad_class || 'N/A'},,Estado de convexidad`);
-    rows.push(`04_Regularidad,Diferencia Area,${metricas.hull_area_difference_percent || 0},%,Hull vs real`);
-    rows.push(`04_Regularidad,Diferencia Perimetro,${metricas.hull_perimeter_difference_percent || 0},%,Hull vs real`);
+    rows.push(`04_Regularidad,Diferencia Area,${_hullD.difAreaPct},%,Hull vs real`);
+    rows.push(`04_Regularidad,Diferencia Perimetro,${_hullD.difPerimetroPct},%,Hull vs real`);
     rows.push(`04_Regularidad,Numero Puntos Hull,${metricas.hull_points || metricas.convex_hull_points || 0},,Vértices del hull`);
     
     // ========================================================================

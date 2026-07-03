@@ -40,6 +40,8 @@
  * ==========================================================================
  */
 
+import * as MetricPresenter from './metric-presenter.js';  // fuente única de derivados/rótulos (ADR-016 Stage B)
+
 /**
  * Confianza global de la clasificación, normalizada a un porcentaje 0–100.
  *
@@ -223,9 +225,10 @@ function generarSeccionDimensiones(obj, metricas, estiloTabla, estiloTh, estiloT
     // Ejes de inercia (tensor de área — complementarios a Feret)
     const ejeMayor = parseFloat(metricas.eje_mayor) || 0;
     const ejeMenor = parseFloat(metricas.eje_menor) || 0;
-    // BB del hull convexo (referencia geométrica orientada)
-    const anchoBB = parseFloat(metricas.width) || 0;
-    const altoBB  = parseFloat(metricas.height) || 0;
+    // BB del hull convexo — conversión px→mm vía fuente única (ADR-016 #1, Stage B).
+    const _bbMM = MetricPresenter.conversorBBaMm(metricas);
+    const anchoBB = _bbMM(metricas.width);
+    const altoBB  = _bbMM(metricas.height);
     const puntosContorno = metricas.contour_points || obj.contour_points?.length || 0;
 
     return `
@@ -442,7 +445,7 @@ function generarSeccionMetricasMorfologicas(metricas, estiloTabla, estiloTh, est
     const compacidad = parseFloat(metricas.compactness) || 0;
     const solidez = parseFloat(metricas.solidity) || 0;
     const elongacion = parseFloat(metricas.elongation) || 0;
-    const excentricidad = parseFloat(metricas.eccentricity) || 0;
+    const excentricidad = parseFloat(metricas.excentricidad) || 0;  // ADR-016 #2: clave canónica (backend emite 'excentricidad', no 'eccentricity')
     const rectangularidad = parseFloat(metricas.rectangularity) || 0;
     const aspectRatio = parseFloat(metricas.aspect_ratio) || 0;
     const radioMaximo = parseFloat(metricas.radio_maximo || metricas.max_radius) || 0;
@@ -2094,12 +2097,14 @@ function generarSeccionConvexHull(metricas, estiloTabla, estiloTh, estiloTd) {
     const altoHull  = factorMM > 0 ? altoHullPx  * factorMM : altoHullPx;
     const unidadDim = factorMM > 0 ? 'mm' : 'px';
 
-    const circularidadHull = parseFloat(metricas.hull_circularity) || 0;
-    const aspectRatioHull  = parseFloat(metricas.hull_aspect_ratio) || 0;
+    // ADR-016 #4/#7: derivados del hull (circularidad, aspect, diferencias) vía fuente única.
+    const _hullD = MetricPresenter.hullDerivados(metricas);
+    const circularidadHull = _hullD.circularidad;
+    const aspectRatioHull  = _hullD.aspectRatio;
     const convexidad      = parseFloat(metricas.convexity) || parseFloat(metricas.convexidad) || 0;
     const claseConvexidad = metricas.convexity_class || metricas.convexidad_class || 'No clasificada';
-    const difArea         = parseFloat(metricas.hull_area_difference_percent) || 0;
-    const difPerimetro    = parseFloat(metricas.hull_perimeter_difference_percent) || 0;
+    const difArea         = _hullD.difAreaPct;
+    const difPerimetro    = _hullD.difPerimetroPct;
     const puntosHull      = parseInt(metricas.hull_points || metricas.convex_hull_points) || 0;
     
     return `
@@ -2260,9 +2265,10 @@ function generarSeccionMetricasAvanzadas(metricas, estiloTabla, estiloTh, estilo
     const feretMax = parseFloat(metricas.feret_max || metricas.max_feret_diameter) || 0;
     const feretMin = parseFloat(metricas.feret_min || metricas.min_feret_diameter) || 0;
     const feretRatio = parseFloat(metricas.feret_ratio) || (feretMin > 0 ? feretMax / feretMin : 0);
-    const clasificacionFeret = metricas.clasificacion_feret || 'No clasificado';
-    const feretMaxAngle = parseFloat(metricas.feret_max_angle) || 0;
-    const feretMinAngle = parseFloat(metricas.feret_min_angle) || 0;
+    const clasificacionFeret = metricas.feret_clasificacion || metricas.clasificacion_feret || 'No clasificado';  // ADR-016: clave canónica del backend
+    // ADR-016 #8: el backend emite feret_angulo_max/min; leer feret_max_angle daba 0.0° espurio.
+    const feretMaxAngle = parseFloat(metricas.feret_angulo_max ?? metricas.feret_max_angle) || 0;
+    const feretMinAngle = parseFloat(metricas.feret_angulo_min ?? metricas.feret_min_angle) || 0;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6610f2;">
@@ -2300,7 +2306,7 @@ function generarSeccionMetricasAvanzadas(metricas, estiloTabla, estiloTh, estilo
           </tr>
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}; font-weight: 600;">Regularidad Radial</td>
-            <td style="${estiloTd}; font-weight: 600; color: ${regularidadRadial >= 0.9 ? '#28a745' : regularidadRadial >= 0.7 ? '#ffc107' : '#dc3545'};">${(regularidadRadial * 100).toFixed(1)}%</td>
+            <td style="${estiloTd}; font-weight: 600; color: ${regularidadRadial >= 90 ? '#28a745' : regularidadRadial >= 70 ? '#ffc107' : '#dc3545'};">${regularidadRadial.toFixed(1)}</td><!-- ADR-016 #3: regularidad_radial ya está en escala 0-100; ×100 daba 7156% -->
             <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Uniformidad de la distribución radial</td>
           </tr>
           
@@ -2363,7 +2369,7 @@ function generarSeccionMetricasAvanzadas(metricas, estiloTabla, estiloTh, estilo
       </table>
       <div style="margin-top: 15px; padding: 12px; background: #e8eaf6; border-left: 4px solid #6610f2; border-radius: 4px;">
         <strong>Resumen Morfológico Avanzado:</strong><br>
-        • Radio máx/mín: ${ratioRadios.toFixed(2)} | Regularidad: ${(regularidadRadial * 100).toFixed(1)}%<br>
+        • Radio máx/mín: ${ratioRadios.toFixed(2)} | Regularidad: ${regularidadRadial.toFixed(1)}<br>
         • ⭐ Estrellamiento: ${clasificacionEstrellamiento} (${indiceEstrellamiento.toFixed(3)})<br>
         • Lobularidad: ${clasificacionLobularidad} (${indiceLobularidad.toFixed(3)})<br>
         • Feret: ${clasificacionFeret} | Max: ${feretMax.toFixed(2)} mm | Min: ${feretMin.toFixed(2)} mm | Ratio: ${feretRatio.toFixed(2)}

@@ -24,6 +24,7 @@ import * as MM from './morphometric-metrics.js';
 import * as SC from './shape-classification.js';
 import * as CE from './classification-engine.js';
 import * as UH from './utility-helpers.js';
+import { clasificarRugosidad } from './metric-presenter.js';  // fuente única de rótulos (ADR-016)
 
 // ============================================================================
 // MATH CONSTANTS (must be defined globally or imported)
@@ -86,18 +87,7 @@ function calcularRugosidadContorno(contourPoints) {
 
   const rugosidad = mediaLongitud > 0 ? desviacion / mediaLongitud : 0;
 
-  let clasificacion = '';
-  if (rugosidad < 0.05) {
-    clasificacion = 'Muy suave (pulido/regular)';
-  } else if (rugosidad < 0.15) {
-    clasificacion = 'Suave (ligera irregularidad)';
-  } else if (rugosidad < 0.30) {
-    clasificacion = 'Moderado (irregular)';
-  } else if (rugosidad < 0.50) {
-    clasificacion = 'Rugoso (muy irregular)';
-  } else {
-    clasificacion = 'Muy rugoso (fracturado/erosionado)';
-  }
+  const clasificacion = clasificarRugosidad(rugosidad);  // fuente única (metric-presenter.js)
 
   return {
     rugosidad: rugosidad,
