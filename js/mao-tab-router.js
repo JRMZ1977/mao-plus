@@ -32,7 +32,9 @@
 
      id         → identificador único de la pestaña (se usa para data-tab)
      label      → texto visible (se muestra en uppercase por CSS)
-     icon       → texto/emoji/número para el tab-dot (opcional)
+     icon       → número del paso, en texto plano: el CSS (.tab-icon) lo
+                  dibuja como círculo de estado y updateTabBarUI lo sustituye
+                  por «✓» cuando el paso está completado
      sections   → array de IDs del DOM que esta pestaña hace visibles.
                   El resto se oculta. Ajustados a los IDs reales de index.html.
      locked     → si true, la pestaña no es clickeable hasta que se habilite
@@ -42,7 +44,7 @@
     {
       id       : 'proyecto',
       label    : 'Proyecto',
-      icon     : '①',
+      icon     : '1',
       sections : [
         'adr3ProyectoHeader',          // Cabecera de chips tri-estado (ADR-003 F2)
         'fieldsetGestionProyectos',   // Gestión de proyectos
@@ -57,7 +59,7 @@
     {
       id       : 'captura',
       label    : 'Captura',
-      icon     : '②',
+      icon     : '2',
       sections : [
         'adr4CapturaHeader',          // Cabecera de chips de estado (ADR-004 F2)
         'sectionImagen',              // Carga de imagen(es) JPG/RAW
@@ -73,7 +75,7 @@
     {
       id       : 'analisis',
       label    : 'Análisis',
-      icon     : '③',
+      icon     : '3',
       sections : [
         'sectionAnalisis3D',               // Descriptores morfológicos 3D
         'morphologicalAnalysisContainer',  // Panel maestro de resultados 2D
@@ -91,7 +93,7 @@
     {
       id       : 'resultados',
       label    : 'Resultados',
-      icon     : '④',
+      icon     : '4',
       sections : [
         'adr5ResultadosHeader',         // Cabecera de chips de estado (ADR-005 Resultados)
         'resultadosPanel',              // Panel maestro de resultados
@@ -428,6 +430,11 @@
       /* Roving tabindex: solo la pestaña activa es tabulable */
       el.setAttribute('tabindex', tab.id === state.active ? '0' : '-1');
 
+      /* Icono de paso: número por defecto; «✓» solo en estado completado
+         (misma cadena excluyente que las clases: locked > activa > done) */
+      var iconEl = el.querySelector('.tab-icon');
+      if (iconEl) iconEl.textContent = tab.icon || '';
+
       if (state.locked.indexOf(tab.id) !== -1) {
         el.classList.add('mao-tab--locked', 'locked');
         el.setAttribute('aria-disabled', 'true');
@@ -436,6 +443,7 @@
         el.setAttribute('aria-selected', 'true');
       } else if (state.done.indexOf(tab.id) !== -1) {
         el.classList.add('mao-tab--done', 'done');
+        if (iconEl) iconEl.textContent = '✓';
       }
 
       /* Badge numérico */
@@ -480,7 +488,8 @@
     var label = document.getElementById('maoProgressLabel');
     if (label) {
       var current = TABS.findIndex(function (t) { return t.id === state.active; }) + 1;
-      label.textContent = current + '/' + TABS.length;
+      if (current < 1) current = 1;   // findIndex -1 → no dejar «Paso 0»
+      label.textContent = 'Paso ' + current + ' de ' + TABS.length;
     }
   }
 

@@ -63,6 +63,15 @@
   --laar-border-md   : 0.5px solid var(--laar-g300);
   --laar-transition  : 100ms ease;
   --laar-canvas-bg   : #111827;  /* canvas oscuro — sin cambio permitido */
+
+  /* Topbar oscura — variante A del rediseño de cabecera (2026-07-19).
+     Única superficie oscura permitida además del canvas: integra el logo
+     negro y devuelve el contraste al texto claro heredado de main.css. */
+  --laar-topbar-bg   : #262625;
+  --laar-topbar-fg   : #FFFFFF;
+  --laar-topbar-mut  : #A8A69E;   /* subtítulo */
+  --laar-topbar-soft : #D3D1C7;   /* crédito/metadatos */
+  --laar-topbar-line : rgba(255, 255, 255, 0.20);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -122,25 +131,29 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TOPBAR — #F3F4F6 · borde inferior · sin fondo oscuro
-   REGLA LAAR 04: contraste por peso, no por color
+   TOPBAR — variante A: barra oscura plana · texto claro (2026-07-19)
+   Sustituye el reset claro previo (--laar-g100): los hijos del header en
+   main.css (.mao-header-logo/-sub/-credit, .backend-badge) son texto claro
+   diseñado para fondo oscuro y quedaban ilegibles sobre gris claro.
    ═══════════════════════════════════════════════════════════════════════════ */
 #topbar,
 .topbar,
 header.mao-header,
 .app-header {
   height             : var(--laar-topbar-h);
-  background         : var(--laar-g100) !important;
+  background         : var(--laar-topbar-bg) !important;
   display            : flex !important;
   align-items        : center;
   /* Sangría izquierda para no solapar los semáforos macOS (titleBarStyle:hiddenInset) */
   padding            : 0 16px 0 82px;
-  gap                : 8px;
-  border-bottom      : 1px solid var(--laar-g200) !important;
+  gap                : 10px;
+  border-bottom      : 1px solid rgba(255, 255, 255, 0.10) !important;
   flex-shrink        : 0;
-  /* Reset cualquier topbar oscura anterior */
-  color              : var(--laar-g900) !important;
+  color              : var(--laar-topbar-fg) !important;
   box-shadow         : none !important;
+  /* Plano LAAR: sin frosted glass (main.css aplicaba blur + translucidez) */
+  -webkit-backdrop-filter : none !important;
+  backdrop-filter    : none !important;
 }
 
 /* ─── Arrastre nativo de ventana (macOS, titleBarStyle: hiddenInset) ─────── */
@@ -166,6 +179,37 @@ header.mao-header select,
   -webkit-app-region: no-drag;
 }
 
+/* ─── Jerarquía interna del header (variante A) ───────────────────────────
+   «MAO Plus» queda como único elemento fuerte; subtítulo en sentence case,
+   menor y atenuado; crédito agrupado en pill. El backend-badge conserva su
+   diseño de main.css (pill translúcida clara), correcto sobre fondo oscuro. */
+header.mao-header .mao-header-logo {
+  font-size          : 13px;
+  color              : var(--laar-topbar-fg);
+  text-shadow        : none;
+  letter-spacing     : 1px;
+}
+
+header.mao-header .mao-header-sub {
+  font-size          : 11px;
+  text-transform     : none;
+  letter-spacing     : 0.2px;
+  color              : var(--laar-topbar-mut);
+  border-left        : 1px solid var(--laar-topbar-line);
+  padding-left       : 10px;
+}
+
+header.mao-header .mao-header-credit {
+  font-size          : 10px;
+  text-transform     : none;
+  letter-spacing     : 0.3px;
+  color              : var(--laar-topbar-soft);
+  border             : 1px solid var(--laar-topbar-line);
+  border-radius      : 999px;
+  padding            : 3px 10px;
+  line-height        : 1;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    TABBAR — barra de pestañas de flujo
    REGLA LAAR 05: inactiva #F3F4F6 · activa #FFFFFF + borde-top 2px #2563EB
@@ -175,9 +219,9 @@ header.mao-header select,
   height             : var(--laar-tabbar-h);
   background         : var(--laar-g200);
   display            : flex;
-  align-items        : flex-end;
+  align-items        : center;
   padding            : 0 12px;
-  gap                : 1px;
+  gap                : 4px;
   border-bottom      : 1px solid var(--laar-g300);
   flex-shrink        : 0;
   /* SIEMPRE VISIBLE: el tabbar es el navegador de pestañas; debe permanecer en
@@ -195,23 +239,23 @@ header.mao-header select,
   z-index            : 8000;
 }
 
-/* Pestaña base */
+/* Pestaña base — pill del stepper (variante A: los estados los comunica el
+   círculo del número + el color del rótulo, no la metáfora de carpeta) */
 .mao-tab {
-  padding            : 5px 14px;
-  border-radius      : var(--laar-radius) var(--laar-radius) 0 0;
+  padding            : 3px 12px 3px 5px;
+  border-radius      : 999px;
   font-size          : 10px;
   font-weight        : 500;
   letter-spacing     : .04em;
   text-transform     : uppercase;
   cursor             : pointer;
   border             : 0.5px solid transparent;
-  border-bottom      : none;
   color              : var(--laar-g500);
-  background         : var(--laar-g100);
+  background         : transparent;
   transition         : all var(--laar-transition);
   display            : flex;
   align-items        : center;
-  gap                : 5px;
+  gap                : 6px;
   user-select        : none;
   white-space        : nowrap;
 }
@@ -221,20 +265,18 @@ header.mao-header select,
   color              : var(--laar-g700);
 }
 
-/* Estado: ACTIVA */
+/* Estado: ACTIVA — pill azul suave, número relleno (ver .tab-icon) */
 .mao-tab--active,
 .mao-tab.active {
-  background         : var(--laar-white) !important;
-  color              : var(--laar-g900) !important;
-  border-color       : var(--laar-g300) !important;
-  border-top         : 2px solid var(--laar-b500) !important;
-  padding-top        : 4px !important;
+  background         : var(--laar-b100) !important;
+  color              : var(--laar-b800) !important;
+  border-color       : transparent !important;
 }
 
-/* Estado: COMPLETADA */
+/* Estado: COMPLETADA — el verde vive en el círculo ✓; el rótulo queda neutro */
 .mao-tab--done,
 .mao-tab.done {
-  color              : var(--laar-ok-tx);
+  color              : var(--laar-g600);
 }
 
 /* Estado: BLOQUEADA */
@@ -245,13 +287,41 @@ header.mao-header select,
   opacity            : 0.6;
 }
 
-/* Número/ícono de la pestaña — hereda el color del estado de .mao-tab */
+/* Número/ícono de la pestaña — círculo de estado real (no glifo tipográfico):
+   pendiente = contorno gris · activa = relleno azul · completada = ✓ verde */
 .tab-icon {
   font-style         : normal;
-  font-size          : 13px;
+  width              : 16px;
+  height             : 16px;
+  border-radius      : 50%;
+  display            : inline-flex;
+  align-items        : center;
+  justify-content    : center;
+  font-size          : 9px;
   font-weight        : 600;
-  color              : inherit;
+  line-height        : 1;
+  color              : var(--laar-g500);
+  border             : 1px solid var(--laar-g400);
+  background         : transparent;
   flex-shrink        : 0;
+  transition         : all var(--laar-transition);
+}
+
+.mao-tab--active .tab-icon {
+  background         : var(--laar-b500);
+  border-color       : var(--laar-b500);
+  color              : var(--laar-white);
+}
+
+.mao-tab--done .tab-icon {
+  background         : var(--laar-ok-bg);
+  border-color       : var(--laar-ok-bd);
+  color              : var(--laar-ok-tx);
+}
+
+.mao-tab--locked .tab-icon {
+  border-color       : var(--laar-g300);
+  color              : var(--laar-g400);
 }
 
 /* Etiqueta de la pestaña — hereda color/letter-spacing del estado */
@@ -261,19 +331,13 @@ header.mao-header select,
   letter-spacing     : inherit;
 }
 
-/* Indicador de estado por pestaña (punto de color) */
+/* Indicador de estado por pestaña (punto de color) — RETIRADO (variante A):
+   duplicaba el estado que ya comunica .tab-icon y añadía ruido. El span se
+   sigue creando en mao-tab-router.js; ocultarlo aquí mantiene la reversión
+   a un cambio de CSS. */
 .tab-indicator {
-  width              : 5px;
-  height             : 5px;
-  border-radius      : 50%;
-  background         : var(--laar-g300);
-  flex-shrink        : 0;
-  transition         : background var(--laar-transition);
+  display            : none;
 }
-
-.mao-tab--active   .tab-indicator { background: var(--laar-b500); }
-.mao-tab--done     .tab-indicator { background: var(--laar-ok-bd); }
-.mao-tab--locked   .tab-indicator { background: var(--laar-g300); }
 
 /* Badge numérico en pestaña (ej: advertencias pendientes) */
 .tab-badge {
@@ -285,32 +349,24 @@ header.mao-header select,
   font-family        : 'Courier New', 'Courier', 'DejaVu Sans Mono', monospace;
 }
 
-/* Barra de progreso en extremo derecho del tabbar */
+/* Progreso en extremo derecho del tabbar — variante A: un solo indicador.
+   El stepper ya comunica el avance; los segmentos duplicaban esa señal y se
+   ocultan (el JS los sigue creando/clasificando: revertir = quitar estas dos
+   reglas). El rótulo pasa de «1/4» monoespaciado a «Paso N de 4» en sans. */
 .tab-progress {
   margin-left        : auto;
   display            : flex;
   align-items        : center;
-  gap                : 3px;
-  padding-bottom     : 5px;
 }
 
 .tab-progress-seg {
-  width              : 26px;
-  height             : 2px;
-  border-radius      : 1px;
-  background         : var(--laar-g300);
-  transition         : background var(--laar-transition);
+  display            : none;
 }
 
-.tab-progress-seg--done   { background: var(--laar-ok-bd);  }
-.tab-progress-seg--active { background: var(--laar-b400);   }
-.tab-progress-seg--locked { background: var(--laar-g300);   }
-
 .tab-progress-label {
-  font-size          : 9px;
-  font-family        : 'Courier New', 'Courier', 'DejaVu Sans Mono', monospace;
+  font-size          : 10px;
   color              : var(--laar-g500);
-  margin-left        : 4px;
+  letter-spacing     : .02em;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
