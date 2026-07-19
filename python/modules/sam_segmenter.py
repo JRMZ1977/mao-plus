@@ -12,7 +12,8 @@ Pipeline dual de segmentación de objetos:
   Nivel 2 — MobileSAM ONNX (opcional, ~54 MB descarga):
     Segment Anything Model variante mobile.
     Solo activo cuando los modelos .onnx están en python/models/.
-    Para exportarlos: requiere torch + ultralytics (ver README.md).
+    Para exportarlos: torch + ultralytics en un venv APARTE, nunca en el
+    del proyecto (no son dependencias de MAO — ver README.md generado).
     Automáticamente preferido sobre GrabCut si están disponibles.
 
 Endpoints expuestos en server.py:
@@ -133,16 +134,22 @@ def download_models(progress_cb=None) -> dict:
         "El botón 'Analizar con IA' ya funciona con GrabCut iterativo con\n"
         "seeds inteligentes. No requiere instalación adicional.\n\n"
         "## MobileSAM ONNX (opcional, mayor precisión en bordes)\n"
-        "Requiere exportar los modelos desde el .pt oficial:\n\n"
+        "Requiere exportar los modelos desde el .pt oficial. Es un proceso\n"
+        "OFFLINE y de una sola vez: el runtime solo necesita onnxruntime.\n\n"
+        "> **NO instales ultralytics en el .venv del proyecto.** Arrastra torch,\n"
+        "> torchvision, matplotlib y polars (~514 MB) y exige `opencv-python`\n"
+        "> sin pin, que eclipsa a `opencv-python-headless` con OpenCV 5.x y\n"
+        "> cambia el `cv2` efectivo de rama major. Usa un venv desechable:\n\n"
         "```bash\n"
-        "pip install torch torchvision ultralytics\n"
-        "python - <<'EOF'\n"
+        "python3 -m venv /tmp/sam-export            # venv aparte, se tira al acabar\n"
+        "/tmp/sam-export/bin/pip install torch torchvision ultralytics\n"
+        "/tmp/sam-export/bin/python - <<'EOF'\n"
         "from ultralytics import SAM\n"
         "m = SAM('python/models/mobile_sam.pt')\n"
         "m.export(format='onnx')\n"
-        "# Mover mobile_sam_encoder.onnx y mobile_sam_decoder.onnx\n"
-        "# a la carpeta python/models/\n"
         "EOF\n"
+        "# Mover mobile_sam_encoder.onnx y mobile_sam_decoder.onnx a python/models/\n"
+        "rm -rf /tmp/sam-export\n"
         "```\n"
     )
 
