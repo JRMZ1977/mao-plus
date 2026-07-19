@@ -19,19 +19,20 @@ trimesh==4.5.3                      # mallas 3D: lectura OBJ + muestreo de super
 
 # ── Estadística y ML ─────────────────────────────────────────────────────────
 scipy==1.13.1                       # ConvexHull, ndimage, stats, signal
-# scikit-learn                      # PCA, KMeans, silhouette — INSTALAR en Fase 3:
-#   pip install scikit-learn
+scikit-learn==1.6.1                 # PCA, StandardScaler, KMeans, silhouette — comparator.py (CMO)
 
-# ── Inferencia IA (MobileSAM ONNX + YOLOv8n) ─────────────────────────────────
+# ── Inferencia IA (MobileSAM ONNX) ───────────────────────────────────────────
 onnxruntime==1.19.2             # runtime ONNX CPU — MobileSAM encoder+decoder
-ultralytics>=8.3.0              # YOLOv8n — detección de instancias (Fase 1 IA)
+# Solo build-time: re-exportar MobileSAM .pt → ONNX (ver sam_segmenter.py).
+# No se importa en runtime; arrastra torch+torchvision (~88 MB). La rama YOLO
+# se retiró en bba1910 (2026-06-12).
+ultralytics>=8.3.0
 
 # ── Utilidades ────────────────────────────────────────────────────────────────
 python-dotenv==1.2.1
 pyyaml==6.0.3
 
 # ── NO instalado aún (Fase 3+) ────────────────────────────────────────────────
-# scikit-learn        # PCA numérico, KMeans, silhouette
 # pandas              # exportación CSV estructurada
 # matplotlib          # gráficas estáticas (radar, scatter)
 # reportlab           # generación de PDF en Python
