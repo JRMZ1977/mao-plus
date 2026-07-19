@@ -22,7 +22,8 @@ import numpy as np
 
 # ─── Rutas y carga dinámica ──────────────────────────────────────────────────
 
-MAO_PLUS_ROOT = Path("/Users/juanramirez/Documents/MAO PLUS_PY_01")
+# Derivada de la ubicación del propio test: sobrevive a mover el repo.
+MAO_PLUS_ROOT = Path(__file__).resolve().parent.parent
 MAO_A_ROOT    = Path("/Users/juanramirez/Documents/MAO_A")
 
 PLUS_COMPARATOR = MAO_PLUS_ROOT / "python" / "modules" / "comparator.py"

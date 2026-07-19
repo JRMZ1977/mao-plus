@@ -1,0 +1,11 @@
+# MAO Plus — Dependencias de desarrollo y test
+#
+# Instalar con:  .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+#
+# Estas dependencias estaban instaladas en el entorno pero NO declaradas en
+# ningún fichero. Al recrear el venv desde cero (traslado fuera de iCloud,
+# 2026-07-19) se perdieron y la suite dejó de poder ejecutarse. Se declaran aquí
+# para que el entorno sea reproducible.
+
+pytest==8.4.2                       # runner de la suite (python/tests/ y tests/)
+httpx==0.28.1                       # lo exige fastapi.testclient.TestClient
