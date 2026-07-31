@@ -66,14 +66,40 @@ const CONTRACT_NAMESPACES = [
 
 // --- check ---
 
+/** Quita comentarios (de bloque y de línea), preservando literales de cadena. */
+function stripComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 '); // el [^:] evita cortar en http://
+}
+
+/** Además vacía los literales de cadena, para que un log no simule un contrato. */
+function stripStrings(src) {
+  return src
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""');
+}
+
 function check(src) {
   const results = [];
+  // Sin comentarios el regex ya no puede darse por satisfecho con un comentario
+  // que mencione `window.canvas = …` (era el caso: el contrato de `canvas` pasaba
+  // gracias a una línea de comentario tras corregirse el código real).
+  const codigo = stripComments(src);
+  const codigoSinCadenas = stripStrings(codigo);
 
   function checkName(name, category) {
-    // Must appear as:  window.NAME =   (assignment, not just read)
-    const re = new RegExp(`window\\.${escapeRe(name)}\\s*=`);
-    const present = re.test(src);
-    results.push({ name, category, present });
+    const n = escapeRe(name);
+    // Satisfecho por CUALQUIERA de las dos formas de publicar el contrato:
+    //  (a) asignación directa      →  window.NAME = …
+    //  (b) getter vivo del puente  →  NAME: () => NAME  en bridgeIIFEStateToModules(),
+    //      o un Object.defineProperty(window, 'NAME', …) explícito. Es la forma
+    //      correcta para el estado que el IIFE reasigna (canvas/ctx): sobre un
+    //      accessor sin setter, `window.NAME = …` lanza TypeError en modo estricto.
+    const asignacion = new RegExp(`window\\.${n}\\s*=[^=]`).test(codigoSinCadenas);
+    const puenteMapa = new RegExp(`\\b${n}\\s*:\\s*\\(\\)\\s*=>\\s*${n}\\b`).test(codigoSinCadenas);
+    const puenteProp = new RegExp(`defineProperty\\(\\s*window\\s*,\\s*['"\`]${n}['"\`]`).test(codigo);
+    results.push({ name, category, present: asignacion || puenteMapa || puenteProp });
   }
 
   TIER1.forEach(n => checkName(n, 'TIER-1'));

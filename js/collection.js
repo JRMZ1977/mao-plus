@@ -1536,7 +1536,8 @@ async function exportGeometryToSVG() {
   // ── Nombre del objeto + indicador de escala (esquina superior izquierda) ──
   const nameFS    = Math.max(height * 0.03, 10);
   const namePad   = nameFS * 0.6;
-  const nameLabel = (analysis.nombreObjeto || 'Objeto').replace(/[<>&"']/g,
+  // String(): nombreObjeto puede llegar numérico (obj.id de detección automática) → .replace lanzaría.
+  const nameLabel = String(analysis.nombreObjeto || 'Objeto').replace(/[<>&"']/g,
     c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
   const scaleLabel = scalado ? `E ${SCALE_RATIO}:1` : 'E s/escala';
   const blockW = Math.max(nameLabel.length * nameFS * 0.62 + nameFS, scaleLabel.length * (nameFS * 0.82) * 0.62 + nameFS);
@@ -1552,8 +1553,11 @@ async function exportGeometryToSVG() {
   svg += `</svg>`;
 
   // Guardar usando el mismo flujo de diálogo nativo que CSV y PDF
-  const idArq = analysis.id?.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const nombreObjeto = analysis.nombreObjeto?.replace(/[^a-zA-Z0-9_\-]/g, '_') || 'objeto';
+  // String(): `analysis.id` hereda de `obj.id` (línea ~153), que es numérico en
+  // detección automática → `?.replace` lanzaría igual que en nombreObjeto.
+  const idArq = String(analysis.id ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  // String(): ídem — el optional chaining protege de null/undefined, no de un número.
+  const nombreObjeto = String(analysis.nombreObjeto ?? '').replace(/[^a-zA-Z0-9_\-]/g, '_') || 'objeto';
   const filename = `${idArq || nombreObjeto}_geometria`;
 
   const svgBlob = new Blob([svg], { type: 'image/svg+xml' });
@@ -2680,8 +2684,9 @@ async function exportarCSVDesdeViewer() {
     return;
   }
   toast.info('Preparando descarga CSV...');
-  const nombreObjeto = (window.currentAnalysisData?.nombreObjeto || 'analisis').replace(/[^a-z0-9]/gi, '_');
-  const _idArqCsv = window.currentAnalysisData?.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || nombreObjeto;
+  // String(): id/nombreObjeto pueden ser numéricos (obj.id de detección automática).
+  const nombreObjeto = String(window.currentAnalysisData?.nombreObjeto || 'analisis').replace(/[^a-z0-9]/gi, '_');
+  const _idArqCsv = String(window.currentAnalysisData?.id ?? '').replace(/[^a-zA-Z0-9_-]/g, '_') || nombreObjeto;
   const filename = `${_idArqCsv}_metricas`;
 
   // Si el análisis fue enriquecido, regenerar el CSV desde los datos en memoria
@@ -2900,9 +2905,13 @@ async function exportarSVGMorfologicoActual() {
     })()
   };
 
-  // Construir analysisData para metadatos SVG
+  // Construir analysisData para metadatos SVG.
+  // String(): `obj.id` es NUMÉRICO en detección automática (`id: index + 1`), y los
+  // consumidores de `nombreObjeto` llaman `.replace()` sobre él (líneas ~1539 y ~1556)
+  // → sin coerción lanzaba «(analysis.nombreObjeto || "Objeto").replace is not a
+  // function» y la exportación SVG abortaba. Ver AUDITORIA_COHERENCIA_20260731.md §3.1-bis.
   const analysisData = {
-    nombreObjeto: obj.nombre || obj.id || 'Objeto',
+    nombreObjeto: String(obj.nombre || obj.id || 'Objeto'),
     modo: obj.tipo || 'monofacial',
     cara: obj.cara || null
   };
