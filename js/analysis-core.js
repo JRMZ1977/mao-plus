@@ -10711,7 +10711,10 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
         })();
 
     if (_puntosAngulos) {
-      const angulosData = ShapeClassification.calcularAngulosVertices(_puntosAngulos);
+      // La canónica vive en morphometric-metrics.js (shape-classification NO la exporta →
+      // TypeError que solo se veía al correr de verdad el cálculo JS, camino muerto hasta
+      // que se registró la implementación real en MetricsOrchestrator).
+      const angulosData = MorphometricMetrics.calcularAngulosVertices(_puntosAngulos);
       
       metrics.angulo_medio_vertices = UtilityHelpers.safeToFixed(angulosData.angulo_medio, 1);
       metrics.angulo_predominante = UtilityHelpers.safeToFixed(angulosData.angulo_predominante, 1);
@@ -12206,6 +12209,17 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
         console.info(`[MONITOR_ANALISIS] ${JSON.stringify(payload)}`);
       };
 
+      // Sección IX (error óptico + incertidumbre) ANTES de cachear. El renderer ya la
+      // aplicaba (visualization-export.js), pero corre después y sobre otra referencia →
+      // la instantánea de `analisisCached` nacía sin campos ópticos, y con ella el análisis
+      // en lote (silencioso, que nunca renderiza) y todo lo que se exporta desde caché.
+      // El guard del renderer (`!metricas.confianza_optica`) hace que esto no se duplique.
+      if (metricas && !metricas.confianza_optica) {
+        const _eoCx = (metricas.centroide_x != null) ? metricas.centroide_x : ((obj.minX || 0) + (obj.width  || 0) / 2);
+        const _eoCy = (metricas.centroide_y != null) ? metricas.centroide_y : ((obj.minY || 0) + (obj.height || 0) / 2);
+        aplicarErrorOpticoPosicional(metricas, { x: _eoCx, y: _eoCy });
+      }
+
       // Guardar siempre en caché — incluso en modo silencioso (auto-análisis background)
       guardarAnalisisEnCache(obj, metricas);
       emitirMonitorAnalisis(obj, metricas);
@@ -13146,6 +13160,14 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
   // Exponer globalmente para recálculo retroactivo desde el visor de colección
   window.estimarErrorOptico        = MetricsOrchestrator.estimarErrorOptico;
   window.aplicarIncertidumbreOptica = MetricsOrchestrator.aplicarIncertidumbreOptica;
+
+  // El módulo publica `calcularMetricasMorfologicas` pero NO puede implementarla: la real
+  // vive aquí (~L10006) y necesita el scope del IIFE (image/objects/extraerContornoReal/
+  // startProgress…). Hasta ahora el módulo devolvía null con un warn de PLACEHOLDER, lo que
+  // dejaba MUERTO el fallback JS de analizarObjetoMorfologicamente (~L12166: si Python falla,
+  // el análisis abortaba) y el enriquecimiento de _forma_idealizada (~L12063). Registrando la
+  // local, ambos caminos vuelven a funcionar sin duplicar el cuerpo de la función.
+  MetricsOrchestrator.registrarImplMetricasMorfologicas(calcularMetricasMorfologicas);
   // Exponer generarCSVMetricas para que collection.js pueda regenerar el CSV
   // cuando un análisis fue enriquecido retroactivamente (metricas.csv de disco es obsoleto)
   window.generarCSVMetricasDesdeObjeto = (obj, metricas) => generarCSVMetricas(obj, metricas);
@@ -50538,8 +50560,10 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       // Mostrar nota de escala bifacial
       if (notaEscalaBifacial) notaEscalaBifacial.style.display = 'block';
       
-      // Ocultar botones monofacial en modo bifacial
-      if (individualizarBifacialBtn) individualizarBifacialBtn.style.display = 'none';
+      // Botón de individualización: el bifacial es el canónico aquí; el monofacial se oculta.
+      // (Antes se ocultaban LOS DOS y actualizarEstadoProcesamiento solo repone disabled/texto,
+      //  nunca el display → en bifacial el botón quedaba funcional pero invisible.)
+      if (individualizarBifacialBtn) individualizarBifacialBtn.style.display = 'inline-block';
       if (individualizarBtn) individualizarBtn.style.display = 'none';
       
       // Inicializar canvas bifaciales con placeholders

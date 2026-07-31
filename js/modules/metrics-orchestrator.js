@@ -362,20 +362,32 @@ function aplicarIncertidumbreOptica(metrics, errorOptico) {
  * - objects - global objects array
  * - currentObjectForComponentSelection - UI state
  *
- * NOTE: This is a HIGH COMPLEXITY, HIGH RISK function that depends on:
- * - All other metric modules
- * - Extensive global state
- * - Complex multi-stage pipeline
- * - Caching and lazy evaluation
- *
- * Use with care and test thoroughly before deployment.
+ * NOTE: the real implementation lives in the analysis-core.js IIFE (~L10006). It
+ * depends on state and helpers that only exist in that scope (image, objects,
+ * extraerContornoReal, startProgress…), so it is NOT duplicated here — duplicating
+ * it is exactly what produced the earlier "same name, two bodies" bugs. Instead the
+ * IIFE registers it at boot via registrarImplMetricasMorfologicas() and this function
+ * delegates. Without a registration it warns and returns null, as it did before.
  */
-function calcularMetricasMorfologicas(obj, escalaFactor = null) {
-  // This is a PLACEHOLDER for the massive function
-  // In actual extraction, the full 2,443 lines would be placed here
-  // Import from the original analysis-core.js and adapt it
+let _implMetricasMorfologicas = null;
 
-  console.warn('calcularMetricasMorfologicas: PLACEHOLDER - requires full implementation from analysis-core.js');
+/**
+ * Register the real implementation (the analysis-core.js IIFE one).
+ * @param {Function} fn - (obj, escalaFactor) => metrics|null
+ * @returns {Boolean} true if registered
+ */
+function registrarImplMetricasMorfologicas(fn) {
+  if (typeof fn !== 'function') return false;
+  _implMetricasMorfologicas = fn;
+  return true;
+}
+
+function calcularMetricasMorfologicas(obj, escalaFactor = null) {
+  if (typeof _implMetricasMorfologicas === 'function') {
+    return _implMetricasMorfologicas(obj, escalaFactor);
+  }
+  console.warn('calcularMetricasMorfologicas: no implementation registered — ' +
+               'analysis-core.js must call registrarImplMetricasMorfologicas() at boot');
   return null;
 }
 
@@ -442,6 +454,7 @@ function calcularMetricasConBoundingBox(obj, escalaFactor = null) {
 
 export {
   calcularMetricasMorfologicas,
+  registrarImplMetricasMorfologicas,
   calcularMetricasConBoundingBox,
   calcularRugosidadContorno,
   calcularMetricasDesdeContorno,
