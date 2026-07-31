@@ -404,10 +404,11 @@ class ProjectManager {
     const timestamp = new Date(analysis.timestamp).toISOString().replace(/[:.]/g, '-').split('T').join('_').split('Z')[0];
     const analysisNumber = String(this.activeProject.analyses.length).padStart(3, '0');
     const nombreObjeto = analysis.data?.nombreObjeto || analysis.data?.identificacion?.nombre || 'SinNombre';
-    const nombreSanitizado = nombreObjeto.replace(/[^a-z0-9]/gi, '_').substring(0, 30);
+    // String(): nombreObjeto/id pueden ser numéricos (obj.id de detección automática) → .replace lanzaría.
+    const nombreSanitizado = String(nombreObjeto).replace(/[^a-z0-9]/gi, '_').substring(0, 30);
     
     // Nombre de carpeta: ID arqueológico del objeto (ej: QP1_U1_N1_E1_01_ca)
-    const idArqueologico = analysis.data?.id?.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const idArqueologico = String(analysis.data?.id ?? '').replace(/[^a-zA-Z0-9_-]/g, '_') || null;
     const analysisFolderName = idArqueologico || `${nombreSanitizado}_${analysisNumber}`;
     const analysisFolderPath = `${projectFolder}/${analysisFolderName}`;
     

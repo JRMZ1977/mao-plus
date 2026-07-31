@@ -106,7 +106,13 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
   const debugMaskContainer = document.getElementById('debugMaskContainer');
   const closeDebugMaskBtn = document.getElementById('closeDebugMaskBtn');
 
-  // 🔧 Cambiar de const a let para permitir reasignación en modo bifacial
+  // 🔧 Cambiar de const a let para permitir reasignación en modo bifacial.
+  // ⚠️ NO convertir en `window.canvas = …`: `bridgeIIFEStateToModules()` (más abajo)
+  // publica `window.canvas` como GETTER VIVO respaldado por esta variable local. Si se
+  // elimina el binding local, el getter `() => canvas` se auto-invoca → recursión
+  // infinita al primer acceso. La fuente única de verdad aquí es la LOCAL, y el puente
+  // la expone en solo-lectura: para reasignar (modo bifacial) hay que escribir la local
+  // con `canvas = …` (bare), nunca `window.canvas = …` (accessor sin setter → TypeError).
   let canvas = document.getElementById('canvas');
   let ctx = canvas.getContext('2d');
 
@@ -135,8 +141,14 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
   let anchoImagen = 0;  // Dimensiones de imagen para verificación de escala
   let altoImagen = 0;   // Dimensiones de imagen para verificación de escala
   let objects = []; // Array para almacenar objetos detectados
-  let currentAnalyzedObject = null; // Objeto actualmente en análisis morfológico
-  window.currentAnalyzedObject = null; // Expuesto globalmente para exportarSVGMorfologicoActual
+  // ⚑ FUENTE ÚNICA DE VERDAD: currentAnalyzedObject NO se declara como var local del
+  // IIFE. Al no existir binding local, toda referencia `currentAnalyzedObject` dentro
+  // de este archivo resuelve a la propiedad global `window.currentAnalyzedObject`, el
+  // MISMO almacenamiento que leen/escriben visualization-export.js (ESM) y collection.js
+  // (script clásico). Esto elimina de raíz el drift local↔window que rompía las
+  // exportaciones (ver AUDITORIA_COHERENCIA_20260731.md §3.1). La propiedad se inicializa
+  // aquí, antes de que se invoque cualquier función que la consuma.
+  window.currentAnalyzedObject = null; // Objeto actualmente en análisis morfológico
   // Getters para mao-ia.js (que no puede acceder a las vars locales del IIFE)
   window._maoGetImage      = () => image;
   window._maoGetImageCaraA = () => imageCaraA;
@@ -329,6 +341,10 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       analisisMorfologicos:           () => analisisMorfologicos,
       // Canvas y contenedores DOM
       canvas:                         () => canvas,
+      // ctx acompaña a canvas: ambos se reasignan juntos en modo bifacial. Se publica
+      // como getter vivo (no como `window.ctx = …`) para que los consumidores externos
+      // lean siempre el contexto actual. Ver AUDITORIA_COHERENCIA_20260731.md §3.1.
+      ctx:                            () => ctx,
       morphologicalCanvas:            () => morphologicalCanvas,
       morphologicalAnalysisContainer: () => morphologicalAnalysisContainer,
       morphologicalMetrics:           () => morphologicalMetrics,
@@ -383,6 +399,25 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     minArea: 100,        // Área mínima en píxeles para considerar un objeto válido
     autoRedetect: false   // Re-detección automática DESHABILITADA - detección manual solamente
   };
+
+  /**
+   * Sanea un identificador de objeto para usarlo como nombre de archivo.
+   *
+   * ⚠️ `obj.id` NO tiene un tipo estable: la detección automática asigna un NÚMERO
+   * (`id: index + 1`) y la manual una CADENA (`manual_1`). Llamar `.replace()` sobre
+   * él fallaba con «obj.id?.replace is not a function» y abortaba la exportación —
+   * el optional chaining (`obj.id?.replace`) protege de null/undefined pero NO de un
+   * número. No se normaliza `obj.id` en origen porque hay ~33 comparaciones estrictas
+   * (`o.id === n`) que romperían al cambiarle el tipo; se coacciona aquí, al construir
+   * el nombre. Ver AUDITORIA_COHERENCIA_20260731.md §3.1-bis.
+   *
+   * @param {*} valor      Identificador (numérico o cadena).
+   * @param {string} fallback Nombre a usar si el identificador queda vacío.
+   */
+  function _idParaArchivo(valor, fallback = '') {
+    const saneado = String(valor ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    return saneado || fallback;
+  }
 
   // Configuración del algoritmo híbrido
   let hybridConfig = {
@@ -452,12 +487,18 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
   let edgeCtx = null; // Contexto del canvas de análisis de bordes
   let currentEdgeAnalyzedObject = null; // Objeto actualmente en análisis de bordes
 
-  // Variables para trazado de perforaciones/horadaciones con canvas ampliado
-  let perforationCanvas = null; // Canvas ampliado para trazado preciso
-  let perforationCanvasCtx = null; // Contexto del canvas ampliado
-  let perforationZoomLevel = 2; // Factor de zoom (1x, 2x, 3x, 4x, 5x)
-  let perforationCanvasOffsetX = 0; // Offset X del objeto en el canvas ampliado
-  let perforationCanvasOffsetY = 0; // Offset Y del objeto en el canvas ampliado
+  // Variables para trazado de perforaciones/horadaciones con canvas ampliado.
+  // ⚑ FUENTE ÚNICA DE VERDAD (ver AUDITORIA_COHERENCIA_20260731.md §3.1): las cuatro
+  // que consume utility-helpers.js (ESM) NO se declaran como var local del IIFE — sus
+  // referencias bare resuelven a la propiedad global, el mismo almacenamiento que lee
+  // y escribe ese módulo (p. ej. `window.perforationZoomLevel = zoomLevel`, y las
+  // conversiones de coordenadas que leen bare perforationCanvasOffsetX/Y). Antes el
+  // zoom aplicado desde utility-helpers no llegaba a la copia local de este archivo.
+  window.perforationCanvas = null; // Canvas ampliado para trazado preciso
+  let perforationCanvasCtx = null; // Contexto del canvas ampliado (uso interno, sin consumidor externo)
+  window.perforationZoomLevel = 2; // Factor de zoom (1x, 2x, 3x, 4x, 5x)
+  window.perforationCanvasOffsetX = 0; // Offset X del objeto en el canvas ampliado
+  window.perforationCanvasOffsetY = 0; // Offset Y del objeto en el canvas ampliado
 
   // === VARIABLES PARA SELECCIÓN MANUAL ===
   let isManualSelectionMode = false; // Modo de selección manual activo
@@ -19930,7 +19971,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     }
     
     // Generar nombre de archivo
-    const _idDet = window.currentAnalyzedObject?.obj?.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || 'deteccion';
+    const _idDet = _idParaArchivo(window.currentAnalyzedObject?.obj?.id, 'deteccion');
     const fileName = `${_idDet}_deteccion.png`;
     
       // Configurar para descarga
@@ -25838,7 +25879,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
 `;
       
       // 4. Generar y descargar según el formato solicitado
-      const filename = `${obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `obj_${obj.numeroObjeto}`}_reporte`;
+      const filename = `${_idParaArchivo(obj.id, `obj_${obj.numeroObjeto}`)}_reporte`;
       
       if (formato === 'pdf') {
         // ========================================================================
@@ -29924,7 +29965,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       const blob = new Blob([jsonString], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       
-      const idArq = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `obj_${obj.numeroObjeto}`;
+      const idArq = _idParaArchivo(obj.id, `obj_${obj.numeroObjeto}`);
       const filename = `${idArq}_datos.json`;
       
       const link = document.createElement('a');
@@ -31177,7 +31218,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
    */
   function exportarComparacionMorfologicaPH() {
     console.log('🔬 Iniciando exportación de comparación morfológica Objeto vs P/H...');
-    
+
     // Verificar que hay un objeto analizado
     if (!currentAnalyzedObject || !currentAnalyzedObject.obj || !currentAnalyzedObject.metricas) {
       toast.warning('No hay análisis para exportar. Ejecuta un análisis morfológico primero.', 3000);
@@ -31404,7 +31445,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       }
       
       // Usar diálogo nativo para guardar
-      const objetoId = caraA.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const objetoId = _idParaArchivo(caraA.id);
       const filename = `${objetoId}_bifacial`;
       
       await saveFileWithDialog(filename, csvContent, 'csv');
@@ -31437,7 +31478,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
    */
   function exportarAnalisisCompletoUnificado() {
     console.log('🎯 Iniciando exportación unificada inteligente...');
-    
+
     // Verificar que hay un objeto analizado
     if (!currentAnalyzedObject || !currentAnalyzedObject.obj || !currentAnalyzedObject.metricas) {
       toast.warning('No hay análisis para exportar. Ejecuta un análisis morfológico primero.', 3000);
@@ -31839,7 +31880,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
           // `.contenedor` (la función generarReportePDFIntegral no existe — estaba
           // comentada y nunca se movió al módulo; llamarla lanzaba el error del botón).
           const htmlContent = '<div class="contenedor"></div>';
-          const nombreBase = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `OBJ_${obj.numeroObjeto}`;
+          const nombreBase = _idParaArchivo(obj.id, `OBJ_${obj.numeroObjeto}`);
           const filename = `${nombreBase}_reporte`;
           await generarPDFDesdeHTML(htmlContent, filename, obj, metricas, { integral: true });
           console.log(`   ✅ PDF completado para ${etiqueta}`);
@@ -31919,7 +31960,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
   async function exportarPDFIntegralCaraActiva() {
     try {
       console.log('📊 Iniciando exportación de PDF INTEGRAL con todas las métricas...');
-      
+
       // 🔍 DETECTAR CARA ACTIVA
       let objActivo = currentAnalyzedObject?.obj;
       
@@ -32109,7 +32150,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
           const htmlContent = '<div class="contenedor"></div>';
           
           // Crear nombre de archivo para el PDF
-          const nombreBase = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `OBJ_${obj.numeroObjeto}`;
+          const nombreBase = _idParaArchivo(obj.id, `OBJ_${obj.numeroObjeto}`);
           const filename = `${nombreBase}_integral`;
           
           // Convertir HTML a PDF y guardar con diálogo
@@ -32274,7 +32315,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       csvContent += generarTablaComparativaBifacialCSV(caraA, caraB);
       
       // Usar diálogo nativo para guardar
-      const _idComp = caraA.id?.replace(/_c[ab]$/, '')?.replace(/[^a-zA-Z0-9_-]/g, '_') || idObjeto;
+      const _idComp = _idParaArchivo(String(caraA.id ?? '').replace(/_c[ab]$/, ''), idObjeto);
       const nombreArchivo = `${_idComp}_comparacion`;
       
       await saveFileWithDialog(nombreArchivo, csvContent, 'csv');
@@ -34388,7 +34429,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     // Si es bifacial, verificar si existe la otra cara para comparar
     if (esBifacial) {
       const caraOpuesta = obj.cara === 'A' ? 'B' : 'A';
-      const idCaraOpuesta = obj.id.replace(obj.cara, caraOpuesta);
+      const idCaraOpuesta = String(obj.id ?? '').replace(obj.cara, caraOpuesta);
       
       const objCaraOpuesta = analisisMorfologicos.objetos.find(o => o.id === idCaraOpuesta);
       
@@ -42699,9 +42740,11 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       window.canvasBackup = canvasOriginal;  // Guardar referencia original
       window.ctxBackup = ctxOriginal;
       
-      // Reasignar variables globales al canvas bifacial
-      window.canvas = document.getElementById('canvasCaraA');
-      window.ctx = window.canvas.getContext('2d');
+      // Reasignar al canvas bifacial. Asignación BARE a las vars del IIFE: `window.canvas`
+      // es un getter sin setter (bridgeIIFEStateToModules) → `window.canvas = …` lanzaba
+      // TypeError y abortaba esta función. Ver AUDITORIA_COHERENCIA_20260731.md §3.1.
+      canvas = document.getElementById('canvasCaraA');
+      ctx = canvas.getContext('2d');
       
       // Marcar que estamos en modo bifacial
       window.deteccionBifacialActiva = {
@@ -42742,9 +42785,11 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       window.canvasBackup = canvasOriginal;  // Guardar referencia original
       window.ctxBackup = ctxOriginal;
       
-      // Reasignar variables globales al canvas bifacial
-      window.canvas = document.getElementById('canvasCaraB');
-      window.ctx = window.canvas.getContext('2d');
+      // Reasignar al canvas bifacial. Asignación BARE a las vars del IIFE: `window.canvas`
+      // es un getter sin setter (bridgeIIFEStateToModules) → `window.canvas = …` lanzaba
+      // TypeError y abortaba esta función. Ver AUDITORIA_COHERENCIA_20260731.md §3.1.
+      canvas = document.getElementById('canvasCaraB');
+      ctx = canvas.getContext('2d');
       
       // Marcar que estamos en modo bifacial
       window.deteccionBifacialActiva = {
