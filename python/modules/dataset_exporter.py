@@ -168,7 +168,13 @@ def export_object_to_dataset(
         "area": coco_area,
         "iscrowd": 0,
         "mao_attributes": {
-            "detection_confidence": float(obj_data.get("detection_confidence", 0.0)),
+            # None (no null-coerción a 0.0/1.0): «no medida» es un estado propio y
+            # debe poder distinguirse de «medida como baja» aguas abajo. ADR-017.
+            "detection_confidence": (
+                float(obj_data["detection_confidence"])
+                if obj_data.get("detection_confidence") is not None
+                else None
+            ),
             "detection_method": str(obj_data.get("detection_method", "unknown")),
             "morphometrics": metricas_clean,
             "tipologia": tipologia,
@@ -212,8 +218,15 @@ def build_coco_dataset(
     png_files: list[tuple[str, bytes]] = []
 
     for obj in objects_list:
-        conf = float(obj.get("detection_confidence", 1.0))
-        if conf < min_confidence:
+        # ADR-017: la confianza puede ser desconocida (None). Antes el default era
+        # 1.0, así que un objeto sin medir se colaba como si fuera perfecto. Ahora
+        # lo desconocido sólo pasa cuando no se está filtrando por confianza.
+        raw_conf = obj.get("detection_confidence")
+        if raw_conf is None:
+            if min_confidence > 0:
+                skipped += 1
+                continue
+        elif float(raw_conf) < min_confidence:
             skipped += 1
             continue
 

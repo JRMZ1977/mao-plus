@@ -476,6 +476,22 @@ class ProjectManager {
           versionMAO: '1.2.0',
           fecha: analysis.timestamp
         },
+        // ADR-017 — procedencia de detección. Vive también en metricas.json (dentro
+        // del objeto de métricas), pero aquí queda legible sin abrir el bloque de
+        // ~130 indicadores: cómo se detectó el objeto es metadato de la pieza, no
+        // una métrica morfológica más.
+        deteccion: (() => {
+          const _m = analysis.data?.metricas || {};
+          return {
+            metodo:            _m.detection_method     || null,
+            metodoCrudo:       _m.detection_method_raw || null,
+            confianzaScore:    _m.detection_confidence != null ? _m.detection_confidence : null,
+            confianzaNivel:    _m.confidence_level || _m.detection_confidence_level || null,
+            iaSegmentador:     _m.ia_segmentador       || null,
+            iaThresholdMethod: _m.ia_threshold_method  || null,
+            iaParams:          _m.ia_params            || null,
+          };
+        })(),
         archivos: {
           metadata: 'metadata.json',
           metricas: 'metricas.json',
@@ -2709,6 +2725,16 @@ class ProjectManager {
             } catch (_pdfErr) {
               console.warn(`[enrichCollection] PDF error ${nombreObj}:`, _pdfErr.message, _pdfErr.stack);
             }
+          } else {
+            // ADR-017 F1: este gate estuvo siempre falso desde bc9cdc9 y el PDF se
+            // saltaba sin dejar rastro. Que se note cuál de las dos piezas falta.
+            console.warn(
+              `[enrichCollection] PDF omitido para ${nombreObj} — falta: ` +
+              [
+                typeof window.generarHTMLReporteParaBatch !== 'function' && 'window.generarHTMLReporteParaBatch',
+                typeof window.electronAPI?.generatePDFFromHTML !== 'function' && 'electronAPI.generatePDFFromHTML',
+              ].filter(Boolean).join(', ')
+            );
           }
         }
 
@@ -2793,7 +2819,9 @@ function _buildEnrichCsvRow(ref, m) {
     // — Detección —
     _csvVal(m.detection_method),
     _f(m.detection_confidence, 4),
-    _csvVal(m.confidence_level),
+    // ADR-017: los análisis anteriores en disco sólo tienen `detection_confidence_level`;
+    // esta columna salía vacía SIEMPRE por leer únicamente la clave canónica.
+    _csvVal(m.confidence_level || m.detection_confidence_level),
     // — Error óptico (campos nuevos) —
     _f(m.error_optico_lineal_percent, 4),
     _f(m.error_optico_area_percent, 4),
@@ -2801,7 +2829,9 @@ function _buildEnrichCsvRow(ref, m) {
     _f(m.error_distorsion_percent, 4),
     _f(m.posicion_radial_norm, 4),
     _f(m.angulo_optico_deg, 2),
-    _f(m.confianza_optica, 4),
+    // ADR-017: `confianza_optica` es una CATEGORÍA de texto («Alta (< 1.5%)»), no un
+    // número. Con `_f` (parseFloat) la columna salía vacía siempre.
+    _csvVal(m.confianza_optica),
     _csvVal(m.nota_error_optico),
     // — Incertidumbre propagada (métricas clave) —
     _f(m.area_incertidumbre_abs, 4),

@@ -12,8 +12,14 @@ import * as MetricsOrchestrator from './modules/metrics-orchestrator.js';
 import * as VisualizationExport from './modules/visualization-export.js';
 import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 import * as MetricPresenter from './modules/metric-presenter.js';  // fuente única de rótulos (ADR-016)
+import * as CategoryManifest from './modules/category-manifest.js'; // fuente única de orden/índice (ADR-011/017)
+import * as DetectionSection from './modules/detection-section.js'; // fuente única de la sección de detección (ADR-017)
 // Exponer en window para superficies que NO son ES modules (p. ej. project-manager.js, script clásico)
-if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
+if (typeof window !== 'undefined') {
+  window.MetricPresenter   = MetricPresenter;
+  window.CategoryManifest  = CategoryManifest;
+  window.DetectionSection  = DetectionSection;
+}
 
 (() => {
   // ── Producción: console.log silenciado; warn/error siempre activos ────────
@@ -10157,6 +10163,9 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     // desde detect() Python (_confianza_objeto). Se hace campo de primera clase
     // de metricas para que viaje a CSV/JSON/viewer/colección. null si el objeto
     // vino de detección JS/manual/3D (sin score).
+    // ADR-017: la proyección la hace el escritor único `aplicarProcedencia` al
+    // cierre de la función (junto al resto de metadatos de detección). Aquí sólo
+    // se deja el valor temprano por si algún cálculo intermedio lo consulta.
     metrics.detection_confidence = (typeof obj?._confidence === 'number') ? obj._confidence : null;
     metrics.detection_confidence_level = obj?._confidenceLvl || null;
     // D1 — procedencia de escala: marca si las métricas salieron en px (sin mm).
@@ -10898,7 +10907,13 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     // === INFORMACIÓN ADICIONAL DEL CONTORNO REAL ===
     metrics.object_id = obj.id;
-    metrics.detection_method = obj.detectionMethod || 'automatic';
+    // ADR-017 — procedencia de detección por el escritor único (método + confianza
+    // + parámetros del modo). Sustituye la escritura suelta de `detection_method`.
+    if (window.MaoDeteccion && window.MaoDeteccion.aplicarProcedencia) {
+      window.MaoDeteccion.aplicarProcedencia(metrics, obj);
+    } else {
+      metrics.detection_method = obj.detectionMethod || 'automatic';
+    }
     metrics.analysis_method = "Contorno Real Extraído [REAL]";
     metrics.contour_extraction_successful = true;
     metrics.original_bounding_box = `${obj.minX},${obj.minY} to ${obj.maxX},${obj.maxY}`;
@@ -11464,7 +11479,12 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     }
     
     // === INFORMACIÓN ADICIONAL ===
-    metrics.detection_method = obj.detectionMethod || 'automatic';
+    // ADR-017 — procedencia por el escritor único (ver calcularMetricasMorfologicas).
+    if (window.MaoDeteccion && window.MaoDeteccion.aplicarProcedencia) {
+      window.MaoDeteccion.aplicarProcedencia(metrics, obj);
+    } else {
+      metrics.detection_method = obj.detectionMethod || 'automatic';
+    }
     metrics.analysis_method = "Bounding Box (Fallback) [APROXIMADO]";
     metrics.contour_extraction_successful = false;
     metrics.original_bounding_box = `${obj.minX},${obj.minY} to ${obj.maxX},${obj.maxY}`;
@@ -11489,10 +11509,21 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
         distanciaObjMM: distVal
       });
       if (errorOptico) {
+        // ADR-017: este bloque escribía sólo 4 de los 11 campos del cálculo → la
+        // Sección IX salía mutilada (sin k₁, FOV, ángulo, distorsión, perspectiva
+        // ni nota) para todo objeto que cayera al fallback por bounding box.
         metrics.error_optico_lineal_percent = errorOptico.error_lineal_percent;
         metrics.error_optico_area_percent   = errorOptico.error_area_percent;
+        metrics.error_perspectiva_percent   = errorOptico.error_perspectiva_percent;
+        metrics.error_distorsion_percent    = errorOptico.error_distorsion_percent;
         metrics.posicion_radial_norm        = errorOptico.posicion_radial_norm;
+        metrics.posicion_radial_px          = errorOptico.posicion_radial_px;
+        metrics.angulo_optico_deg           = errorOptico.angulo_optico_deg;
+        metrics.k1_estimado                 = errorOptico.k1_estimado;
+        // `estimarErrorOptico` devuelve estos dos en camelCase / nombre corto.
+        metrics.fov_diagonal_deg            = errorOptico.fovDiagDeg;
         metrics.confianza_optica            = errorOptico.confianza_optica;
+        metrics.nota_error_optico           = errorOptico.nota;
         // Propagar incertidumbre a métricas absolutas también en modo fallback
         aplicarIncertidumbreOptica(metrics, errorOptico);
       }
@@ -11893,17 +11924,24 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
                 obj._hullIsAbsolute = true;
               }
 
-              // ADR-008 Fase 2 — confianza AUTORITATIVA en la frontera del contorno.
-              // Homogeneiza los 4 modos: manual/auto-frontend la heredan aquí (no la
-              // calculan en detección); auto-backend reconcilia su preview. Misma
-              // fuente que detect()/IA (_confianza_objeto). Alias legacy
-              // (_confidence/_confidenceLvl) para el triage y el export existentes.
-              if (pyCont.detection_confidence != null) {
-                obj.detection_confidence = pyCont.detection_confidence;
-                obj.confidence_level     = pyCont.confidence_level;
-                obj._confidence          = pyCont.detection_confidence;
-                obj._confidenceLvl       = pyCont.confidence_level;
-              }
+            }
+
+            // ADR-008 Fase 2 — confianza AUTORITATIVA en la frontera del contorno.
+            // Homogeneiza los 4 modos: manual/auto-frontend la heredan aquí (no la
+            // calculan en detección); auto-backend reconcilia su preview. Misma
+            // fuente que detect()/IA (_confianza_objeto). Alias legacy
+            // (_confidence/_confidenceLvl) para el triage y el export existentes.
+            //
+            // ADR-017: este bloque estaba DENTRO del gate `!obj._samSegmented`, así
+            // que los objetos IA —que nacen con `_samSegmented:true`— nunca recibían
+            // confianza y salían con «N/A» en el informe. El gate protege el CONTORNO
+            // de la red neuronal, no la confianza; son cosas distintas. Fuera del gate,
+            // y sin pisar la que el propio flujo IA ya haya traído del backend.
+            if (pyCont.detection_confidence != null && obj.detection_confidence == null) {
+              obj.detection_confidence = pyCont.detection_confidence;
+              obj.confidence_level     = pyCont.confidence_level;
+              obj._confidence          = pyCont.detection_confidence;
+              obj._confidenceLvl       = pyCont.confidence_level;
             }
 
             // ── ADR-009 — candidatos P/H seedless (sugerencias a confirmar) ──────
@@ -13120,11 +13158,17 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
    * @param {object} metricas   objeto de métricas a enriquecer (in-place)
    * @param {{x:number,y:number}} [centroide]  centroide del objeto en px absolutos.
    *        Si falta, se toma de metricas.centroide_x/y y, en último caso, el centro.
+   * @param {'A'|'B'|null} [cara]  cara del objeto en modo bifacial. La posición radial
+   *        se normaliza contra las dimensiones de SU propia foto: si las dos caras se
+   *        fotografiaron a distinta resolución, usar las de la cara A para la B falsea
+   *        el ángulo y la posición radial (ADR-017).
    */
-  function aplicarErrorOpticoPosicional(metricas, centroide) {
+  function aplicarErrorOpticoPosicional(metricas, centroide, cara) {
     try {
       if (!metricas) return false;
       const ep  = window.escalaParamsOpticos || {};
+      // Dimensiones por cara si la escala las registró; si no, las globales.
+      const epCara = (cara && ep.porCara && ep.porCara[cara]) ? ep.porCara[cara] : null;
       const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
       // (a) Características ópticas de la IMAGEN — fuente canónica = la que usó la escala
       //     (escalaParamsOpticos), con respaldo a inputs / globales / localStorage.
@@ -13136,9 +13180,11 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
                       num(localStorage.getItem('sensorHeight')) || sensorW;
       const distanciaObjMM = ep.distanciaObjMM || num(document.getElementById('distanciaInput')?.value) ||
                       num(localStorage.getItem('distancia'));
-      const imgW = ep.imgW || num(typeof anchoImagen !== 'undefined' && anchoImagen) ||
+      const imgW = (epCara && epCara.imgW) || ep.imgW ||
+                   num(typeof anchoImagen !== 'undefined' && anchoImagen) ||
                    num(typeof imageWidth  !== 'undefined' && imageWidth);
-      const imgH = ep.imgH || num(typeof altoImagen  !== 'undefined' && altoImagen) ||
+      const imgH = (epCara && epCara.imgH) || ep.imgH ||
+                   num(typeof altoImagen  !== 'undefined' && altoImagen) ||
                    num(typeof imageHeight !== 'undefined' && imageHeight);
       // (b) Área de detección del objeto = su centroide
       let cx = centroide && centroide.x, cy = centroide && centroide.y;
@@ -13259,7 +13305,15 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     window.escalaParamsOpticos = {
       focalMM: focal, sensorW: sensorWidth,
       sensorH: parseFloat(sensorHeightInput.value) || sensorWidth,
-      distanciaObjMM: distancia, imgW: anchoImagen, imgH: altoImagen
+      distanciaObjMM: distancia, imgW: anchoImagen, imgH: altoImagen,
+      // ADR-017 — dimensiones POR CARA. La escala es una sola para ambas (misma
+      // toma, misma óptica), pero la posición radial del objeto se normaliza contra
+      // su propia foto. `imgW/imgH` de arriba vienen de la cara A; sin este mapa, un
+      // objeto de la cara B se evaluaba contra las dimensiones de la A.
+      porCara: {
+        A: { imgW: imageWidthCaraA || anchoImagen, imgH: imageHeightCaraA || altoImagen },
+        B: { imgW: imageWidthCaraB || anchoImagen, imgH: imageHeightCaraB || altoImagen },
+      }
     };
     scaleDisplay.textContent = scale.toFixed(6);
     
@@ -13541,7 +13595,14 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     window.escalaParamsOpticos = {
       focalMM: focalRAW, sensorW: sensorWidth,
       sensorH: parseFloat(sensorHeightInput.value) || sensorWidth,
-      distanciaObjMM: distancia, imgW: imageWidth, imgH: imageHeight
+      distanciaObjMM: distancia, imgW: imageWidth, imgH: imageHeight,
+      // ADR-017 — igual que en la escala directa. Aquí el sesgo era mayor: el camino
+      // híbrido usa los globales MONOFACIALES `imageWidth/imageHeight` sin ramificar
+      // por cara, así que en bifacial ambas caras se evaluaban contra la misma foto.
+      porCara: {
+        A: { imgW: imageWidthCaraA || imageWidth, imgH: imageHeightCaraA || imageHeight },
+        B: { imgW: imageWidthCaraB || imageWidth, imgH: imageHeightCaraB || imageHeight },
+      }
     };
 
     scaleDisplay.textContent = scale.toFixed(6);
@@ -20195,31 +20256,14 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     const objProxy = { metricas: m, perforaciones: perfs, horadaciones: horas,
       id: ref.carpeta, numeroObjeto: ref.nombreObjeto, cara: ref.cara };
 
-    // ── Secciones — orden secuencial por índice romano ──────────────────────────
+    // ── Secciones — ORDEN CANÓNICO del manifiesto (ADR-017) ────────────────────
+    // El numeral de cada sección lo pone su propio generador vía `encabezadoDe(id)`;
+    // aquí sólo se fija la SECUENCIA, que debe seguir el campo `orden` del manifiesto.
+    // (I — Detección — se emite arriba, en la cabecera, junto a la identificación.)
     const secs = [
-      // I   — Clasificación morfológica
-      generarSeccionMetricasMorfologicas(m, eT, eTh, eTd),
-      // II  — Dimensiones métricas
-      generarSeccionDimensiones(objProxy, m, eT, eTh, eTd),
-      // III — Proporciones y forma global
-      generarSeccionIndicesForma(m, eT, eTh, eTd),
-      // IV  — Regularidad del contorno (análisis radial)
-      generarSeccionAnalisisRadial(m, eT, eTh, eTd),
-      // IV-b — Envolvente convexa
-      generarSeccionConvexHull(m, eT, eTh, eTd),
-      // V   — Rugosidad y complejidad del borde
-      generarSeccionPropiedadesContorno(m, eT, eTh, eTd),
-      // V-b — Curvatura
-      generarSeccionCurvatura(m, eT, eTh, eTd),
-      // VI  — Orientación y posición espacial
-      generarSeccionEjesOrientacion(m, eT, eTh, eTd),
-      // VIII-a — Fragmentación
-      generarSeccionFragmentacion(m, eT, eTh, eTd),
-      // VIII-b — Defectos y conservación
-      generarSeccionEstadoConservacion(m, eT, eTh, eTd),
-      // IX  — Error óptico posicional
+      // II  — Error óptico posicional
       generarSeccionErrorOptico(m, eT, eTh, eTd),
-      // IX-B — Incertidumbre propagada (sigue a IX)
+      // II-b — Incertidumbre propagada (sigue a II)
       (() => {
         if (!m._incertidumbre_optica_aplicada) return '';
         const _campos = [
@@ -20242,21 +20286,32 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
         if (!_filas) return '';
         return `
           <h3 style="color:#1e3a5f;border-bottom:2px solid #1e3a5f;padding-bottom:4px;margin-top:16px;">
-            IX-B — Incertidumbre propagada por error óptico</h3>
+            ${CategoryManifest.encabezadoDe('incertidumbre')}</h3>
           <table style="${eT}"><thead><tr>
             <th style="${eTh}">Métrica</th><th style="${eTh}">Valor</th>
             <th style="${eTh}">Incertidumbre abs.</th><th style="${eTh}">Rango posible</th>
           </tr></thead><tbody>${_filas}</tbody></table>`;
       })(),
-      // X   — Perforaciones (siempre presente; muestra placeholder si no hay)
-      generarSeccionPerforaciones(objProxy, m, eT, eTh, eTd),
-      // X-b — Horadaciones (siempre presente; muestra placeholder si no hay)
-      generarSeccionHoradaciones(objProxy, m, eT, eTh, eTd),
-      // XI-a — Orientación y ejes principales
+      // IV / V — Dimensiones, proporciones y forma global
+      generarSeccionDimensiones(objProxy, m, eT, eTh, eTd),
+      generarSeccionIndicesForma(m, eT, eTh, eTd),
+      generarSeccionMetricasMorfologicas(m, eT, eTh, eTd),
+      // VI / VII / VIII — Radial, contorno, curvatura y envolvente convexa
+      generarSeccionAnalisisRadial(m, eT, eTh, eTd),
+      generarSeccionPropiedadesContorno(m, eT, eTh, eTd),
+      generarSeccionCurvatura(m, eT, eTh, eTd),
+      generarSeccionConvexHull(m, eT, eTh, eTd),
+      // IX — Ejes, orientación y simetría
+      generarSeccionEjesOrientacion(m, eT, eTh, eTd),
       generarSeccionOrientacion(m, eT, eTh, eTd),
-      // XI-b — Simetría y morfología avanzada
       generarSeccionSimetria(m, eT, eTh, eTd),
-      // XII-a — Características geométricas avanzadas
+      // XII — Conservación y fragmentación
+      generarSeccionFragmentacion(m, eT, eTh, eTd),
+      generarSeccionEstadoConservacion(m, eT, eTh, eTd),
+      // XV / XV-b — P/H (siempre presentes; muestran placeholder si no hay)
+      generarSeccionPerforaciones(objProxy, m, eT, eTh, eTd),
+      generarSeccionHoradaciones(objProxy, m, eT, eTh, eTd),
+      // XVII — Características geométricas avanzadas
       generarSeccionMetricasAvanzadas(m, eT, eTh, eTd),
     ].join('');
 
@@ -20299,15 +20354,20 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     </p>
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:8px 0 12px;"/>
 
-    <h3>Identificación</h3>
+    <h3>${CategoryManifest.encabezadoDe('deteccion')}</h3>
+    <table style="${eT}"><tbody>
+      ${DetectionSection.filasDeteccion(m).map(f => `
+      <tr><td style="${eTd};width:38%;"><b>${f.label}</b></td><td style="${eTd}">${f.valor}</td></tr>`).join('')}
+    </tbody></table>
+
+    <h3>${CategoryManifest.encabezadoDe('identificacion')}</h3>
     <table style="${eT}"><tbody>
       <tr><td style="${eTd};width:38%;"><b>ID / Carpeta</b></td><td style="${eTd}">${ref.carpeta}</td></tr>
       <tr><td style="${eTd}"><b>Nombre objeto</b></td><td style="${eTd}">${ref.nombreObjeto || '—'}</td></tr>
       <tr><td style="${eTd}"><b>Cara</b></td><td style="${eTd}">${ref.cara || 'Monofacial'}</td></tr>
       <tr><td style="${eTd}"><b>Fecha análisis</b></td><td style="${eTd}">${ref.timestamp ? ref.timestamp.slice(0,10) : 'N/A'}</td></tr>
       <tr><td style="${eTd}"><b>Forma detectada</b></td><td style="${eTd}">${m.forma_detectada || 'N/A'}</td></tr>
-      <tr><td style="${eTd}"><b>Método detección</b></td><td style="${eTd}">${m.detection_method || 'N/A'}</td></tr>
-      <tr><td style="${eTd}"><b>Confianza detección</b></td><td style="${eTd}">${m.confidence_level || '—'} (${m.detection_confidence != null ? Number(m.detection_confidence).toFixed(3) : 'N/A'})</td></tr>
+      <tr><td style="${eTd}"><b>Confianza de clasificación</b></td><td style="${eTd}">${m.forma_confianza != null ? Number(m.forma_confianza).toFixed(3) : 'N/A'}</td></tr>
     </tbody></table>
 
     ${visualBlock}
@@ -20316,6 +20376,14 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     ${efaHtml}
     </body></html>`;
   };
+
+  // ADR-017 F1 · El consumidor (project-manager.js → enrichCollection) gatea con
+  // `typeof window.generarHTMLReporteParaBatch === 'function'`. El refactor C2b
+  // (commit bc9cdc9) pasó esta función de `window.…` a `const` local, y el gate
+  // quedó siempre falso: el PDF batch —el único informe con el índice romano
+  // canónico— dejó de generarse EN SILENCIO. Es una frontera de contrato, no un
+  // interno: debe seguir expuesta.
+  window.generarHTMLReporteParaBatch = generarHTMLReporteParaBatch;
 
   // Nota: La definición de función ha sido movida a visualization-export.js
   // Para mantener compatibilidad con el closure, se expone como referencia al módulo.
@@ -20344,7 +20412,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
 
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #28a745;">
-        II. DIMENSIONES MÉTRICAS DEL OBJETO
+        ${CategoryManifest.encabezadoDe('dimensiones')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -20419,7 +20487,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #dc3545;">
-        VIII. ESTADO DE CONSERVACIÓN Y FRAGMENTACIÓN
+        ${CategoryManifest.encabezadoDe('conservacion')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -20486,7 +20554,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #fd7e14;">
-        III. PROPORCIONES Y FORMA GLOBAL
+        ${CategoryManifest.encabezadoDe('indices_forma')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -20566,7 +20634,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #fd7e14;">
-        I. MÉTRICAS MORFOLÓGICAS PRINCIPALES
+        ${CategoryManifest.indiceDe('indices_forma')}-a. Métricas Morfológicas Principales
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -20649,7 +20717,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6610f2;">
-        XI-a. ORIENTACIÓN Y EJES PRINCIPALES
+        ${CategoryManifest.indiceDe('ejes_orientacion')}-a. Orientación y Ejes Principales
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -20692,7 +20760,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     if (!obj.perforaciones || obj.perforaciones.length === 0) {
       return `
         <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #0066cc;">
-          X. PERFORACIONES (Orificios Pasantes)
+          ${CategoryManifest.encabezadoDe('perforaciones')} (Orificios Pasantes)
         </h3>
         <div style="padding:10px 14px;background:#f0f4fa;border-left:3px solid #0066cc;border-radius:3px;font-size:10px;color:#374151;">
           <strong>Sin datos —</strong> No se registraron perforaciones (orificios pasantes) en este objeto. El análisis morfométrico no incluye esta categoría.
@@ -20702,7 +20770,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     let html = `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #0066cc;">
-        X. PERFORACIONES (Orificios Pasantes) - ${obj.perforaciones.length} detectada(s)
+        ${CategoryManifest.encabezadoDe('perforaciones')} (Orificios Pasantes) - ${obj.perforaciones.length} detectada(s)
       </h3>
     `;
     
@@ -20973,7 +21041,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     if (!obj.horadaciones || obj.horadaciones.length === 0) {
       return `
         <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #28a745;">
-          X-b. HORADACIONES (Concavidades Ciegas)
+          ${CategoryManifest.encabezadoDe('horadaciones')} (Concavidades Ciegas)
         </h3>
         <div style="padding:10px 14px;background:#f0faf3;border-left:3px solid #28a745;border-radius:3px;font-size:10px;color:#374151;">
           <strong>Sin datos —</strong> No se registraron horadaciones (concavidades ciegas) en este objeto. El análisis morfométrico no incluye esta categoría.
@@ -20983,7 +21051,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     let html = `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #28a745;">
-        X-b. HORADACIONES (Concavidades Ciegas) - ${obj.horadaciones.length} detectada(s)
+        ${CategoryManifest.encabezadoDe('horadaciones')} (Concavidades Ciegas) - ${obj.horadaciones.length} detectada(s)
       </h3>
     `;
     
@@ -21574,7 +21642,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #dc3545;">
-        VIII-b. Defectos y Análisis de Conservación
+        ${CategoryManifest.indiceDe('conservacion')}-b. Defectos y Análisis de Conservación
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -21660,7 +21728,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #f57c00;">
-        IX. ERROR ÓPTICO POSICIONAL
+        ${CategoryManifest.encabezadoDe('error_optico')}
       </h3>
       <div style="padding: 12px; background: #fff3e0; border-left: 4px solid #f57c00; border-radius: 4px; margin-bottom: 15px;">
         <strong>🔭 Análisis de incertidumbre óptica basado en parámetros de cámara</strong><br>
@@ -21747,7 +21815,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #fd7e14;">
-        VI. ORIENTACIÓN Y POSICIÓN ESPACIAL
+        ${CategoryManifest.encabezadoDe('ejes_orientacion')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -21835,7 +21903,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #17a2b8;">
-        IV. REGULARIDAD DEL CONTORNO
+        ${CategoryManifest.encabezadoDe('radial')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -21915,7 +21983,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     const filasGlcm = tieneGlcm ? `
           <tr>
             <td style="${estiloTd}; background:#ede7f6; font-weight:600; font-size:11px; color:#5c4d7d;" colspan="3">
-              XIV-b. Textura GLCM (Grey-Level Co-occurrence Matrix)
+              ${CategoryManifest.indiceDe('textura')}-b. Textura GLCM (Grey-Level Co-occurrence Matrix)
             </td>
           </tr>
           ${glcmContrast !== null ? `
@@ -21970,7 +22038,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     const filasTextura = tieneTextura ? `
           <tr>
             <td style="${estiloTd}; background:#f0f4ff; font-weight:600; font-size:11px; color:#4a5568;" colspan="3">
-              XIV. Textura de Superficie (métricas de luminancia interna)
+              ${CategoryManifest.encabezadoDe('textura')} (métricas de luminancia interna)
             </td>
           </tr>
           ${varianza !== null ? `
@@ -21994,7 +22062,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
 
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6f42c1;">
-        V. RUGOSIDAD Y COMPLEJIDAD DEL BORDE
+        ${CategoryManifest.encabezadoDe('contorno')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -22051,7 +22119,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #e83e8c;">
-        V-b. Análisis de Curvatura
+        ${CategoryManifest.encabezadoDe('curvatura')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -22137,7 +22205,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #20c997;">
-        IV-b. Envolvente Convexa (Convex Hull)
+        ${CategoryManifest.encabezadoDe('convex_hull')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -22232,7 +22300,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6c757d;">
-        XI-b. SIMETRÍA Y MORFOLOGÍA AVANZADA
+        ${CategoryManifest.encabezadoDe('simetria')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -22299,7 +22367,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6610f2;">
-        XII-a. Características Geométricas Avanzadas
+        ${CategoryManifest.encabezadoDe('avanzadas')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -22408,7 +22476,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     const clasif = metricas._clasificaciones_individuales;
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #17a2b8;">
-        10. CLASIFICACIONES INDIVIDUALES (Métodos Componentes)
+        ${CategoryManifest.indiceDe('clasificacion')}-a. Clasificaciones Individuales (Métodos Componentes)
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -22466,7 +22534,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #795548;">
-        VII. GEOMETRÍA DE VÉRTICES
+        ${CategoryManifest.encabezadoDe('vertices_angulos')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -22533,7 +22601,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #607d8b;">
-        III-b. Forma 3D Inferida
+        ${CategoryManifest.encabezadoDe('forma_3d')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -22594,7 +22662,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
 
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #9e9e9e;">
-        VI-c. Centroide y Posición Espacial
+        ${CategoryManifest.encabezadoDe('centroide')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -22657,7 +22725,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       const tipText = tip.color?.text || '#4527a0';
       tipologiaHTML = `
       <h3 style="color: #4527a0; margin: 24px 0 12px 0; padding-bottom: 8px; border-bottom: 3px solid #4527a0;">
-        XII-a. Tipología Arqueológica — IA Fase 2
+        ${CategoryManifest.indiceDe('clasificacion')}-b. Tipología Arqueológica — IA Fase 2
       </h3>
       <div style="display:flex; align-items:center; gap:12px; padding:14px 16px; background:${tipColor}; border:2px solid ${tipBorder}; border-radius:8px; margin-bottom:14px;">
         <span style="font-size:28px; line-height:1;">${tip.icono || '🔩'}</span>
@@ -22675,7 +22743,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `${tipologiaHTML}
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #673ab7;">
-        XII-b. Clasificación Morfológica Detallada
+        ${CategoryManifest.indiceDe('clasificacion')}-c. Clasificación Morfológica Detallada
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -22763,7 +22831,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #00bcd4;">
-        XI. ANÁLISIS COMPARATIVO OBJETO–P/H
+        ${CategoryManifest.encabezadoDe('patron')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -22815,7 +22883,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #ff5722;">
-        XII-d. Síntesis Final Integrada
+        ${CategoryManifest.indiceDe('clasificacion')}-e. Síntesis Final Integrada
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -22859,7 +22927,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #3f51b5;">
-        XII-c. Clasificaciones Complementarias
+        ${CategoryManifest.indiceDe('clasificacion')}-d. Clasificaciones Complementarias
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -22924,7 +22992,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #9c27b0;">
-        XI-b. Métricas de Distribución y Contexto P/H
+        ${CategoryManifest.encabezadoDe('tecnica')} — Distribución y Contexto P/H
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -23000,7 +23068,31 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
 
   function generarCSVMetricas(obj, metricas) {
     let csv = 'Categoría,Métrica,Valor,Unidad,Descripción\n';
-    
+
+    // ============================================================================
+    // 0. DETECCIÓN + ERROR ÓPTICO — ADR-017
+    // ============================================================================
+    // Esta función REESCRIBE metricas.csv desde el visor de colección. No emitía ni
+    // procedencia ni error óptico, así que regenerar el CSV de un análisis ya
+    // enriquecido lo DEGRADABA: perdía la Sección IX que sí tenía. Van primero, por
+    // el mismo criterio que el resto de salidas (condiciones antes que resultados).
+    DetectionSection.filasDeteccion(metricas).forEach(f => {
+      csv += `Detección,${f.label},${f.valor},,Procedencia del dato\n`;
+    });
+
+    const _eoFmt = (v, d) => (v == null || isNaN(parseFloat(v))) ? 'N/A' : parseFloat(v).toFixed(d);
+    csv += `Error Óptico,Error Lineal,${_eoFmt(metricas.error_optico_lineal_percent, 3)},%,Distorsión + perspectiva combinadas\n`;
+    csv += `Error Óptico,Error Área,${_eoFmt(metricas.error_optico_area_percent, 3)},%,Propagado al área\n`;
+    csv += `Error Óptico,Error Perspectiva,${_eoFmt(metricas.error_perspectiva_percent, 3)},%,Componente (1/cos²θ − 1)\n`;
+    csv += `Error Óptico,Error Distorsión,${_eoFmt(metricas.error_distorsion_percent, 3)},%,Componente |k₁|·r²\n`;
+    csv += `Error Óptico,Posición Radial Normalizada,${_eoFmt(metricas.posicion_radial_norm, 4)},,0 = centro · 1 = borde\n`;
+    csv += `Error Óptico,Posición Radial,${_eoFmt(metricas.posicion_radial_px, 1)},px,Distancia al centro óptico\n`;
+    csv += `Error Óptico,Ángulo Óptico,${_eoFmt(metricas.angulo_optico_deg, 2)},grados,Ángulo respecto al eje óptico\n`;
+    csv += `Error Óptico,k1 Estimado,${_eoFmt(metricas.k1_estimado, 6)},,Coeficiente de distorsión radial\n`;
+    csv += `Error Óptico,FOV Diagonal,${_eoFmt(metricas.fov_diagonal_deg, 2)},grados,Campo de visión de la cámara\n`;
+    csv += `Error Óptico,Confianza Óptica,${metricas.confianza_optica || 'Sin datos'},,Categoría de fiabilidad\n`;
+    csv += `Error Óptico,Nota,${(metricas.nota_error_optico || '').replace(/,/g, ';')},,Diagnóstico del cálculo\n`;
+
     // ============================================================================
     // 1. IDENTIFICACIÓN Y CLASIFICACIÓN
     // ============================================================================
@@ -27664,7 +27756,11 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       };
 
       const _seccionesMetricas = [
-        { titulo: 'I. Clasificación Morfológica', claves: [['Forma Detectada','forma_detectada'],['Confianza de Clasificación  [0–1]','forma_confianza'],['Razón de Clasificación','forma_razon'],['Simetría Bilateral  [0–1]','simetria_bilateral'],['Desplazamiento de Asimetría (mm)','simetria_distancia_asimetria'],['Clasificación Simetría','simetria_clasificacion'],['Orientación del Eje Principal','eje_principal_orientacion'],['Forma Dominante del Contorno','eje_principal_forma_dominante']] },
+        // ADR-017 — la procedencia encabeza también el informe bifacial, y se rinde
+        // POR CARA: cada cara pudo detectarse con un método distinto (p. ej. la A con
+        // IA y la B en manual), así que un único bloque global sería engañoso.
+        { titulo: CategoryManifest.encabezadoDe('deteccion'), claves: [['Método de detección','detection_method'],['Confianza de detección  [0–1]','detection_confidence'],['Nivel de confianza','confidence_level'],['Segmentador / motor','ia_segmentador'],['Umbralización (modo IA)','ia_threshold_method']] },
+        { titulo: `${CategoryManifest.encabezadoDe('identificacion')} — Clasificación Morfológica`, claves: [['Forma Detectada','forma_detectada'],['Confianza de Clasificación  [0–1]','forma_confianza'],['Razón de Clasificación','forma_razon'],['Simetría Bilateral  [0–1]','simetria_bilateral'],['Desplazamiento de Asimetría (mm)','simetria_distancia_asimetria'],['Clasificación Simetría','simetria_clasificacion'],['Orientación del Eje Principal','eje_principal_orientacion'],['Forma Dominante del Contorno','eje_principal_forma_dominante']] },
         { titulo: 'II. Dimensiones Métricas del Objeto (mm — escala calibrada)', claves: [['Área convex hull (mm²)','area'],['Perímetro convex hull (mm)','perimeter'],['Longitud máxima — Feret↑ (mm)','feret_max'],['Anchura máxima — Feret↓ (mm)','feret_min'],['Eje Mayor — tensor inercia (mm)','eje_mayor'],['Eje Menor — tensor inercia (mm)','eje_menor'],['Eje Mayor Real del Contorno (mm)','eje_mayor_real_longitud'],['Eje Menor Real del Contorno (mm)','eje_menor_real_longitud'],['Radio Máximo desde Centroide (mm)','radio_maximo'],['Radio Mínimo desde Centroide (mm)','radio_minimo'],['Radio Medio desde Centroide (mm)','radio_medio'],['Ancho BB convex hull (mm)','width'],['Alto BB convex hull (mm)','height']] },
         { titulo: 'III. Proporciones y Forma Global  [adimensional 0–1]', claves: [['Circularidad  [0–1]','circularity'],['Compacidad  [0–1]','compactness'],['Solidez  [0–1]','solidity'],['Rectangularidad  [0–1]','rectangularity'],['Elongación  [0–1]','elongation'],['Factor de Forma  [0–1]','shape_factor'],['Excentricidad  [0–1]','excentricidad'],['Relación de Aspecto Tight (L/A)','aspect_ratio_tight'],['Relación de Aspecto Original (L/A)','aspect_ratio_original'],['Ratio Feret (Máx./Mín.)','feret_ratio'],['Anisotropía del Eje Principal  [0–1]','eje_principal_anisotropia'],['Eficiencia Bounding Box  [0–1]','bounding_box_efficiency']] },
         { titulo: 'IV. Regularidad del Contorno — Evidencia de Manufactura', claves: [['Regularidad Radial  [0–1]','regularidad_radial'],['Coef. Variación Radial (%)','coeficiente_variacion_radial'],['Desviación Radial (mm)','desviacion_radial'],['Ratio Radios (Máx./Mín.)','ratio_radios'],['Índice de Estrellamiento  [0–1]','indice_estrellamiento'],['Clasificación Estrellamiento','estrellamiento_clasificacion'],['Índice de Lobularidad  [0–1]','indice_lobularidad'],['Clasificación Lobularidad','lobularidad_clasificacion'],['N° de Vértices Aproximados','vertices_aproximados'],['N° de Puntos de Contorno','contour_points']] },
@@ -29110,7 +29206,19 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
           // SECCIONES DE MÉTRICAS — orden arqueológico con unidades explícitas
           const seccionesMetricas = [
             {
-              titulo: 'I. Clasificación Morfológica',
+              // ADR-017 — procedencia del dato antes que el dato. Es el hallazgo #5
+              // de ADR-016: el PDF de un objeto IA no declaraba cómo se detectó.
+              titulo: CategoryManifest.encabezadoDe('deteccion'),
+              metricas: [
+                ['Método de detección', 'detection_method'],
+                ['Confianza de detección  [0–1]', 'detection_confidence'],
+                ['Nivel de confianza', 'confidence_level'],
+                ['Segmentador / motor', 'ia_segmentador'],
+                ['Umbralización (modo IA)', 'ia_threshold_method'],
+              ]
+            },
+            {
+              titulo: `${CategoryManifest.encabezadoDe('identificacion')} — Clasificación Morfológica`,
               metricas: [
                 ['Forma Detectada', 'forma_detectada'],
                 ['Confianza de Clasificación  [0–1]', 'forma_confianza'],
@@ -31271,6 +31379,13 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
    * 🆕 OPCIÓN 2: Exportar objeto bifacial completo (ambas caras) desde datos
    * Genera CSV con ambas caras del objeto en formato estructurado
    */
+  // ADR-017: aquí vivían `exportarObjetoBifacialCompletoUnificado` y su extractor
+  // `extraerMetricasCompletasConPH` (~400 líneas). Ninguna tenía llamadores: eran
+  // una cuarta copia de la lógica de export, ya divergida (sin error óptico ni
+  // detección). La ruta viva del CSV bifacial es
+  // `exportarObjetoBifacialCompletoDesdeDatos`, que ahora reusa el extractor
+  // canónico monofacial `extraerMetricasCompletasConPHSimple`.
+
   async function exportarObjetoBifacialCompletoDesdeDatos(numeroObjeto) {
     console.log(`🔄 Exportando objeto bifacial completo #${numeroObjeto}...`);
     
@@ -31305,93 +31420,23 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       // Crear CSV con formato: Cara,Categoría,Métrica,Valor,Unidad
       let csvContent = 'Cara,Categoría,Métrica,Valor,Unidad\n';
       
-      // Función helper para extraer métricas de un objeto
+      // ── ADR-017 · una sola fuente para monofacial y bifacial ─────────────
+      // Antes esto era una lista blanca de ~10 claves con su propia cadena de
+      // if/else: sin error óptico, sin detección, sin GLCM, y con el área en cm²
+      // cuando el resto de la app trabaja en mm². Por eso NINGÚN CSV bifacial
+      // llevaba la Sección IX, pese a que el manifiesto la declara estructural.
+      // Ahora cada cara se extrae con el MISMO extractor canónico que el
+      // monofacial y sólo se le antepone la cara; lo que gane el monofacial lo
+      // gana el bifacial automáticamente.
       const extraerMetricas = (obj, metricas, caraNombre) => {
-        const categorias = [
-          { titulo: 'Dimensiones Básicas', metricas: ['area', 'perimetro', 'ancho', 'alto', 'largoMaximo', 'anchoMaximo', 'espesorEstimado'] },
-          { titulo: 'Índices de Forma', metricas: ['circularidad', 'convexidad', 'solidez', 'elongacion', 'rectangularidad', 'compacidad'] },
-          { titulo: 'Propiedades Geométricas', metricas: ['areaConvexHull', 'perimetroConvexHull', 'defectoConvexidad'] },
-          { titulo: 'Ejes y Orientación', metricas: ['ejesMayorMenor', 'orientacion', 'excentricidad', 'relacionAspecto'] },
-          { titulo: 'Análisis de Contorno', metricas: ['rugosidad', 'fractalidad', 'complejidadPerimetrica'] },
-          { titulo: 'Momentos de Hu', metricas: ['momentosHu'] },
-          { titulo: 'Ángulos', metricas: ['angulos'] },
-          { titulo: 'Perforaciones', metricas: ['perforaciones'] },
-          { titulo: 'Horadaciones', metricas: ['horadaciones'] }
-        ];
-        
-        categorias.forEach(cat => {
-          cat.metricas.forEach(metricaKey => {
-            let valor = '';
-            let unidad = '';
-            let nombreMetrica = metricaKey;
-            
-            // Extraer valor según la métrica
-            if (metricaKey === 'area') {
-              valor = metricas.area?.toFixed(2) || '';
-              unidad = 'cm²';
-              nombreMetrica = 'Área';
-            } else if (metricaKey === 'perimetro') {
-              valor = metricas.perimetro?.toFixed(2) || '';
-              unidad = 'cm';
-              nombreMetrica = 'Perímetro';
-            } else if (metricaKey === 'ancho') {
-              valor = metricas.dimensiones?.ancho?.toFixed(2) || '';
-              unidad = 'cm';
-              nombreMetrica = 'Ancho';
-            } else if (metricaKey === 'alto') {
-              valor = metricas.dimensiones?.alto?.toFixed(2) || '';
-              unidad = 'cm';
-              nombreMetrica = 'Alto';
-            } else if (metricaKey === 'largoMaximo') {
-              valor = metricas.largoMaximo?.toFixed(2) || '';
-              unidad = 'cm';
-              nombreMetrica = 'Largo Máximo';
-            } else if (metricaKey === 'anchoMaximo') {
-              valor = metricas.anchoMaximo?.toFixed(2) || '';
-              unidad = 'cm';
-              nombreMetrica = 'Ancho Máximo';
-            } else if (metricaKey === 'espesorEstimado') {
-              valor = metricas.espesorEstimado?.toFixed(2) || '';
-              unidad = 'cm';
-              nombreMetrica = 'Espesor Estimado';
-            } else if (metricaKey === 'circularidad') {
-              valor = (parseFloat(metricas.circularity||metricas.circularidad)||0).toFixed(4);
-              nombreMetrica = 'Circularidad';
-            } else if (metricaKey === 'convexidad') {
-              valor = (parseFloat(metricas.convexity||metricas.convexidad)||0).toFixed(4);
-              nombreMetrica = 'Convexidad';
-            } else if (metricaKey === 'solidez') {
-              valor = (parseFloat(metricas.solidity||metricas.solidez)||0).toFixed(4);
-              nombreMetrica = 'Solidez';
-            } else if (metricaKey === 'elongacion') {
-              valor = (parseFloat(metricas.elongation||metricas.elongacion)||0).toFixed(4);
-              nombreMetrica = 'Elongación';
-            } else if (metricaKey === 'rectangularidad') {
-              valor = metricas.rectangularidad?.toFixed(4) || '';
-              nombreMetrica = 'Rectangularidad';
-            } else if (metricaKey === 'compacidad') {
-              valor = metricas.compacidad?.toFixed(4) || '';
-              nombreMetrica = 'Compacidad';
-            } else if (metricaKey === 'perforaciones') {
-              valor = obj.perforaciones?.length || 0;
-              nombreMetrica = 'Número de Perforaciones';
-            } else if (metricaKey === 'horadaciones') {
-              valor = obj.horadaciones?.length || 0;
-              nombreMetrica = 'Número de Horadaciones';
-            }
-            // ... agregar más métricas según necesidad
-            
-            if (valor !== '' && valor !== null && valor !== undefined) {
-              // Escapar valores con comas
-              let valorStr = String(valor);
-              if (valorStr.includes(',')) valorStr = `"${valorStr}"`;
-              
-              csvContent += `${caraNombre},${cat.titulo},${nombreMetrica},${valorStr},${unidad}\n`;
-            }
-          });
-        });
+        const lineas = extraerMetricasCompletasConPHSimple(obj);
+        csvContent += lineas
+          .split('\n')
+          .filter(Boolean)
+          .map(l => `${caraNombre},${l}`)
+          .join('\n') + '\n';
       };
-      
+
       // Extraer métricas de ambas caras
       extraerMetricas(caraA, caraA.metricas, 'Cara A (Anverso)');
       extraerMetricas(caraB, caraB.metricas, 'Cara B (Reverso)');
@@ -31479,57 +31524,6 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
   /**
    * 🔄 Exportar análisis bifacial completo con TODAS las métricas (incluye P/H)
    */
-  async function exportarObjetoBifacialCompletoUnificado(numeroObjeto, caraA, caraB) {
-    console.log(`🔄 Exportando análisis bifacial completo del objeto ${numeroObjeto}...`);
-    
-    // 🐛 DEBUG: Verificar estructura de objetos
-    console.log('🔍 DEBUG caraA:', {
-      tiene_metricas: !!caraA.metricas,
-      numero_metricas: caraA.metricas ? Object.keys(caraA.metricas).length : 0,
-      primeras_metricas: caraA.metricas ? Object.keys(caraA.metricas).slice(0, 5) : []
-    });
-    console.log('🔍 DEBUG caraB:', {
-      tiene_metricas: !!caraB.metricas,
-      numero_metricas: caraB.metricas ? Object.keys(caraB.metricas).length : 0,
-      primeras_metricas: caraB.metricas ? Object.keys(caraB.metricas).slice(0, 5) : []
-    });
-    
-    try {
-      const idObjeto = `OBJ_${numeroObjeto}`;
-      let csvContent = '';
-      
-      // Header del archivo
-      csvContent += `Análisis Morfológico Bifacial Completo - MAO Plus v1.1.0\n`;
-      csvContent += `Objeto: ${idObjeto}\n`;
-      csvContent += `Modo: Bifacial (Ambas Caras)\n`;
-      csvContent += `Fecha: ${new Date().toLocaleString('es-ES')}\n`;
-      csvContent += `\n`;
-      
-      // Formato CSV: Cara,Categoría,Métrica,Valor,Unidad
-      csvContent += `Cara,Categoría,Métrica,Valor,Unidad\n`;
-      
-      // Exportar métricas de ambas caras
-      csvContent += extraerMetricasCompletasConPH(caraA, 'Cara A (Anverso)');
-      csvContent += '\n';
-      csvContent += extraerMetricasCompletasConPH(caraB, 'Cara B (Reverso)');
-      csvContent += '\n';
-      
-      // 🔄 NOTA: La tabla comparativa bifacial ahora se exporta en archivo separado
-      // Use el botón "Ver Comparación Bifacial" para obtener el análisis comparativo
-      
-      // Usar diálogo nativo para guardar
-      const _idBifComp = obtenerIdentificacionActual()?.valor?.replace(/[^a-zA-Z0-9_-]/g, '_') || idObjeto;
-      const nombreArchivo = `${_idBifComp}_bifacial`;
-      
-      csvContent = _normalizarCsvEstructural(csvContent, 5);
-      await saveFileWithDialog(nombreArchivo, csvContent, 'csv');
-      console.log(`✅ Exportado: ${nombreArchivo}.csv`);
-      
-    } catch (error) {
-      console.error('❌ Error al exportar bifacial completo:', error);
-      toast.error('Error al exportar: '+ error.message, 5000);
-    }
-  }
   
   /**
    * 📄 Exportar análisis monofacial con TODAS las métricas (incluye P/H)
@@ -32289,351 +32283,6 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
   /**
    * �🔧 Helper: Extraer métricas completas de un objeto (incluye P/H) - Formato Bifacial
    */
-  function extraerMetricasCompletasConPH(analisisObj, nombreCara) {
-    let csvLines = '';
-    // 🐛 DEBUG: inspeccionar el objeto recibido y la propiedad metricas
-    console.log('🔍 DEBUG extraerMetricasCompletasConPH - analisisObj sample keys:', analisisObj ? Object.keys(analisisObj).slice(0,6) : null);
-  // Compatibilidad: si se pasa directamente el objeto de métricas en vez del wrapper,
-  // aceptar ambos formatos (analisisObj.metricas o analisisObj === metricas)
-  const m = (analisisObj && analisisObj.metricas) ? analisisObj.metricas : analisisObj || null;
-  console.log('🔍 DEBUG extraerMetricasCompletasConPH - existe metricas (final):', !!m, m ? Object.keys(m).slice(0,8) : null);
-    
-    // Helper para formatear valores
-    const fmt = (val, decimales = 2) => {
-      if (val === null || val === undefined || val === '') return 'N/A';
-      if (typeof val === 'number') return val.toFixed(decimales);
-      return val;
-    };
-    
-    // ==========================================================================
-    // CATEGORÍA: Identificación
-    // ==========================================================================
-    csvLines += `${nombreCara},Identificación,ID del Objeto,${m.object_id || 'N/A'},-\n`;
-    csvLines += `${nombreCara},Identificación,Número de Objeto,${m.numero_objeto || 'N/A'},-\n`;
-    csvLines += `${nombreCara},Identificación,Método de Detección,${m.detection_method || 'automático'},-\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Balance de Superficies [CRÍTICO — solo cuando hay P/H]
-    // ==========================================================================
-    const _perfs = analisisObj.perforaciones || [];
-    const _horas = analisisObj.horadaciones  || [];
-    if (_perfs.length > 0 || _horas.length > 0) {
-      const _phefBal = calcularAreaEfectivaPH(_perfs, _horas);
-      const _areaB   = parseFloat(m.area) || 0;
-      const _areaPHb = _phefBal.areaTotalPH;
-      const _areaNet = _areaB - _areaPHb;
-      const _pctPHb  = _areaB > 0 ? ((_areaPHb / _areaB) * 100) : 0;
-      const _pctNetb = _areaB > 0 ? ((_areaNet / _areaB) * 100) : 100;
-      // Perímetro neto para el bloque Balance
-      const _scPbal = (typeof scale !== 'undefined' && scale > 0) ? scale : 1;
-      const _gPbal = (ph) => ph.metricas?.perimeter ? parseFloat(ph.metricas.perimeter)||0
-        : ph.metricas?.perimeter_real ? (parseFloat(ph.metricas.perimeter_real)||0)*_scPbal
-        : parseFloat(ph.perimetro)||0;
-      const _perExtBal = parseFloat(m.perimeter || 0);
-      const _perPHbal  = [..._perfs, ..._horas].reduce((s,ph) => s + _gPbal(ph), 0);
-      const _perNetBal = analisisObj.perimetro_neto ?? (_perExtBal + _perPHbal);
-      csvLines += `${nombreCara},*** BALANCE DE SUPERFICIES ***,ÁREA BRUTA (Convex Hull),${fmt(_areaB, 3)},${m.area_unit || 'mm²'}\n`;
-      csvLines += `${nombreCara},*** BALANCE DE SUPERFICIES ***,ÁREA P/H (descuento),${fmt(_areaPHb, 3)},${m.area_unit || 'mm²'}\n`;
-      csvLines += `${nombreCara},*** BALANCE DE SUPERFICIES ***,>>> ÁREA NETA (efectiva) <<<,${fmt(_areaNet, 3)},${m.area_unit || 'mm²'}\n`;
-      csvLines += `${nombreCara},*** BALANCE DE SUPERFICIES ***,% superficie P/H,${fmt(_pctPHb, 2)},%\n`;
-      csvLines += `${nombreCara},*** BALANCE DE SUPERFICIES ***,% superficie efectiva,${fmt(_pctNetb, 2)},%\n`;
-      csvLines += `${nombreCara},*** BALANCE DE SUPERFICIES ***,Perímetro externo,${fmt(_perExtBal, 3)},${m.perimeter_unit || 'mm'}\n`;
-      csvLines += `${nombreCara},*** BALANCE DE SUPERFICIES ***,Perímetro total P/H (suma),${fmt(_perPHbal, 3)},${m.perimeter_unit || 'mm'}\n`;
-      csvLines += `${nombreCara},*** BALANCE DE SUPERFICIES ***,>>> PERÍMETRO NETO (topológico) <<<,${fmt(_perNetBal, 3)},${m.perimeter_unit || 'mm'}\n`;
-      if (_phefBal.numContenidas > 0)
-        csvLines += `${nombreCara},*** BALANCE DE SUPERFICIES ***,Perforaciones contenidas en H,${_phefBal.numContenidas},-\n`;
-      csvLines += `\n`;
-    }
-
-    // ==========================================================================
-    // CATEGORÍA: Dimensiones Básicas
-    // ==========================================================================
-  csvLines += `${nombreCara},Dimensiones Básicas,Área Bruta,${fmt(m.area, 2)},${m.area_unit || 'mm²'}\n`;
-    if (_perfs.length > 0 || _horas.length > 0) {
-      const _phefDim = calcularAreaEfectivaPH(_perfs, _horas);
-      const _netaDim = (parseFloat(m.area) || 0) - _phefDim.areaTotalPH;
-      csvLines += `${nombreCara},Dimensiones Básicas,Área Neta (efectiva),${fmt(_netaDim, 3)},${m.area_unit || 'mm²'}\n`;
-    }
-  csvLines += `${nombreCara},Dimensiones Básicas,Perímetro,${fmt(m.perimeter, 2)},${m.perimeter_unit || 'mm'}\n`;
-    if (_perfs.length > 0 || _horas.length > 0) {
-      const _scPdim = (typeof scale !== 'undefined' && scale > 0) ? scale : 1;
-      const _gPdim = (ph) => ph.metricas?.perimeter ? parseFloat(ph.metricas.perimeter)||0
-        : ph.metricas?.perimeter_real ? (parseFloat(ph.metricas.perimeter_real)||0)*_scPdim
-        : parseFloat(ph.perimetro)||0;
-      const _pExtDim = parseFloat(m.perimeter || 0);
-      const _pPHdim  = [..._perfs, ..._horas].reduce((s,ph) => s + _gPdim(ph), 0);
-      const _pNetDim = analisisObj.perimetro_neto ?? (_pExtDim + _pPHdim);
-      csvLines += `${nombreCara},Dimensiones Básicas,Perímetro Neto (topológico),${fmt(_pNetDim, 3)},${m.perimeter_unit || 'mm'}\n`;
-    }
-  csvLines += `${nombreCara},Dimensiones Básicas,Ancho (BB Ajustado),${fmt(m.width, 2)},mm\n`;
-  csvLines += `${nombreCara},Dimensiones Básicas,Alto (BB Ajustado),${fmt(m.height, 2)},mm\n`;
-    csvLines += `${nombreCara},Dimensiones Básicas,Puntos del Contorno,${m.contour_points || 'N/A'},-\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Índices de Forma
-    // ==========================================================================
-    csvLines += `${nombreCara},Índices de Forma,Circularidad,${fmt(m.circularity, 4)},-\n`;
-    csvLines += `${nombreCara},Índices de Forma,Compacidad,${fmt(m.compactness, 4)},-\n`;
-    csvLines += `${nombreCara},Índices de Forma,Solidez,${fmt(m.solidity, 4)},-\n`;
-    csvLines += `${nombreCara},Índices de Forma,Rectangularidad,${fmt(m.rectangularity, 4)},-\n`;
-    csvLines += `${nombreCara},Índices de Forma,Elongación,${fmt(m.elongation, 4)},-\n`;
-    csvLines += `${nombreCara},Índices de Forma,Factor de Forma,${fmt(m.shape_factor, 4)},-\n`;
-    csvLines += `${nombreCara},Índices de Forma,Excentricidad,${fmt(m.excentricidad, 4)},-\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Ejes y Orientación
-    // ==========================================================================
-    csvLines += `${nombreCara},Ejes y Orientación,Eje Mayor,${fmt(m.eje_mayor, 2)},mm\n`;
-    csvLines += `${nombreCara},Ejes y Orientación,Eje Menor,${fmt(m.eje_menor, 2)},mm\n`;
-    csvLines += `${nombreCara},Ejes y Orientación,Ángulo Principal,${fmt(m.eje_principal_angulo, 2)},grados\n`;
-    csvLines += `${nombreCara},Ejes y Orientación,Orientación,${m.eje_principal_orientacion || 'N/A'},-\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Análisis Radial
-    // ==========================================================================
-    csvLines += `${nombreCara},Análisis Radial,Radio Máximo,${fmt(m.radio_maximo, 2)},mm\n`;
-    csvLines += `${nombreCara},Análisis Radial,Radio Mínimo,${fmt(m.radio_minimo, 2)},mm\n`;
-    csvLines += `${nombreCara},Análisis Radial,Radio Medio,${fmt(m.radio_medio, 2)},mm\n`;
-    csvLines += `${nombreCara},Análisis Radial,Regularidad Radial,${fmt(m.regularidad_radial, 2)},%\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Propiedades del Contorno
-    // ==========================================================================
-    csvLines += `${nombreCara},Propiedades del Contorno,Rugosidad,${fmt(m.rugosidad_contorno, 4)},-\n`;
-    csvLines += `${nombreCara},Propiedades del Contorno,Clasificación,${m.rugosidad_clasificacion || 'N/A'},-\n`;
-    csvLines += `${nombreCara},Propiedades del Contorno,Índice de Complejidad,${fmt(m.contour_complexity_index, 4)},-\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Curvatura
-    // ==========================================================================
-  csvLines += `${nombreCara},Curvatura,Curvatura Media,${fmt(m.curvatura_media, 4)},-\n`;
-    csvLines += `${nombreCara},Curvatura,Curvatura Máxima,${fmt(m.curvatura_maxima, 6)},-\n`;
-    csvLines += `${nombreCara},Curvatura,Clasificación,${m.curvatura_clasificacion || 'N/A'},-\n`;
-    csvLines += `${nombreCara},Curvatura,Energía de Curvatura,${fmt(m.energia_curvatura, 4)},-\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Convex Hull
-    // ==========================================================================
-    // Usar 'area' (mm², ya convertido). Fallback a hull_area_px con unidad px²
-    const _csvHullAreaVal  = parseFloat(m.area)      || 0;
-    const _csvHullAreaUnit = _csvHullAreaVal > 0 ? 'mm²' : 'px²';
-    const _csvHullAreaOut  = _csvHullAreaVal > 0 ? _csvHullAreaVal : (parseFloat(m.hull_area_px) || 0);
-    csvLines += `${nombreCara},Convex Hull,Área,${fmt(_csvHullAreaOut, 2)},${_csvHullAreaUnit}\n`;
-    csvLines += `${nombreCara},Convex Hull,Convexidad,${fmt(m.convexity, 4)},-\n`;
-    csvLines += `${nombreCara},Convex Hull,Clasificación,${m.convexity_class || 'N/A'},-\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Simetría
-    // ==========================================================================
-    csvLines += `${nombreCara},Simetría,Simetría Bilateral,${fmt(m.simetria_bilateral, 4)},-\n`;
-    csvLines += `${nombreCara},Simetría,Clasificación,${m.simetria_clasificacion || 'N/A'},-\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Métricas Avanzadas
-    // ==========================================================================
-    csvLines += `${nombreCara},Métricas Avanzadas,Estrellamiento,${fmt(m.indice_estrellamiento, 4)},-\n`;
-    csvLines += `${nombreCara},Métricas Avanzadas,Lobularidad,${fmt(m.indice_lobularidad, 4)},-\n`;
-    csvLines += `${nombreCara},Métricas Avanzadas,Feret Máximo,${fmt(m.feret_max, 2)},mm\n`;
-    csvLines += `${nombreCara},Métricas Avanzadas,Feret Mínimo,${fmt(m.feret_min, 2)},mm\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Vértices y Ángulos
-    // ==========================================================================
-    csvLines += `${nombreCara},Vértices,Vértices Aproximados,${m.vertices_aproximados || 'N/A'},-\n`;
-    csvLines += `${nombreCara},Vértices,Geometría,${m.geometria_vertices || 'N/A'},-\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Clasificación
-    // ==========================================================================
-    csvLines += `${nombreCara},Clasificación,Forma Detectada,${m.forma_detectada || 'N/A'},-\n`;
-  csvLines += `${nombreCara},Clasificación,Confianza,${fmt((m.forma_confianza || 0) * 100, 2)},%\n`;
-    csvLines += `${nombreCara},Clasificación,Categoría,${m.forma_categoria_base || 'N/A'},-\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Patrón de Agrupamiento (Perforaciones/Horadaciones)
-    // ==========================================================================
-    if (m.patron_agrupamiento) {
-      csvLines += `${nombreCara},Patrón de Agrupamiento,Patrón Detectado,${m.patron_agrupamiento || 'N/A'},-\n`;
-      csvLines += `${nombreCara},Patrón de Agrupamiento,Detalles,${m.patron_agrupamiento_detalles || 'N/A'},-\n`;
-      csvLines += `${nombreCara},Patrón de Agrupamiento,Confianza,${m.patron_agrupamiento_confianza || 'N/A'},%\n`;
-      csvLines += `${nombreCara},Patrón de Agrupamiento,Patrón Específico,${m.patron_agrupamiento_patron || 'N/A'},-\n`;
-      csvLines += `\n`;
-    }
-    
-    // ==========================================================================
-    // CATEGORÍA: Clasificación Síntesis Final (Forma + Patrón)
-    // ==========================================================================
-    csvLines += `${nombreCara},Síntesis Final,Clasificación Integrada,${m.clasificacion_sintesis_final || m.forma_detectada || 'N/A'},-\n`;
-    csvLines += `${nombreCara},Síntesis Final,Descripción,"${m.clasificacion_sintesis_final ? 'Integra geometría + patrón P/H' : 'Solo geometría'}",Nota\n`;
-    csvLines += `\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Métricas Complementarias (con interpretaciones cualitativas)
-    // ==========================================================================
-    csvLines += `${nombreCara},Métricas Complementarias,Circularidad (valor),${fmt(m.circularity_real, 4)},-\n`;
-    csvLines += `${nombreCara},Métricas Complementarias,Circularidad (interpretación),${m.shape_class_circularity || 'N/A'},-\n`;
-    csvLines += `${nombreCara},Métricas Complementarias,Compacidad (valor),${fmt(m.compactness_real, 4)},-\n`;
-    csvLines += `${nombreCara},Métricas Complementarias,Compacidad (interpretación),${m.shape_class_compactness || 'N/A'},-\n`;
-    csvLines += `${nombreCara},Métricas Complementarias,Relación de Aspecto (valor),${fmt(m.aspect_ratio_tight, 4)},-\n`;
-    csvLines += `${nombreCara},Métricas Complementarias,Relación de Aspecto (interpretación),${m.shape_class_aspect || 'N/A'},-\n`;
-    csvLines += `${nombreCara},Métricas Complementarias,Convexidad,${fmt(m.convexity_real, 4)},-\n`;
-    csvLines += `${nombreCara},Métricas Complementarias,Vértices Aproximados,${m.vertices_aproximados || 'N/A'},-\n`;
-    csvLines += `${nombreCara},Métricas Complementarias,Puntos del Contorno,${m.contour_points || 'N/A'},-\n`;
-    
-    // Depuración Estadística de Contorno (si existe)
-    if (m._forma_idealizada) {
-      const forma = m._forma_idealizada;
-      csvLines += `${nombreCara},Métricas Complementarias,Forma Identificada (Depuración),${forma.nombre || 'N/A'},-\n`;
-      if (forma.parametros?.completitud !== undefined) {
-  csvLines += `${nombreCara},Métricas Complementarias,Completitud Estimada,${fmt(forma.parametros.completitud * 100, 2)},%\n`;
-      }
-    }
-    csvLines += `\n`;
-    
-    // ==========================================================================
-    // CATEGORÍA: Perforaciones (si existen) - MÉTRICAS COMPLETAS
-    // ==========================================================================
-    const perforaciones = analisisObj.perforaciones || [];
-    if (perforaciones.length > 0) {
-      csvLines += `${nombreCara},Perforaciones,Número de Perforaciones,${perforaciones.length},-\n`;
-      csvLines += `\n`;
-      
-      perforaciones.forEach((perf, idx) => {
-        const id = `P${perf.id}`;
-        const pm = perf.metricas || {};
-        
-        // Header de la perforación
-  csvLines += `${nombreCara},Perforaciones,${id} - Forma Detectada,${pm.forma_detectada || 'N/A'},${fmt((pm.forma_confianza || 0) * 100, 2)}%\n`;
-        csvLines += `\n`;
-        
-        // Dimensiones Básicas
-        csvLines += `${nombreCara},Perforaciones,${id} - Área,${fmt(pm.area || perf.area, 3)},mm²\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Perímetro,${fmt(pm.perimeter || perf.perimetro, 3)},mm\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Ancho,${fmt(pm.width, 3)},mm\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Alto,${fmt(pm.height, 3)},mm\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Dimensiones (W×H),${fmt(pm.width, 2)} × ${fmt(pm.height, 2)} mm,-\n`;
-        
-        // Centroide
-        if (pm.centroid) {
-          csvLines += `${nombreCara},Perforaciones,${id} - Centroide (X),${fmt(pm.centroid[0], 2)},px\n`;
-          csvLines += `${nombreCara},Perforaciones,${id} - Centroide (Y),${fmt(pm.centroid[1], 2)},px\n`;
-        }
-        
-        // Análisis Radial
-        csvLines += `${nombreCara},Perforaciones,${id} - Radio Máximo,${fmt(pm.radio_maximo, 2)},mm\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Radio Mínimo,${fmt(pm.radio_minimo, 2)},mm\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Radio Medio,${fmt(pm.radio_medio, 2)},mm\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Ratio de Radios,${fmt(pm.ratio_radios, 4)},-\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Regularidad Radial,${fmt(pm.regularidad_radial, 2)},%\n`;
-        
-        // Ejes y Excentricidad
-        csvLines += `${nombreCara},Perforaciones,${id} - Eje Mayor,${fmt(pm.eje_mayor, 2)},mm\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Eje Menor,${fmt(pm.eje_menor, 2)},mm\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Excentricidad,${fmt(pm.excentricidad, 4)},-\n`;
-        
-        // Métricas de Forma
-        csvLines += `${nombreCara},Perforaciones,${id} - Circularidad,${fmt(pm.circularity, 4)},-\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Compacidad,${fmt(pm.compactness, 4)},-\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Solidez,${fmt(pm.solidity, 4)},-\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Convexidad,${fmt(pm.convexity, 4)},-\n`;
-        csvLines += `${nombreCara},Perforaciones,${id} - Relación de Aspecto,${fmt(pm.aspect_ratio, 4)},-\n`;
-        
-        csvLines += `\n`;
-      });
-      
-      // Resumen de Perforaciones
-      const _phefCSVBifP = calcularAreaEfectivaPH(perforaciones, analisisObj.horadaciones || []);
-      const areaTotal = _phefCSVBifP.areaTotalPerforaciones;
-      csvLines += `${nombreCara},Perforaciones,Área Total Efectiva Perforaciones,${fmt(areaTotal, 3)},mm²\n`;
-      if (_phefCSVBifP.numContenidas > 0)
-        csvLines += `${nombreCara},Perforaciones,Perforaciones Contenidas en H,${_phefCSVBifP.numContenidas},-\n`;
-      const perimetroTotal = perforaciones.reduce((sum, p) => sum + (parseFloat(p.metricas?.perimeter || p.perimetro) || 0), 0);
-      csvLines += `${nombreCara},Perforaciones,Perímetro Total Perforaciones,${fmt(perimetroTotal, 3)},mm\n`;
-      csvLines += `\n`;
-    }
-    
-    // ==========================================================================
-    // CATEGORÍA: Horadaciones (si existen) - MÉTRICAS COMPLETAS
-    // ==========================================================================
-    const horadaciones = analisisObj.horadaciones || [];
-    if (horadaciones.length > 0) {
-      csvLines += `${nombreCara},Horadaciones,Número de Horadaciones,${horadaciones.length},-\n`;
-      csvLines += `\n`;
-      
-      horadaciones.forEach((horad, idx) => {
-        const id = `H${horad.id}`;
-        const hm = horad.metricas || {};
-        
-        // Header de la horadación
-  csvLines += `${nombreCara},Horadaciones,${id} - Forma Detectada,${hm.forma_detectada || 'N/A'},${fmt((hm.forma_confianza || 0) * 100, 2)}%\n`;
-        csvLines += `\n`;
-        
-        // Dimensiones Básicas
-        csvLines += `${nombreCara},Horadaciones,${id} - Área,${fmt(hm.area || horad.area, 3)},mm²\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Perímetro,${fmt(hm.perimeter || horad.perimetro, 3)},mm\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Ancho,${fmt(hm.width, 3)},mm\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Alto,${fmt(hm.height, 3)},mm\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Dimensiones (W×H),${fmt(hm.width, 2)} × ${fmt(hm.height, 2)} mm,-\n`;
-        
-        // Centroide
-        if (hm.centroid) {
-          csvLines += `${nombreCara},Horadaciones,${id} - Centroide (X),${fmt(hm.centroid[0], 2)},px\n`;
-          csvLines += `${nombreCara},Horadaciones,${id} - Centroide (Y),${fmt(hm.centroid[1], 2)},px\n`;
-        }
-        
-        // Análisis Radial
-        csvLines += `${nombreCara},Horadaciones,${id} - Radio Máximo,${fmt(hm.radio_maximo, 2)},mm\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Radio Mínimo,${fmt(hm.radio_minimo, 2)},mm\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Radio Medio,${fmt(hm.radio_medio, 2)},mm\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Ratio de Radios,${fmt(hm.ratio_radios, 4)},-\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Regularidad Radial,${fmt(hm.regularidad_radial, 2)},%\n`;
-        
-        // Ejes y Excentricidad
-        csvLines += `${nombreCara},Horadaciones,${id} - Eje Mayor,${fmt(hm.eje_mayor, 2)},mm\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Eje Menor,${fmt(hm.eje_menor, 2)},mm\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Excentricidad,${fmt(hm.excentricidad, 4)},-\n`;
-        
-        // Métricas de Forma
-        csvLines += `${nombreCara},Horadaciones,${id} - Circularidad,${fmt(hm.circularity, 4)},-\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Compacidad,${fmt(hm.compactness, 4)},-\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Solidez,${fmt(hm.solidity, 4)},-\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Convexidad,${fmt(hm.convexity, 4)},-\n`;
-        csvLines += `${nombreCara},Horadaciones,${id} - Relación de Aspecto,${fmt(hm.aspect_ratio, 4)},-\n`;
-        
-        csvLines += `\n`;
-      });
-      
-      // Resumen de Horadaciones
-      const _phefCSVBifH = calcularAreaEfectivaPH(perforaciones, horadaciones);
-      const areaTotal = _phefCSVBifH.areaTotalHoradaciones;
-      csvLines += `${nombreCara},Horadaciones,Área Total Horadaciones,${fmt(areaTotal, 3)},mm²\n`;
-      const perimetroTotal = horadaciones.reduce((sum, h) => sum + (parseFloat(h.metricas?.perimeter || h.perimetro) || 0), 0);
-      csvLines += `${nombreCara},Horadaciones,Perímetro Total Horadaciones,${fmt(perimetroTotal, 3)},mm\n`;
-      csvLines += `\n`;
-    }
-    // ========================================================================
-    if (perforaciones.length > 0 || horadaciones.length > 0) {
-      csvLines += `\n`;
-      csvLines += `${nombreCara},COMPARACIÓN MORFOLÓGICA,${nombreCara} vs P/H,-,-\n`;
-      csvLines += `\n`;
-      
-      // Comparar cada perforación
-      perforaciones.forEach((perf) => {
-        const id = `P${perf.id}`;
-        const formaDetectada = perf.metricas?.forma_detectada || 'N/A';
-        csvLines += generarComparacionPHBifacial(m, perf, id, formaDetectada, 'Perforación', nombreCara, fmt);
-      });
-      
-      // Comparar cada horadación
-      horadaciones.forEach((horad) => {
-        const id = `H${horad.id}`;
-        const formaDetectada = horad.metricas?.forma_detectada || 'N/A';
-        csvLines += generarComparacionPHBifacial(m, horad, id, formaDetectada, 'Horadación', nombreCara, fmt);
-      });
-    }
-    
-    return csvLines;
-  }
   
   /**
    * 🔬 Generar comparación morfológica para formato bifacial
@@ -32871,12 +32520,20 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     };
     
     // ==========================================================================
+    // CATEGORÍA: Detección — ADR-017 (procedencia antes que resultados)
+    // ==========================================================================
+    // Antes sólo había un `Identificación,Método de Detección` suelto, sin confianza
+    // y sin los parámetros del modo IA. La procedencia es su propia categoría.
+    DetectionSection.filasDeteccion(m).forEach(f => {
+      csvLines += `Detección,${f.label},${f.valor},-\n`;
+    });
+
+    // ==========================================================================
     // CATEGORÍA: Identificación
     // ==========================================================================
     csvLines += `Identificación,ID del Objeto,${m.object_id || 'N/A'},-\n`;
     csvLines += `Identificación,Cara,${analisisObj.cara === 'A' ? 'A - Anverso' : analisisObj.cara === 'B' ? 'B - Reverso' : 'Monofacial'},-\n`;
     csvLines += `Identificación,Número de Objeto,${m.numero_objeto || 'N/A'},-\n`;
-    csvLines += `Identificación,Método de Detección,${m.detection_method || 'automático'},-\n`;
     csvLines += `Identificación,Timestamp,${m.analysis_timestamp || new Date().toISOString()},-\n`;
     
     // ==========================================================================
@@ -33055,6 +32712,16 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     csvLines += `Error e Incertidumbre Óptica,FOV Diagonal,${fmt(m.fov_diagonal_deg, 2)},grados\n`;
     csvLines += `Error e Incertidumbre Óptica,k1 Estimado,${m.k1_estimado != null ? fmt(m.k1_estimado, 6) : 'N/A'},-\n`;
     csvLines += `Error e Incertidumbre Óptica,Confianza Óptica,${m.confianza_optica || 'Sin datos'},-\n`;
+    // ADR-017: los dos campos que faltaban para completar los 11 del cálculo.
+    // `posicion_radial_px` se calculaba y no se exportaba en NINGÚN CSV ni PDF.
+    csvLines += `Error e Incertidumbre Óptica,Posición Radial,${fmt(m.posicion_radial_px, 1)},px\n`;
+    csvLines += `Error e Incertidumbre Óptica,Nota,${(m.nota_error_optico || 'N/A').replace(/,/g, ';')},-\n`;
+    // Incertidumbre propagada a las métricas absolutas (sección II-b del informe).
+    [['area','Área','mm²'], ['perimeter','Perímetro','mm'],
+     ['eje_mayor','Eje Mayor','mm'], ['eje_menor','Eje Menor','mm']].forEach(([k, label, u]) => {
+      csvLines += `Error e Incertidumbre Óptica,Incertidumbre ${label},${fmt(m[`${k}_incertidumbre_abs`], 4)},${u}\n`;
+      csvLines += `Error e Incertidumbre Óptica,Rango ${label},${fmt(m[`${k}_rango_min`], 3)} — ${fmt(m[`${k}_rango_max`], 3)},${u}\n`;
+    });
 
     // ==========================================================================
     // CATEGORÍA: Centroide y Posición
