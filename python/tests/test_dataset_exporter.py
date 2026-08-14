@@ -172,6 +172,34 @@ def test_confidence_filter():
     assert "images/obj_006.png" not in set(zf.namelist())
 
 
+def test_confianza_desconocida_no_se_asume_perfecta():
+    """
+    ADR-017: antes el default de `detection_confidence` era 1.0, así que un objeto
+    sin confianza medida se exportaba como si fuera una detección perfecta y el
+    filtro `min_confidence` lo dejaba pasar SIEMPRE. «No medida» debe ser un estado
+    propio: se conserva como null y no supera un filtro de confianza.
+    """
+    img = _make_image()
+
+    # Sin filtro: el objeto entra, pero su confianza se declara desconocida (null).
+    obj = _make_obj("008", confidence=0.9)
+    obj["detection_confidence"] = None
+    coco = json.loads(_load_zip(
+        build_coco_dataset([obj], img, dataset_name="sin_filtro", min_confidence=0.0)
+    ).read("annotations.json"))
+    assert len(coco["annotations"]) == 1
+    assert coco["annotations"][0]["mao_attributes"]["detection_confidence"] is None
+
+    # Con filtro: no se puede certificar, así que no pasa (antes pasaba como 1.0).
+    obj2 = _make_obj("009", confidence=0.9)
+    obj2["detection_confidence"] = None
+    zf = _load_zip(build_coco_dataset([obj2], img, dataset_name="con_filtro", min_confidence=0.5))
+    coco2 = json.loads(zf.read("annotations.json"))
+    metadata2 = json.loads(zf.read("metadata.json"))
+    assert len(coco2["annotations"]) == 0
+    assert metadata2["skipped_by_confidence"] == 1
+
+
 # ── Test 5: Contorno relativo al recorte ─────────────────────────────────────
 
 def test_contour_relative_to_crop():

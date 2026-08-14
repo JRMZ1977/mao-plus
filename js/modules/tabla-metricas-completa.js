@@ -41,6 +41,8 @@
  */
 
 import * as MetricPresenter from './metric-presenter.js';  // fuente única de derivados/rótulos (ADR-016 Stage B)
+import { encabezadoDe, indiceDe } from './category-manifest.js'; // fuente única de orden/índice (ADR-017)
+import { filasDeteccion } from './detection-section.js';   // fuente única de la sección de detección (ADR-017)
 
 /**
  * Confianza global de la clasificación, normalizada a un porcentaje 0–100.
@@ -111,10 +113,22 @@ export function generarTablaMetricasCompleta(obj, metricas) {
     </div>
   `;
 
-  // SECCIÓN I: IDENTIFICACIÓN Y CLASIFICACIÓN
+  // ── ADR-017 · I. DETECCIÓN DEL OBJETO ────────────────────────────────────
+  // El informe declara sus condiciones de producción antes que sus resultados:
+  // cómo se detectó el objeto y con qué confianza, antes de cualquier métrica.
+  // Categoría `estructural` → se rinde SIEMPRE, con «Sin datos» cuando falte.
+  html += generarSeccionDeteccion(metricas, estiloTabla, estiloTh, estiloTd);
+
+  // ── II / II-b · Error óptico e incertidumbre propagada ───────────────────
+  // Van inmediatamente después de la procedencia, antes de las métricas: son la
+  // incertidumbre con que se midió TODO lo que viene a continuación.
+  html += generarSeccionErrorOptico(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionIncertidumbrePropagada(metricas, estiloTabla, estiloTh, estiloTd);
+
+  // SECCIÓN III: IDENTIFICACIÓN Y CLASIFICACIÓN
   html += `
     <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #667eea;">
-      I. IDENTIFICACIÓN Y CLASIFICACIÓN
+      ${encabezadoDe('identificacion')}
     </h3>
     <table style="${estiloTabla}">
       <thead>
@@ -145,49 +159,69 @@ export function generarTablaMetricasCompleta(obj, metricas) {
           <td style="${estiloTd}; font-weight: 600; color: #667eea;">${metricas.forma_detectada || 'No clasificada'}</td>
         </tr>
         <tr>
-          <td style="${estiloTd}; font-weight: 600;">Confianza Global</td>
+          <!-- ADR-017: se explicita que ésta es la confianza de CLASIFICACIÓN de
+               forma. Rotulada sólo «Confianza Global» convivía mal con la nueva
+               confianza de DETECCIÓN de la sección I; son medidas distintas. -->
+          <td style="${estiloTd}; font-weight: 600;">Confianza de Clasificación</td>
           <td style="${estiloTd}; font-weight: 600; color: #28a745;">${confianzaGlobalPorcentaje(metricas)}%</td>
         </tr>
       </tbody>
     </table>
   `;
 
-  // Llamar a todas las secciones generadoras
+  // ── ADR-017 · secciones en el ORDEN CANÓNICO del manifiesto ───────────────
+  // Antes esta secuencia no guardaba relación con los romanos escritos a mano en
+  // cada sección: se emitía II → VIII → III → … El orden de aquí abajo sigue
+  // ahora el campo `orden` de category-manifest.js, y cada `<h3>` toma su numeral
+  // de `encabezadoDe(id)`. Si cambia el orden canónico, se cambia allí, no aquí.
+  //
+  // (I, II y II-b — detección, error óptico e incertidumbre — ya se emitieron
+  //  arriba, antes de la identificación.)
+
+  // IV. Dimensiones · V. Proporciones y forma global
   html += generarSeccionDimensiones(obj, metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionFragmentacion(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionIndicesForma(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionMetricasMorfologicas(metricas, estiloTabla, estiloTh, estiloTd);
+
+  // VI. Análisis radial · VII/VII-b. Contorno y curvatura · VIII. Convex hull
+  html += generarSeccionAnalisisRadial(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionPropiedadesContorno(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionCurvatura(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionConvexHull(metricas, estiloTabla, estiloTh, estiloTd);
+
+  // IX / IX-b / IX-c. Ejes, orientación, simetría y centroide
+  html += generarSeccionEjesOrientacion(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionOrientacion(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionSimetria(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionCentroide(metricas, estiloTabla, estiloTh, estiloTd);
 
-  // P/H: SIEMPRE presentes (coherencia con el panel — esqueleto estable).
+  // X. Vértices · XI. Forma 3D · XII. Conservación y fragmentación
+  html += generarSeccionVerticesAngulos(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionForma3D(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionFragmentacion(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionEstadoConservacion(metricas, estiloTabla, estiloTh, estiloTd);
+
+  // XV / XV-b. P/H: SIEMPRE presentes (coherencia con el panel — esqueleto estable).
   // Las funciones internas ya rinden "no detectadas" cuando el objeto no tiene
   // P/H, así que la categoría no depende de haber confirmado P/H (acción 2ª).
   html += generarSeccionPerforaciones(obj, metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionHoradaciones(obj, metricas, estiloTabla, estiloTh, estiloTd);
 
-  // Sección bifacial si aplica
+  // XVI. Patrón de agrupamiento · XVII. Geométricas avanzadas
+  html += generarSeccionPatronAgrupamiento(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionMetricasAvanzadas(metricas, estiloTabla, estiloTh, estiloTd);
+
+  // XVIII. Clasificación y síntesis
+  html += generarSeccionClasificacionesIndividuales(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionClasificacion(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionClasificaciones(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionSintesisFinal(metricas, estiloTabla, estiloTh, estiloTd);
+
+  // XX / XX-b. Comparativas (condicionales por naturaleza) — al final, para que el
+  // índice de las secciones estructurales siga siendo contiguo cuando falten.
   if (obj.cara && (obj.cara === 'A' || obj.cara === 'B')) {
     html += generarSeccionComparacionBifacial(obj, metricas, estiloTabla, estiloTh, estiloTd);
   }
-
-  html += generarSeccionEstadoConservacion(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionErrorOptico(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionIncertidumbrePropagada(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionEjesOrientacion(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionAnalisisRadial(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionPropiedadesContorno(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionCurvatura(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionConvexHull(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionMetricasAvanzadas(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionClasificacionesIndividuales(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionVerticesAngulos(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionForma3D(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionCentroide(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionClasificacion(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionPatronAgrupamiento(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionSintesisFinal(metricas, estiloTabla, estiloTh, estiloTd);
-  html += generarSeccionClasificaciones(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionMetricasComplementarias(obj, metricas, estiloTabla, estiloTh, estiloTd);
 
   // Pie de página
@@ -215,6 +249,39 @@ export function contarMetricas(metricas, obj) {
   if (obj.horadaciones) count += obj.horadaciones.length * 5; // 5 métricas por horadación
   return count;
 }
+/**
+ * I. DETECCIÓN DEL OBJETO — ADR-017
+ *
+ * Procedencia del dato: con qué método se aisló el objeto de la imagen y con qué
+ * confianza. Cierra el hallazgo #5 de ADR-016 (las fichas IA llegaban al PDF con
+ * «N/A» en método y confianza). Categoría `estructural`: se rinde SIEMPRE, con
+ * marcador «Sin datos» cuando un campo no aplica al modo empleado.
+ */
+function generarSeccionDeteccion(metricas, estiloTabla, estiloTh, estiloTd) {
+  const filas = filasDeteccion(metricas);
+
+  return `
+    <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #667eea;">
+      ${encabezadoDe('deteccion')}
+    </h3>
+    <table style="${estiloTabla}">
+      <thead>
+        <tr>
+          <th style="${estiloTh}; width: 40%;">Propiedad</th>
+          <th style="${estiloTh}; width: 60%;">Valor</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${filas.map((f, i) => `
+        <tr${i % 2 === 0 ? ' style="background: #f8f9fa;"' : ''}>
+          <td style="${estiloTd}; font-weight: 600;">${f.label}</td>
+          <td style="${estiloTd}${f.sinDato ? '; color:#adb5bd; font-style:italic' : '; font-weight:600'};">${f.valor}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
 function generarSeccionDimensiones(obj, metricas, estiloTabla, estiloTh, estiloTd) {
     // Área y perímetro del convex hull (forma canónica completa — estándar MAO)
     const area = parseFloat(metricas.hull_area || metricas.area) || 0;
@@ -233,7 +300,7 @@ function generarSeccionDimensiones(obj, metricas, estiloTabla, estiloTh, estiloT
 
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #28a745;">
-        II. DIMENSIONES MÉTRICAS DEL OBJETO
+        ${encabezadoDe('dimensiones')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -308,7 +375,7 @@ function generarSeccionFragmentacion(metricas, estiloTabla, estiloTh, estiloTd) 
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #dc3545;">
-        VIII. ESTADO DE CONSERVACIÓN Y FRAGMENTACIÓN
+        ${encabezadoDe('conservacion')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -375,7 +442,7 @@ function generarSeccionIndicesForma(metricas, estiloTabla, estiloTh, estiloTd) {
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #fd7e14;">
-        III. PROPORCIONES Y FORMA GLOBAL
+        ${encabezadoDe('indices_forma')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -455,7 +522,7 @@ function generarSeccionMetricasMorfologicas(metricas, estiloTabla, estiloTh, est
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #fd7e14;">
-        3. MÉTRICAS MORFOLÓGICAS PRINCIPALES
+        ${indiceDe('indices_forma')}-a. Métricas Morfológicas Principales
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -538,7 +605,7 @@ function generarSeccionOrientacion(metricas, estiloTabla, estiloTh, estiloTd) {
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6610f2;">
-        4. ORIENTACIÓN Y EJES PRINCIPALES
+        ${indiceDe('ejes_orientacion')}-a. Orientación y Ejes Principales
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -578,7 +645,7 @@ function generarSeccionPerforaciones(obj, metricas, estiloTabla, estiloTh, estil
     if (!obj.perforaciones || obj.perforaciones.length === 0) {
         return `
             <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #0066cc;">
-              20. PERFORACIONES (Orificios Pasantes)
+              ${encabezadoDe('perforaciones')} (Orificios Pasantes)
             </h3>
             <div style="padding: 20px; background: #f0f2f5; border-left: 4px solid #0066cc; border-radius: 4px; text-align: center;">
               <strong>No se detectaron perforaciones en este objeto</strong>
@@ -588,7 +655,7 @@ function generarSeccionPerforaciones(obj, metricas, estiloTabla, estiloTh, estil
     
     let html = `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #0066cc;">
-        20. PERFORACIONES (Orificios Pasantes) - ${obj.perforaciones.length} detectada(s)
+        ${encabezadoDe('perforaciones')} (Orificios Pasantes) - ${obj.perforaciones.length} detectada(s)
       </h3>
     `;
     
@@ -859,7 +926,7 @@ function generarSeccionHoradaciones(obj, metricas, estiloTabla, estiloTh, estilo
     if (!obj.horadaciones || obj.horadaciones.length === 0) {
       return `
         <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #28a745;">
-          21. HORADACIONES (Concavidades Ciegas)
+          ${encabezadoDe('horadaciones')} (Concavidades Ciegas)
         </h3>
         <div style="padding: 20px; background: #d4edda; border-left: 4px solid #28a745; border-radius: 4px; text-align: center;">
           <strong>No se detectaron horadaciones en este objeto</strong>
@@ -869,7 +936,7 @@ function generarSeccionHoradaciones(obj, metricas, estiloTabla, estiloTh, estilo
     
     let html = `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #28a745;">
-        21. HORADACIONES (Concavidades Ciegas) - ${obj.horadaciones.length} detectada(s)
+        ${encabezadoDe('horadaciones')} (Concavidades Ciegas) - ${obj.horadaciones.length} detectada(s)
       </h3>
     `;
     
@@ -1460,7 +1527,7 @@ function generarSeccionEstadoConservacion(metricas, estiloTabla, estiloTh, estil
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #dc3545;">
-        VIII-b. Defectos y Análisis de Conservación
+        ${indiceDe('conservacion')}-b. Defectos y Análisis de Conservación
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -1542,11 +1609,15 @@ function generarSeccionErrorOptico(metricas, estiloTabla, estiloTh, estiloTd) {
     const notaErrorOptico = metricas.nota_error_optico || 'No disponible';
     
     const errorTotal = Math.sqrt(errorLineal ** 2 + errorArea ** 2);
-    const confianzaColor = confianzaOptica.includes('Alta') ? '#28a745' : confianzaOptica.includes('Media') ? '#ffc107' : '#dc3545';
+    // ADR-017: la categoría intermedia que emite el cálculo es «Moderada (< 3%)»,
+    // no «Media» — el semáforo pintaba de rojo todo lo que no fuera «Alta».
+    const confianzaColor = confianzaOptica.includes('Alta') ? '#28a745'
+                         : (confianzaOptica.includes('Moderada') || confianzaOptica.includes('Media')) ? '#ffc107'
+                         : '#dc3545';
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #f57c00;">
-        IX. ERROR ÓPTICO POSICIONAL
+        ${encabezadoDe('error_optico')}
       </h3>
       <div style="padding: 12px; background: #fff3e0; border-left: 4px solid #f57c00; border-radius: 4px; margin-bottom: 15px;">
         <strong>🔭 Análisis de incertidumbre óptica basado en parámetros de cámara</strong><br>
@@ -1631,8 +1702,19 @@ function generarSeccionIncertidumbrePropagada(metricas, estiloTabla, estiloTh, e
   const ejMajAbs = parseFloat(metricas.eje_mayor_incertidumbre_abs);
   const ejMinAbs = parseFloat(metricas.eje_menor_incertidumbre_abs);
 
-  // Si no hay ningún campo de incertidumbre, no renderizar la sección
-  if (isNaN(areaAbs) && isNaN(periAbs) && isNaN(ejMajAbs) && isNaN(ejMinAbs)) return '';
+  // ADR-017: la categoría es `estructural` en el manifiesto → se rinde SIEMPRE.
+  // Antes desaparecía por completo sin datos, y el lector no podía distinguir
+  // «no se propagó incertidumbre» de «la sección no existe en este informe».
+  if (isNaN(areaAbs) && isNaN(periAbs) && isNaN(ejMajAbs) && isNaN(ejMinAbs)) {
+    return `
+      <h3 style="color:#495057;margin:30px 0 15px 0;padding-bottom:8px;border-bottom:3px solid #1565c0;">
+        ${encabezadoDe('incertidumbre')}
+      </h3>
+      <p style="padding:12px;background:#f8f9fa;border-left:4px solid #adb5bd;border-radius:4px;color:#6c757d;font-style:italic;">
+        Sin datos — requiere el error óptico posicional (${indiceDe('error_optico')}) para propagar rangos ± a cada métrica absoluta.
+      </p>
+    `;
+  }
 
   const _f  = (v, d) => isNaN(parseFloat(v)) ? '—' : parseFloat(v).toFixed(d != null ? d : 3);
   const _rg = (min, val, max, unit) => {
@@ -1654,7 +1736,7 @@ function generarSeccionIncertidumbrePropagada(metricas, estiloTabla, estiloTh, e
 
   return `
     <h3 style="color:#495057;margin:30px 0 15px 0;padding-bottom:8px;border-bottom:3px solid #1565c0;">
-      IX-B. INCERTIDUMBRE PROPAGADA POR MÉTRICA${provTag}
+      ${encabezadoDe('incertidumbre')}${provTag}
     </h3>
     <div style="padding:12px;background:#e3f2fd;border-left:4px solid #1565c0;border-radius:4px;margin-bottom:15px;">
       <strong>📐 Rangos de confianza métrica a métrica</strong><br>
@@ -1717,7 +1799,7 @@ function generarSeccionEjesOrientacion(metricas, estiloTabla, estiloTh, estiloTd
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #fd7e14;">
-        VI. ORIENTACIÓN Y POSICIÓN ESPACIAL
+        ${encabezadoDe('ejes_orientacion')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -1805,7 +1887,7 @@ function generarSeccionAnalisisRadial(metricas, estiloTabla, estiloTh, estiloTd)
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #17a2b8;">
-        IV. REGULARIDAD DEL CONTORNO
+        ${encabezadoDe('radial')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -1885,7 +1967,7 @@ function generarSeccionPropiedadesContorno(metricas, estiloTabla, estiloTh, esti
     const filasGlcm = tieneGlcm ? `
           <tr>
             <td style="${estiloTd}; background:#ede7f6; font-weight:600; font-size:11px; color:#5c4d7d;" colspan="3">
-              XIV-b. Textura GLCM (Grey-Level Co-occurrence Matrix)
+              ${indiceDe('textura')}-b. Textura GLCM (Grey-Level Co-occurrence Matrix)
             </td>
           </tr>
           ${glcmContrast !== null ? `
@@ -1940,7 +2022,7 @@ function generarSeccionPropiedadesContorno(metricas, estiloTabla, estiloTh, esti
     const filasTextura = tieneTextura ? `
           <tr>
             <td style="${estiloTd}; background:#f0f4ff; font-weight:600; font-size:11px; color:#4a5568;" colspan="3">
-              XIV. Textura de Superficie (métricas de luminancia interna)
+              ${encabezadoDe('textura')} (métricas de luminancia interna)
             </td>
           </tr>
           ${varianza !== null ? `
@@ -1964,7 +2046,7 @@ function generarSeccionPropiedadesContorno(metricas, estiloTabla, estiloTh, esti
 
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6f42c1;">
-        V. RUGOSIDAD Y COMPLEJIDAD DEL BORDE
+        ${encabezadoDe('contorno')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -2021,7 +2103,7 @@ function generarSeccionCurvatura(metricas, estiloTabla, estiloTh, estiloTd) {
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #e83e8c;">
-        V-b. Análisis de Curvatura
+        ${encabezadoDe('curvatura')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -2109,7 +2191,7 @@ function generarSeccionConvexHull(metricas, estiloTabla, estiloTh, estiloTd) {
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #20c997;">
-        IV-b. Envolvente Convexa (Convex Hull)
+        ${encabezadoDe('convex_hull')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -2204,7 +2286,7 @@ function generarSeccionSimetria(metricas, estiloTabla, estiloTh, estiloTd) {
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6c757d;">
-        VI-b. Simetría Bilateral
+        ${encabezadoDe('simetria')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -2272,7 +2354,7 @@ function generarSeccionMetricasAvanzadas(metricas, estiloTabla, estiloTh, estilo
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6610f2;">
-        XII-a. Características Geométricas Avanzadas
+        ${encabezadoDe('avanzadas')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -2386,7 +2468,7 @@ function generarSeccionClasificacionesIndividuales(metricas, estiloTabla, estilo
     });
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #17a2b8;">
-        10. CLASIFICACIONES INDIVIDUALES (Métodos Componentes)
+        ${indiceDe('clasificacion')}-a. Clasificaciones Individuales (Métodos Componentes)
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -2444,7 +2526,7 @@ function generarSeccionVerticesAngulos(metricas, estiloTabla, estiloTh, estiloTd
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #795548;">
-        VII. GEOMETRÍA DE VÉRTICES
+        ${encabezadoDe('vertices_angulos')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -2511,7 +2593,7 @@ function generarSeccionForma3D(metricas, estiloTabla, estiloTh, estiloTd) {
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #607d8b;">
-        III-b. Forma 3D Inferida
+        ${encabezadoDe('forma_3d')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -2572,7 +2654,7 @@ function generarSeccionCentroide(metricas, estiloTabla, estiloTh, estiloTd) {
 
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #9e9e9e;">
-        VI-c. Centroide y Posición Espacial
+        ${encabezadoDe('centroide')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -2635,7 +2717,7 @@ function generarSeccionClasificacion(metricas, estiloTabla, estiloTh, estiloTd) 
       const tipText = tip.color?.text || '#4527a0';
       tipologiaHTML = `
       <h3 style="color: #4527a0; margin: 24px 0 12px 0; padding-bottom: 8px; border-bottom: 3px solid #4527a0;">
-        XII-a. Tipología Arqueológica — IA Fase 2
+        ${indiceDe('clasificacion')}-b. Tipología Arqueológica — IA Fase 2
       </h3>
       <div style="display:flex; align-items:center; gap:12px; padding:14px 16px; background:${tipColor}; border:2px solid ${tipBorder}; border-radius:8px; margin-bottom:14px;">
         <span style="font-size:28px; line-height:1;">${tip.icono || '🔩'}</span>
@@ -2653,7 +2735,7 @@ function generarSeccionClasificacion(metricas, estiloTabla, estiloTh, estiloTd) 
     
     return `${tipologiaHTML}
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #673ab7;">
-        XII-b. Clasificación Morfológica Detallada
+        ${indiceDe('clasificacion')}-c. Clasificación Morfológica Detallada
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -2741,7 +2823,7 @@ function generarSeccionPatronAgrupamiento(metricas, estiloTabla, estiloTh, estil
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #00bcd4;">
-        XI. ANÁLISIS COMPARATIVO OBJETO–P/H
+        ${encabezadoDe('patron')}
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -2793,7 +2875,7 @@ function generarSeccionSintesisFinal(metricas, estiloTabla, estiloTh, estiloTd) 
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #ff5722;">
-        XII-d. Síntesis Final Integrada
+        ${indiceDe('clasificacion')}-e. Síntesis Final Integrada
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -2837,7 +2919,7 @@ function generarSeccionClasificaciones(metricas, estiloTabla, estiloTh, estiloTd
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #3f51b5;">
-        XII-c. Clasificaciones Complementarias
+        ${indiceDe('clasificacion')}-d. Clasificaciones Complementarias
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -2899,7 +2981,7 @@ function generarSeccionMetricasComplementarias(obj, metricas, estiloTabla, estil
     
     return `
       <h3 style="color: var(--laar-g800, #374151); margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 2px solid var(--laar-g200, #e5e7eb);">
-        XI-b. Métricas de Distribución y Contexto P/H
+        ${encabezadoDe('tecnica')} — Distribución y Contexto P/H
       </h3>
       <table style="${estiloTabla}">
         <thead>

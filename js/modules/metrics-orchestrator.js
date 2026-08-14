@@ -426,7 +426,13 @@ function calcularMetricasConBoundingBox(obj, escalaFactor = null) {
     metrics.shape_class_circularity = 'Alargada (aprox)';
   }
 
-  metrics.detection_method = obj.detectionMethod || 'automatic';
+  // ADR-017 — procedencia de detección por el escritor único del contrato
+  // (método + confianza + parámetros del modo). Fallback si el contrato no cargó.
+  if (typeof window !== 'undefined' && window.MaoDeteccion?.aplicarProcedencia) {
+    window.MaoDeteccion.aplicarProcedencia(metrics, obj);
+  } else {
+    metrics.detection_method = obj.detectionMethod || 'automatic';
+  }
   metrics.analysis_method = 'Bounding Box (Fallback) [APROXIMADO]';
   metrics.contour_extraction_successful = false;
   metrics.original_bounding_box = `${obj.minX},${obj.minY} to ${obj.maxX},${obj.maxY}`;

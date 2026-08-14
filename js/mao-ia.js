@@ -116,6 +116,7 @@
   // ── Estado interno ───────────────────────────────────────────────────────
   let maoIaVisible       = new Set();
   let maoIaLastObjects   = [];
+  let maoIaLastParams    = null;             // ADR-017: `params_used` de la última respuesta
   let maoIaObjectsByFace = { A: [], B: [] };  // resultados persistentes por cara
   let selectedFace       = 'A';
   let serverHealthy      = false;            // flag de salud del servidor
@@ -1983,7 +1984,24 @@
       // El contorno AIA ya es el contorno definitivo (red neuronal);
       // marca para que analizarObjetoMorfologicamente NO lo re-extraiga con /api/contour.
       _samSegmented:   true,
+
+      // ── ADR-017 · procedencia de detección ────────────────────────────────
+      // Este objeto se construye de cero para el renderer y NO atraviesa el choke
+      // point del contrato (`individualizarObjetos` → normalizarLista). Sin estos
+      // campos, la ficha IA llegaba al informe sin método ni confianza —el
+      // hallazgo #5 de ADR-016— pese a que el backend sí los calcula.
+      detection_confidence: maoObj.detection_confidence ?? null,
+      confidence_level:     maoObj.confidence_level     ?? null,
+      ia_threshold_method:  maoObj.ia_threshold_method  ?? null,
+      ia_segmentador:       maoObj.ia_segmentador       ?? null,
+      ia_params:            maoObj.ia_params            ?? null,
+      ia_enriquecido:       true,
     };
+
+    // Sella el objeto con el contrato ADR-008 (deriva detectionMethod='ia' desde
+    // `_samSegmented`, canoniza bbox/area/source_id y sincroniza los alias de
+    // confianza). Aditivo e idempotente: no pisa nada de lo de arriba.
+    if (window.MaoDeteccion?.normalizar) window.MaoDeteccion.normalizar(objMorf);
 
     // Campos que se excluyen del pass-through porque los sobreescribimos con conversión.
     // Python llama metrics.calculate() con scale_px_mm=0 → los campos SIN sufijo _px
@@ -2458,22 +2476,20 @@
               ? pyM.convex_hull_points.length
               : (pyM.convex_hull_points || null),
 
-            // ── 🔭 INCLUIR CAMPOS DE ERROR ÓPTICO POSICIONAL ─────────────────────
-            // CRÍTICO: Estos campos se calculan al inicio en `metricas` pero NO se 
-            // incluían en metricasFinal, causando que la Sección IX no se renderice.
-            // Se preservan TODOS los campos para que la renderización sea completa.
-            error_optico_lineal_percent:  metricas.error_optico_lineal_percent,
-            error_optico_area_percent:    metricas.error_optico_area_percent,
-            error_perspectiva_percent:    metricas.error_perspectiva_percent,
-            error_distorsion_percent:     metricas.error_distorsion_percent,
-            posicion_radial_norm:         metricas.posicion_radial_norm,
-            posicion_radial_px:           metricas.posicion_radial_px,
-            angulo_optico_deg:            metricas.angulo_optico_deg,
-            k1_estimado:                  metricas.k1_estimado,
-            fov_diagonal_deg:             metricas.fov_diagonal_deg,
-            confianza_optica:             metricas.confianza_optica,
-            nota_error_optico:            metricas.nota_error_optico,
+            // ADR-017: el segundo bloque de preservación de `error_optico_*` que vivía
+            // aquí era una copia literal del de arriba (claves duplicadas en el mismo
+            // object literal). Eliminado: la copia de arriba es la que manda, y la red
+            // de seguridad `aplicarErrorOpticoPosicional` la recalcula si falta.
           };
+
+          // ── ADR-017 · procedencia de detección ────────────────────────────
+          // La fusión `{...pyM}` descarta todo lo no listado, y /api/metrics no
+          // devuelve método ni confianza → sin esto, la ficha IA sale del merge sin
+          // procedencia y así se persiste en metricas.json. Escritor único del
+          // contrato, aplicado DESPUÉS de la fusión.
+          if (window.MaoDeteccion?.aplicarProcedencia) {
+            window.MaoDeteccion.aplicarProcedencia(metricasFinal, objMorf);
+          }
 
           // Fusionar GLCM de textura si llegó
           if (pyTexRes.status === 'fulfilled' && pyTexRes.value?.glcm) {
@@ -2657,8 +2673,17 @@
     //    (centroide del objeto), no del método de detección. Garantiza la Sección IX en
     //    fichas IA sin merge-drop ni lógica duplicada.
     if (typeof window.aplicarErrorOpticoPosicional === 'function') {
-      const _okEO = window.aplicarErrorOpticoPosicional(metricasFinal, { x: hcx || cx, y: hcy || cy });
+      const _okEO = window.aplicarErrorOpticoPosicional(
+        metricasFinal, { x: hcx || cx, y: hcy || cy }, objMorf.cara || null);
       console.log(`[IA→Card] Error óptico (autónomo): ${_okEO ? 'OK ±' + metricasFinal.error_optico_lineal_percent + '%' : 'sin datos — ' + (metricasFinal.nota_error_optico || '')}`);
+    }
+
+    // 🔎 PROCEDENCIA DE DETECCIÓN — mismo espíritu que la red de seguridad óptica de
+    //    arriba: se aplica sobre el objeto FINAL, con independencia de por qué rama
+    //    haya pasado (con o sin métricas de Python). Idempotente: si la fusión ya la
+    //    escribió, reescribe lo mismo.
+    if (window.MaoDeteccion?.aplicarProcedencia) {
+      window.MaoDeteccion.aplicarProcedencia(metricasFinal, objMorf);
     }
 
     // ── Crear tarjeta en panel de resultados ────────────────────────────────
@@ -2704,11 +2729,27 @@
     if (_cf) _cf.checked = false;
     _updateSortIndicators();
 
+    // ── ADR-017 · parámetros del modo IA ────────────────────────────────────
+    // El backend los devuelve en `params_used` a nivel de RESPUESTA, no por objeto,
+    // y hasta ahora se descartaban por completo (nada en js/ leía `params_used`).
+    // Se proyectan sobre cada objeto para que viajen con él hasta el informe: sin
+    // esto, el reporte no puede declarar CÓMO se obtuvo la detección.
+    maoIaLastParams = data.params_used || null;
+    const _thr = maoIaLastParams?.threshold_method || null;
+    // `/api/mao-ia` no devuelve nombre de modelo; el segmentador se deriva del modo:
+    // "auto" = núcleo canónico OpenCV (ADR-012), el resto = umbralización del modal.
+    const _seg = _thr === 'auto' ? 'Núcleo OpenCV (Z-scan+CLAHE+GrabCut+watershed)'
+               : _thr ? `Umbralización IA (${_thr})`
+               : null;
+
     const INTERNAL = new Set(['object_id','label','contour_points','hull_points',
       'convexity_defects','centroid_x','centroid_y','hull_centroid_x','hull_centroid_y',
       'bbox_x','bbox_y','bbox_w','bbox_h','centroide','_metrics_error','_metricsCount']);
     maoIaLastObjects.forEach(obj => {
       obj._metricsCount = Object.keys(obj).filter(k => !INTERNAL.has(k)).length;
+      if (_thr) obj.ia_threshold_method = _thr;
+      if (_seg) obj.ia_segmentador      = _seg;
+      if (maoIaLastParams) obj.ia_params = maoIaLastParams;
     });
 
     window._showMaoMetrics = id => {

@@ -164,3 +164,116 @@ def test_rotulos_clasificacion_fuente_unica():
         "Rótulos de clasificación re-duplicados fuera de metric-presenter.js (deriva ADR-016):\n  "
         + "\n  ".join(offenders)
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADR-017 — el índice canónico vive en el manifiesto, y sólo ahí
+# ═══════════════════════════════════════════════════════════════════════════════
+
+MANIFEST = ROOT / "js" / "modules" / "category-manifest.js"
+
+# Entradas del manifiesto, extraídas del literal `{ id: '…', titulo: '…', orden: N, indice: '…', tipo: '…' }`.
+_ENTRY_RE = re.compile(
+    r"\{\s*id:\s*'(?P<id>[a-z0-9_]+)',\s*"
+    r"titulo:\s*'(?P<titulo>[^']*)',\s*"
+    r"orden:\s*(?P<orden>\d+),\s*"
+    r"indice:\s*'(?P<indice>[^']*)',\s*"
+    r"tipo:\s*'(?P<tipo>[a-z]+)'"
+)
+
+
+def _manifest_entries():
+    txt = MANIFEST.read_text(encoding="utf-8")
+    entries = [m.groupdict() for m in _ENTRY_RE.finditer(txt)]
+    assert entries, "No se pudo parsear ninguna entrada de category-manifest.js"
+    return entries
+
+
+def test_manifiesto_indice_contiguo_y_unico():
+    """
+    ADR-017: el manifiesto es la fuente ÚNICA de orden e índice. Ids únicos, `orden`
+    contiguo desde 1 (el array ES el orden de render) e `indice` romano único y no
+    vacío. Sin esto reaparecen las colisiones que motivaron el ADR: `XII-a` rotulando
+    dos secciones distintas y la Tabla emitiendo II → VIII → III.
+    """
+    entries = _manifest_entries()
+
+    ids = [e["id"] for e in entries]
+    assert len(ids) == len(set(ids)), f"ids duplicados en el manifiesto: {ids}"
+
+    indices = [e["indice"] for e in entries]
+    assert all(indices), "hay entradas con `indice` vacío"
+    assert len(indices) == len(set(indices)), (
+        "índices romanos duplicados: "
+        + str([i for i in indices if indices.count(i) > 1])
+    )
+
+    ordenes = [int(e["orden"]) for e in entries]
+    assert ordenes == list(range(1, len(entries) + 1)), (
+        f"`orden` no es contiguo desde 1: {ordenes}"
+    )
+
+    tipos = {e["tipo"] for e in entries}
+    assert tipos <= {"estructural", "factual", "comparativa"}, f"tipos inválidos: {tipos}"
+
+
+def test_manifiesto_abre_con_procedencia():
+    """
+    ADR-017 (decisión JFRR): el informe declara sus condiciones de producción antes que
+    sus resultados. Detección primero, error óptico e incertidumbre inmediatamente
+    después, y sólo entonces las métricas morfométricas.
+    """
+    entries = _manifest_entries()
+    assert [e["id"] for e in entries[:3]] == ["deteccion", "error_optico", "incertidumbre"], (
+        "El manifiesto ya no abre con la procedencia (detección → error óptico → "
+        f"incertidumbre); abre con {[e['id'] for e in entries[:3]]}"
+    )
+
+
+def test_las_comparativas_van_al_final():
+    """
+    Las categorías `comparativa` son condicionales por naturaleza (requieren otra cara
+    o P/H). Si se intercalan entre las estructurales, el índice deja de ser contiguo
+    en cuanto una falta. Deben ocupar la cola.
+    """
+    entries = _manifest_entries()
+    tipos = [e["tipo"] for e in entries]
+    primera_comparativa = tipos.index("comparativa") if "comparativa" in tipos else len(tipos)
+    assert all(t == "comparativa" for t in tipos[primera_comparativa:]), (
+        "Hay categorías estructurales/factuales DESPUÉS de una comparativa: "
+        f"{[e['id'] for e in entries[primera_comparativa:] if e['tipo'] != 'comparativa']}"
+    )
+
+
+def test_ninguna_superficie_hardcodea_el_indice_romano():
+    """
+    El enforcement que da sentido a todo lo anterior: si una superficie vuelve a
+    escribir el numeral a mano en su HTML, el manifiesto deja de ser la fuente única y
+    el índice se desincroniza en silencio (que es exactamente lo que pasó entre
+    `tabla-metricas-completa.js` y la copia de `analysis-core.js`).
+
+    Detecta el patrón de rótulo de sección: un romano seguido de punto y de un título
+    en mayúsculas dentro de un literal de plantilla.
+    """
+    import glob
+
+    # `>` o inicio de línea, romano, punto, espacio, y un título que empieza en mayúscula.
+    patron = re.compile(
+        r"(?:^|>)\s*(?P<num>[IVX]{1,6}(?:-[A-Za-z])?)\.\s+(?P<tit>[A-ZÁÉÍÓÚÑ][^<\n{$]{4,60})",
+        re.MULTILINE,
+    )
+
+    offenders = []
+    for jsfile in sorted(glob.glob(str(ROOT / "js" / "**" / "*.js"), recursive=True)):
+        name = Path(jsfile).name
+        if name == "category-manifest.js" or "node_modules" in jsfile:
+            continue
+        txt = Path(jsfile).read_text(encoding="utf-8", errors="ignore")
+        for m in patron.finditer(txt):
+            linea = txt[: m.start()].count("\n") + 1
+            offenders.append(f"{name}:{linea} → '{m.group('num')}. {m.group('tit').strip()}'")
+
+    assert not offenders, (
+        "Índice romano hardcodeado fuera de category-manifest.js (ADR-017). "
+        "Usar `CategoryManifest.encabezadoDe(id)`:\n  " + "\n  ".join(offenders)
+    )

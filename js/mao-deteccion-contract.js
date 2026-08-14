@@ -150,6 +150,50 @@
     return null;
   }
 
+  // ── ADR-017 · procedencia de detección → objeto de métricas ────────────────
+  // ESCRITOR ÚNICO. Antes cada modo proyectaba la procedencia por su cuenta:
+  // auto/manual escribían `detection_method` suelto (analysis-core.js ×2,
+  // metrics-orchestrator.js) y el modo IA no escribía NADA, porque su
+  // `metricasFinal` se reconstruye desde las métricas de Python y descarta todo
+  // lo que no se preserve a mano. Como `metricas.json` persiste literalmente el
+  // objeto de métricas, lo que no se escribe aquí no se almacena y no puede
+  // exportarse después. Llamar SIEMPRE al final, tras cualquier fusión.
+  //
+  // Sobre las dos claves de nivel: el productor histórico escribe
+  // `detection_confidence_level` y hay consumidores vivos que la leen
+  // (project-manager.js, comparator.js), mientras que el contrato y otros dos
+  // consumidores usan `confidence_level`. Se escriben AMBAS para no romper a
+  // nadie; `confidence_level` es la canónica.
+  function aplicarProcedencia(metricas, obj) {
+    if (!metricas || typeof metricas !== 'object') return metricas;
+    obj = obj || {};
+    try {
+      var score = _firstDef(obj.detection_confidence, obj._confidence,
+                            metricas.detection_confidence);
+      var level = _firstDef(obj.confidence_level, obj._confidenceLvl,
+                            metricas.confidence_level, metricas.detection_confidence_level);
+
+      metricas.detection_method     = _firstDef(obj.detectionMethod, metricas.detection_method,
+                                                modoCanonico(obj));
+      metricas.detection_method_raw = _firstDef(obj.detectionMethodRaw, metricas.detection_method_raw);
+      metricas.detection_confidence = (typeof score === 'number' && isFinite(score)) ? score : null;
+      metricas.confidence_level     = level != null ? level : null;
+      // Alias legacy — hay lectores vivos de esta clave; mantenerla sincronizada.
+      metricas.detection_confidence_level = metricas.confidence_level;
+
+      // Parámetros del modo IA (sólo si los hay; no ensuciar los otros modos).
+      if (obj.ia_threshold_method != null) metricas.ia_threshold_method = obj.ia_threshold_method;
+      if (obj.ia_segmentador != null)      metricas.ia_segmentador      = obj.ia_segmentador;
+      if (obj.ia_enriquecido != null)      metricas.ia_enriquecido      = obj.ia_enriquecido;
+      if (obj.ia_params != null)           metricas.ia_params           = obj.ia_params;
+    } catch (e) {
+      if (root.console && console.warn) {
+        console.warn('[MaoDeteccion] aplicarProcedencia() omitida:', e && e.message);
+      }
+    }
+    return metricas;
+  }
+
   // ── ADR-008 Fase 3 · guard de schema (dev) ─────────────────────────────────
   // Valida que un objeto NORMALIZADO cumple el contrato. Devuelve [] si OK, o la
   // lista de campos en falta/ inválidos. La confianza es opcional (null válido).
@@ -239,6 +283,7 @@
     normalizar: normalizar,
     normalizarLista: normalizarLista,
     modoCanonico: modoCanonico,
+    aplicarProcedencia: aplicarProcedencia,
     validar: validar,
     buildMonitorAnalisis: buildMonitorAnalisis,
     setGuard: function (v) { _guard = !!v; }

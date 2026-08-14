@@ -90,7 +90,9 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
         (!metricas.confianza_optica || metricas.confianza_optica === 'Sin datos')) {
       const _cx = (metricas.centroide_x != null) ? metricas.centroide_x : ((obj?.minX || 0) + (obj?.width  || 0) / 2);
       const _cy = (metricas.centroide_y != null) ? metricas.centroide_y : ((obj?.minY || 0) + (obj?.height || 0) / 2);
-      window.aplicarErrorOpticoPosicional(metricas, { x: _cx, y: _cy });
+      // ADR-017: se pasa la cara para que la posición radial se normalice contra las
+      // dimensiones de SU foto (relevante si A y B se tomaron a distinta resolución).
+      window.aplicarErrorOpticoPosicional(metricas, { x: _cx, y: _cy }, obj?.cara || null);
     }
 
     // ============================================================================
@@ -559,12 +561,25 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
     // 🆕 GENERAR HTML REORGANIZADO - CARACTERIZACIÓN MORFOMÉTRICA LÓGICA
     // Estructura sin duplicaciones y secuencia coherente
     // ============================================================================
+    // ADR-017 — «I. Detección del Objeto» abre también el panel, para que panel,
+    // Tabla Completa, CSV y PDF declaren lo mismo y en el mismo orden (gate ADR-016).
+    // Las filas llevan la clase `morphological-metric` a propósito: es la que barre
+    // `exportarMetricasDesdeUI` para construir su CSV.
     let metricsHTML = `
+      <h5 style="color:#4c51bf; margin:0 0 10px 0; border-bottom:2px solid #667eea; padding-bottom:5px; font-size:1.1em;">
+        ${window.CategoryManifest ? window.CategoryManifest.encabezadoDe('deteccion') : 'I. Detección del Objeto'}
+      </h5>
+      ${(window.DetectionSection ? window.DetectionSection.filasDeteccion(metricas) : []).map(f => `
+      <div class="morphological-metric">
+        <span class="label">${f.label}:</span>
+        <span class="value"${f.sinDato ? ' style="font-style:italic; color:#888;"' : ''}>${f.valor}</span>
+      </div>`).join('')}
+
       <div class="morphological-metric">
         <span class="label">ID del Objeto:</span>
         <span class="value">${metricas.object_id}</span>
       </div>
-      
+
       <div class="morphological-metric">
         <span class="label">Método de Análisis:</span>
         <span class="value" style="color: ${metricas.contour_extraction_successful ? '#28a745' : '#dc3545'};">
@@ -2027,6 +2042,26 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
           Métricas <em>no afectadas</em>(adimensionales): circularity · compactness · aspect_ratio · solidity · rectangularity · elongation
         </div>
       </div>`;
+
+      // ADR-017 — los valores en forma de filas `.morphological-metric`. La tarjeta
+      // de arriba es una síntesis visual maquetada con grid; `exportarMetricasDesdeUI`
+      // construye su CSV barriendo `.morphological-metric`, así que sin estas filas la
+      // Sección IX no llegaba a ese export. Mismos datos, no un cálculo aparte.
+      metricsHTML += [
+        ['Error óptico lineal', `±${eL.toFixed(3)} %`],
+        ['Error óptico en área', `±${eA.toFixed(3)} %`],
+        ['Error de perspectiva', `±${(parseFloat(metricas.error_perspectiva_percent) || 0).toFixed(3)} %`],
+        ['Error de distorsión', `±${(parseFloat(metricas.error_distorsion_percent) || 0).toFixed(3)} %`],
+        ['Posición radial normalizada', `${(parseFloat(metricas.posicion_radial_norm) || 0).toFixed(4)}`],
+        ['Ángulo óptico', `${(parseFloat(metricas.angulo_optico_deg) || 0).toFixed(2)}°`],
+        ['Coeficiente radial k₁', `${k1}`],
+        ['FOV diagonal', `${fov.toFixed(2)}°`],
+        ['Confianza óptica', `${conf}`],
+      ].map(([label, valor]) => `
+      <div class="morphological-metric">
+        <span class="label">${label}:</span>
+        <span class="value">${valor}</span>
+      </div>`).join('');
     } else {
       // Esqueleto estable: la red de seguridad del inicio normalmente puebla el
       // error óptico en cualquier modo. Si el helper no está cargado o faltan
