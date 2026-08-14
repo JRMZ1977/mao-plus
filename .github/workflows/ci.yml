@@ -1,0 +1,78 @@
+name: CI
+
+# Verificación automática de MAO Plus. Hasta 2026-08-14 el repo no tenía ninguna:
+# la suite y los tests de frontend existían pero solo corrían si alguien los invocaba
+# a mano (hallazgo H4 de docs/AUDITORIA-ESTADO-APP-20260814.md).
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# Un push nuevo sobre la misma rama cancela la ejecución anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Suite completa (frontend + backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Python 3.9 NO es arbitrario: la suite depende de la semántica del event loop de
+      # asyncio en 3.9 (ver el gotcha de aislamiento en CLAUDE.md) y el runtime embebido
+      # de distribución también fija 3.9. Subirlo aquí haría que CI dejase de representar
+      # lo que se ejecuta en producción.
+      - name: Preparar Python 3.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          cache: pip
+          cache-dependency-path: |
+            requirements-runtime.txt
+            requirements-dev.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # requirements-runtime.txt + requirements-dev.txt, NO requirements.txt: este último
+      # arrastra ultralytics → torch + torchvision (~313 MB) que solo hacen falta para
+      # re-exportar MobileSAM a ONNX offline, nunca en runtime ni en tests. Verificado el
+      # 2026-08-14 en un venv limpio: 369 passed, 2 skipped, sin torch ni matplotlib.
+      - name: Instalar dependencias Python
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-runtime.txt -r requirements-dev.txt
+
+      # Los tres escalones van por separado para que la pestaña de Actions diga cuál rompió
+      # sin abrir los logs. `npm test` los encadena en este mismo orden.
+      - name: ESM estricto (lo que node -c no ve)
+        run: npm run test:esm
+
+      - name: Contratos y comportamiento del frontend
+        run: npm run test:js
+
+      - name: Suite pytest
+        run: npm run test:py
+
+      # Los 2 saltos permanentes son test_bifacial_parity{,_v2}: exigen el checkout externo
+      # MAO_A, que no existe en CI. Ese salto es deliberado. Este paso solo vigila que no
+      # aparezcan saltos NUEVOS, que serían tests desactivados sin querer.
+      - name: Vigilar tests saltados
+        if: success()
+        run: |
+          set -o pipefail
+          resumen=$(python -m pytest tests/ python/tests/ -q 2>&1 | tail -3)
+          echo "$resumen"
+          n=$(echo "$resumen" | grep -oE '[0-9]+ skipped' | grep -oE '^[0-9]+' || echo 0)
+          if [ "${n:-0}" -gt 2 ]; then
+            echo "::error::$n tests saltados; se esperaban 2 (bifacial_parity v1/v2)."
+            exit 1
+          fi
+          echo "✅ ${n:-0} saltados — dentro de lo esperado."

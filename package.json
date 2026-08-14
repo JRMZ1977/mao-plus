@@ -7,7 +7,11 @@
     "start": "electron .",
     "dev": "electron . --enable-logging",
     "package": "electron-builder --mac",
-    "launcher": "bash scripts/build-dev-launcher.sh"
+    "launcher": "bash scripts/build-dev-launcher.sh",
+    "test": "npm run test:esm && npm run test:js && npm run test:py",
+    "test:esm": "node scripts/check-esm.mjs",
+    "test:js": "node tests/test_window_contracts.js && node tests/test_shape_classification.mjs",
+    "test:py": "bash scripts/run-pytest.sh"
   },
   "keywords": [
     "electron",

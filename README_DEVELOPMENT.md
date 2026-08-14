@@ -298,12 +298,32 @@ MAO PLUS_PY_01/
 
 ## Testing
 
-### Unit Tests (Python)
+### Todo de una vez
 
 ```bash
-source .venv/bin/activate
-pytest tests/ -v
+npm test
 ```
+
+Encadena ESM estricto → tests de frontend → suite pytest, y es exactamente lo que ejecuta CI
+(`.github/workflows/ci.yml`) en cada push y PR. Al 2026-08-14: 15/15 módulos ESM, 33/33 contratos,
+15/15 casos de clasificación, **369 passed / 2 skipped**.
+
+Preparar el entorno desde cero (no hace falta `requirements.txt`, que arrastra torch):
+
+```bash
+python3 -m venv .venv && .venv/bin/python -m pip install -r requirements-runtime.txt -r requirements-dev.txt
+```
+
+### Por partes
+
+```bash
+npm run test:esm    # parseo como módulo — detecta lo que node -c no ve
+npm run test:js     # contratos window.* + comportamiento de shape-classification
+npm run test:py     # suite pytest (tests/ + python/tests/)
+```
+
+Los 2 tests saltados son `test_bifacial_parity{,_v2}`: exigen el checkout externo `MAO_A`. CI
+falla si aparecen saltos **nuevos**, que suelen ser tests desactivados sin querer.
 
 ### Parity Validation (Manual)
 

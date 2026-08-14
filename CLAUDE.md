@@ -134,8 +134,31 @@ Phase 2d:              bifacial-analysis
 ## Run & Test
 ```bash
 npm start                                    # Launch Electron app + Python server
-.venv/bin/python -m pytest tests/ python/tests/   # Suite completa → 257 passed, 2 skipped
+npm test                                     # Verificación completa → ver abajo
 ```
+
+`npm test` encadena los tres escalones, y es lo mismo que corre CI (`.github/workflows/ci.yml`,
+en push y PR). Cada uno se puede lanzar suelto:
+
+| Script | Qué verifica | Estado al 2026-08-14 |
+|---|---|---|
+| `npm run test:esm` | Parseo **como módulo** de los 14 `js/modules/` + `analysis-core.js`, vía `import()` real | 15/15 |
+| `npm run test:js` | Contratos `window.*` + comportamiento de `shape-classification` | 33/33 y 15/15 |
+| `npm run test:py` | Suite pytest completa (`tests/` + `python/tests/`) | **369 passed, 2 skipped** |
+
+**`test:esm` no es redundante con `node -c`.** `node -c` parsea en modo script clásico, que es más
+permisivo: dos `function f(){}` homónimas **pasan** ahí y son un `SyntaxError` como módulo — que es
+como Chrome carga `analysis-core.js`. Ese fallo deja la app en blanco (ya pasó: commit `1445610`).
+
+`npm run test:py` delega en `scripts/run-pytest.sh`, que localiza el intérprete: `$MAO_PYTHON` →
+`.venv/` local → `.venv/` del repo principal (necesario **al trabajar en un worktree**, donde el cwd
+no tiene `.venv` y caer a `python3` del sistema produce 7 fallos falsos en `test_comparator.py`) →
+`python3`.
+
+Las dependencias mínimas para correr la suite son `requirements-runtime.txt` +
+`requirements-dev.txt`. **No hace falta `requirements.txt`**: arrastra `ultralytics` → torch +
+torchvision (~313 MB) que solo sirven para re-exportar MobileSAM a ONNX offline. Verificado en venv
+limpio: 369/2 sin torch ni matplotlib.
 
 **Gotcha — aislamiento del event-loop asyncio (2026-06-12):** los tests sync que ejecutan corrutinas deben usar un **loop propio por llamada** (`asyncio.new_event_loop()` + `close()` en `finally`), nunca `asyncio.get_event_loop().run_until_complete()`. Otros archivos usan `asyncio.run()`, que al salir hace `set_event_loop(None)` y rompe `get_event_loop()` en Py3.9 (`RuntimeError: There is no current event loop` + `coroutine ... was never awaited`) — falla solo en la suite completa, no aislado. Patrón ya aplicado en `python/tests/test_phase4.py` y `test_bajo_contraste.py`. Los `test_bifacial_parity{,_v2}.py` hacen `pytest.skip(allow_module_level=True)` si falta la checkout externa `MAO_A`.
 
