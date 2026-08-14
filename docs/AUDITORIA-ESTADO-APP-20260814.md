@@ -249,6 +249,57 @@ El orden importa: varios puntos se estorban si se hacen al revés.
 
 ---
 
+## 7. Ejecución del punto 1 — ramas integradas (2026-08-14)
+
+El paso 1 del orden recomendado se ejecutó el mismo día, en la rama `claude/app-audit-8d7d3a`
+(que partía del mismo commit que `main`). **H1 queda cerrado.**
+
+| # | Merge | Commit | Conflictos |
+|---|---|---|---|
+| 1 | `claude/detection-optical-error-improvements-3618a6` (ADR-017) | `10eec4b` | ninguno |
+| 2 | `fix/exportaciones-fuente-unica-estado` (5 commits) | `ec12dd0` | **1**, trivial |
+
+El único conflicto fue el `?v=` de `analysis-core.js` en `index.html`: ambas ramas lo habían
+bumpeado (`20260731a` vs `20260731b`). Como el archivo fusionado difiere de las dos versiones,
+se resolvió con una versión nueva, **`?v=20260814a`** — que es lo que exige la convención de
+cache-busting del proyecto. `js/analysis-core.js`, `metrics-orchestrator.js`,
+`visualization-export.js` y `project-manager.js` auto-fusionaron sin intervención.
+
+**Verificación posterior a cada merge:**
+
+| Métrica | Antes | Tras ADR-017 | Tras ambos |
+|---|---|---|---|
+| Suite pytest | 342 / 2 | 347 / 2 | ✅ **369 passed, 2 skipped** |
+| Contratos `window.*` | 33/33 | 33/33 | ✅ 33/33 |
+| ESM estricto | 13/13 | 14/14 | ✅ limpio |
+| `tests/test_shape_classification.mjs` | — | — | ✅ **15/15** |
+| `tests/test_clasificacion_formas.py` | — | — | ✅ 22 passed |
+| Referencias rotas en `index.html` | 0 | 0 | ✅ 0 |
+| Marcadores de conflicto residuales | — | — | ✅ 0 |
+
+Se comprobó además que sobrevivieron las aportaciones de **ambas** ramas en el archivo que las dos
+reescribían: `detection-section` y `category-manifest` importados (ADR-017), fallback JS de métricas
+e importación de `shape-classification` (`fix/exportaciones`).
+
+**Efectos sobre el resto del diagnóstico:**
+
+- **H5 cerrado en parte, como se preveía.** `js/modules/category-manifest.js` pasó de **0 a 2
+  importadores** (`analysis-core.js` y `tabla-metricas-completa.js`). Quedan por migrar las salidas
+  restantes.
+- **La suite ganó un test real de comportamiento del frontend.** `test_shape_classification.mjs`
+  (15 casos) ejercita el módulo de verdad, no por regex — es el primer contrapeso al 0 % de
+  cobertura de comportamiento señalado en H4. H4 sigue abierto: no hay CI ni `npm test`.
+- **H2 no se movió.** `analysis-core.js` bajó de 51 778 a **51 514** líneas, pero las −803 de
+  ADR-017 estaban en el código de reporte y detección, no en los duplicados: siguen siendo
+  **72 copias muertas (~4 478 líneas), 8 sombras vivas y 2 expuestas**. Los globales subieron de
+  83 a **86**. La guarda de `metaClasificarForma` sigue viva, ahora en
+  `js/analysis-core.js:11816` (antes `:11741`) — **ese es el número a usar en el punto 3**.
+
+> **Pendiente de decisión del usuario:** los merges están en `claude/app-audit-8d7d3a`; `main`
+> sigue en `32cc8e2`. Avanzar `main` a `ec12dd0` es un fast-forward. Nada se ha publicado.
+
+---
+
 ## Anexo — comandos de verificación reproducibles
 
 ```bash
