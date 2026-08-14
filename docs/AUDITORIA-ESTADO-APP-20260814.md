@@ -295,8 +295,51 @@ e importación de `shape-classification` (`fix/exportaciones`).
   83 a **86**. La guarda de `metaClasificarForma` sigue viva, ahora en
   `js/analysis-core.js:11816` (antes `:11741`) — **ese es el número a usar en el punto 3**.
 
-> **Pendiente de decisión del usuario:** los merges están en `claude/app-audit-8d7d3a`; `main`
-> sigue en `32cc8e2`. Avanzar `main` a `ec12dd0` es un fast-forward. Nada se ha publicado.
+## 8. Ejecución del punto 2 — verificación automática (2026-08-14)
+
+**H4 cerrado.** Commit `00b5b8d`.
+
+- **`npm test`** = `test:esm && test:js && test:py`. Es literalmente lo que ejecuta el workflow, para
+  que «verde en local» signifique «verde en CI».
+- **`.github/workflows/ci.yml`** — en push (cualquier rama), PR y manual. Python **3.9**, no por
+  inercia: la suite depende de la semántica del event loop de asyncio en 3.9 y el runtime embebido
+  de distribución también lo fija; subirlo haría que CI dejase de representar producción.
+- **`scripts/check-esm.mjs`** — parsea los módulos con `import()` real. No es redundante con
+  `node -c`: se comprobó con un canario que dos `function f(){}` homónimas **pasan** `node -c` (modo
+  script clásico) y son `SyntaxError` en modo módulo, que es como Chrome carga `analysis-core.js`.
+  Ese fallo deja la app en blanco y ya ocurrió (`1445610`). **Es además la red de seguridad del
+  punto 3**: es exactamente la forma que tomaría un error al borrar las copias duplicadas.
+- **`scripts/run-pytest.sh`** — localiza el intérprete (`$MAO_PYTHON` → `.venv` local → `.venv` del
+  repo principal → `python3`). Necesario porque **en un worktree el cwd no tiene `.venv`**: caer a
+  `python3` del sistema producía 7 fallos falsos en `test_comparator.py` por falta de scikit-learn.
+- CI **vigila que no aparezcan saltos nuevos**. Los 2 permanentes (`test_bifacial_parity{,_v2}`)
+  exigen el checkout externo `MAO_A` y son deliberados; un tercero sería un test desactivado sin querer.
+
+**Dependencias de CI:** `requirements-runtime.txt` + `requirements-dev.txt`, **no** `requirements.txt`
+— este arrastra `ultralytics` → torch + torchvision (~313 MB) que solo sirven para re-exportar
+MobileSAM a ONNX offline. Comprobado en un venv limpio de 456 MB: **369 passed, 2 skipped sin torch
+ni matplotlib**.
+
+### Defecto de empaquetado encontrado de paso (afecta a H8)
+
+`requirements-runtime.txt` —que se declara «subconjunto EXACTO de lo que el backend importa en
+ejecución»— **no incluía `piexif`**, y `python/modules/scale.py:130` lo importa en runtime. Como el
+bloque está dentro de un `try / except Exception: pass`, el `ImportError` se tragaba en silencio: el
+bundle embebido habría perdido **focal, marca, modelo, ISO y número f de cada fotografía** sin un
+solo mensaje de error, degradando el cálculo de escala. Declarado en el mismo commit.
+
+**Estado tras los puntos 1 y 2:**
+
+| | Antes de la auditoría | Ahora |
+|---|---|---|
+| Suite pytest | 342 / 2 | **369 / 2** |
+| Verificación del frontend | contratos a mano (regex) | ESM 15/15 + contratos 33/33 + 15/15 de comportamiento |
+| CI | ninguna | push + PR |
+| Comando único | no existía | `npm test` (exit ≠ 0 verificado con canario) |
+
+> **Pendiente de decisión del usuario:** todo está en `claude/app-audit-8d7d3a`; `main` sigue en
+> `32cc8e2`. Avanzar `main` a `00b5b8d` es un fast-forward. **Nada se ha publicado**, así que el
+> workflow aún no se ha ejecutado nunca en GitHub.
 
 ---
 
