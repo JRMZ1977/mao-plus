@@ -43,6 +43,40 @@ The application launches at `http://localhost:3000` (Electron) with backend at `
 
 > **Phase 2 note:** `js/analysis-core.js` no longer contains the analysis logic directly — it delegates to ES6 modules in `js/modules/`. See [MODULES.md](MODULES.md) for the full module reference.
 
+### Lanzador de desarrollo (macOS · icono/Dock)
+
+Para arrancar la app sin abrir una terminal, se compila un applet **dentro del propio repositorio**:
+
+```bash
+npm run launcher      # → "MAO Plus (dev).app" en la raíz del repo
+open "MAO Plus (dev).app"
+```
+
+Fuente: [`scripts/mao-dev-launcher.applescript`](scripts/mao-dev-launcher.applescript) (versionada; el
+`.app` compilado está en `.gitignore`). El applet **se auto-localiza** —deduce el repositorio del
+directorio que lo contiene—, así que mover o clonar el proyecto no lo rompe. Antes de lanzar comprueba
+`node_modules/.bin/electron` y `.venv/bin/python`, y avisa con un diálogo indicando el comando exacto
+que falta. Log de arranque: `/tmp/mao_launch.log`.
+
+**Selector de copia de trabajo.** Si el proyecto tiene git worktrees en `.claude/worktrees/` (ramas en
+paralelo), el applet los detecta y pregunta cuál arrancar, mostrando la rama de cada copia y marcando
+las que aún no tienen dependencias instaladas:
+
+```
+principal — fix/exportaciones-fuente-unica-estado
+worktree quizzical-cannon-452596 — claude/detection-optical-error-improvements   [faltan dependencias]
+```
+
+Con una sola copia arranca directo, sin preguntar. **No hay que recompilar el applet al cambiar el
+código de la app**: es una lámina fina que ejecuta `electron .` contra la copia elegida, así que
+siempre corre el árbol al día. Solo se recompila (`npm run launcher`) si se edita el `.applescript`.
+
+Un worktree recién creado no hereda `node_modules` ni `.venv` del principal: hay que instalarlos
+**dentro** de esa copia, y el diálogo indica la ruta exacta.
+
+Arrástralo al Dock para anclarlo. Es un lanzador de **desarrollo** (corre el código del repo); para un
+bundle autónomo, ver *Build & Distribution* abajo.
+
 ---
 
 ## Build & Distribution (macOS · Fase A)

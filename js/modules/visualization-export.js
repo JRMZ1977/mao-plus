@@ -3000,7 +3000,8 @@ export function exportarAnalisisMorfologico(obj, metricas) {
       }
 
       // Crear contenido del reporte
-      const idArq = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `obj_${obj.numeroObjeto}`;
+      // String(): obj.id es numérico en detección automática; `?.` protege de null, no de un número.
+      const idArq = String(obj.id ?? '').replace(/[^a-zA-Z0-9_-]/g, '_') || `obj_${obj.numeroObjeto}`;
       const filename = `${idArq}_analisis`;
       
       // Generar reporte en formato texto

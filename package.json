@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --enable-logging",
-    "package": "electron-builder --mac"
+    "package": "electron-builder --mac",
+    "launcher": "bash scripts/build-dev-launcher.sh"
   },
   "keywords": [
     "electron",
