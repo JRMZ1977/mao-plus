@@ -20,7 +20,7 @@ métricas). El plan ataca ambas de forma aditiva y gated por tests.
 | A1 | Validación de exactitud (Bland‑Altman, LoA) | Certificación (Eje 2) | 🔴 Crítico | F1 | ✅ Implementado (`test_validation_accuracy.py`, `validation_stats.py`) |
 | A2 | Reproducibilidad inter/intra‑observador (ICC) | Certificación (Eje 2) | 🔴 Crítico | F1 | ✅ Implementado (`test_reproducibility.py`, ICC(2,1) en `validation_stats.py`) |
 | C3 | Cuantificar estandarización (CV + bootstrap) | Aporte del paper | 🔴 Paper | F1 | ✅ Implementado (`standardization.py`, `test_standardization.py`) |
-| B1 | Calibrar modelo óptico (Zhang → sin ±30%) | Optimiza diferenciador estrella | 🟠 Alto | F2 | ⬜ Pendiente |
+| B1 | Calibrar modelo óptico (Zhang → sin ±30%) | Optimiza diferenciador estrella | 🟠 Alto | F2 | ✅ Implementado (`optical_calibration.py` + 19 tests, commit `217aaba`) |
 | B2 | Término de relieve/paralaje | 3ª fuente del budget | 🟠 Alto | F2 | ⬜ Pendiente |
 | B3 | Propagar incertidumbre de escala | Budget completo (RSS 3 fuentes) | 🟠 Alto | F2 | ⬜ Pendiente |
 | D1 | Simetría bilateral formal (Klingenberg) | Upgrade bifacial | 🟠 Alto | F2 | ⬜ Pendiente |
