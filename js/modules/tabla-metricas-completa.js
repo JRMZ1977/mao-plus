@@ -1714,7 +1714,9 @@ function generarSeccionEjesOrientacion(metricas, estiloTabla, estiloTh, estiloTd
     const orientacion = metricas.eje_principal_orientacion || 'N/A';
     const anisotropia = parseFloat(metricas.eje_principal_anisotropia) || 0;
     const formaDominante = metricas.eje_principal_forma_dominante || 'N/A';
-    
+    // ADR-016 #10: p1/p2 son coordenadas 3D — ocultar en objetos 2D donde siempre son null
+    const tieneEjesReales = !!(metricas.eje_mayor_real_p1 || metricas.eje_menor_real_p1);
+
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #fd7e14;">
         VI. ORIENTACIÓN Y POSICIÓN ESPACIAL
@@ -1758,20 +1760,21 @@ function generarSeccionEjesOrientacion(metricas, estiloTabla, estiloTh, estiloTd
             <td style="${estiloTd}">${formaDominante}</td>
             <td style="${estiloTd}; font-size: 12px;">Basado en relación de ejes</td>
           </tr>
+          ${tieneEjesReales ? `
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}">Ejes Reales (p1)</td>
             <td style="${estiloTd}; font-size: 11px;" colspan="2">
-              Mayor: [${metricas.eje_mayor_real_p1 ? `${metricas.eje_mayor_real_p1[0].toFixed(1)}, ${metricas.eje_mayor_real_p1[1].toFixed(1)}` : 'N/A'}] • 
+              Mayor: [${metricas.eje_mayor_real_p1 ? `${metricas.eje_mayor_real_p1[0].toFixed(1)}, ${metricas.eje_mayor_real_p1[1].toFixed(1)}` : 'N/A'}] •
               Menor: [${metricas.eje_menor_real_p1 ? `${metricas.eje_menor_real_p1[0].toFixed(1)}, ${metricas.eje_menor_real_p1[1].toFixed(1)}` : 'N/A'}]
             </td>
           </tr>
           <tr>
             <td style="${estiloTd}">Ejes Reales (p2)</td>
             <td style="${estiloTd}; font-size: 11px;" colspan="2">
-              Mayor: [${metricas.eje_mayor_real_p2 ? `${metricas.eje_mayor_real_p2[0].toFixed(1)}, ${metricas.eje_mayor_real_p2[1].toFixed(1)}` : 'N/A'}] • 
+              Mayor: [${metricas.eje_mayor_real_p2 ? `${metricas.eje_mayor_real_p2[0].toFixed(1)}, ${metricas.eje_mayor_real_p2[1].toFixed(1)}` : 'N/A'}] •
               Menor: [${metricas.eje_menor_real_p2 ? `${metricas.eje_menor_real_p2[0].toFixed(1)}, ${metricas.eje_menor_real_p2[1].toFixed(1)}` : 'N/A'}]
             </td>
-          </tr>
+          </tr>` : ''}
         </tbody>
       </table>
     `;

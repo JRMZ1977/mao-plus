@@ -90,7 +90,8 @@ aplicación de ADR-011 (F2–F6) al reporte** + fixes de unidades/umbral que ADR
 | #8 ángulos Feret 0.0° | ✅ Implementado | `:2283-2284` — leía `feret_max_angle`/`min` (inexistente) → `feret_angulo_max`/`min`. **Detectado por el test de coherencia** al extender el contrato |
 | **+bug feret_clasificacion** | ✅ Implementado | `:2282` — leía `clasificacion_feret` (inexistente) → `feret_clasificacion`. Causaba «Clasificación Feret: No clasificado». **Detectado por el test** |
 | #9 pérdida perímetro signo | ✅ Implementado | Renombrado «Pérdida Perímetro (%)» → «Variación Perímetro (%)» en `tabla-metricas-completa.js` (líneas 338 y 1495). Lógica de color migrada a `Math.abs(perdidaPerimetro)` para que valores negativos (contorno sinuoso, perim_real > hull_perim) también activen el umbral de alerta. Descripción: «Variación vs perímetro convexo (neg. = contorno sinuoso)». Cache-bust `analysis-core.js?v=20260912c` |
-| #10–#11 | ⬜ Pendiente | F3 cosmético |
+| #10 ejes reales N/A en 2D | ✅ Implementado | `tabla-metricas-completa.js:generarSeccionEjesOrientacion` — filas «Ejes Reales (p1)» y «(p2)» ocultas cuando `eje_mayor_real_p1` y `eje_menor_real_p1` son null/undefined (caso 2D). En 3D siguen visibles. Guard: `tieneEjesReales = !!(metricas.eje_mayor_real_p1 \|\| metricas.eje_menor_real_p1)`. Cache-bust `analysis-core.js?v=20260912d` |
+| #11 | ⬜ Pendiente | F3 cosmético |
 
 **Enforcement — test de coherencia inter-superficie:** `python/tests/test_coherencia_entrega.py`
 (estático, lee los `.js` como texto). Contrato de campo con **13 métricas canónicas** (índices de
