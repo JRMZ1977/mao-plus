@@ -335,9 +335,9 @@ function generarSeccionFragmentacion(metricas, estiloTabla, estiloTh, estiloTd) 
             <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de área perdida</td>
           </tr>
           <tr>
-            <td style="${estiloTd}; font-weight: 600;">Pérdida Perímetro (%)</td>
-            <td style="${estiloTd}; font-weight: 700; color: ${perdidaPerimetro > 20 ? '#dc3545' : perdidaPerimetro > 10 ? '#ffc107' : '#28a745'};">${perdidaPerimetro.toFixed(2)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de perímetro afectado</td>
+            <td style="${estiloTd}; font-weight: 600;">Variación Perímetro (%)</td>
+            <td style="${estiloTd}; font-weight: 700; color: ${Math.abs(perdidaPerimetro) > 20 ? '#dc3545' : Math.abs(perdidaPerimetro) > 10 ? '#ffc107' : '#28a745'};">${perdidaPerimetro.toFixed(2)}%</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Variación vs perímetro convexo (neg. = contorno sinuoso)</td>
           </tr>
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}; font-weight: 600;">Completitud Estimada</td>
@@ -1492,9 +1492,9 @@ function generarSeccionEstadoConservacion(metricas, estiloTabla, estiloTh, estil
             <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de área perdida por fragmentación</td>
           </tr>
           <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Pérdida de Perímetro (Fragmentación)</td>
-            <td style="${estiloTd}; font-weight: 600; color: ${perdidaPerimetro < 5 ? '#28a745' : perdidaPerimetro < 15 ? '#ffc107' : '#dc3545'};">${perdidaPerimetro.toFixed(2)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de perímetro afectado</td>
+            <td style="${estiloTd}; font-weight: 600;">Variación de Perímetro</td>
+            <td style="${estiloTd}; font-weight: 600; color: ${Math.abs(perdidaPerimetro) < 5 ? '#28a745' : Math.abs(perdidaPerimetro) < 15 ? '#ffc107' : '#dc3545'};">${perdidaPerimetro.toFixed(2)}%</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Variación vs perímetro convexo (neg. = contorno sinuoso)</td>
           </tr>
           <tr>
             <td style="${estiloTd}; font-weight: 600;">Área Fragmentada Estimada</td>

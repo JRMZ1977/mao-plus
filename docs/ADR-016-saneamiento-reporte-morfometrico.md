@@ -89,7 +89,8 @@ aplicación de ADR-011 (F2–F6) al reporte** + fixes de unidades/umbral que ADR
 | #1/#4/#7 en CSV | ✅ Implementado | Mismos errores factuales (no semánticos) presentes en `project-manager.js` (superficie CSV): BB px→mm, hull circularidad calculada, dif. área → `perdida_area_fragmentacion_percent`. Verificado con datos reales DRG16: BB 547→5.43 mm, hull 0→0.994, dif 0→1.9%. Cache-bust `project-manager.js?v=20260701a` |
 | #8 ángulos Feret 0.0° | ✅ Implementado | `:2283-2284` — leía `feret_max_angle`/`min` (inexistente) → `feret_angulo_max`/`min`. **Detectado por el test de coherencia** al extender el contrato |
 | **+bug feret_clasificacion** | ✅ Implementado | `:2282` — leía `clasificacion_feret` (inexistente) → `feret_clasificacion`. Causaba «Clasificación Feret: No clasificado». **Detectado por el test** |
-| #9–#11 | ⬜ Pendiente | F3 cosmético |
+| #9 pérdida perímetro signo | ✅ Implementado | Renombrado «Pérdida Perímetro (%)» → «Variación Perímetro (%)» en `tabla-metricas-completa.js` (líneas 338 y 1495). Lógica de color migrada a `Math.abs(perdidaPerimetro)` para que valores negativos (contorno sinuoso, perim_real > hull_perim) también activen el umbral de alerta. Descripción: «Variación vs perímetro convexo (neg. = contorno sinuoso)». Cache-bust `analysis-core.js?v=20260912c` |
+| #10–#11 | ⬜ Pendiente | F3 cosmético |
 
 **Enforcement — test de coherencia inter-superficie:** `python/tests/test_coherencia_entrega.py`
 (estático, lee los `.js` como texto). Contrato de campo con **13 métricas canónicas** (índices de
