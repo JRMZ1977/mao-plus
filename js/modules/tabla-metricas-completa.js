@@ -2190,6 +2190,9 @@ function generarSeccionSimetria(metricas, estiloTabla, estiloTh, estiloTd) {
     const simetriaBilateral = parseFloat(metricas.simetria_bilateral) || 0;
     const clasificacion = metricas.simetria_clasificacion || 'No clasificada';
     const distanciaAsimetria = parseFloat(metricas.simetria_distancia_asimetria) || 0;
+    // ADR-016 #11: contextualizar la distancia de asimetría vs el tamaño del objeto
+    const ejeMayorRef = parseFloat(metricas.eje_mayor_real_longitud || metricas.eje_mayor) || 0;
+    const distPct = ejeMayorRef > 0 ? (distanciaAsimetria / ejeMayorRef * 100) : null;
     
     // Color según nivel de simetría
     let colorSimetria = '#dc3545';
@@ -2229,8 +2232,8 @@ function generarSeccionSimetria(metricas, estiloTabla, estiloTh, estiloTd) {
           </tr>
           <tr>
             <td style="${estiloTd}">Distancia de Asimetría</td>
-            <td style="${estiloTd}">${distanciaAsimetria.toFixed(2)} mm</td>
-            <td style="${estiloTd}; font-size: 12px;">Desplazamiento del eje de simetría</td>
+            <td style="${estiloTd}">${distanciaAsimetria.toFixed(2)} mm${distPct !== null ? ` <span style="color:#6c757d;font-size:11px;">(${distPct.toFixed(1)}% del eje mayor)</span>` : ''}</td>
+            <td style="${estiloTd}; font-size: 12px;">Residuo Hausdorff promedio respecto al radio medio del contorno</td>
           </tr>
         </tbody>
       </table>
