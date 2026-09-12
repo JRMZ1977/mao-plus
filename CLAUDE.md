@@ -73,6 +73,34 @@ Invariancia ROI (2) · No-regresión `_build_binary_mask` (4) · Fallback determ
 
 **Pendiente único**: verificación visual en Electron con imagen real (mismo límite heredado de F1).
 
+## 🎯 Sesión 2026-09-12 — ADR-016 #5 cabecera detección/confianza en PDF ✅
+
+**ADR-016 #5 cerrado** (`74a0e3c`). La cabecera del reporte PDF mostraba
+«Método detección N/A · Confianza detección — (N/A)» en objetos IA/SAM. Dos bugs independientes:
+
+**(a) Clave errónea `confidence_level`:**
+El análisis morfométrico escribe `metrics.detection_confidence_level` (línea 10202 de
+`analysis-core.js`), pero la cabecera de `generarHTMLReporteParaBatch` (línea 20373) leía
+`m.confidence_level` — un alias divergente que nunca existe en `metricasFinal`. Mismo bug
+en la columna CSV de colección (`project-manager.js:2837`). Fix: cadena de fallback
+`m.detection_confidence_level || m.confidence_level` en ambos puntos.
+
+**(b) `detection_method` sin cadena de fallback:**
+Objetos IA guardados antes del contrato ADR-007/008 tienen la clave como `detectionMethod`
+o `detection_mode` en su `metricas.json`, no como `detection_method`. Fix: cadena
+`m.detection_method || m.detectionMethod || m.detection_mode` en cabecera y CSV.
+
+**Archivos:** `js/analysis-core.js` (líneas 20372-20373) · `js/project-manager.js` (líneas 2835-2837).
+**Cache-bust:** `analysis-core.js?v=20260912b` · `project-manager.js?v=20260912a`.
+**Suite:** 340 passed / 4 skipped. `node -c` OK.
+**Pendiente:** verificar en Electron con PDF real de objeto IA (requiere `npm start`).
+
+**Estado ADR-016 completo tras esta sesión:**
+✅ #1 (BB px→mm) · #2 (excentricidad) · #3 (regularidad ×100) · #4 (hull 0.0000) ·
+✅ #5 (detección/confianza N/A) · #6 (rótulo rugosidad — resuelto semánticamente) ·
+✅ #7 (dif. área) · #8 (ángulos Feret) · #feret_clasificacion ·
+⬜ #9–#11 (cosmético, F3 — pendientes).
+
 ## 🎯 Estado de la sesión 2026-06-14 (lote de cierre)
 
 Commits del lote: `526cf42` (ADR-010 E2E hook) · `be20a0e` (webSecurity + cv2 warmup + Resultados organizer + deuda técnica) · `63694bf` (ADR-006).
