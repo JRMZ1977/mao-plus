@@ -4,6 +4,33 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-09-12 — ADR-015 F1 (A1+A2+C3) ✅
+
+**ADR-015 Fase 1 completa**: estadísticas de validación metrológica para el paper PROTEC.
+
+**A1 — Exactitud (Bland-Altman):** `python/modules/validation_stats.py` implementa Bland-Altman
+completo (sesgo, LoA, MAE%, max error, within_LoA%). Tests: `python/tests/test_validation_accuracy.py`
+(14 tests). Protocolo: objetos sintéticos con verdad geométrica conocida (círculos y elipses).
+Resultado: MAE < 1% en área y perímetro, sesgo < 0.5%, todos los objetos dentro de los LoA.
+**Gate A1 ✅**: MAE% < 5% en todas las métricas.
+
+**A2 — Reproducibilidad (ICC):** `validation_stats.py` implementa ICC(2,1) two-way mixed
+(Shrout & Fleiss tipo 2). Tests: `python/tests/test_reproducibility.py` (9 tests). Protocolo:
+6 objetos × 5 repeticiones con ruido ±0.3 px (simula digitalización por observador distinto).
+**Gate A2 ✅**: ICC ≥ 0.90 en área ("excelente"); varianza entre objetos >> varianza del método.
+
+**C3 — Estandarización (CV + bootstrap):** `python/modules/standardization.py` implementa
+`coefficient_of_variation`, `bootstrap_ci` (semilla fija → reproducible), `standardization_report`,
+`contrast_groups`, y `estandarizacion_report` (reporte completo para paper con IC por grupo y
+contrastes por pares). Tests: `python/tests/test_standardization.py` (20 tests). Incluye simulación
+del escenario La Draga: cuentas discoidales CV≈6% (alta estandarización) vs. fragmentos CV>25%.
+**Gate C3 ✅**: CV + IC bootstrap correctos; contraste alta/baja estandarización detectado.
+
+**Suite:** 392 passed / 4 skipped (7 pre-existentes `test_comparator.py` por sklearn no instalado).
+**Documentación:** `docs/VALIDACION-EXACTITUD.md` — protocolo + resultados + próximos pasos.
+**Tablero:** `docs/PLAN-MEJORAS-MAO.md` — A1/A2/C3 marcados ✅.
+**Pending F2:** B1 (calibración óptica Zhang), B2 (relieve), B3 (propagación escala), D1 (Klingenberg), D3 (armónicos).
+
 ## 🎯 Sesión 2026-06-24 — ADR-012 detección monolítica (Fases 1-3 ✅) + fix modo componente
 
 **ADR-012 «detección monolítica»** (`docs/ADR-012-deteccion-monolitica.md`, commit `eaf01d3`): núcleo de
