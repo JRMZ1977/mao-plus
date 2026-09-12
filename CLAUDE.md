@@ -41,6 +41,37 @@ conf alta) + 422 inválido.
   rama `threshold_method=="auto"` (→ núcleo + enriquecimiento IA); modos manuales del modal ganan
   watershed; `/api/mao-ia` valida `"auto"`. **ADR-012 completo** (4 modos en el núcleo, JS=fallback).
   **Pendiente único**: verif. visual del modal IA en Electron (flakiness app:// en frío bloqueó la headless).
+  **Nota ADR-013 F2**: GrabCut sigue activo en `detection.detect()` y `sam_segmenter`; en `contour.extract`
+  fue reemplazado por fallback determinista (2026-09-12) para garantizar el invariante de replicabilidad.
+
+## 🎯 Sesión 2026-09-12 — ADR-013 F2 replicabilidad del contorno ✅
+
+**ADR-013 F2 completo** (`cf26806`). Implementa el invariante de replicabilidad de `contour.extract`:
+
+- **(a) Determinismo** — mismo input → contorno byte-idéntico en N corridas. Causa raíz: GrabCut
+  (GMM con estado aleatorio) estaba como fallback en `contour.extract` y producía hashes distintos
+  en cada corrida. **Eliminado**; reemplazado por dos fallbacks puramente deterministas:
+  - Cobertura >92%: probable máscara invertida → invertir (objeto claro mal clasificado como fondo).
+  - Cobertura <4%: máscara vacía → Otsu sobre gris con `THRESH_BINARY_INV`.
+  - `metodoDeteccion` refleja el camino: `"python_contour_inv"`, `"python_contour_otsu_gris"`.
+
+- **(b) Invariancia al ROI** — mismo objeto con encuadres ±margen → área ≤ 2%. Mejora: antes de
+  llamar a `_build_binary_mask`, `contour.extract` calcula un `white_thresh_override` via Otsu sobre
+  el gris del ROI (solo fondo blanco). Si el Otsu produce cobertura razonable (4%–65%, umbral ≥ 80),
+  se pasa como `white_thresh_override`; si no (objeto muy claro = caso sintético del intento 1 revertido),
+  cae silenciosamente al umbral estándar `brillo_min - 15`.
+
+- **(c) No-regresión** — `_build_binary_mask` gana parámetro `white_thresh_override=None` (aditivo).
+  Los callers existentes `detect()` y `sam_segmenter` no se ven afectados.
+
+**Blast radius controlado**: GrabCut sigue activo en `detection.py:832` y `sam_segmenter.py:252`;
+el cambio es exclusivo de `contour.extract`. Guard de `ph_candidates`: `_grabcut_usado` → `_fallback_usado`.
+
+**Tests gate** (`python/tests/test_adr013_f2_replicabilidad.py`, 11 tests): Determinismo (3) ·
+Invariancia ROI (2) · No-regresión `_build_binary_mask` (4) · Fallback determinista (2).
+**Suite: 340 passed / 4 skipped** — sin regresiones.
+
+**Pendiente único**: verificación visual en Electron con imagen real (mismo límite heredado de F1).
 
 ## 🎯 Estado de la sesión 2026-06-14 (lote de cierre)
 
@@ -120,7 +151,7 @@ La interfaz pasó del modelo **sidebar-scroll** al de **pestañas de flujo LAAR*
 ## Critical Constraint: Tier 1 API
 Ten `window.*` functions must remain globally accessible at all times.
 They are called directly by `mao-ia.js` and `collection.js` (unchanged legacy callers).
-Never remove, rename, or scope-gate these functions. See ARCHITECTURE.md for the full list.
+Never remove, rename, or scope-gate these functions. See docs/arquitectura/ARCHITECTURE.md for the full list.
 
 ## Module Dependency Order (load/import sequence)
 
