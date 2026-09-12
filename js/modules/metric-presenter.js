@@ -79,7 +79,7 @@ export function hullDerivados(metricas) {
   return {
     circularidad: circ,
     aspectRatio: ar,
-    difAreaPct: Number.isFinite(dA) ? dA : (parseFloat(metricas.perdida_area_fragmentacion_percent) || 0),
-    difPerimetroPct: Number.isFinite(dP) ? dP : (parseFloat(metricas.perdida_perimetro_fragmentacion_percent) || 0),
+    difAreaPct: Number.isFinite(dA) ? dA : (parseFloat(metricas.concavidad_area_percent ?? metricas.perdida_area_fragmentacion_percent) || 0),
+    difPerimetroPct: Number.isFinite(dP) ? dP : (parseFloat(metricas.concavidad_perimetro_percent) || 0),
   };
 }

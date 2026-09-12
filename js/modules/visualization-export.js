@@ -53,7 +53,7 @@ import * as ContourQuality from './contour-quality.js';
 import * as GeometryPrimitives from './geometry-primitives.js';
 import * as UtilityHelpers from './utility-helpers.js';
 import * as MetricsOrchestrator from './metrics-orchestrator.js';
-import { generarTablaMetricasCompleta as _generarTablaMetricasCompleta } from './tabla-metricas-completa.js';
+import { generarTablaMetricasCompleta as _generarTablaMetricasCompleta } from './tabla-metricas-completa.js?v=20260912a';
 
 // ============================================================================
 // PUBLIC API - ES6 EXPORT STATEMENTS (Functions extracted from analysis-core.js)
@@ -669,17 +669,13 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
           <span class="value" style="color: #1565c0; font-weight: bold; font-size: 1.1em;">${metricas.solidity} → <strong>${metricas.solidity_class}</strong></span>
         </div>`;
         
-      if (metricas.perdida_area_fragmentacion_percent) {
+      // ADR-017 F0 — concavidad respecto al hull, no «pérdida por fragmentación».
+      const _concA = metricas.concavidad_area_percent ?? metricas.perdida_area_fragmentacion_percent;
+      if (_concA != null) {
         metricsHTML += `
         <div class="morphological-metric">
-          <span class="label">Pérdida por Fragmentación:</span>
-          <span class="value">Área: ${metricas.perdida_area_fragmentacion_percent}% | Perímetro: ${metricas.perdida_perimetro_fragmentacion_percent}%</span>
-        </div>`;
-      } else {
-        metricsHTML += `
-        <div class="morphological-metric">
-          <span class="label">Pérdida por Fragmentación:</span>
-          <span class="value" style="color:#6c757d;">Sin pérdida estimada (pieza completa)</span>
+          <span class="label">Concavidad frente al hull:</span>
+          <span class="value">Área: ${_concA}% | Perímetro: ${metricas.concavidad_perimetro_percent ?? 'n/d'}%</span>
         </div>`;
       }
       
@@ -694,19 +690,13 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
           <span class="value">${metricas.perimeter_fragmentado} ${metricas.perimeter_unit}</span>
         </div>`;
       
-      if (metricas.completitud_estimada) {
-        metricsHTML += `
+      // ADR-017 F0 — «Pieza completa (sin fragmentación detectada)» era una
+      // afirmación fabricada: se emitía por AUSENCIA de dato, no por evidencia.
+      metricsHTML += `
         <div class="morphological-metric" style="background: #f3e5f5; padding: 8px; border-radius: 4px; margin: 5px 0;">
-          <span class="label">Completitud Estimada:</span>
-          <span class="value" style="color: #6a1b9a; font-weight: bold;">${metricas.completitud_estimada}% → ${metricas.completitud_tipo_fragmento}</span>
+          <span class="label">Completitud:</span>
+          <span class="value" style="color: #6a1b9a;">Sin evaluar — requiere ajuste de plantilla (ADR-017 F1)</span>
         </div>`;
-      } else {
-        metricsHTML += `
-        <div class="morphological-metric" style="background: #f3e5f5; padding: 8px; border-radius: 4px; margin: 5px 0;">
-          <span class="label">Completitud Estimada:</span>
-          <span class="value" style="color: #6a1b9a;">${metricas.completitud_tipo_fragmento || 'Pieza completa'} (sin fragmentación detectada)</span>
-        </div>`;
-      }
 
       // Resolver campos mostrados con regla canónica compartida.
       const _canonRender = ClassificationEngine.aplicarReglaCanonicaInterpretacion(metricas);
@@ -3029,8 +3019,7 @@ MÉTRICAS ARQUEOLÓGICAS AVANZADAS:
 • Esfericidad: ${metricas.esfericidad} → ${metricas.forma_3d_inferida}
 • Oblongación: ${metricas.oblongacion} → ${metricas.oblongacion_clasificacion}
 • Aplanamiento Inferido: ${metricas.aplanamiento_inferido}
-${metricas.completitud_estimada ? `• Completitud: ${metricas.completitud_estimada}% → ${metricas.completitud_tipo_fragmento}
-• Cobertura Angular: ${metricas.completitud_cobertura_grados}°` : ''}
+• Completitud: sin evaluar (ADR-017 F1)
 
 CARACTERÍSTICAS GEOMÉTRICAS AVANZADAS:
 • Índice de Estrellamiento: ${metricas.indice_estrellamiento || '0.0000'} → ${metricas.estrellamiento_clasificacion || 'No calculado'}
@@ -3147,7 +3136,7 @@ Desarrollado por Quipus / Juan Francisco Ramírez, 2025
         metricas.esfericidad || 'N/A', `"${metricas.forma_3d_inferida || 'N/A'}"`,
         metricas.oblongacion || 'N/A', `"${metricas.oblongacion_clasificacion || 'N/A'}"`,
         `"${metricas.aplanamiento_inferido || 'N/A'}"`,
-        metricas.completitud_estimada || 'N/A', `"${metricas.completitud_tipo_fragmento || 'N/A'}"`, metricas.completitud_cobertura_grados || 'N/A',
+        'Sin evaluar', '"Sin evaluar"', 'N/A',   // ADR-017 F0: completitud retirada
         // Características geométricas avanzadas (nuevas)
         metricas.indice_estrellamiento || 'N/A', `"${metricas.estrellamiento_clasificacion || 'N/A'}"`,
         metricas.indice_lobularidad || 'N/A', `"${metricas.lobularidad_clasificacion || 'N/A'}"`,

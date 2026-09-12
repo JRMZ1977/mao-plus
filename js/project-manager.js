@@ -1074,11 +1074,10 @@ class ProjectManager {
     // ========================================================================
     rows.push(`08_Conservacion,Area Fragmentada,${metricas.area_fragmentada || 0},mm²,Área del contorno real`);
     rows.push(`08_Conservacion,Perimetro Fragmentado,${metricas.perimeter_fragmentado || 0},mm,Perímetro del contorno real`);
-    rows.push(`08_Conservacion,Perdida Area,${metricas.perdida_area_fragmentacion_percent || 0},%,% de área perdida por fragmentación`);
-    rows.push(`08_Conservacion,Perdida Perimetro,${metricas.perdida_perimetro_fragmentacion_percent || 0},%,% de perímetro perdido`);
-    rows.push(`08_Conservacion,Completitud Estimada,${metricas.completitud_estimada || 0},%,Estimación de integridad`);
-    rows.push(`08_Conservacion,Tipo Fragmento,${metricas.completitud_tipo_fragmento || 'N/A'},,Clasificación del fragmento`);
-    rows.push(`08_Conservacion,Cobertura Angular,${metricas.completitud_cobertura_grados || 0},grados,Cobertura angular del contorno`);
+    // ADR-017 F0 — concavidad, no «pérdida»; completitud retirada hasta F1.
+    rows.push(`08_Concavidad,Concavidad de area,${metricas.concavidad_area_percent ?? metricas.perdida_area_fragmentacion_percent ?? 'N/D'},%,Deficit de area respecto al hull = (1 - solidez)`);
+    rows.push(`08_Concavidad,Exceso de perimetro sobre hull,${metricas.concavidad_perimetro_percent ?? 'N/D'},%,Sinuosidad frente a la envolvente convexa`);
+    rows.push(`08_Conservacion,Completitud,Sin evaluar,,Requiere ajuste de plantilla (ADR-017 F1)`);
     rows.push(`08_Conservacion,Circularidad s-Fragmentacion,${metricas.circularity_fragmentada || 0},,Circularidad sobre contorno real`);
     rows.push(`08_Conservacion,Compacidad s-Fragmentacion,${metricas.compactness_fragmentada || 0},,Compacidad sobre contorno real`);
     rows.push(`08_Conservacion,Rectangularidad s-Fragmentacion,${metricas.rectangularity_fragmentada || 0},,Rectangularidad sobre contorno real`);
@@ -1247,7 +1246,7 @@ class ProjectManager {
     rows.push(`12_Sintesis,Clase Solidez,${metricas.shape_class_solidity || metricas.solidity_class || 'N/A'},,Por solidez`);
     rows.push(`12_Sintesis,Clase Complejidad,${metricas.shape_class_complexity || 'N/A'},,Por complejidad`);
     rows.push(`12_Sintesis,Clase Convexidad,${metricas.convexity_class || 'N/A'},,Por convexidad`);
-    rows.push(`12_Sintesis,Clase Fragmentacion,${metricas.completitud_tipo_fragmento || metricas.tipo_fragmento || 'N/A'},,Por fragmentación`);
+    rows.push(`12_Sintesis,Clase Fragmentacion,Sin evaluar,,Requiere ajuste de plantilla (ADR-017 F1)`);
     
     // ========================================================================
     // XI-b. (11) MÉTRICAS DE DISTRIBUCIÓN Y CONTEXTO P/H

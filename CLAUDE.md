@@ -4,6 +4,51 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-09-12 — ADR-017 F0: retirada del estimador de completitud
+
+**ADR-017** (`docs/ADR-017-emparejamiento-plantillas-completitud.md`): ¿puede MAO inferir «pieza
+completa vs. fragmento» emparejando el contorno contra formas ideales? Sí, pero la EFA **no** resuelve
+el encaje parcial (descriptor global de curva cerrada, normalizado al 1er armónico *del fragmento*);
+el repertorio entra como **biblioteca de plantillas** vía `efa.reconstruct()` y el motor es ajuste
+robusto → **ICP** (Wilczek et al. 2021). Arquitectura E1-E4 + prototipo verificado (exacto hasta 25 %
+de forma preservada; rechaza por debajo del 15 % en vez de inventar).
+
+**F0 implementada** — retirada de los estimadores que no medían lo que decían. Nota de versión:
+`docs/NOTA-VERSION-ADR017-F0.md` (🟠 **cambia valores ya exportados a CSV/PDF**).
+
+| Clave anterior | Ahora | Valor |
+|---|---|---|
+| `completitud_estimada` (JS: cobertura angular + extent) | **retirada** | señal degenerada |
+| `completitud_metodo_convexidad` (= `A/A_bbox`) | `extent` | mismo número |
+| `completitud_estimada` (PY: `0,4·conv + 0,6·solidez`) | `indice_convexidad_percent` | **mismo número** |
+| `perdida_area_fragmentacion_percent` | `concavidad_area_percent` | mismo número + alias deprecado |
+| `perdida_perimetro_fragmentacion_percent` | `concavidad_perimetro_percent` | **signo corregido** |
+
+- **El defecto:** la cobertura angular se medía alrededor del centroide **del propio fragmento**, y
+  todo contorno cerrado de `findContours` rodea 360° por construcción → disco entero / medio / cuarto
+  daban **91,3 / 91,3 / 91,0 %**, los tres «casi completo». Y `metodo_convexidad` era el **extent**
+  (π/4 = 78,5 % para un círculo) → **toda pieza redonda íntegra salía «fragmento»**. **Causa raíz de
+  ADR-016 #6** (cuenta circular de La Draga rotulada «fracturada»).
+- **Lo más consecuente:** dos rutas (flujo IA `analysis-core.js` y flujo manual) **inyectaban** la
+  etiqueta `Fragmento X (N% completo)` cuando `perdida_area > 1 %` —o sea, con casi cualquier contorno
+  real— derivando el porcentaje como `100 − concavidad`. Ambas retiradas.
+- **Cuarto estimador descubierto al implementar:** Python tenía su propio `completitud_estimada`
+  (`metrics.py` §33), **distinto** del de JS y sin término angular → medición fiel, rótulo equivocado
+  → renombrada sin tocar coeficientes. Su compañera `completitud_metodo_convexidad` duplicaba
+  `convexity` (§28) ×100 → retirada.
+- **Signo invertido confirmado desde el propio repo:** el comentario de `metrics.py` §28 dice «nunca
+  >1 (hull ≤ real)», lo que prueba que `(hull_perim − perim_real)/hull_perim` era ≤ 0 por construcción.
+- **Doctrina aplicada** (precedente JFRR 2026-07-02, ADR-016 #6): conservar la medición fiel, retirar
+  el rótulo que diagnostica de más. Donde no hay dato → «Sin evaluar», nunca un 100 % fabricado.
+- **Inerte hasta F1** (compuerta era el flag fabricado): reinterpretación «zona curvilínea frontera»
+  y resaltado crítico de la columna de completitud. La lógica se conserva comentada en su sitio.
+- **Gotcha confirmado otra vez:** los duplicados IIFE de `analysis-core.js` replicaban los 3
+  productores; sin tocarlos el defecto sobrevive por la ruta legacy.
+- **Verificado:** gate `node tools/adr017_gate_f0.mjs` 13/13 · `node --check` 11/11 · `py_compile` 2/2
+  · enforcement nuevo en `python/tests/test_coherencia_entrega.py` (lógica reproducida a mano).
+  Cache-bust `?v=20260912a`. **Pendiente: suite Python completa y verificación visual en Electron**
+  (el cambio se preparó en un contenedor sin numpy/cv2/pytest).
+
 ## 🎯 Sesión 2026-06-24 — ADR-012 detección monolítica (Fases 1-3 ✅) + fix modo componente
 
 **ADR-012 «detección monolítica»** (`docs/ADR-012-deteccion-monolitica.md`, commit `eaf01d3`): núcleo de

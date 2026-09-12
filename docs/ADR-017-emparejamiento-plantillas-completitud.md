@@ -1,6 +1,7 @@
 # ADR-017 — Emparejamiento con plantillas de forma ideal e inferencia de completitud (fragmento vs. pieza completa)
 
-**Estado:** Propuesto · aprobación por fases
+**Estado:** 🟡 **F0 implementada (2026-09-12)** · F1-F4 propuestas
+**Nota de versión F0:** `docs/NOTA-VERSION-ADR017-F0.md` (cambia valores exportados)
 **Fecha:** 2026-09-12
 **Autor:** JFRR + Claude Code
 **Relacionado:** ADR-006 (repertorio canónico) · ADR-007 (confianza por objeto) · **ADR-009 (patrón
@@ -61,8 +62,8 @@ producción (`analysis-core.js:9451` y `:10978`) y alimentan `completitud_estima
 
 **Defecto estructural:** todo contorno cerrado de `cv2.findContours` cuyo centroide caiga dentro
 rodea 360° **por construcción** — el fragmento también. La señal es idénticamente ≈360° y no
-discrimina. Sonda con formas sintéticas de completitud conocida
-(`node tools/adr017_sonda_completitud_actual.mjs`, reproducible):
+discrimina. Sonda con formas sintéticas de completitud conocida (estado **previo a F0**;
+el script es hoy el gate `tools/adr017_gate_f0.mjs`, ver §9):
 
 | forma sintética | completitud real | `coberturaGrados` | `completitud_estimada` | veredicto emitido |
 |---|---|---|---|---|
@@ -286,7 +287,7 @@ forma ideal subyacente: el caso normal en lítica). Nunca `--ok` automático.
 
 | Fase | Alcance | Archivos | Gate de aceptación | Riesgo |
 |---|---|---|---|---|
-| **F0** | Corregir el defecto: retirar/renombrar §1.1-§1.3 según §5; tocar **ambas** rutas (módulo + duplicados IIFE) | `morphometric-metrics.js`, `shape-classification.js`, `classification-engine.js`, `analysis-core.js` (:7002, :8722, :9451, :10978), `metrics.py`, `tooltips.js`, `project-manager.js`, `tabla-metricas-completa.js` | sonda §1.1 deja de reportar «fragmento» en círculo completo; `test_coherencia_entrega.py` verde; suite ≥ 306/2 | 🟠 **cambia valores ya exportados a CSV/PDF** → nota de versión obligatoria |
+| **F0** | ✅ **Hecha.** 13 archivos, 15 con docs. Ver §6.1 | los 8 previstos + `mao-ia.js`, `comparator.js`, `visualization-export.js`, `metric-presenter.js`, `index.html` | ✅ gate `tools/adr017_gate_f0.mjs` 13/13 · ✅ `node --check` 11/11 + `py_compile` 2/2 · ⏳ suite y Electron pendientes (entorno sin numpy/pytest) | 🟠 **cambia valores exportados** → `docs/NOTA-VERSION-ADR017-F0.md` |
 | **F1** | `python/modules/shape_template.py`: E1+E2+E3 para círculo y elipse; endpoint `/api/shape-match` | nuevo módulo + `server.py` | tests sobre formas sintéticas de completitud conocida: error ≤ 3 % entre 25 % y 100 %; rechazo por debajo de 15 %; rechazo de plantilla errónea | 🟢 aditivo |
 | **F2** | ICP contra repertorio arbitrario, alimentado por `efa.reconstruct()` | `shape_template.py`, `efa.py` | paridad con F1 en círculo/elipse; ≥ 1 plantilla poligonal validada | 🟡 |
 | **F3** | Registro canónico + contrato + chip LAAR + modal de confirmación (patrón ADR-009) | `morphometric_registry.py`, `mao-deteccion-contract.js`, `mao-analysis-organizer.js` | chip en los 4 estados; confirmar/descartar persiste; CSV con las claves nuevas | 🟢 |
@@ -294,6 +295,30 @@ forma ideal subyacente: el caso normal en lítica). Nunca `--ok` automático.
 
 **Secuencia recomendada:** F0 primero y por separado — es autónomo, corrige un defecto que ya
 contamina el reporte del artículo, y no depende de nada de lo demás.
+
+### 6.1 · Lo que F0 encontró de más al implementarse
+
+Tres hallazgos no previstos en el diagnóstico inicial, todos incorporados:
+
+1. **Había un CUARTO estimador, en Python** (`metrics.py`, §33): `completitud_estimada` =
+   `0,4·convexidad + 0,6·solidez`, **distinto** del de JS y sin el término angular
+   degenerado. Medición fiel con rótulo equivocado → renombrada a
+   `indice_convexidad_percent` conservando el número, sin tocar un coeficiente. Su
+   compañera `completitud_metodo_convexidad` duplicaba `convexity` (§28) ×100 → retirada.
+2. **El signo invertido se confirmó desde el propio código.** El comentario de `metrics.py`
+   §28 dice «nunca >1 (hull ≤ real)», lo que prueba que
+   `(hull_perim − perim_real)/hull_perim` era ≤ 0 por construcción. Corregido a exceso de
+   perímetro; la clave vieja no se aliasa porque su valor carecía de significado.
+3. **Dos rutas INYECTABAN la etiqueta de fragmento** (flujo IA y flujo manual) cuando
+   `perdida_area > 1 %` —o sea, con casi cualquier contorno real— derivando el porcentaje
+   como `100 − concavidad`. Ese es el mecanismo concreto de ADR-016 #6; ambas retiradas.
+   Sus guardas `solidity ≥ 0.92 → es P/H, no fractura` reconocían el problema pero sólo
+   acotaban el síntoma.
+
+Efectos colaterales declarados: dos reglas de clasificación quedan **inertes** hasta F1
+(reinterpretación de «zona curvilínea frontera» y resaltado crítico de la columna de
+completitud), porque su compuerta era el flag fabricado. La lógica se conserva en su sitio,
+comentada, para que F1 la re-active con `es_fragmento_candidato`.
 
 ## 7. Invariante arqueológico (lo que este ADR **no** afirma)
 
@@ -329,9 +354,13 @@ Los números de §1.1 y §4 son **reproducibles hoy**: las dos sondas están ver
 ADR y no dependen de nada fuera del repo.
 
 ```bash
-node tools/adr017_sonda_completitud_actual.mjs   # §1.1 — el defecto en producción
-node tools/adr017_proto_plantilla.mjs            # §4  — viabilidad de la arquitectura
+node tools/adr017_gate_f0.mjs          # gate de no regresión de F0 (antes: sonda del defecto)
+node tools/adr017_proto_plantilla.mjs  # §4 — viabilidad de la arquitectura
 ```
+
+`adr017_gate_f0.mjs` era la sonda que documentaba el defecto (§1.1); tras F0 verifica lo
+contrario — que el estimador degenerado no ha vuelto y que la medición fiel que lo sustituye
+se comporta como debe. Los números originales quedan en el git log y en §1.1.
 
 `adr017_proto_plantilla.mjs` es prototipo de validación del método, **no** código de producción: la
 implementación canónica corresponde a `python/modules/shape_template.py` (F1), conforme a ADR-012

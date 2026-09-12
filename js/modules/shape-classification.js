@@ -603,13 +603,20 @@ export function analizarDistribucionRadialAngular(contourPoints, centroid) {
   // Ordenar por ángulo
   puntosPolares.sort((a, b) => a.theta - b.theta);
 
-  // Análisis de cobertura angular
-  const anguloMin = puntosPolares[0].theta;
-  const anguloMax = puntosPolares[puntosPolares.length - 1].theta;
-  const coberturaAngular = anguloMax - anguloMin;
-  const coberturaGrados = (coberturaAngular * 180 / Math.PI);
-
-  // Detectar gaps angulares
+  // ── ADR-017 F0 — cobertura angular y completitud RETIRADAS ───────────────
+  // Aquí se calculaba `coberturaAngular = θ_max − θ_min` y de ahí
+  // `porcentajeCompletitud` / `esFragmento`. Es una señal DEGENERADA: todo
+  // contorno cerrado de cv2.findContours cuyo centroide caiga dentro rodea 360°
+  // por construcción — el fragmento también. Un disco entero, medio disco y un
+  // cuarto de disco daban 359,1° / 359,1° / 357,3° → indistinguibles.
+  // Verificable: node tools/adr017_sonda_completitud_actual.mjs
+  //
+  // La completitud real exige ajustar una plantilla ideal al margen original y
+  // medir la cobertura alrededor del CENTRO AJUSTADO, no del centroide del
+  // fragmento (ADR-017 §3, fase F1). Hasta entonces: sin dato, no un dato falso.
+  //
+  // Los `gaps` SÍ se conservan: miden algo real (saltos angulares = contorno no
+  // estrellado respecto a su centroide), sólo que eso es concavidad, no rotura.
   const UMBRAL_GAP = 15 * Math.PI / 180; // 15 grados
   const gaps = [];
   for (let i = 1; i < puntosPolares.length; i++) {
@@ -622,10 +629,6 @@ export function analizarDistribucionRadialAngular(contourPoints, centroid) {
       });
     }
   }
-
-  // Clasificar completitud
-  const esFragmento = gaps.length > 0 || coberturaAngular < (2 * Math.PI * 0.85);
-  const porcentajeCompletitud = (coberturaAngular / (2 * Math.PI)) * 100;
 
   // Análisis de uniformidad radial por sector angular
   const NUM_SECTORES = 36;
@@ -717,54 +720,29 @@ export function analizarDistribucionRadialAngular(contourPoints, centroid) {
 
       geometriaInferida = "Elipsoidal";
       confianzaGeometria = uniformidadRadial;
-
-      if (esFragmento) {
-        geometriaInferida = `Fragmento Elipsoidal (${porcentajeCompletitud.toFixed(0)}% completo)`;
-      }
     } else if (uniformidadRadial >= 0.70) {
       geometriaInferida = "Poligonal";
       confianzaGeometria = Math.max(porcentajeCambiosAbruptos, porcentajeCambios3Sectores);
-
-      if (esFragmento) {
-        geometriaInferida = `Fragmento Poligonal (${porcentajeCompletitud.toFixed(0)}% completo)`;
-      }
     } else {
       geometriaInferida = "Irregular";
       confianzaGeometria = 1 - uniformidadRadial;
-
-      if (esFragmento) {
-        geometriaInferida = `Fragmento Irregular (${porcentajeCompletitud.toFixed(0)}% completo)`;
-      }
     }
   } else if (uniformidadRadial >= 0.93) {
     geometriaInferida = "Circular";
     confianzaGeometria = uniformidadRadial;
-
-    if (esFragmento) {
-      geometriaInferida = `Fragmento Circular (${porcentajeCompletitud.toFixed(0)}% completo)`;
-    }
   } else if (uniformidadRadial >= 0.70 && uniformidadRadial < 0.93) {
     geometriaInferida = "Poligonal";
     confianzaGeometria = uniformidadRadial;
-
-    if (esFragmento) {
-      geometriaInferida = `Fragmento Poligonal (${porcentajeCompletitud.toFixed(0)}% completo)`;
-    }
   } else {
     geometriaInferida = "Irregular";
     confianzaGeometria = 1 - uniformidadRadial;
-
-    if (esFragmento) {
-      geometriaInferida = `Fragmento Irregular (${porcentajeCompletitud.toFixed(0)}% completo)`;
-    }
   }
 
   return {
     puntosPolares: puntosPolares,
-    coberturaAngular: coberturaAngular,
-    coberturaGrados: coberturaGrados,
-    porcentajeCompletitud: porcentajeCompletitud,
-    esFragmento: esFragmento,
+    // ADR-017 F0: `coberturaAngular`, `coberturaGrados`, `porcentajeCompletitud`
+    // y `esFragmento` retirados del contrato — señal degenerada en contornos
+    // cerrados (≈360° siempre). No reintroducir sin ajuste de plantilla (F1).
     gaps: gaps,
     radioPromedio: radioGlobalPromedio,
     desviacionRadial: desviacionRadios,
@@ -791,12 +769,9 @@ export function analizarDistribucionRadialAngular(contourPoints, centroid) {
 export function generarFormaIdealDesdeAnalisisRadial(distribucionRadialAngular, centroid, ancho, alto, area, aspectRatio, excentricidad) {
   const {
     uniformidadRadial,
-    coberturaGrados,
-    porcentajeCompletitud,
-    esFragmento,
     radioPromedio,
     geometriaInferida
-  } = distribucionRadialAngular;
+  } = distribucionRadialAngular;   // ADR-017 F0: sin cobertura/completitud/esFragmento
 
   let vertices = [];
   let tipo = "Irregular";
@@ -824,14 +799,14 @@ export function generarFormaIdealDesdeAnalisisRadial(distribucionRadialAngular, 
 
     if (!arValido || (aspectRatio >= 0.80 && aspectRatio <= 1.20)) {
       vertices = generarCirculoIdeal(centroid[0], centroid[1], radioPromedio, 32);
-      tipo = esFragmento ? `Fragmento Circular (${porcentajeCompletitud.toFixed(0)}%)` : "Círculo";
+      tipo = "Círculo";
       numPuntos = 32;
     } else if (arValido && excentricidad > 0.3) {
       const rMayor = Math.max(ancho, alto) / 2;
       const rMenor = Math.min(ancho, alto) / 2;
       const angulo = 0;
       vertices = generarElipseIdeal(centroid[0], centroid[1], rMayor, rMenor, angulo, 32);
-      tipo = esFragmento ? `Fragmento Elíptico (${porcentajeCompletitud.toFixed(0)}%)` : "Elipse";
+      tipo = "Elipse";
       numPuntos = 32;
     }
   } else if (uniformidadRadial >= 0.60) {
@@ -1317,11 +1292,11 @@ export function simplificarAFormaRegular(contourPoints, metricas, contornoMetric
     radio_medio: regularidad.distanciaMedia.toFixed(1),
     desviacion_radial: regularidad.desviacionRadial.toFixed(1),
     ratio_extension: regularidad.ratioExtension.toFixed(3),
-    cobertura_angular_grados: distribucionRadialAngular.coberturaGrados.toFixed(1),
-    completitud_porcentaje: distribucionRadialAngular.porcentajeCompletitud.toFixed(0),
+    // ADR-017 F0: `cobertura_angular_grados`, `completitud_porcentaje` y
+    // `es_fragmento` retirados — derivaban de la cobertura angular degenerada.
     uniformidad_radial_angular: distribucionRadialAngular.uniformidadRadial.toFixed(3),
     cv_radial_angular: (distribucionRadialAngular.coeficienteVariacionRadial * 100).toFixed(1),
-    es_fragmento: distribucionRadialAngular.esFragmento,
+    num_gaps_angulares: distribucionRadialAngular.gaps.length,
     geometria_inferida: distribucionRadialAngular.geometriaInferida,
     es_forma_idealizada: esFormaIdealizada,
     tipo_geometrico: tipoGeometrico,

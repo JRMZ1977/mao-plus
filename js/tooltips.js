@@ -97,8 +97,8 @@ const tooltipData = {
   // ========================================================================
   area_fragmentada: 'Área real del contorno del objeto, excluyendo huecos internos y fragmentaciones. Diferencia respecto al área del Hull indica pérdida de material.',
   perimeter_fragmentado: 'Longitud real del contorno fragmentado. Un valor alto respecto al perímetro del Hull indica bordes fracturados o irregulares.',
-  perdida_area_fragmentacion_percent: '% de área perdida respecto al Convex Hull. 0% = objeto intacto; valores altos indican fragmentación severa o presencia de perforaciones.',
-  perdida_perimetro_fragmentacion_percent: '% de pérdida de perímetro respecto al Hull convexo. Refleja complejidad adicional del contorno por fracturas o concavidades.',
+  concavidad_area_percent: 'Déficit de área frente al Convex Hull = (1 − solidez)·100. Mide CONCAVIDAD, no material perdido: una pieza lunada, denticulada o anular íntegra es cóncava por manufactura (ADR-017 F0).',
+  concavidad_perimetro_percent: 'Exceso de perímetro del contorno sobre el de su envolvente convexa. Mide sinuosidad del borde. 0% = contorno convexo.',
   width: 'Ancho del rectángulo ajustado al contorno real (tight bounding box). Más preciso que el bounding box original para objetos rotados.',
   height: 'Alto del rectángulo ajustado al contorno real (tight bounding box).',
   bounding_width: 'Ancho del rectángulo envolvente alineado a los ejes de la imagen (bounding box original).',
@@ -226,10 +226,10 @@ const tooltipData = {
   // ========================================================================
   // COMPLETITUD Y FRAGMENTACIÓN
   // ========================================================================
-  completitud_estimada: '% de completitud del objeto estimado combinando dos métodos: cobertura angular del contorno y ratio de convexidad. 100% = objeto completo; <80% = fragmento significativo.',
-  completitud_es_fragmento: 'Indicador booleano de si el objeto se considera un fragmento (completitud estimada < umbral configurable).',
-  completitud_cobertura_grados: 'Ángulos barridos por el contorno real desde el centroide [0–360°]. Un objeto completo cubre los 360°; un fragmento tiene sectores vacíos.',
-  completitud_tipo_fragmento: 'Tipo de fragmento detectado según la geometría de la zona faltante: lateral, esquina, borde, etc.',
+  // ADR-017 F0 — claves completitud_* retiradas: medían cobertura angular
+  // (≈360° en todo contorno cerrado) y extent, no completitud. Vuelven en F1.
+  extent: 'Área del contorno dividida por el área de su bounding box. Mide cuánto llena el objeto su caja envolvente; un círculo perfecto vale π/4 = 0,785 — NO es una medida de integridad.',
+  indice_convexidad_percent: 'Índice compuesto 0,4·convexidad + 0,6·solidez, en %. Describe cuán convexo es el contorno; antes se rotulaba «completitud estimada», rótulo retirado en ADR-017 F0 porque la convexidad no observa fractura.',
 
   // ========================================================================
   // FORMA 3D INFERIDA (desde proyección 2D)

@@ -17,7 +17,7 @@
  *   - calcularEjePrincipal()
  *   - calcularDiametroFeret()
  *   - calcularAngulosVertices()
- *   - calcularCompletitudFragmento()
+ *   - calcularExtentContorno()          (ADR-017 F0: antes calcularCompletitudFragmento)
  *   - calcularIndicesForma3D()
  * 
  * DEPENDENCIES: metric-presenter.js (fuente única de rótulos de clasificación — ADR-016)
@@ -1023,28 +1023,37 @@ export function calcularAngulosVertices(vertices) {
 }
 
 // ============================================================================
-// MÉTRICA 5: ANÁLISIS DE COMPLETITUD MEJORADO
+// MÉTRICA 5: EXTENT DEL CONTORNO (A / A_bbox)
 // ============================================================================
 
-export function calcularCompletitudFragmento(contourPoints, centroid, distribucionRadialAngular) {
-  if (!contourPoints || contourPoints.length < 10 || !distribucionRadialAngular) {
-    return {
-      completitud_estimada: 100,
-      metodo_angular: 100,
-      metodo_convexidad: 100,
-      es_fragmento: false,
-      tipo_fragmento: 'Objeto completo'
-    };
+/**
+ * ADR-017 F0 — sustituye a `calcularCompletitudFragmento`, que NO medía completitud.
+ *
+ * Aquella función combinaba dos términos, ambos inservibles para el fin declarado:
+ *   1. `metodo_angular` = cobertura angular / 360. Degenerado: todo contorno cerrado
+ *      cuyo centroide caiga dentro rodea 360° por construcción, así que el término
+ *      valía ≈100 % tanto para un disco entero como para un cuarto de disco.
+ *   2. `metodo_convexidad` = A/A_bbox. La medición es fiel, pero es el **extent**,
+ *      no la convexidad (`P_hull/P_real`) ni la solidez (`A/A_hull`) del repertorio
+ *      canónico ADR-006. Como el extent de un círculo es π/4 = 78,5 %, toda pieza
+ *      redonda ÍNTEGRA se reportaba como fragmento — causa raíz de ADR-016 #6.
+ *
+ * Se conserva la medición fiel bajo su nombre correcto y se retira la inferencia de
+ * completitud, que exige ajuste de plantilla al margen original (ADR-017 §3, F1).
+ *
+ * @param {Array} contourPoints - Puntos del contorno
+ * @returns {Object} {extent, area_contorno_px, area_bbox_px}
+ */
+export function calcularExtentContorno(contourPoints) {
+  if (!contourPoints || contourPoints.length < 10) {
+    return { extent: null, area_contorno_px: null, area_bbox_px: null };
   }
-  
+
   const getX = (p) => p.x !== undefined ? p.x : p[0];
   const getY = (p) => p.y !== undefined ? p.y : p[1];
-  
-  const coberturaGrados = distribucionRadialAngular.coberturaGrados || 360;
-  const completitudAngular = (coberturaGrados / 360) * 100;
-  
+
   const puntos2D = contourPoints.map(p => [getX(p), getY(p)]);
-  
+
   let areaContorno = 0;
   for (let i = 0; i < puntos2D.length; i++) {
     const p1 = puntos2D[i];
@@ -1052,42 +1061,15 @@ export function calcularCompletitudFragmento(contourPoints, centroid, distribuci
     areaContorno += p1[0] * p2[1] - p2[0] * p1[1];
   }
   areaContorno = Math.abs(areaContorno) / 2;
-  
+
   const xs = puntos2D.map(p => p[0]);
   const ys = puntos2D.map(p => p[1]);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const areaBBox = (maxX - minX) * (maxY - minY);
-  
-  const ratioConvexidad = areaBBox > 0 ? (areaContorno / areaBBox) : 1;
-  const completitudConvexidad = ratioConvexidad * 100;
-  
-  const completitudEstimada = (completitudAngular * 0.6 + completitudConvexidad * 0.4);
-  
-  const esFragmento = completitudEstimada < 85 || coberturaGrados < 300;
-  
-  let tipoFragmento = '';
-  if (completitudEstimada >= 95) {
-    tipoFragmento = 'Objeto completo';
-  } else if (completitudEstimada >= 75) {
-    tipoFragmento = 'Casi completo (fragmento menor)';
-  } else if (completitudEstimada >= 50) {
-    tipoFragmento = 'Fragmento grande (>50%)';
-  } else if (completitudEstimada >= 25) {
-    tipoFragmento = 'Fragmento mediano (25-50%)';
-  } else {
-    tipoFragmento = 'Fragmento pequeño (<25%)';
-  }
-  
+  const areaBBox = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+
   return {
-    completitud_estimada: completitudEstimada,
-    metodo_angular: completitudAngular,
-    metodo_convexidad: completitudConvexidad,
-    es_fragmento: esFragmento,
-    tipo_fragmento: tipoFragmento,
-    cobertura_angular_grados: coberturaGrados
+    extent: areaBBox > 0 ? (areaContorno / areaBBox) : null,
+    area_contorno_px: areaContorno,
+    area_bbox_px: areaBBox
   };
 }
 

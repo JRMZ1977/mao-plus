@@ -563,9 +563,25 @@ async def calculate(
     m["perimeter_fragmentado_px"] = _r(perim_real)
     m["contour_points"]           = len(pts)
 
+    # ADR-017 F0 — concavidad, NO «pérdida por fragmentación».
+    # Ambas magnitudes miden cuánto se aparta el contorno real de su envolvente
+    # convexa; no miden material perdido. Una pieza lunada, denticulada o anular
+    # íntegra es cóncava por manufactura, no por fractura. Se conserva la medición
+    # y se retira el rótulo (precedente ADR-016 #6: medir fiel, no sobre-interpretar).
     if hull_area > 0:
-        m["perdida_area_fragmentacion_percent"]      = _r((hull_area - area_real) / hull_area * 100, 1)
-        m["perdida_perimetro_fragmentacion_percent"] = _r((hull_perim - perim_real) / hull_perim * 100, 1) if hull_perim > 0 else 0.0
+        # Déficit de área respecto al hull = (1 − solidez)·100
+        m["concavidad_area_percent"] = _r((hull_area - area_real) / hull_area * 100, 1)
+        # Exceso de perímetro sobre el hull. El SIGNO estaba invertido: como
+        # hull_perim ≤ perim_real siempre (ver §28: «nunca >1 (hull ≤ real)»), la
+        # expresión anterior (hull_perim − perim_real)/hull_perim era ≤ 0 por
+        # construcción y valía 0 sólo en piezas convexas.
+        m["concavidad_perimetro_percent"] = (
+            _r((perim_real - hull_perim) / hull_perim * 100, 1) if hull_perim > 0 else 0.0
+        )
+        # Alias de lectura DEPRECADO (mismo número, retirar tras una versión) para
+        # no romper proyectos ya guardados. `perdida_perimetro_fragmentacion_percent`
+        # NO se aliasa: su valor anterior era ≤ 0 y carecía de significado.
+        m["perdida_area_fragmentacion_percent"] = m["concavidad_area_percent"]
 
     # ── 6. Conversión a mm ────────────────────────────────────────────────
     # PRINCIPIO MAO: area y perimeter PRIMARIOS = convex hull (forma canónica completa).
@@ -807,7 +823,7 @@ async def calculate(
         sol    = solidez
         lob    = m.get("indice_lobularidad", 1.0) or 1.0
         est    = m.get("indice_estrellamiento", 0.0) or 0.0
-        perd   = m.get("perdida_area_fragmentacion_percent", 0.0) or 0.0
+        perd   = m.get("concavidad_area_percent", 0.0) or 0.0
         exc_v  = exc.get("excentricidad", 0.0)
         rec_v  = m.get("rectangularity") or 0.0
         n_rect = ang_data.get("num_angulos_rectos", 0)
@@ -1020,17 +1036,20 @@ async def calculate(
     m["bounding_width"]  = m["width"]
     m["bounding_height"] = m["height"]
 
-    # ── 33. Completitud estimada (Guía §VIII) ─────────────────────────────
-    # Estimación simple por convexidad: 100% = objeto convexo/completo
-    completitud_conv = min(conv, 1.0) * 100
-    # Estimación por solidez: qué proporción del hull está presente
-    completitud_solid = solidez * 100
-    # Media ponderada (convexidad peso 0.4, solidez peso 0.6)
-    completitud = _r(0.4 * completitud_conv + 0.6 * completitud_solid, 1)
-    m["completitud_estimada"] = completitud
-    m["completitud_metodo_convexidad"] = _r(completitud_conv, 1)
-    # Es fragmento si completitud < 85%
-    m["completitud_es_fragmento"] = bool((completitud or 100) < 85.0)
+    # ── 33. Índice de convexidad compuesto (ADR-017 F0) ───────────────────
+    # Antes rotulado «completitud estimada» (Guía §VIII). La MEDICIÓN es fiel y se
+    # conserva sin tocar un solo coeficiente: 0.4·convexidad + 0.6·solidez, ambas
+    # canónicas del repertorio ADR-006. Lo que se retira es el rótulo, que inferÍa
+    # integridad a partir de la convexidad — y la convexidad no observa fractura.
+    #
+    # Retirados con él:
+    #   completitud_metodo_convexidad → duplicaba `convexity` (§28) ×100
+    #   completitud_es_fragmento      → diagnóstico no observable desde la silueta
+    #                                   (ADR-017 §7); la completitud real exige
+    #                                   ajuste de plantilla — ADR-017 F1.
+    m["indice_convexidad_percent"] = _r(
+        0.4 * min(conv, 1.0) * 100 + 0.6 * solidez * 100, 1
+    )
 
     # ── 34. Defectos de convexidad MAO_IA (Guía §VIII ampliado) ──────────
     # cv2.convexityDefects(): concavidades del contorno respecto al convex hull.

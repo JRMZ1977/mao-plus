@@ -174,10 +174,10 @@ const ComparadorMultiObjeto = (() => {
       { key: 'angulos_obtusos',                        label: 'Ángulos obtusos (>90°)',                  src: 'R' },
     ]},
     { id: 'conservacion', label: 'VIII — Conservación y fragmentación', items: [
-      { key: 'completitud_estimada',                        label: 'Completitud estimada (%)',                src: 'M' },
+      { key: 'indice_convexidad_percent',                   label: 'Índice de convexidad (%)',                src: 'M' },
       { key: 'cobertura_angular',                           label: 'Cobertura angular (%)',                   src: 'M' },
-      { key: 'perdida_area_fragmentacion_percent',          label: 'Pérdida área fragmentación (%)',          src: 'M' },
-      { key: 'perdida_perimetro_fragmentacion_percent',     label: 'Pérdida perímetro fragmentación (%)',     src: 'M' },
+      { key: 'concavidad_area_percent',                     label: 'Concavidad de área (%)',                  src: 'M' },
+      { key: 'concavidad_perimetro_percent',                label: 'Exceso de perímetro sobre hull (%)',      src: 'M' },
       { key: 'area_fragmentada',                            label: 'Área fragmentada (mm²)',                  src: 'R' },
       { key: 'perimeter_fragmentado',                       label: 'Perímetro fragmentado (mm)',              src: 'R' },
       { key: 'circularity_fragmentada',                     label: 'Circularidad s/fragmentación [0–1]',      src: 'R' },
@@ -282,7 +282,7 @@ const ComparadorMultiObjeto = (() => {
   const DEFAULT_KEYS = [
     'area', 'area_neta', 'perimeter', 'perimeter_neto', 'circularity', 'solidity', 'convexity',
     'aspect_ratio', 'elongation', 'symmetry_score',
-    'regularidad_radial', 'completitud_estimada'
+    'regularidad_radial', 'indice_convexidad_percent'
   ];
 
   // Alias: posibles nombres en metricas.objeto para la misma métrica
@@ -343,11 +343,13 @@ const ComparadorMultiObjeto = (() => {
     angulos_agudos:       ['num_angulos_agudos','n_angulos_agudos','acute_angles'],
     angulos_obtusos:      ['num_angulos_obtusos','n_angulos_obtusos','obtuse_angles'],
     // ── Conservación ─────────────────────────────────────────────────────
-    completitud_estimada: ['completeness_estimate','estimated_completeness','completitud'],
-    cobertura_angular:    ['completitud_cobertura_grados','angular_coverage','angular_coverage_pct'],
-    tipo_fragmento:       ['completitud_tipo_fragmento','forma_categoria_base','fragment_type','tipo_fragmentacion'],
-    perdida_area_fragmentacion_percent:      ['perdida_area_pct','area_loss_percent','perdida_area'],
-    perdida_perimetro_fragmentacion_percent: ['perdida_perimetro_pct','perimeter_loss_percent','perdida_perimetro'],
+    // ADR-017 F0 — alias de lectura hacia las claves canónicas nuevas. Se
+    // conservan los nombres viejos como ORIGEN para que los proyectos ya
+    // guardados sigan cargando; las claves completitud_* no se mapean porque
+    // no medían completitud (vuelven en F1 como plantilla_completitud).
+    indice_convexidad_percent:   ['completitud_estimada','completeness_estimate','estimated_completeness','completitud'],
+    concavidad_area_percent:     ['perdida_area_fragmentacion_percent','perdida_area_pct','area_loss_percent','perdida_area'],
+    concavidad_perimetro_percent:['perdida_perimetro_pct','perimeter_loss_percent','perdida_perimetro'],
     area_fragmentada:     ['fragmented_area','area_hull_loss'],
     perimeter_fragmentado:['fragmented_perimeter','perimeter_hull_loss'],
     circularity_fragmentada:  ['circularity_hull','circularity_convex'],

@@ -3,15 +3,15 @@
 
 import * as GeometryPrimitives from './modules/geometry-primitives.js';
 import * as ContourQuality from './modules/contour-quality.js';
-import * as MorphometricMetrics from './modules/morphometric-metrics.js';
-import * as ShapeClassification from './modules/shape-classification.js';
+import * as MorphometricMetrics from './modules/morphometric-metrics.js?v=20260912a';
+import * as ShapeClassification from './modules/shape-classification.js?v=20260912a';
 import * as ContourExtraction from './modules/contour-extraction.js';
-import * as ClassificationEngine from './modules/classification-engine.js';
+import * as ClassificationEngine from './modules/classification-engine.js?v=20260912a';
 import * as UtilityHelpers from './modules/utility-helpers.js?v=20260614e';
 import * as MetricsOrchestrator from './modules/metrics-orchestrator.js';
-import * as VisualizationExport from './modules/visualization-export.js';
+import * as VisualizationExport from './modules/visualization-export.js?v=20260912a';
 import * as BifacialAnalysis from './modules/bifacial-analysis.js';
-import * as MetricPresenter from './modules/metric-presenter.js';  // fuente única de rótulos (ADR-016)
+import * as MetricPresenter from './modules/metric-presenter.js?v=20260912a';  // fuente única de rótulos (ADR-016)
 // Exponer en window para superficies que NO son ES modules (p. ej. project-manager.js, script clásico)
 if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
 
@@ -6995,33 +6995,32 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
   }
   
   /**
-   * MÉTRICA 5: ANÁLISIS DE COMPLETITUD MEJORADO
-   * Estima porcentaje de fragmento usando múltiples métodos
-   * Útil para: fragmentos cerámicos, lítico fragmentado, objetos incompletos
+   * MÉTRICA 5: EXTENT DEL CONTORNO (A / A_bbox)
+   *
+   * ADR-017 F0 — duplicado IIFE de `MorphometricMetrics.calcularExtentContorno`.
+   * Sustituye a `calcularCompletitudFragmento`, que NO medía completitud:
+   * combinaba una cobertura angular degenerada (≈360° en todo contorno cerrado)
+   * con A/A_bbox, que es el **extent** y no la convexidad que decía ser. Como el
+   * extent de un círculo es π/4 = 78,5 %, toda pieza redonda íntegra salía
+   * «fragmento» — causa raíz de ADR-016 #6.
+   *
+   * Se conserva la medición fiel con su nombre correcto; la completitud real
+   * exige ajuste de plantilla al margen original (ADR-017 F1).
+   *
+   * NOTA: este duplicado existe por el gotcha documentado en CLAUDE.md (las
+   * versiones IIFE conviven con las de módulo). Debe corregirse a la vez que
+   * `js/modules/morphometric-metrics.js` o el defecto sobrevive por esta ruta.
    */
-  function calcularCompletitudFragmento(contourPoints, centroid, distribucionRadialAngular) {
-    if (!contourPoints || contourPoints.length < 10 || !distribucionRadialAngular) {
-      return {
-        completitud_estimada: 100,
-        metodo_angular: 100,
-        metodo_convexidad: 100,
-        es_fragmento: false,
-        tipo_fragmento: 'Objeto completo'
-      };
+  function calcularExtentContorno(contourPoints) {
+    if (!contourPoints || contourPoints.length < 10) {
+      return { extent: null, area_contorno_px: null, area_bbox_px: null };
     }
-    
+
     const getX = (p) => p.x !== undefined ? p.x : p[0];
     const getY = (p) => p.y !== undefined ? p.y : p[1];
-    
-    // Método 1: Cobertura angular (ya implementado)
-    const coberturaGrados = distribucionRadialAngular.coberturaGrados || 360;
-    const completitudAngular = (coberturaGrados / 360) * 100;
-    
-    // Método 2: Análisis de convexidad (fragmentos cóncavos)
-    // Calcular convex hull
+
     const puntos2D = contourPoints.map(p => [getX(p), getY(p)]);
-    
-    // Calcular área del contorno
+
     let areaContorno = 0;
     for (let i = 0; i < puntos2D.length; i++) {
       const p1 = puntos2D[i];
@@ -7029,47 +7028,15 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       areaContorno += p1[0] * p2[1] - p2[0] * p1[1];
     }
     areaContorno = Math.abs(areaContorno) / 2;
-    
-    // Calcular convex hull (simplificado - usar Graham scan o similar)
-    // Por ahora usar bounding box como aproximación
+
     const xs = puntos2D.map(p => p[0]);
     const ys = puntos2D.map(p => p[1]);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const areaBBox = (maxX - minX) * (maxY - minY);
-    
-    const ratioConvexidad = areaBBox > 0 ? (areaContorno / areaBBox) : 1;
-    const completitudConvexidad = ratioConvexidad * 100;
-    
-    // Estimación combinada
-    const completitudEstimada = (completitudAngular * 0.6 + completitudConvexidad * 0.4);
-    
-    // Determinar si es fragmento
-    const esFragmento = completitudEstimada < 85 || coberturaGrados < 300;
-    
-    // Clasificar tipo de fragmento
-    let tipoFragmento = '';
-    if (completitudEstimada >= 95) {
-      tipoFragmento = 'Objeto completo';
-    } else if (completitudEstimada >= 75) {
-      tipoFragmento = 'Casi completo (fragmento menor)';
-    } else if (completitudEstimada >= 50) {
-      tipoFragmento = 'Fragmento grande (>50%)';
-    } else if (completitudEstimada >= 25) {
-      tipoFragmento = 'Fragmento mediano (25-50%)';
-    } else {
-      tipoFragmento = 'Fragmento pequeño (<25%)';
-    }
-    
+    const areaBBox = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+
     return {
-      completitud_estimada: completitudEstimada,
-      metodo_angular: completitudAngular,
-      metodo_convexidad: completitudConvexidad,
-      es_fragmento: esFragmento,
-      tipo_fragmento: tipoFragmento,
-      cobertura_angular_grados: coberturaGrados
+      extent: areaBBox > 0 ? (areaContorno / areaBBox) : null,
+      area_contorno_px: areaContorno,
+      area_bbox_px: areaBBox
     };
   }
   
@@ -7257,8 +7224,6 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     const categoriasCurvilineas = new Set(["Circular", "Elipsoidal", "Oval", "Lanceolada", "Amigdaloide", "Laminar", "Lunar"]);
     const categoriasAngulares = new Set(["Triangular", "Cuadrangular", "Pentagonal", "Hexagonal", "Poligonal", "Trapezoidal", "Romboidal"]);
     const categoriasTopologicas = new Set(["Lunar", "Lobulado", "Estrellado", "Anular"]);
-    const completitud = parseFloat(metrics.completitud_estimada);
-
     const contexto = {
       solidez,
       circularidad,
@@ -7266,7 +7231,10 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       arNorm,
       categoriaRadial,
       clasificacionRadial,
-      esFragmento: !!radialAngular?.esFragmento || (!isNaN(completitud) && completitud < 95 && solidez < 0.92),
+      // ADR-017 F0 — DESCONOCIDO (null), no `false`: ambas entradas eran
+      // fabricadas (cobertura angular degenerada + extent rebautizado).
+      // F1 lo alimentará con `es_fragmento_candidato` del ajuste de plantilla.
+      esFragmento: null,
       esCurvilinea: categoriasCurvilineas.has(categoriaRadial),
       esAngular: categoriasAngulares.has(categoriaRadial),
       esTopologica: categoriasTopologicas.has(categoriaRadial),
@@ -7886,26 +7854,16 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       console.log("   ✓ No hay empate - ganador claro");
     }
     
-    // REGLA 2: Si Radial-Angular detecta fragmento, preservar
+    // REGLA 2 — ADR-017 F0: `null` = DESCONOCIDO, no «100 % completo».
+    // Se retira el parseo de la etiqueta «Fragmento X (N% completo)»: el análisis
+    // radial-angular ya no la emite (su cobertura angular era degenerada) y sin
+    // ajuste de plantilla no hay dato de completitud. F1 rellenará ambos campos.
     let clasificacion_final = categoria_ganadora;
-    let es_fragmento = false;
-    let completitud = 100;
-    
-    const nombreRadial = evidencias.radial_angular.clasificacion;
-    if (nombreRadial && nombreRadial.includes("Fragmento")) {
-      es_fragmento = true;
-      const match = nombreRadial.match(/(\d+)% completo/);
-      if (match) {
-        completitud = parseInt(match[1]);
-      }
-      clasificacion_final = nombreRadial;
-      console.log(`   ⚠️  FRAGMENTACIÓN DETECTADA por Radial-Angular`);
-      console.log(`   → Preservando: "${clasificacion_final}"`);
-    } else {
-      // Convertir categoría a nombre formal
-      clasificacion_final = ClassificationEngine.convertirCategoriaANombre(categoria_ganadora, metrics);
-      console.log(`   ✓ Objeto completo: "${clasificacion_final}"`);
-    }
+    let es_fragmento = null;
+    let completitud = null;
+
+    clasificacion_final = ClassificationEngine.convertirCategoriaANombre(categoria_ganadora, metrics);
+    console.log(`   ✓ Forma: "${clasificacion_final}" (completitud: sin evaluar — ADR-017 F1)`);
     
     // REGLA 3: Validar con geometría de vértices
     if (categoria_ganadora === "Cuadrangular") {
@@ -7948,7 +7906,9 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       const _circ6 = parseFloat(metrics.circularity || metrics.circularidad);
       const _sol6 = parseFloat(metrics.solidity || metrics.solidez);
       const _arNorm6 = contextoMorfologico.arNorm;
-      const _frag6 = es_fragmento || (!isNaN(parseFloat(metrics.completitud_estimada)) && parseFloat(metrics.completitud_estimada) < 95);
+      // ADR-017 F0 — rama INERTE hasta F1 (era la que reinterpretaba una cuenta
+      // circular íntegra como «Fragmento Oval (N% completo)» — ADR-016 #6).
+      const _frag6 = es_fragmento === true;
 
       const _zonaCurvilineaFrontera =
         _frag6 &&
@@ -8741,14 +8701,14 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     puntosPolares.sort((a, b) => a.theta - b.theta);
     
     // ============================================================================
-    // 2. ANÁLISIS DE COBERTURA ANGULAR
-    // Detectar qué sectores angulares están cubiertos (forma completa vs fragmento)
+    // 2. GAPS ANGULARES  (ADR-017 F0: cobertura y completitud RETIRADAS)
+    // Aquí se calculaba `coberturaAngular = θ_max − θ_min` y de ahí
+    // `porcentajeCompletitud` / `esFragmento`. Señal DEGENERADA: todo contorno
+    // cerrado cuyo centroide caiga dentro rodea 360° por construcción — el
+    // fragmento también. Disco entero / medio / cuarto daban 359,1° / 359,1° /
+    // 357,3°. Verificable: node tools/adr017_sonda_completitud_actual.mjs
+    // Los `gaps` sí se conservan: miden concavidad real, no rotura.
     // ============================================================================
-    const anguloMin = puntosPolares[0].theta;
-    const anguloMax = puntosPolares[puntosPolares.length - 1].theta;
-    const coberturaAngular = anguloMax - anguloMin; // Rango angular cubierto
-    const coberturaGrados = (coberturaAngular * 180 / Math.PI);
-    
     // Detectar gaps angulares (sectores sin puntos)
     const UMBRAL_GAP = 15 * Math.PI / 180; // 15 grados
     const gaps = [];
@@ -8762,10 +8722,6 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
         });
       }
     }
-    
-    // Clasificar completitud
-    const esFragmento = gaps.length > 0 || coberturaAngular < (2 * Math.PI * 0.85); // < 85% del círculo
-    const porcentajeCompletitud = (coberturaAngular / (2 * Math.PI)) * 100;
     
     // ============================================================================
     // 3. ANÁLISIS DE UNIFORMIDAD RADIAL POR SECTOR ANGULAR
@@ -8980,26 +8936,15 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
         }
 
         confianzaGeometria = uniformidadRadial;
-        if (esFragmento) {
-          geometriaInferida = `Fragmento ${geometriaInferida} (${porcentajeCompletitud.toFixed(0)}% completo)`;
-        }
         console.log(`      🪨 GEOMETRÍA ${geometriaInferida} (asim.ext: ${(asimetriaExtremos*100).toFixed(0)}%, ASI_min1: ${ASI1.toFixed(3)}, ASI_min2: ${ASI2.toFixed(3)}, concent: ${(concentracionCambios*100).toFixed(0)}%, unif: ${(uniformidadRadial*100).toFixed(0)}%)`);
       // Discriminar entre Poligonal (regular con esquinas) e Irregular (caótico)
       } else if (uniformidadRadial >= 0.70) {
         geometriaInferida = "Poligonal";
         confianzaGeometria = Math.max(porcentajeCambiosAbruptos, porcentajeCambios3Sectores);
-        
-        if (esFragmento) {
-          geometriaInferida = `Fragmento Poligonal (${porcentajeCompletitud.toFixed(0)}% completo)`;
-        }
         console.log(`      🔶 GEOMETRÍA POLIGONAL detectada (${cambiosAbruptos} vértices, uniformidad ${(uniformidadRadial*100).toFixed(0)}%)`);
       } else {
         geometriaInferida = "Irregular";
         confianzaGeometria = 1 - uniformidadRadial; // Baja uniformidad = alta confianza en irregular
-        
-        if (esFragmento) {
-          geometriaInferida = `Fragmento Irregular (${porcentajeCompletitud.toFixed(0)}% completo)`;
-        }
         console.log(`      🔷 GEOMETRÍA IRREGULAR detectada (${cambiosAbruptos} vértices, baja uniformidad ${(uniformidadRadial*100).toFixed(0)}%)`);
       }
       
@@ -9007,30 +8952,18 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       // 🔧 UMBRAL MÁS ESTRICTO: Solo uniformidad muy alta (>93%) → CIRCULAR
       geometriaInferida = "Circular";
       confianzaGeometria = uniformidadRadial;
-      
-      if (esFragmento) {
-        geometriaInferida = `Fragmento Circular (${porcentajeCompletitud.toFixed(0)}% completo)`;
-      }
       console.log(`      ⚪ GEOMETRÍA CIRCULAR detectada (uniformidad ${(uniformidadRadial*100).toFixed(0)}%)`);
       
     } else if (uniformidadRadial >= 0.70 && uniformidadRadial < 0.93) {
       // Uniformidad moderada-alta → POLIGONAL (cuadrado, rectángulo)
       geometriaInferida = "Poligonal";
       confianzaGeometria = uniformidadRadial;
-      
-      if (esFragmento) {
-        geometriaInferida = `Fragmento Poligonal (${porcentajeCompletitud.toFixed(0)}% completo)`;
-      }
       console.log(`      🔶 GEOMETRÍA POLIGONAL detectada (uniformidad moderada ${(uniformidadRadial*100).toFixed(0)}%)`);
       
     } else {
       // Baja uniformidad → IRREGULAR
       geometriaInferida = "Irregular";
       confianzaGeometria = 1 - uniformidadRadial;
-      
-      if (esFragmento) {
-        geometriaInferida = `Fragmento Irregular (${porcentajeCompletitud.toFixed(0)}% completo)`;
-      }
       console.log(`      🔷 GEOMETRÍA IRREGULAR detectada (uniformidad ${(uniformidadRadial*100).toFixed(0)}%)`);
     }
     
@@ -9039,10 +8972,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       puntosPolares: puntosPolares,
       
       // Cobertura angular
-      coberturaAngular: coberturaAngular,
-      coberturaGrados: coberturaGrados,
-      porcentajeCompletitud: porcentajeCompletitud,
-      esFragmento: esFragmento,
+      // ADR-017 F0: cobertura/completitud/esFragmento retirados del contrato.
       gaps: gaps,
       
       // Análisis radial
@@ -9070,17 +9000,13 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
   function generarFormaIdealDesdeAnalisisRadial(distribucionRadialAngular, centroid, ancho, alto, area, aspectRatio, excentricidad) {
     const {
       uniformidadRadial,
-      coberturaGrados,
-      porcentajeCompletitud,
-      esFragmento,
       radioPromedio,
       geometriaInferida
-    } = distribucionRadialAngular;
+    } = distribucionRadialAngular;   // ADR-017 F0: sin cobertura/completitud/esFragmento
     
     console.log(`\n   🎨 GENERANDO FORMA IDEAL desde análisis radial...`);
     console.log(`      • Geometría inferida: ${geometriaInferida}`);
     console.log(`      • Uniformidad radial: ${uniformidadRadial.toFixed(3)}`);
-    console.log(`      • Cobertura: ${coberturaGrados.toFixed(1)}° (${porcentajeCompletitud.toFixed(0)}%)`);
     
     let vertices = [];
     let tipo = "Irregular";
@@ -9132,7 +9058,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       if (!arValido || (aspectRatio >= 0.80 && aspectRatio <= 1.20)) {
         // AR ≈ 1 o no disponible → CÍRCULO
         vertices = ShapeClassification.generarCirculoIdeal(centroid[0], centroid[1], radioPromedio, 32);
-        tipo = esFragmento ? `Fragmento Circular (${porcentajeCompletitud.toFixed(0)}%)` : "Círculo";
+        tipo = "Círculo";
         numPuntos = 32;
         console.log(`      ✅ CÍRCULO generado: radio=${radioPromedio.toFixed(1)}px, 32 puntos`);
         
@@ -9142,7 +9068,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
         const rMenor = Math.min(ancho, alto) / 2;
         const angulo = 0; // Simplificado - podría calcular ángulo de rotación
         vertices = ShapeClassification.generarElipseIdeal(centroid[0], centroid[1], rMayor, rMenor, angulo, 32);
-        tipo = esFragmento ? `Fragmento Elíptico (${porcentajeCompletitud.toFixed(0)}%)` : "Elipse";
+        tipo = "Elipse";
         numPuntos = 32;
         console.log(`      ✅ ELIPSE generada: ${rMayor.toFixed(1)}×${rMenor.toFixed(1)}px, 32 puntos`);
       }
@@ -9498,12 +9424,10 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       
       // 🆕 MOSTRAR ANÁLISIS RADIAL-ANGULAR
       console.log(`\n      🌐 ANÁLISIS RADIAL-ANGULAR (Coordenadas Polares):`);
-      console.log(`         • Cobertura Angular: ${distribucionRadialAngular.coberturaGrados.toFixed(1)}° (${distribucionRadialAngular.porcentajeCompletitud.toFixed(0)}% del círculo completo)`);
       console.log(`         • Uniformidad Radial: ${distribucionRadialAngular.uniformidadRadial.toFixed(3)} (circular=1.0)`);
       console.log(`         • Radio Promedio: ${distribucionRadialAngular.radioPromedio.toFixed(1)}px ± ${distribucionRadialAngular.desviacionRadial.toFixed(1)}px`);
       console.log(`         • CV Radial: ${(distribucionRadialAngular.coeficienteVariacionRadial * 100).toFixed(1)}% (circular<15%)`);
       console.log(`         • Geometría Inferida: ${distribucionRadialAngular.geometriaInferida} (confianza: ${(distribucionRadialAngular.confianzaGeometria * 100).toFixed(0)}%)`);
-      console.log(`         • Estado: ${distribucionRadialAngular.esFragmento ? 'FRAGMENTO' : 'COMPLETO'}`);
       if (distribucionRadialAngular.gaps.length > 0) {
         console.log(`         • Gaps angulares detectados: ${distribucionRadialAngular.gaps.length}`);
       }
@@ -9594,8 +9518,10 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     
     // ── Parámetros auxiliares para clasificación arqueológica ──────────────────
     const arNorm = Math.min(aspectRatio, 1.0 / (aspectRatio || 0.001));
-    const _sfx = (base) => geometriaInferida.includes("Fragmento")
-      ? `${base} (${distribucionRadialAngular.porcentajeCompletitud.toFixed(0)}% completo)` : base;
+    // ADR-017 F0 — sufijo de completitud retirado: `geometriaInferida` ya no
+    // emite «Fragmento …» y no hay dato de completitud hasta el ajuste de
+    // plantilla (F1). Se conserva el punto de extensión para reactivarlo allí.
+    const _sfx = (base) => base;
 
     // ============================================================================
     // ÁRBOL DE DECISIÓN ÚNICO — 18 categorías morfotípicas
@@ -9708,9 +9634,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       } else {
         // Poligonal genérica
         tipoForma = 'poligonal';
-        nombreForma = geometriaInferida.includes("Fragmento")
-          ? `Forma Poligonal (${nV}V, ${distribucionRadialAngular.porcentajeCompletitud.toFixed(0)}% completo)`
-          : `Forma Poligonal (${nV > 0 ? nV : '?'} vértices)`;
+        nombreForma = `Forma Poligonal (${nV > 0 ? nV : '?'} vértices)`;
         colorForma = '#17a2b8';
       }
 
@@ -9751,11 +9675,11 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       ratio_extension: regularidad.ratioExtension.toFixed(3),
       
       // 🆕 MÉTRICAS RADIAL-ANGULARES (Coordenadas Polares)
-      cobertura_angular_grados: distribucionRadialAngular.coberturaGrados.toFixed(1),
-      completitud_porcentaje: distribucionRadialAngular.porcentajeCompletitud.toFixed(0),
+      // ADR-017 F0: cobertura_angular_grados / completitud_porcentaje /
+      // es_fragmento retirados — derivaban de la cobertura angular degenerada.
       uniformidad_radial_angular: distribucionRadialAngular.uniformidadRadial.toFixed(3),
       cv_radial_angular: (distribucionRadialAngular.coeficienteVariacionRadial * 100).toFixed(1),
-      es_fragmento: distribucionRadialAngular.esFragmento,
+      num_gaps_angulares: distribucionRadialAngular.gaps.length,
       geometria_inferida: distribucionRadialAngular.geometriaInferida,
       
       // Idealización geométrica
@@ -10197,13 +10121,20 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     metrics.area_fragmentada_px = contornoMetrics.area_real;
     metrics.perimeter_fragmentado_px = contornoMetrics.perimeter_real;
     
-    // Calcular pérdida por fragmentación
+    // ADR-017 F0 — concavidad respecto al hull, NO «pérdida por fragmentación».
+    // Mide cuánto se aparta el contorno de su envolvente convexa; no mide material
+    // perdido (una pieza lunada o anular íntegra es cóncava por manufactura).
+    // Espeja exactamente a python/modules/metrics.py.
     if (contornoMetrics.convex_hull_area && contornoMetrics.convex_hull_area > 0) {
-      const perdidaArea = ((contornoMetrics.convex_hull_area - contornoMetrics.area_real) / contornoMetrics.convex_hull_area * 100);
-      metrics.perdida_area_fragmentacion_percent = perdidaArea.toFixed(1);
-      
-      const perdidaPerimetro = ((contornoMetrics.convex_hull_perimeter - contornoMetrics.perimeter_real) / contornoMetrics.convex_hull_perimeter * 100);
-      metrics.perdida_perimetro_fragmentacion_percent = perdidaPerimetro.toFixed(1);
+      const concavidadArea = ((contornoMetrics.convex_hull_area - contornoMetrics.area_real) / contornoMetrics.convex_hull_area * 100);
+      metrics.concavidad_area_percent = concavidadArea.toFixed(1);
+      // Alias de lectura DEPRECADO (mismo número) para proyectos ya guardados.
+      metrics.perdida_area_fragmentacion_percent = metrics.concavidad_area_percent;
+
+      // SIGNO CORREGIDO: P_hull ≤ P_real siempre, luego la expresión anterior
+      // (hull − real)/hull era ≤ 0 por construcción. Ahora: exceso de perímetro.
+      const excesoPerimetro = ((contornoMetrics.perimeter_real - contornoMetrics.convex_hull_perimeter) / contornoMetrics.convex_hull_perimeter * 100);
+      metrics.concavidad_perimetro_percent = excesoPerimetro.toFixed(1);
     }
     
     // Métricas del bounding box original (para comparación)
@@ -10972,24 +10903,17 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       console.log(`   🔄 Forma detectada actualizada: "${metrics.forma_detectada}" (del análisis radial-angular)`);
       console.log(`   ✅ Confianza: ${(metrics.forma_confianza * 100).toFixed(0)}% (vs clasificación tradicional)`);
       
-      // 🆕 CALCULAR COMPLETITUD DE FRAGMENTO
-      if (formaIdealizada.distribucionRadialAngular) {
-        console.log(`📊 Calculando completitud de fragmento...`);
-        const completitudData = MorphometricMetrics.calcularCompletitudFragmento(
-          contornoData.points,
-          contornoMetrics.centroid,
-          formaIdealizada.distribucionRadialAngular
-        );
-        
-        metrics.completitud_estimada = UtilityHelpers.safeToFixed(completitudData.completitud_estimada, 1);
-        metrics.completitud_metodo_angular = UtilityHelpers.safeToFixed(completitudData.metodo_angular, 1);
-        metrics.completitud_metodo_convexidad = UtilityHelpers.safeToFixed(completitudData.metodo_convexidad, 1);
-        metrics.completitud_es_fragmento = completitudData.es_fragmento;
-        metrics.completitud_tipo_fragmento = completitudData.tipo_fragmento;
-        metrics.completitud_cobertura_grados = UtilityHelpers.safeToFixed(completitudData.cobertura_angular_grados, 1);
-        
-        console.log(`   ✅ Completitud estimada: ${metrics.completitud_estimada}%`);
-        console.log(`   ✅ Tipo: ${metrics.completitud_tipo_fragmento}`);
+      // EXTENT DEL CONTORNO (ADR-017 F0 — antes «completitud de fragmento»)
+      // Se emite la medición fiel (A/A_bbox) con su nombre correcto. Las claves
+      // completitud_* se retiran: medían cobertura angular degenerada + extent
+      // rebautizado, y hacían que toda pieza redonda íntegra saliera «fragmento».
+      // La completitud real llega en F1 como `plantilla_completitud`.
+      {
+        const extentData = MorphometricMetrics.calcularExtentContorno(contornoData.points);
+        if (extentData.extent != null) {
+          metrics.extent = UtilityHelpers.safeToFixed(extentData.extent, 4);
+          console.log(`   ✅ Extent (A/A_bbox): ${metrics.extent}`);
+        }
       }
       
       // ============================================================================
@@ -11976,11 +11900,9 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
             if (!metricas.forma_categoria_base && metricas.forma_categoria && metricas.forma_detectada) {
               metricas.forma_categoria_base = metricas.forma_categoria[metricas.forma_detectada] || null;
             }
-            // completitud_tipo_fragmento: Python solo tiene completitud_es_fragmento (bool)
-            if (!metricas.completitud_tipo_fragmento) {
-              metricas.completitud_tipo_fragmento = metricas.completitud_es_fragmento
-                ? 'Fragmento' : 'Pieza completa';
-            }
+            // ADR-017 F0 — `completitud_es_fragmento` retirada de metrics.py: la
+            // convexidad no observa fractura. Ya no se deriva etiqueta verbal;
+            // F1 la repondrá desde `plantilla_completitud`.
 
               // ── Convertir campos de posición ROI-relativos → coordenadas absolutas ────
               // Python calcula posiciones con la imagen recortada (crop) y puntos relativos al
@@ -12043,39 +11965,17 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
             }
 
             // ── Forzar etiqueta de fragmento en _forma_idealizada si Python indica baja completitud ──
-            // metaClasificarForma (REGLA 2) sólo activa el fragmento si _forma_idealizada.nombre
-            // ya contiene "Fragmento". Con contorno cerrado (hull ≥360°) el análisis radial no lo
-            // detecta → inyectamos aquí la señal cuando completitud < 95% o perdida > 1%.
-            // GUARDA P/H: solidity ≥0.92 indica contorno exterior íntegro → la pérdida se explica
-            // por perforación/horadación interna o muñeca, NO por fractura real → no inyectar.
-            {
-              const _mComp     = parseFloat(metricas.completitud_estimada);
-              const _mPerd     = parseFloat(metricas.perdida_area_fragmentacion_percent);
-              const _mSolidity = parseFloat(metricas.solidity || metricas.solidez) || 1.0;
-              const _mEsFrag   = _mSolidity < 0.92 && (
-                (!isNaN(_mComp) && _mComp < 95) ||
-                (!isNaN(_mPerd) && _mPerd > 1.0)
-              );
-              const _mPct = !isNaN(_mComp) && _mComp < 95
-                ? Math.round(_mComp)
-                : (!isNaN(_mPerd) && _mPerd > 0 ? Math.round(100 - _mPerd) : null);
-              if (_mEsFrag && _mPct != null && metricas._forma_idealizada) {
-                const _mBase = (metricas._forma_idealizada.nombre || 'Circular')
-                  .replace(/fragmento\s*/i, '').replace(/\s*\(\d+%\s*completo\)/i, '').trim();
-                metricas._forma_idealizada.nombre = `Fragmento ${_mBase} (${_mPct}% completo)`;
-                metricas._forma_idealizada.distribucionRadialAngular =
-                  metricas._forma_idealizada.distribucionRadialAngular || {};
-                console.log(`[Python-manual] fragmento forzado: perd=${_mPerd?.toFixed(1)}% comp=${_mComp?.toFixed(1)}% sol=${_mSolidity?.toFixed(3)} → "${metricas._forma_idealizada.nombre}"`);
-              } else if (_mSolidity >= 0.92 && (!isNaN(_mComp) && _mComp < 95)) {
-                console.log(`[Python-manual] completitud baja (${_mComp?.toFixed(1)}%) ignorada: solidity=${_mSolidity?.toFixed(3)} ≥ 0.92 → P/H o muñeca, no fragmento`);
-              }
-            }
+            // ── Inyección de fragmento RETIRADA en ADR-017 F0 ─────────────────
+            // Gemela de la del flujo IA: forzaba «Fragmento X (N% completo)» a
+            // partir de `completitud_estimada < 95` o `perdida_area > 1.0%`, dos
+            // medidas de CONCAVIDAD. Vuelve en F1 alimentada por el ajuste de
+            // plantilla (`es_fragmento_candidato` + `plantilla_completitud`).
 
             // Meta-clasificación con información Python disponible
             try {
               const _metaClassif = ClassificationEngine.metaClasificarForma(metricas, obj);
               metricas.forma_detectada_meta          = _metaClassif.clasificacion_final;
-              if (typeof window._maoLog === 'function') window._maoLog(`[MANUAL] meta-clasif="${_metaClassif.clasificacion_final}" tipologia="${_metaClassif.forma_tipologica_inferida || _metaClassif.clasificacion_final}" reinterpretada=${!!_metaClassif.requiere_reinterpretacion_tipologica} conf=${(_metaClassif.confianza_global*100).toFixed(1)}% metodos=${_metaClassif.metodos_coincidentes}/${_metaClassif.total_metodos} completitud=${metricas.completitud_estimada ?? 'n/a'}`);
+              if (typeof window._maoLog === 'function') window._maoLog(`[MANUAL] meta-clasif="${_metaClassif.clasificacion_final}" tipologia="${_metaClassif.forma_tipologica_inferida || _metaClassif.clasificacion_final}" reinterpretada=${!!_metaClassif.requiere_reinterpretacion_tipologica} conf=${(_metaClassif.confianza_global*100).toFixed(1)}% metodos=${_metaClassif.metodos_coincidentes}/${_metaClassif.total_metodos}`);
               metricas.forma_confianza_global        = (_metaClassif.confianza_global * 100).toFixed(1);
               metricas.forma_metodos_coincidentes    = `${_metaClassif.metodos_coincidentes}/${_metaClassif.total_metodos}`;
               metricas.forma_razonamiento            = _metaClassif.razonamiento.join(' | ');
@@ -20411,15 +20311,17 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
   function generarSeccionFragmentacion(metricas, estiloTabla, estiloTh, estiloTd) {
     const areaFragmentada = parseFloat(metricas.area_fragmentada) || 0;
     const perimetroFragmentado = parseFloat(metricas.perimeter_fragmentado) || 0;
-    const perdidaArea = parseFloat(metricas.perdida_area_fragmentacion_percent) || 0;
-    const perdidaPerimetro = parseFloat(metricas.perdida_perimetro_fragmentacion_percent) || 0;
-    const completitud = parseFloat(metricas.completitud_estimada) || 100;
-    const tipoFragmento = metricas.tipo_fragmento || 'Completo';
-    const coberturaAngular = parseFloat(metricas.cobertura_angular) || 360;
+    const perdidaArea = parseFloat(metricas.concavidad_area_percent ?? metricas.perdida_area_fragmentacion_percent) || 0;
+    const perdidaPerimetro = parseFloat(metricas.concavidad_perimetro_percent) || 0;
+    // ADR-017 F0 — sin dato de completitud hasta el ajuste de plantilla (F1).
+    // Antes: `|| 100` y `|| 'Completo'` → fabricaban «pieza completa» por defecto.
+    const completitud = null;
+    const tipoFragmento = 'Sin evaluar';
+    const coberturaAngular = null;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #dc3545;">
-        VIII. ESTADO DE CONSERVACIÓN Y FRAGMENTACIÓN
+        VIII. CONCAVIDAD DEL CONTORNO Y ESTADO DE CONSERVACIÓN
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -20441,29 +20343,19 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
             <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm</td>
           </tr>
           <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Pérdida Área (%)</td>
+            <td style="${estiloTd}; font-weight: 600;">Concavidad de área (%)</td>
             <td style="${estiloTd}; font-weight: 700; color: ${perdidaArea > 20 ? '#dc3545' : perdidaArea > 10 ? '#ffc107' : '#28a745'};">${perdidaArea.toFixed(2)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de área perdida</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Déficit de área respecto al hull = (1 − solidez)</td>
           </tr>
           <tr>
-            <td style="${estiloTd}; font-weight: 600;">Pérdida Perímetro (%)</td>
+            <td style="${estiloTd}; font-weight: 600;">Exceso de perímetro sobre el hull (%)</td>
             <td style="${estiloTd}; font-weight: 700; color: ${perdidaPerimetro > 20 ? '#dc3545' : perdidaPerimetro > 10 ? '#ffc107' : '#28a745'};">${perdidaPerimetro.toFixed(2)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de perímetro afectado</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Sinuosidad del contorno frente a su envolvente convexa</td>
           </tr>
           <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Completitud Estimada</td>
-            <td style="${estiloTd}; font-weight: 700; color: ${completitud >= 90 ? '#28a745' : completitud >= 70 ? '#ffc107' : '#dc3545'}; font-size: 15px;">${completitud.toFixed(1)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Estimación de integridad</td>
-          </tr>
-          <tr>
-            <td style="${estiloTd}; font-weight: 600;">Tipo de Fragmento</td>
-            <td style="${estiloTd}; font-weight: 700; color: #0066cc;">${tipoFragmento}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Categoría de fragmentación</td>
-          </tr>
-          <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Cobertura Angular</td>
-            <td style="${estiloTd}; font-weight: 600;">${coberturaAngular.toFixed(1)}°</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Ángulo cubierto del objeto</td>
+            <td style="${estiloTd}; font-weight: 600;">Completitud</td>
+            <td style="${estiloTd}; font-weight: 700; color: #6c757d; font-size: 15px;">${tipoFragmento}</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Requiere ajuste de plantilla (ADR-017 F1)</td>
           </tr>
         </tbody>
       </table>
@@ -21565,7 +21457,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     const solidez = parseFloat(metricas.solidity) || 0;
     const areaDefecto = parseFloat(metricas.area_defecto || metricas.defect_area) || 0;
     const perdidaArea = parseFloat(metricas.perdida_area_fragmentacion_percent) || 0;
-    const perdidaPerimetro = parseFloat(metricas.perdida_perimetro_fragmentacion_percent) || 0;
+    const perdidaPerimetro = parseFloat(metricas.concavidad_perimetro_percent) || 0;
     const areaFragmentada = parseFloat(metricas.area_fragmentada) || 0;
     const perimetroFragmentado = parseFloat(metricas.perimeter_fragmentado) || 0;
     const circularidadFragmentada = parseFloat(metricas.circularity_fragmentada) || 0;
@@ -23067,8 +22959,8 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     csv += `Conservación,Solidez,${((parseFloat(metricas.solidity) || 0) * 100).toFixed(1)},%,Área/Convex Hull\n`;
     csv += `Conservación,Clasificación Solidez,${metricas.solidity_class || 'N/A'},,Estado según solidez\n`;
     csv += `Conservación,Área Defecto,${(parseFloat(metricas.area_defecto || metricas.defect_area) || 0).toFixed(2)},mm²,Área faltante Hull-Real\n`;
-    csv += `Conservación,Pérdida Área,${(parseFloat(metricas.perdida_area_fragmentacion_percent) || 0).toFixed(2)},%,Porcentaje área perdida\n`;
-    csv += `Conservación,Pérdida Perímetro,${(parseFloat(metricas.perdida_perimetro_fragmentacion_percent) || 0).toFixed(2)},%,Porcentaje perímetro afectado\n`;
+    csv += `Concavidad,Concavidad de área,${(parseFloat(metricas.perdida_area_fragmentacion_percent) || 0).toFixed(2)},%,Déficit de área respecto al hull (1 − solidez)\n`;
+    csv += `Concavidad,Exceso de perímetro sobre hull,${(parseFloat(metricas.concavidad_perimetro_percent) || 0).toFixed(2)},%,Sinuosidad frente a la envolvente convexa\n`;
     csv += `Conservación,Área Fragmentada,${(parseFloat(metricas.area_fragmentada) || 0).toFixed(2)},mm²,Área de fragmentos perdidos\n`;
     csv += `Conservación,Perímetro Fragmentado,${(parseFloat(metricas.perimeter_fragmentado) || 0).toFixed(2)},mm,Perímetro fragmentado\n`;
     csv += `Conservación,Circularidad Post-Frag,${(parseFloat(metricas.circularity_fragmentada) || 0).toFixed(3)},,Circularidad restaurada\n`;
@@ -24895,7 +24787,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
         </div>
         <div class="metric-row">
           <span class="metric-label">Pérdida por fragmentación (perímetro):</span>
-          <span class="metric-value">${metricas.perdida_perimetro_fragmentacion_percent}%</span>
+          <span class="metric-value">${metricas.concavidad_perimetro_percent}%</span>
         </div>
         ` : ''}
         <div class="metric-row">
@@ -24906,12 +24798,10 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
           <span class="metric-label">Perímetro fragmentado real:</span>
           <span class="metric-value">${metricas.perimeter_fragmentado} ${metricas.perimeter_unit}</span>
         </div>
-        ${metricas.completitud_estimada ? `
         <div class="metric-row highlight">
-          <span class="metric-label">Completitud estimada:</span>
-          <span class="metric-value"><strong>${metricas.completitud_estimada}% → ${metricas.completitud_tipo_fragmento}</strong></span>
+          <span class="metric-label">Completitud:</span>
+          <span class="metric-value">Sin evaluar — requiere ajuste de plantilla (ADR-017 F1)</span>
         </div>
-        ` : ''}
       </div>
       
       <div class="metric-group">
@@ -25052,27 +24942,9 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
         ` : ''}
       </div>
       
-      ${metricas.completitud_cobertura_grados ? `
-      <div class="metric-group">
-        <h3>Métricas Adicionales de Completitud</h3>
-        <div class="metric-row">
-          <span class="metric-label">Cobertura Angular:</span>
-          <span class="metric-value">${metricas.completitud_cobertura_grados}° (${(parseFloat(metricas.completitud_cobertura_grados)/360*100).toFixed(1)}% del círculo)</span>
-        </div>
-        ${metricas.completitud_metodo_angular ? `
-        <div class="metric-row">
-          <span class="metric-label">Método Angular:</span>
-          <span class="metric-value">${metricas.completitud_metodo_angular}%</span>
-        </div>
-        ` : ''}
-        ${metricas.completitud_metodo_convexidad ? `
-        <div class="metric-row">
-          <span class="metric-label">Método Convexidad:</span>
-          <span class="metric-value">${metricas.completitud_metodo_convexidad}%</span>
-        </div>
-        ` : ''}
-      </div>
-      ` : ''}
+      <!-- ADR-017 F0: bloque «Métricas Adicionales de Completitud» retirado.
+           Cobertura angular, método angular y método convexidad medían cobertura
+           degenerada y extent; no eran métricas de completitud. -->
     </div>
     
     <!-- CARACTERÍSTICAS GEOMÉTRICAS AVANZADAS -->
@@ -26530,7 +26402,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     tableHTML += generarFila('Complejidad Contorno', getVal('contour_complexity_index'));
     tableHTML += generarFila('Rugosidad', getVal('rugosidad_index'));
     tableHTML += generarFila('Fragmentación', getVal('fragmentation_index'));
-    tableHTML += generarFila('Tipo Fragmento', formatClasif(getTexto('completitud_tipo_fragmento')));
+    // ADR-017 F0: fila «Tipo Fragmento» retirada (clave fabricada).
     
     tableHTML += `
           </tbody>
@@ -27671,7 +27543,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
         { titulo: 'V. Rugosidad y Complejidad del Borde — Técnica de Manufactura', claves: [['Rugosidad del Contorno  [0–1]','rugosidad_contorno'],['Índice de Complejidad del Contorno','contour_complexity_index'],['Long. Media de Segmento de Contorno (mm)','rugosidad_longitud_segmento_media'],['Desviación de Rugosidad (mm)','rugosidad_desviacion'],['Clasificación Rugosidad','rugosidad_clasificacion'],['Curvatura Media (rad/px)','curvatura_media'],['Curvatura Máxima (rad/px)','curvatura_maxima'],['Desviación de Curvatura (rad/px)','curvatura_desviacion'],['Energía de Curvatura','energia_curvatura'],['Clasificación Energía de Curvatura','energia_clasificacion'],['N° de Puntos de Inflexión','curvatura_puntos_inflexion'],['N° de Puntos de Esquina','curvatura_puntos_esquina'],['Clasificación Curvatura','curvatura_clasificacion']] },
         { titulo: 'VI. Orientación y Posición Espacial', claves: [['Ángulo del Eje Principal (°)','eje_principal_angulo'],['Ángulo Feret Máximo (°)','feret_angulo_max'],['Ángulo Feret Mínimo (°)','feret_angulo_min'],['Clasificación Orientación Feret','feret_clasificacion'],['Centroide del Contorno X (mm)','centroide_x'],['Centroide del Contorno Y (mm)','centroide_y'],['Centroide Convex Hull X (mm)','centroide_hull_x'],['Centroide Convex Hull Y (mm)','centroide_hull_y']] },
         { titulo: 'VII. Geometría de Vértices — Tecnología de Retoque', claves: [['Ángulo Medio en Vértices (°)','angulo_medio_vertices'],['Ángulo Predominante (°)','angulo_predominante'],['Desviación de Ángulos (°)','desviacion_angulos'],['N° de Ángulos Rectos (~90°)','num_angulos_rectos'],['N° de Ángulos Agudos (<90°)','num_angulos_agudos'],['N° de Ángulos Obtusos (>90°)','num_angulos_obtusos'],['Clasificación Geometría de Vértices','geometria_vertices']] },
-        { titulo: 'VIII. Estado de Conservación y Fragmentación', claves: [['Pérdida de Área por Fragmentación (%)','perdida_area_fragmentacion_percent'],['Pérdida de Perímetro por Fragmentación (%)','perdida_perimetro_fragmentacion_percent'],['Área Fragmentada (mm²)','area_fragmentada'],['Perímetro Fragmentado (mm)','perimeter_fragmentado'],['Clase de Solidez del Contorno Real','solidity_class'],['Circularidad s/fragmentación  [0–1]','circularity_fragmentada'],['Compacidad s/fragmentación  [0–1]','compactness_fragmentada'],['Rectangularidad s/fragmentación  [0–1]','rectangularity_fragmentada'],['Factor de Forma s/fragmentación  [0–1]','shape_factor_fragmentado']] },
+        { titulo: 'VIII. Concavidad del contorno y conservación', claves: [['Concavidad de área (%)','concavidad_area_percent'],['Exceso de perímetro sobre el hull (%)','concavidad_perimetro_percent'],['Área Fragmentada (mm²)','area_fragmentada'],['Perímetro Fragmentado (mm)','perimeter_fragmentado'],['Clase de Solidez del Contorno Real','solidity_class'],['Circularidad s/fragmentación  [0–1]','circularity_fragmentada'],['Compacidad s/fragmentación  [0–1]','compactness_fragmentada'],['Rectangularidad s/fragmentación  [0–1]','rectangularity_fragmentada'],['Factor de Forma s/fragmentación  [0–1]','shape_factor_fragmentado']] },
       ];
 
       const _renderCaraDataPages = (cara, etiqueta) => {
@@ -28956,7 +28828,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
             { nivel: 0, label: 'V.   Rugosidad y Complejidad del Borde',            detalle: 'Rugosidad, ICI, curvatura de Menger, energía de curvatura' },
             { nivel: 0, label: 'VI.  Orientación y Posición Espacial',              detalle: 'Ángulo del eje principal, Feret angular' },
             { nivel: 0, label: 'VII. Geometría de Vértices',                        detalle: 'Ángulos internos, clasificación geométrica de vértices' },
-            { nivel: 0, label: 'VIII. Estado de Conservación y Fragmentación',      detalle: 'Solidez, pérdida de área/perímetro, completitud estimada' },
+            { nivel: 0, label: 'VIII. Concavidad del contorno y conservación',      detalle: 'Solidez, pérdida de área/perímetro, completitud estimada' },
             { nivel: 0, label: 'IX.  Incertidumbre Optica Posicional',              detalle: 'Error lineal, error de area, perspectiva, distorsion, confianza optica - requiere parametros de camara' },
             { nivel: 0, label: 'X.   Perforaciones y Horadaciones',                 detalle: 'Metricas morfometricas individuales por cada Perforacion (P) y Horadacion (H) detectada · Resumen estadistico' },
             { nivel: 1, label: '     XI.  Analisis Comparativo Objeto-P/H',         detalle: 'Tabla comparativa de forma, tamano, proporciones y posicion espacial relativa de P/H respecto al objeto' },
@@ -29212,10 +29084,10 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
               ]
             },
             {
-              titulo: 'VIII. Estado de Conservación y Fragmentación',
+              titulo: 'VIII. Concavidad del contorno y conservación',
               metricas: [
-                ['Pérdida de Área por Fragmentación (%)', 'perdida_area_fragmentacion_percent'],
-                ['Pérdida de Perímetro por Fragmentación (%)', 'perdida_perimetro_fragmentacion_percent'],
+                ['Concavidad de área (%)', 'concavidad_area_percent'],
+                ['Exceso de perímetro sobre el hull (%)', 'concavidad_perimetro_percent'],
                 ['Área Fragmentada (mm²)', 'area_fragmentada'],
                 ['Perímetro Fragmentado (mm)', 'perimeter_fragmentado'],
                 ['Clase de Solidez del Contorno Real', 'solidity_class'],
@@ -31114,18 +30986,13 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       const areaFragB = getVal(caraB, 'area_fragmentada');
       const perimFragA = getVal(caraA, 'perimeter_fragmentado');
       const perimFragB = getVal(caraB, 'perimeter_fragmentado');
-      const completA = getVal(caraA, 'completitud_estimada');
-      const completB = getVal(caraB, 'completitud_estimada');
-      const tipoFragA = getTexto(caraA, 'completitud_tipo_fragmento');
-      const tipoFragB = getTexto(caraB, 'completitud_tipo_fragmento');
-      const cobAngA = getVal(caraA, 'completitud_cobertura_grados');
-      const cobAngB = getVal(caraB, 'completitud_cobertura_grados');
       
       addRow('FRAGMENTACIÓN Y CONSERVACIÓN', 'Área Fragmentada', `${areaFragA.toFixed(3)} mm²`, `${areaFragB.toFixed(3)} mm²`, calcDif(areaFragA, areaFragB));
       addRow('FRAGMENTACIÓN Y CONSERVACIÓN', 'Perímetro Fragmentado', `${perimFragA.toFixed(3)} mm`, `${perimFragB.toFixed(3)} mm`, calcDif(perimFragA, perimFragB));
-      addRow('FRAGMENTACIÓN Y CONSERVACIÓN', 'Completitud Estimada', `${completA.toFixed(1)} %`, `${completB.toFixed(1)} %`, calcDif(completA, completB));
-      addRow('FRAGMENTACIÓN Y CONSERVACIÓN', 'Tipo de Fragmento', tipoFragA, tipoFragB, '-');
-      addRow('FRAGMENTACIÓN Y CONSERVACIÓN', 'Cobertura Angular', `${cobAngA.toFixed(1)} grados`, `${cobAngB.toFixed(1)} grados`, calcDif(cobAngA, cobAngB));
+      // ADR-017 F0 — filas de completitud / tipo de fragmento / cobertura angular
+      // retiradas. Sin guarda, `getVal` devolvía 0 y el CSV habría afirmado
+      // «Completitud 0.0 %» por AUSENCIA de dato. Vuelven en F1.
+      addRow('FRAGMENTACIÓN Y CONSERVACIÓN', 'Completitud', 'Sin evaluar', 'Sin evaluar', '-');
       
       // 🛡️ ESTADO CONSERVACIÓN
       const integridadA = getTexto(caraA, 'integridad_estructural');
@@ -32898,11 +32765,12 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     // ADR-011: SIEMPRE presente (esqueleto estable). Sin fragmentación → 0 / pieza completa.
     csvLines += `Fragmentación,Área Fragmentada,${fmt(m.area_fragmentada, 3)},mm²\n`;
     csvLines += `Fragmentación,Perímetro Fragmentado,${fmt(m.perimeter_fragmentado, 3)},mm\n`;
-    csvLines += `Fragmentación,Pérdida Área (%),${m.perdida_area_fragmentacion_percent != null ? fmt(m.perdida_area_fragmentacion_percent, 1) : '0.0'},%\n`;
-    csvLines += `Fragmentación,Pérdida Perímetro (%),${m.perdida_perimetro_fragmentacion_percent != null ? fmt(m.perdida_perimetro_fragmentacion_percent, 1) : '0.0'},%\n`;
-    csvLines += `Fragmentación,Completitud Estimada,${m.completitud_estimada != null ? fmt(m.completitud_estimada, 1) : '100.0'},%\n`;
-    csvLines += `Fragmentación,Tipo de Fragmento,${m.completitud_tipo_fragmento || 'Pieza completa'},-\n`;
-    csvLines += `Fragmentación,Cobertura Angular,${fmt(m.completitud_cobertura_grados, 1)},grados\n`;
+    const _conc = m.concavidad_area_percent ?? m.perdida_area_fragmentacion_percent;
+    csvLines += `Concavidad,Concavidad de área (%),${_conc != null ? fmt(_conc, 1) : 'N/D'},%\n`;
+    csvLines += `Concavidad,Exceso de perímetro sobre hull (%),${m.concavidad_perimetro_percent != null ? fmt(m.concavidad_perimetro_percent, 1) : 'N/D'},%\n`;
+    // ADR-017 F0: completitud / tipo de fragmento / cobertura angular retirados
+    // (medían otra cosa). Vuelven en F1 como plantilla_completitud.
+    csvLines += `Conservación,Completitud,Sin evaluar,-\n`;
     
     // ==========================================================================
     // CATEGORÍA: Índices de Forma
@@ -34071,7 +33939,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       },
       fragmentacion: {
         perdidaArea: datosAnalisis.metricas.perdida_area_fragmentacion_percent,
-        perdidaPerimetro: datosAnalisis.metricas.perdida_perimetro_fragmentacion_percent,
+        perdidaPerimetro: datosAnalisis.metricas.concavidad_perimetro_percent,
         clasificacion: datosAnalisis.metricas.solidity_class
       }
     });
@@ -35279,7 +35147,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       // 🔧 FRAGMENTACIÓN
       fragmentacion: {
         perdidaArea: m.perdida_area_fragmentacion_percent || 0,
-        perdidaPerimetro: m.perdida_perimetro_fragmentacion_percent || 0,
+        perdidaPerimetro: m.concavidad_perimetro_percent || 0,
         clasificacion: m.solidity_class || 'N/A',
         numeroFragmentos: m.numero_fragmentos || 0
       },
@@ -35316,7 +35184,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       estadoConservacion: {
         areaFragmentada: m.area_fragmentada || 0,
         perimetroFragmentado: m.perimeter_fragmentado || 0,
-        completitudEstimada: m.completitud_estimada || 0
+        // ADR-017 F0: completitud retirada (vuelve en F1 como plantilla_completitud)
       },
       
       // 📐 FERET
@@ -35553,7 +35421,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
   function extraerFragmentacion(metricas) {
     return {
       perdidaArea: metricas.perdida_area_fragmentacion_percent || 0,
-      perdidaPerimetro: metricas.perdida_perimetro_fragmentacion_percent || 0,
+      perdidaPerimetro: metricas.concavidad_perimetro_percent || 0,
       clasificacion: metricas.solidity_class || 'N/A',
       numeroFragmentos: metricas.numero_fragmentos || 0,
       solidez: metricas.solidez || 0
@@ -35718,7 +35586,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       // Nombres exactos como aparecen en la UI
       areaFragmentada: metricas.area_fragmentada || 0,
       perimetroFragmentado: metricas.perimeter_fragmentado || 0,  // UI usa "perimeter" no "perimetro"
-      completitudEstimada: metricas.completitud_estimada || 0
+      // ADR-017 F0: completitud retirada (vuelve en F1 como plantilla_completitud)
     };
   }
   
@@ -38383,31 +38251,18 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     }
     
     // Pérdida de perímetro (%)
-    const perdPerimA = getVal(caraA.metricas, 'perdida_perimetro_fragmentacion_percent');
-    const perdPerimB = getVal(caraB.metricas, 'perdida_perimetro_fragmentacion_percent');
+    const perdPerimA = getVal(caraA.metricas, 'concavidad_perimetro_percent');
+    const perdPerimB = getVal(caraB.metricas, 'concavidad_perimetro_percent');
     if (perdPerimA > 0 || perdPerimB > 0) {
       filasHTML += generarFila('Pérdida de Perímetro', perdPerimA, perdPerimB, '%', true, 1);
     }
     
-    // Completitud estimada
-    const completEstA = getVal(caraA.metricas, 'completitud_estimada');
-    const completEstB = getVal(caraB.metricas, 'completitud_estimada');
-    if (completEstA > 0 || completEstB > 0) {
-      filasHTML += generarFila('Completitud Estimada', completEstA, completEstB, '%', true, 1);
-    }
-    
-    // Tipo de fragmento
-    const tipoFragA = getTexto(caraA.metricas, 'completitud_tipo_fragmento');
-    const tipoFragB = getTexto(caraB.metricas, 'completitud_tipo_fragmento');
-    if (tipoFragA !== '-' || tipoFragB !== '-') {
-      filasHTML += generarFila('Tipo de Fragmento', tipoFragA, tipoFragB, '', false, 0);
-    }
-    
-    // Cobertura angular
-    const cobAngA = getVal(caraA.metricas, 'completitud_cobertura_grados');
-    const cobAngB = getVal(caraB.metricas, 'completitud_cobertura_grados');
-    if (cobAngA > 0 || cobAngB > 0) {
-      filasHTML += generarFila('Cobertura Angular', cobAngA, cobAngB, 'grados', true, 1);
+    // ADR-017 F0 — completitud / tipo de fragmento / cobertura angular retirados.
+    // En su lugar, la magnitud que sí se mide con fidelidad:
+    const idxConvA = getVal(caraA.metricas, 'indice_convexidad_percent');
+    const idxConvB = getVal(caraB.metricas, 'indice_convexidad_percent');
+    if (idxConvA > 0 || idxConvB > 0) {
+      filasHTML += generarFila('Índice de convexidad', idxConvA, idxConvB, '%', true, 1);
     }
     
     // ========================================================================
@@ -38607,7 +38462,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
 
     // Dimensión 5 — Estado de conservación (peso 10%)
     const _imc_conserv = _mediaFilt([
-      _simPar(getVal(caraA.metricas,'completitud_estimada'),             getVal(caraB.metricas,'completitud_estimada')),
+      _simPar(getVal(caraA.metricas,'indice_convexidad_percent'),        getVal(caraB.metricas,'indice_convexidad_percent')),
       _simPar(getVal(caraA.metricas,'perdida_area_fragmentacion_percent'), getVal(caraB.metricas,'perdida_area_fragmentacion_percent')),
       _simPar(getVal(caraA.metricas,'solidity'),                         getVal(caraB.metricas,'solidity')),
     ]);
@@ -38652,7 +38507,7 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     _chkDiv('Rugosidad',          getVal(caraA.metricas,'rugosidad_contorno'), getVal(caraB.metricas,'rugosidad_contorno'));
     _chkDiv('Regularidad Radial', getVal(caraA.metricas,'regularidad_radial'), getVal(caraB.metricas,'regularidad_radial'));
     _chkDiv('Lobularidad',        getVal(caraA.metricas,'indice_lobularidad'),  getVal(caraB.metricas,'indice_lobularidad'));
-    _chkDiv('Completitud',        getVal(caraA.metricas,'completitud_estimada'),getVal(caraB.metricas,'completitud_estimada'));
+    _chkDiv('Índice convexidad',  getVal(caraA.metricas,'indice_convexidad_percent'),getVal(caraB.metricas,'indice_convexidad_percent'));
     _chkDiv('Curvatura',          getVal(caraA.metricas,'curvatura_media'),     getVal(caraB.metricas,'curvatura_media'));
     _chkDiv('Radio Max',          getVal(caraA.metricas,'radio_maximo'),        getVal(caraB.metricas,'radio_maximo'));
     _chkDiv('Varianza Tonal',     getVal(caraA.metricas,'varianza_interna'),    getVal(caraB.metricas,'varianza_interna'));
@@ -49971,8 +49826,8 @@ TODAS ESTAS MEJORAS SON:
         { key: 'esfericidad', label: 'Esfericidad', category: 'advanced' },
         { key: 'forma_3d_inferida', label: 'Forma 3D', category: 'advanced' },
         { key: 'oblongacion', label: 'Oblongación', category: 'advanced' },
-        { key: 'completitud_estimada', label: 'Completitud (%)', category: 'advanced' },
-        { key: 'completitud_tipo_fragmento', label: 'Tipo Fragmento', category: 'advanced' }
+        // ADR-017 F0: columnas de completitud retiradas (claves fabricadas).
+        { key: 'extent', label: 'Extent (A/A_bbox)', category: 'advanced' }
       ],
       clasificacion: [
         { key: 'forma_detectada', label: 'Forma Detectada (Real)', category: 'geometric' },
@@ -50030,11 +49885,9 @@ TODAS ESTAS MEJORAS SON:
             cellClass = 'na-value';
           }
           
-          // Resaltar valores críticos
-          if (col.key === 'completitud_estimada' && parseFloat(valor) < 70) {
-            cellClass += ' critical-value';
-          }
-          
+          // ADR-017 F0: el resaltado «crítico» colgaba de `completitud_estimada`,
+          // columna retirada. Se repondrá en F1 sobre `plantilla_completitud`.
+
           rowsHTML += `<td class="${cellClass}">${valor}</td>`;
         }
       });
@@ -51198,34 +51051,17 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       }
     }
 
-    // Paso 1b: señal de fragmento desde completitud o desde pérdida de área.
-    // El contorno IA es un polígono CERRADO → sin gap angular → esFragmento=false.
-    // Usamos las métricas Python (completitud_estimada < 95 O perdida_area > 1.5%)
-    // para forzar el nombre de fragmento en _forma_idealizada antes de REGLA 2.
-    const _complet = parseFloat(metricasFinal.completitud_estimada);
-    const _perdida = parseFloat(metricasFinal.perdida_area_fragmentacion_percent);
-    // Derivar porcentaje de completitud: preferir (100 - perdida) si disponible y coherente
-    const _pctPerdida = !isNaN(_perdida) && _perdida > 0 ? Math.round(100 - _perdida) : null;
-    const _pctComp    = !isNaN(_complet) && _complet < 95 ? Math.round(_complet) : null;
-    // Disparar si: completitud < 95%  OR  pérdida de área > 1.0%
-    // GUARDA P/H: solidity ≥0.92 → contorno exterior íntegro, la pérdida es P/H/muñeca, no fractura
-    const _solIA    = parseFloat(metricasFinal.solidity || metricasFinal.solidez) || 1.0;
-    const _esFragIA = _solIA < 0.92 && (
-      _pctComp != null || (!isNaN(_perdida) && _perdida > 1.0)
-    );
-    if (_solIA >= 0.92 && (_pctComp != null || (!isNaN(_perdida) && _perdida > 1.0))) {
-      console.log(`[metaClasificarFormaIA] completitud/perdida ignorada: solidity=${_solIA.toFixed(3)} ≥ 0.92 → P/H o muñeca, no fragmento`);
-    }
-    const _pct = _pctComp ?? _pctPerdida;
-    if (_esFragIA && _pct != null && metricasFinal._forma_idealizada) {
-      const _formaBase = (metricasFinal._forma_idealizada.nombre || metricasFinal.forma_detectada || 'Circular')
-        .replace(/fragmento\s*/i, '').replace(/\s*\(\d+%\s*completo\)/i, '').trim();
-      metricasFinal._forma_idealizada.distribucionRadialAngular =
-        metricasFinal._forma_idealizada.distribucionRadialAngular || {};
-      // Inyectar nombre de fragmento para que REGLA 2 lo detecte
-      metricasFinal._forma_idealizada.nombre = `Fragmento ${_formaBase} (${_pct}% completo)`;
-      console.log(`[metaClasificarFormaIA] fragmento forzado: perdida=${_perdida?.toFixed(1)}% completitud=${_complet?.toFixed(1)}% → "${metricasFinal._forma_idealizada.nombre}"`);
-    }
+    // ── Paso 1b RETIRADO en ADR-017 F0 ──────────────────────────────────────
+    // Aquí se INYECTABA la etiqueta «Fragmento X (N% completo)» cuando
+    // `completitud_estimada < 95` o `perdida_area > 1.0%`, y se derivaba el
+    // porcentaje como `100 − perdida_area`. Ambas entradas medían CONCAVIDAD,
+    // no rotura: `perdida_area` es (1 − solidez), así que el umbral del 1 %
+    // dispara con casi cualquier contorno real. Este es el mecanismo exacto que
+    // rotulaba una cuenta circular íntegra como fragmento (ADR-016 #6).
+    //
+    // La guarda `solidity ≥ 0.92 → es P/H, no fractura` reconocía el problema
+    // pero sólo acotaba el síntoma. La inferencia correcta exige ajustar una
+    // plantilla ideal al margen original (ADR-017 §3) — fase F1.
 
     // Paso 2: árbol de clasificación ponderada — idéntico al flujo manual
     return ClassificationEngine.metaClasificarForma(metricasFinal, null);
@@ -51348,8 +51184,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
         bounding_width_px:  o.tight_bounding_width_px  || o.bounding_width  || bw,
         bounding_height_px: o.tight_bounding_height_px || o.bounding_height || bh,
         bounding_area_px:   o.tight_bounding_area_px   || (bw * bh),
-        // ── Completitud verbal (Python tiene completitud_es_fragmento: bool) ──
-        completitud_tipo_fragmento: o.completitud_es_fragmento ? 'Fragmento' : 'Pieza completa',
+        // ADR-017 F0 — sin etiqueta verbal de completitud (clave Python retirada).
         // ── Categoría de forma (Python usa forma_categoria; panel usa forma_categoria_base) ─
         forma_categoria_base: o.forma_categoria || null,
         // ── Dimensiones ──────────────────────────────────────────────────

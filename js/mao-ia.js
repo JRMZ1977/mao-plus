@@ -2016,7 +2016,7 @@
       // simetría bilateral (distancia en mm/px)
       'simetria_distancia_asimetria','simetria_distancia_asimetria_px',
       // campos de clasificación que recalculamos
-      'solidity_class','shape_class_circularity','completitud_tipo_fragmento',
+      'solidity_class','shape_class_circularity',
       // identificación interna
       'object_id','analysis_method','contour_extraction_successful','_contour_data',
     ]);
@@ -2131,13 +2131,11 @@
       solidity_class:     solClass,
       area_fragmentada:   s ? +areaFrag.toFixed(4) : Math.round(fragAreaPx),
       perimeter_fragmentado: s ? +perimFrag.toFixed(3) : +perimFragPx.toFixed(1),
-      perdida_area_fragmentacion_percent:      maoObj.perdida_area_fragmentacion_percent      || null,
-      perdida_perimetro_fragmentacion_percent: maoObj.perdida_perimetro_fragmentacion_percent || null,
-      completitud_estimada:      maoObj.completitud_estimada || null,
-      completitud_tipo_fragmento: maoObj.completitud_estimada
-        ? (maoObj.completitud_estimada > 80 ? 'Completo/casi completo' :
-           maoObj.completitud_estimada > 50 ? 'Parcial' : 'Fragmento')
-        : null,
+      concavidad_area_percent:      maoObj.concavidad_area_percent      || null,
+      concavidad_perimetro_percent: maoObj.concavidad_perimetro_percent || null,
+      // ADR-017 F0: completitud_* retiradas — la etiqueta verbal se derivaba de
+      // una medida de concavidad. Vuelve en F1 desde plantilla_completitud.
+      indice_convexidad_percent: maoObj.indice_convexidad_percent || null,
 
       // 7) Clasificación geométrica
       forma_detectada:         maoObj.forma_detectada || 'Desconocida',
@@ -2223,22 +2221,12 @@
       } : null,
     };
 
-    // Fallback de completitud para convergencia Manual/IA:
-    // si IA no devuelve completitud_estimada pero sí pérdida de área,
-    // derivar completitud = 100 - pérdida y tipificar el fragmento.
-    const _compActual = parseFloat(metricas.completitud_estimada);
-    if (isNaN(_compActual)) {
-      const _lossArea = parseFloat(metricas.perdida_area_fragmentacion_percent);
-      if (!isNaN(_lossArea)) {
-        const _compDer = Math.max(0, Math.min(100, 100 - _lossArea));
-        metricas.completitud_estimada = +_compDer.toFixed(2);
-        if (!metricas.completitud_tipo_fragmento) {
-          metricas.completitud_tipo_fragmento = _compDer > 80
-            ? 'Completo/casi completo'
-            : (_compDer > 50 ? 'Parcial' : 'Fragmento');
-        }
-      }
-    }
+    // ── Derivación de completitud RETIRADA en ADR-017 F0 ────────────────────
+    // Calculaba `completitud = 100 − perdida_area_fragmentacion_percent`, es
+    // decir 100 − concavidad = solidez·100, y de ahí tipificaba el fragmento.
+    // La concavidad no observa fractura: una pieza lunada o anular íntegra caía
+    // directamente en «Parcial» o «Fragmento». Vuelve en F1 desde el ajuste de
+    // plantilla (`plantilla_completitud`), que sí mide cobertura de la forma.
 
     // ── 🔭 CALCULAR ERROR ÓPTICO POSICIONAL EN FLUJO IA ─────────────────────
     // Este cálculo FALTABA en el flujo IA (solo existía en análisis manual).
@@ -2445,10 +2433,9 @@
             forma_detectada:              metricas.forma_detectada,
             solidity_class:               metricas.solidity_class,
             shape_class_circularity:      metricas.shape_class_circularity,
-            completitud_estimada:         metricas.completitud_estimada,
-            completitud_tipo_fragmento:   metricas.completitud_tipo_fragmento,
-            perdida_area_fragmentacion_percent:      metricas.perdida_area_fragmentacion_percent,
-            perdida_perimetro_fragmentacion_percent: metricas.perdida_perimetro_fragmentacion_percent,
+            indice_convexidad_percent:    metricas.indice_convexidad_percent,
+            concavidad_area_percent:      metricas.concavidad_area_percent,
+            concavidad_perimetro_percent: metricas.concavidad_perimetro_percent,
             bounding_area_px:             metricas.bounding_area_px,
             bounding_area_mm2:            metricas.bounding_area_mm2,
 
@@ -2549,8 +2536,10 @@
       const rr = parseFloat(m.ratio_radios);
       const cc = parseFloat(m.circularity || m.circularity_real);
       const ss = parseFloat(m.solidity || m.solidez);
-      const cp = parseFloat(m.completitud_estimada);
-      const esFrag = !isNaN(cp) ? cp < 95 : (ss < 0.92);
+      // ADR-017 F0: sin dato de completitud; queda sólo el proxy de solidez,
+      // que es concavidad — se mantiene como heurística tipológica LOCAL, no
+      // como diagnóstico de fragmentación publicado.
+      const esFrag = ss < 0.92;
       const geoBase = m.forma_geometrica_observada || m.forma_detectada_meta || m.forma_detectada || '';
       const tipBase = m.forma_tipologica_inferida || m.forma_detectada_tipologica || geoBase;
       const tipNoReint = !tipBase || tipBase === geoBase || /\boval\b/i.test(tipBase);
@@ -2596,7 +2585,7 @@
             metricasFinal.forma_categoria_base = _mc.categoria_base;
           console.log('[IA→Meta] forma unificada por árbol JS:', _formaFinal,
             '(conf:', metricasFinal.forma_confianza_global + '%)');
-          if (typeof window._maoLog === 'function') window._maoLog(`[IA] meta-clasif="${_formaFinal}" tipologia="${metricasFinal.forma_tipologica_inferida || _formaFinal}" reinterpretada=${!!metricasFinal.forma_requiere_reinterpretacion_tipologica} conf=${metricasFinal.forma_confianza_global}% metodos=${metricasFinal.forma_metodos_coincidentes} completitud=${metricasFinal.completitud_estimada ?? 'n/a'}`);
+          if (typeof window._maoLog === 'function') window._maoLog(`[IA] meta-clasif="${_formaFinal}" tipologia="${metricasFinal.forma_tipologica_inferida || _formaFinal}" reinterpretada=${!!metricasFinal.forma_requiere_reinterpretacion_tipologica} conf=${metricasFinal.forma_confianza_global}% metodos=${metricasFinal.forma_metodos_coincidentes}`);
         }
       } catch (_emc) {
         console.warn('[IA→Meta] metaClasificarFormaIA falló:', _emc.message);
@@ -2963,8 +2952,8 @@
           ['perimeter_px','Perímetro (px)'],['perimeter','Perímetro (unidad)'],['perimeter_unit','Perím. unidad'],
           ['area_fragmentada_px','Área fragmentada (px²)'],['area_fragmentada','Área fragmentada'],
           ['perimeter_fragmentado_px','Perím. fragmentado (px)'],['perimeter_fragmentado','Perím. fragmentado'],
-          ['perdida_area_fragmentacion_percent','Pérdida área frag. (%)'],
-          ['perdida_perimetro_fragmentacion_percent','Pérdida perím. frag. (%)'],
+          ['concavidad_area_percent','Concavidad de área (%)'],
+          ['concavidad_perimetro_percent','Exceso de perím. sobre hull (%)'],
           ['width','Ancho'],['height','Alto'],
           ['tight_bounding_width_px','Ancho bbox ajust.'],['tight_bounding_height_px','Alto bbox ajust.'],
           ['tight_bounding_area_px','Área bbox ajust.'],
@@ -3036,7 +3025,7 @@
           ['forma_detectada_tipologica','Forma tipológica (alias)'],
           ['forma_requiere_reinterpretacion_tipologica','Reinterpretación tipológica'],
           ['forma_razon_tipologica','Razón tipológica'],
-          ['completitud_estimada','Completitud estim.'],
+          ['indice_convexidad_percent','Índice de convexidad (%)'],
           ['simetria_bilateral','Simetría bilateral'],
         ]},
       ];
