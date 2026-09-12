@@ -73,6 +73,33 @@ Invariancia ROI (2) · No-regresión `_build_binary_mask` (4) · Fallback determ
 
 **Pendiente único**: verificación visual en Electron con imagen real (mismo límite heredado de F1).
 
+## 🎯 Sesión 2026-09-12 — ADR-016 F3 (#9–#11) cosmético ✅ — ADR-016 CERRADO
+
+**ADR-016 completamente cerrado** (`5658db2` #9 · `93aa6bb` #10 · `4d949ec` #11).
+Todos los hallazgos F3 (cosmético) implementados en `tabla-metricas-completa.js`:
+
+**(#9) Variación Perímetro — renombrado de «Pérdida Perímetro»:**
+La métrica `perdida_perimetro_fragmentacion_percent = (hull_perim − perim_real) / hull_perim × 100`
+puede ser negativa (contorno sinuoso, perímetro real > hull). El rótulo «Pérdida» era incorrecto
+en ambos signos. Cambios en las dos ocurrencias (secciones VIII y VIII-b):
+- Rótulo: `Pérdida Perímetro (%)` → `Variación Perímetro (%)`
+- Lógica de color: `> 20 / > 10` → `Math.abs(v) > 20 / > 10` (negativos grandes también alertan)
+- Descripción: «Variación vs perímetro convexo (neg. = contorno sinuoso)»
+
+**(#10) Ejes Reales (p1/p2) — ocultos en objetos 2D:**
+`eje_mayor_real_p1/p2` y `eje_menor_real_p1/p2` son coordenadas 3D de los extremos de los
+ejes inerciales; en modo 2D siempre son `null` → mostraban `[N/A]`. Guard añadido:
+`tieneEjesReales = !!(metricas.eje_mayor_real_p1 || metricas.eje_menor_real_p1)` — las dos
+filas se omiten en 2D, siguen visibles en 3D.
+
+**(#11) Distancia de Asimetría — contextualización vs tamaño del objeto:**
+El valor absoluto en mm no era interpretable sin la escala del objeto, generando tensión
+entre «10.07 mm» y «excelente simetría». Fix: añade `distPct = distanciaAsimetria / ejeMayor × 100`
+y muestra «X.XX mm (Y.Y% del eje mayor)». Descripción corregida a «Residuo Hausdorff promedio
+respecto al radio medio del contorno» (fiel a la fórmula de `_simetria_bilateral`).
+
+**Cache-bust final:** `analysis-core.js?v=20260912e` · `node -c` OK · 5/5 `test_coherencia_entrega`.
+
 ## 🎯 Sesión 2026-09-12 — ADR-016 #5 cabecera detección/confianza en PDF ✅
 
 **ADR-016 #5 cerrado** (`74a0e3c`). La cabecera del reporte PDF mostraba
