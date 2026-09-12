@@ -1399,15 +1399,16 @@ async def statistical_analysis(
 
 @app.post(f"{API_PREFIX}/scale")
 async def calculate_scale(
-    focal_mm:        Optional[float] = Form(default=None),
-    distancia_mm:    Optional[float] = Form(default=None),
-    sensor_w_mm:     Optional[float] = Form(default=None),
-    sensor_h_mm:     Optional[float] = Form(default=None),
-    img_w_px:        Optional[int]   = Form(default=None),
-    img_h_px:        Optional[int]   = Form(default=None),
-    obj_centroide_x: Optional[float] = Form(default=None),
-    obj_centroide_y: Optional[float] = Form(default=None),
-    image:           Optional[UploadFile] = File(default=None),
+    focal_mm:           Optional[float] = Form(default=None),
+    distancia_mm:       Optional[float] = Form(default=None),
+    sensor_w_mm:        Optional[float] = Form(default=None),
+    sensor_h_mm:        Optional[float] = Form(default=None),
+    img_w_px:           Optional[int]   = Form(default=None),
+    img_h_px:           Optional[int]   = Form(default=None),
+    obj_centroide_x:    Optional[float] = Form(default=None),
+    obj_centroide_y:    Optional[float] = Form(default=None),
+    perfil_calibracion: Optional[str]   = Form(default=None),
+    image:              Optional[UploadFile] = File(default=None),
 ):
     """
     Calcula escala px→mm y error óptico posicional (Sección IX).
@@ -1434,6 +1435,15 @@ async def calculate_scale(
     Estado: IMPLEMENTADO (IMPLEMENTED=True).
     """
     image_bytes = await _read_image(image) if image else None
+    # ADR-015 B1: parsear perfil de calibración si se proporcionó
+    perfil_json = None
+    if perfil_calibracion:
+        import json as _json
+        try:
+            perfil_json = _json.loads(perfil_calibracion)
+        except (_json.JSONDecodeError, TypeError):
+            perfil_json = None
+
     return modules.scale.calculate(
         focal_mm=focal_mm,
         distancia_mm=distancia_mm,
@@ -1444,6 +1454,7 @@ async def calculate_scale(
         obj_centroide_x=obj_centroide_x,
         obj_centroide_y=obj_centroide_y,
         image_bytes=image_bytes,
+        perfil_calibracion=perfil_json,
     )
 
 
@@ -2141,6 +2152,59 @@ async def dataset_export(req: DatasetExportRequest):
 
 # ============================================================================
 # DEBUG LOG ENDPOINT (monitoreo en tiempo real)
+# ============================================================================
+# ADR-015 B1: Calibración de lente
+# ============================================================================
+
+@app.post(f"{API_PREFIX}/calibracion-lente/importar")
+async def importar_calibracion_lente(request: Request):
+    """
+    Importa y persiste un perfil de calibración de lente exportado por calibracion_lente.html.
+
+    Body JSON: el objeto completo exportado por calibracion_lente.html (mao_calibracion: true).
+
+    Retorna: {"ok": true, "path": "...", "modelo": "...", "focal_mm": ..., "metodo": ...}
+    """
+    from python.modules.optical_calibration import save_profile, _validate_json
+    import json as _json
+    body = await request.json()
+    try:
+        _validate_json(body)
+        path = save_profile(body)
+        return {
+            "ok": True,
+            "path": path,
+            "modelo": body["camara"].get("modelo"),
+            "focal_mm": body["camara"].get("focal_mm"),
+            "metodo": body["calibracion"].get("metodo"),
+            "calidad": body["calibracion"].get("calidad"),
+            "incertidumbre_pct": body["calibracion"].get("incertidumbre_k1_pct"),
+        }
+    except (ValueError, KeyError) as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get(f"{API_PREFIX}/calibracion-lente/perfiles")
+async def listar_perfiles_calibracion():
+    """Lista los perfiles de calibración de lente guardados."""
+    from python.modules.optical_calibration import list_profiles
+    return {"perfiles": list_profiles()}
+
+
+@app.get(f"{API_PREFIX}/calibracion-lente/perfil")
+async def obtener_perfil_calibracion(modelo: str, focal_mm: float):
+    """Devuelve el perfil de calibración para una cámara+focal específica."""
+    from python.modules.optical_calibration import load_profile
+    perfil = load_profile(modelo, focal_mm)
+    if perfil is None:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay perfil de calibración para {modelo} @ {focal_mm}mm"
+        )
+    return perfil
+
 # ============================================================================
 
 _DEBUG_LOG_PATH = "/tmp/mao_monitor.log"
