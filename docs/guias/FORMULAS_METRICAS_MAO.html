@@ -1,0 +1,1729 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Formulario de Métricas — MAO Plus v1.3.0</title>
+<style>
+  /* ─── TIPOGRAFÍA Y BASE ────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #1a202c;
+    background: #f7f8fa;
+  }
+
+  /* ─── PÁGINA ────────────────────────────────────────────────────── */
+  .page-wrapper {
+    max-width: 900px;
+    margin: 0 auto;
+    background: #fff;
+    padding: 0;
+  }
+
+  /* ─── PORTADA ───────────────────────────────────────────────────── */
+  .cover {
+    background: #fff;
+    color: #1a202c;
+    padding: 64px 64px 52px;
+    border-top: 5px solid #1a202c;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .cover::before, .cover::after { display: none; }
+  .cover-super {
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #718096;
+    margin-bottom: 20px;
+  }
+  .cover-header {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    margin-bottom: 40px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .cover-wordmark-title {
+    font-size: 26px;
+    font-weight: 800;
+    color: #1a202c;
+    line-height: 1.1;
+    letter-spacing: -0.5px;
+  }
+  .cover-wordmark-title span { color: #2b6cb0; }
+  .cover-wordmark-sub {
+    font-size: 11px;
+    color: #718096;
+    letter-spacing: 0.3px;
+    margin-top: 5px;
+  }
+  .cover h1 {
+    font-size: 38px;
+    font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 10px;
+    color: #1a202c;
+    letter-spacing: -0.5px;
+  }
+  .cover-subtitle {
+    font-size: 15px;
+    color: #4a5568;
+    margin-bottom: 36px;
+    font-weight: 400;
+  }
+  .cover-meta {
+    display: flex;
+    gap: 40px;
+    flex-wrap: wrap;
+    padding-top: 24px;
+    border-top: 1px solid #e2e8f0;
+  }
+  .cover-meta-item .label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #718096;
+  }
+  .cover-meta-item .value {
+    font-size: 14px;
+    color: #1a202c;
+    font-weight: 700;
+  }
+  .cover-badge {
+    display: inline-block;
+    background: #f7fafc;
+    border: 1px solid #cbd5e0;
+    border-radius: 4px;
+    padding: 5px 14px;
+    font-size: 11px;
+    letter-spacing: 0.8px;
+    color: #4a5568;
+    margin-bottom: 32px;
+    text-transform: uppercase;
+  }
+  .cover-icon {
+    display: block;
+    width: 80px;
+    height: 80px;
+    object-fit: contain;
+    border-radius: 18px;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.05);
+    flex-shrink: 0;
+  }
+
+  /* ─── ÍNDICE ────────────────────────────────────────────────────── */
+  .toc {
+    padding: 40px 64px;
+    background: #f0f4f8;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .toc h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #718096;
+    margin-bottom: 20px;
+  }
+  .toc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 40px;
+  }
+  .toc-entry {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12.5px;
+    color: #2d3748;
+    text-decoration: none;
+  }
+  .toc-entry:hover { color: #4a5568; }
+  .toc-num {
+    font-weight: 700;
+    color: #718096;
+    font-size: 11px;
+    min-width: 24px;
+  }
+  .toc-dots {
+    flex: 1;
+    border-bottom: 1px dotted #cbd5e0;
+    min-width: 20px;
+  }
+
+  /* ─── CONTENIDO PRINCIPAL ───────────────────────────────────────── */
+  .content {
+    padding: 48px 64px;
+  }
+
+  /* ─── SECCIONES ─────────────────────────────────────────────────── */
+  .section { margin-bottom: 56px; }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 24px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .section-num {
+    background: #2d3748;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+  }
+  .section h2 {
+    font-size: 20px;
+    font-weight: 700;
+    color: #2d3748;
+  }
+
+  .subsection { margin-bottom: 28px; }
+  .subsection h3 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #4a5568;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+    padding: 8px 14px;
+    background: #edf2f7;
+    border-left: 3px solid #4a5568;
+    border-radius: 0 4px 4px 0;
+  }
+
+  h4 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #4a5568;
+    margin: 18px 0 8px;
+  }
+
+  p {
+    color: #4a5568;
+    margin-bottom: 10px;
+  }
+
+  /* ─── BLOQUE DE FÓRMULA ─────────────────────────────────────────── */
+  .formula-block {
+    background: #f8f9ff;
+    border: 1px solid #c3dafe;
+    border-left: 4px solid #3182ce;
+    border-radius: 6px;
+    padding: 18px 22px;
+    margin: 14px 0 20px;
+    font-family: 'Georgia', 'Times New Roman', serif;
+  }
+  .formula-block .formula-name {
+    font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #3182ce;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .formula-block .formula-expr {
+    font-size: 17px;
+    color: #1a202c;
+    line-height: 2;
+    font-style: italic;
+  }
+  .formula-block .formula-def {
+    font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+    font-size: 11.5px;
+    color: #4a5568;
+    margin-top: 10px;
+    line-height: 1.7;
+    font-style: normal;
+  }
+  .formula-block .formula-def span {
+    font-family: 'Georgia', serif;
+    font-style: italic;
+    color: #2b6cb0;
+  }
+  .formula-block .formula-range {
+    font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+    font-size: 11px;
+    color: #718096;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed #bee3f8;
+  }
+  .formula-block .formula-range strong {
+    color: #2b6cb0;
+    font-weight: 700;
+  }
+
+  /* Variante para grupos de fórmulas */
+  .formula-group {
+    background: #f8f9ff;
+    border: 1px solid #c3dafe;
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 14px 0 20px;
+  }
+  .formula-group-header {
+    background: #ebf8ff;
+    padding: 8px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #2b6cb0;
+    border-bottom: 1px solid #bee3f8;
+  }
+  .formula-row {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 0;
+    border-bottom: 1px solid #e9eef8;
+  }
+  .formula-row:last-child { border-bottom: none; }
+  .formula-row .fr-label {
+    padding: 10px 16px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #2d3748;
+    background: #f0f4ff;
+    border-right: 1px solid #c3dafe;
+    display: flex;
+    align-items: center;
+  }
+  .formula-row .fr-expr {
+    padding: 10px 16px;
+    font-family: 'Georgia', 'Times New Roman', serif;
+    font-size: 14px;
+    font-style: italic;
+    color: #1a202c;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .formula-row .fr-range {
+    font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+    font-size: 10.5px;
+    color: #718096;
+    font-style: normal;
+  }
+
+  /* ─── TABLAS ────────────────────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 18px;
+    font-size: 12px;
+  }
+  thead tr { background: #2d3748; color: #fff; }
+  thead th {
+    padding: 8px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  tbody tr:nth-child(even) { background: #f7f8fa; }
+  tbody tr:hover { background: #edf2f7; }
+  tbody td {
+    padding: 7px 12px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+    color: #2d3748;
+  }
+
+  /* ─── CALLOUTS ───────────────────────────────────────────────────── */
+  .callout {
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+  .callout-info  { background: #ebf8ff; border-left: 3px solid #3182ce; color: #2c5282; }
+  .callout-warn  { background: #fffbeb; border-left: 3px solid #d69e2e; color: #744210; }
+  .callout-tip   { background: #f0fff4; border-left: 3px solid #38a169; color: #22543d; }
+  .callout strong { font-weight: 700; }
+
+  /* ─── INTERPRETACIÓN / UMBRALES ─────────────────────────────────── */
+  .threshold-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin: 12px 0 20px;
+  }
+  .threshold-table th {
+    background: #4a5568;
+    color: #fff;
+    padding: 7px 12px;
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .threshold-table td {
+    padding: 6px 12px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .threshold-table tr.t-opt td { background: #c6f6d5; color: #22543d; font-weight: 600; }
+  .threshold-table tr.t-ok  td { background: #e9f7ef; color: #276749; }
+  .threshold-table tr.t-mid td { background: #fefcbf; color: #744210; }
+  .threshold-table tr.t-bad td { background: #feebc8; color: #7b341e; }
+  .threshold-table tr.t-err td { background: #fed7d7; color: #742a2a; font-weight: 700; }
+
+  /* ─── GRID ───────────────────────────────────────────────────────── */
+  .col2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 16px; }
+  .col3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+  .card {
+    background: #f7f8fa;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .card h5 { font-size: 12px; font-weight: 700; color: #2d3748; margin-bottom: 6px; }
+  .card p  { font-size: 11.5px; color: #718096; margin: 0; line-height: 1.5; }
+
+  hr { border: none; border-top: 1px solid #e2e8f0; margin: 28px 0; }
+
+  code {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 11px;
+    background: #edf2f7;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: #2b6cb0;
+  }
+
+  /* ─── PIE DE PÁGINA ──────────────────────────────────────────────── */
+  .footer {
+    background: #2d3748;
+    color: #ffffff;
+    text-align: center;
+    padding: 24px 40px;
+    font-size: 11px;
+    line-height: 1.8;
+  }
+  .footer strong { color: #ffffff; }
+
+  /* ─── IMPRESIÓN ──────────────────────────────────────────────────── */
+  @media print {
+    body { background: #fff; font-size: 11px; }
+    .page-wrapper { max-width: 100%; box-shadow: none; }
+    .cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .section-num { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    thead tr { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .formula-block { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-inside: avoid; }
+    .formula-group { -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-inside: avoid; }
+    .threshold-table td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .toc { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .section { page-break-inside: avoid; }
+    h2, h3, h4 { page-break-after: avoid; }
+    .no-print { display: none; }
+  }
+
+  /* ─── BOTÓN IMPRIMIR ─────────────────────────────────────────────── */
+  .print-btn {
+    position: fixed;
+    bottom: 28px; right: 28px;
+    background: #2d3748;
+    color: #fff;
+    border: none;
+    padding: 12px 22px;
+    border-radius: 30px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    z-index: 100;
+    letter-spacing: 0.3px;
+    transition: background 0.2s;
+  }
+  .print-btn:hover { background: #4a5568; }
+</style>
+</head>
+<body>
+
+<button class="print-btn no-print" onclick="window.print()">⬇ Exportar PDF</button>
+
+<div class="page-wrapper">
+
+<!-- ══════════════════════════════════════════════════════════════════
+     PORTADA
+═══════════════════════════════════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-header">
+    <img src="icon.png" alt="MAO Plus" class="cover-icon">
+    <div>
+      <div class="cover-wordmark-title">MAO <span>Plus</span></div>
+      <div class="cover-wordmark-sub">Morphological Analysis &amp; Objects</div>
+    </div>
+  </div>
+  <div class="cover-super">Documentación técnica — Fórmulas y definiciones</div>
+  <h1>Formulario de Métricas</h1>
+  <div class="cover-subtitle">Definición matemática completa de todas las métricas morfométricas</div>
+  <div class="cover-badge">15 secciones · I–XV · Textura · Coherencia bifacial · Integración MAO IA</div>
+  <div class="cover-meta">
+    <div class="cover-meta-item">
+      <div class="label">Versión</div>
+      <div class="value">MAO Plus v1.3.0</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="label">Fecha</div>
+      <div class="value">Abril 2026</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="label">Documento</div>
+      <div class="value">FORMULAS_METRICAS_MAO</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="label">Desarrollo</div>
+      <div class="value">JFRR / PABD</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     ÍNDICE
+═══════════════════════════════════════════════════════════════════ -->
+<div class="toc">
+  <h2>Índice de secciones — mismo orden que el Informe PDF Integral</h2>
+  <div class="toc-grid">
+    <a class="toc-entry" href="#sec-I"><span class="toc-num">I</span>Clasificación Morfológica<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-II"><span class="toc-num">II</span>Dimensiones Métricas del Objeto<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-III"><span class="toc-num">III</span>Proporciones y Forma Global<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-IV"><span class="toc-num">IV</span>Regularidad del Contorno<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-V"><span class="toc-num">V</span>Rugosidad y Complejidad del Borde<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-VI"><span class="toc-num">VI</span>Orientación y Posición Espacial<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-VII"><span class="toc-num">VII</span>Geometría de Vértices<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-VIII"><span class="toc-num">VIII</span>Estado de Conservación y Fragmentación<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-IX"><span class="toc-num">IX</span>Incertidumbre Óptica Posicional<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-X"><span class="toc-num">X</span>Perforaciones y Horadaciones<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-XI"><span class="toc-num">XI</span>Análisis Comparativo Objeto–P/H<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-XII"><span class="toc-num">XII</span>Síntesis Final<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-XIII"><span class="toc-num">XIII</span>Coherencia Bifacial: CI y CMS<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-XIV"><span class="toc-num">XIV</span>Métricas de Textura de Superficie<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-XV"><span class="toc-num">XV</span>Refinamiento Adaptativo de Máscara<span class="toc-dots"></span></a>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     CONTENIDO
+═══════════════════════════════════════════════════════════════════ -->
+<div class="content">
+
+<!-- ── SECCIÓN I ─────────────────────────────────────────────────── -->
+<div class="section" id="sec-I">
+  <div class="section-header">
+    <span class="section-num">I</span>
+    <h2>Clasificación Morfológica</h2>
+  </div>
+  <p>La clasificación utiliza un sistema de <strong>votación ponderada</strong> con <strong>3 métodos activos</strong> (emiten votos con peso) y <strong>3 validadores</strong> (peso 0 — condicionan la validez sin distorsionar la votación). El resultado final es la forma con mayor suma ponderada de votos. El sistema reconoce <strong>16 categorías morfológicas</strong>, incluyendo 9 formas arqueológicas especializadas.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Confianza de clasificación</div>
+    <div class="formula-expr">Confianza (%) = (V<sub>alin</sub> / V<sub>total</sub>) × 100</div>
+    <div class="formula-def">
+      <span>V<sub>alin</sub></span> = peso acumulado de los métodos que votan la forma ganadora<br>
+      <span>V<sub>total</sub></span> = peso total de los métodos votantes (máx. 7.0 = radial-angular 3.0 + ángulos 2.5 + tradicional 1.5)
+    </div>
+    <div class="formula-range"><strong>Rango:</strong> 0%–100% · 100%: consenso total (3/3 métodos) · &lt; 50%: forma ambigua</div>
+  </div>
+
+  <div class="subsection">
+    <h3>Métodos del sistema de votación</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Método</th>
+          <th>Peso</th>
+          <th>Rol</th>
+          <th>Detecta óptimamente</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Radial-angular</strong></td><td><strong>3.0</strong></td><td>Votante activo</td><td>Distribución gradual vs. abrupta de cambios radiales. Usa <em>concentracionCambios</em>. Método más determinante.</td></tr>
+        <tr><td><strong>Ángulos de vértices</strong></td><td><strong>2.5</strong></td><td>Votante activo</td><td>Formas poligonales por ángulos internos del Convex Hull: triangular, cuadrangular, romboidal, trapezoidal.</td></tr>
+        <tr><td><strong>Tradicional</strong></td><td><strong>1.5</strong></td><td>Votante activo</td><td>Circularidad + relación de aspecto: circular, elipsoidal, lanceolada, amigdaloide, laminar, irregular.</td></tr>
+        <tr style="color:#718096;"><td>Simetría bilateral</td><td style="color:#718096;"><em>0.0</em></td><td style="color:#718096;">Validador (no vota)</td><td style="color:#718096;">Verifica consistencia. Peso 0 — no distorsiona la votación.</td></tr>
+        <tr style="color:#718096;"><td>Complejidad del contorno (ICI)</td><td style="color:#718096;"><em>0.0</em></td><td style="color:#718096;">Validador (no vota)</td><td style="color:#718096;">Valida regularidad del contorno. Peso 0 — no emite voto propio.</td></tr>
+        <tr style="color:#718096;"><td>Curvatura de Menger</td><td style="color:#718096;"><em>0.0</em></td><td style="color:#718096;">Validador (no vota)</td><td style="color:#718096;">Valida perfil de curvas del borde. Peso 0 — no emite voto propio.</td></tr>
+        <tr style="color:#718096;"><td>Convexidad</td><td style="color:#718096;">—</td><td style="color:#718096;">Validador (no vota)</td><td style="color:#718096;">Solo invalida clasificaciones inconsistentes con la convexidad observada.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Aspect Ratio Normalizado — <em>arNorm</em></div>
+    <div class="formula-expr">arNorm = min(AR, 1/AR) &nbsp;&nbsp; con AR = min(w,h) / max(w,h)</div>
+    <div class="formula-def">
+      <span>arNorm</span> ∈ [0, 1] — siempre ≤ 1, independientemente de si el bounding box es más ancho o más alto.<br>
+      Normaliza el Aspect Ratio clásico para que sea <em>invariante a la orientación</em> del objeto en la imagen.<br>
+      <span>arNorm → 0</span>: objeto muy elongado · <span>arNorm → 1</span>: objeto equidimensional (cuadrado o circular)
+    </div>
+    <div class="formula-range"><strong>Umbrales clave:</strong> &lt; 0.28 → Laminar (elongación &gt;3.6×) · 0.28–0.55 → rango Lanceolada · 0.48–0.82 → rango Elipsoidal o Amigdaloide · &gt; 0.80 → rango Circular</div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Concentración de Cambios Radiales — <em>concentracionCambios</em></div>
+    <div class="formula-expr">concentracionCambios = Σ<sub>3 mayores</sub> |Δr<sub>k</sub>| / Σ<sub>todos</sub> |Δr<sub>k</sub>|</div>
+    <div class="formula-def">
+      El contorno se divide angularmente en <em>k</em> sectores equidistantes. Para cada par de sectores adyacentes: |Δr<sub>k</sub>| = |r<sub>k+1</sub> − r<sub>k</sub>|.<br>
+      <span>Numerador</span>: suma de los 3 sectores con mayor |Δr<sub>k</sub>| (los 3 cambios radiales más abruptos).<br>
+      <span>Denominador</span>: suma de todos los |Δr<sub>k</sub>| del contorno completo.
+    </div>
+    <div class="formula-range"><strong>Umbral discriminante:</strong> &lt; 0.55 → variación radial gradual → geometría Elipsoidal (cambios distribuidos sin esquinas abruptas) · ≥ 0.55 → variación concentrada → vértices, ángulos, rupturas del perfil radial</div>
+  </div>
+
+  <div class="subsection">
+    <h3>Formas detectadas y parámetros discriminadores</h3>
+    <p>El sistema reconoce 16 categorías morfológicas. Los criterios se evalúan en el orden de las filas — prioridades superiores prevalecen sobre las inferiores.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Forma</th>
+          <th>arNorm</th>
+          <th>Circularidad</th>
+          <th>Solidez</th>
+          <th>Excentricidad</th>
+          <th>C.Cambios</th>
+          <th>Notas diagnósticas</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="t-err"><td><strong>Laminar</strong></td><td>&lt; 0.28</td><td>—</td><td>—</td><td>—</td><td>—</td><td>Elongación extrema (&gt;3.6×). Primera prioridad.</td></tr>
+        <tr class="t-bad"><td><strong>Lunar</strong></td><td>—</td><td>—</td><td>&lt; 0.60</td><td>—</td><td>—</td><td>Concavidad fuerte — solidez muy baja.</td></tr>
+        <tr class="t-ok"><td><strong>Elipsoidal</strong></td><td>0.48–0.82</td><td>≥ 0.75</td><td>≥ 0.76</td><td>≥ 0.22</td><td><strong>&lt; 0.55</strong></td><td>Cambios radiales graduales (sin esquinas abruptas). C.Cambios: criterio clave.</td></tr>
+        <tr class="t-ok"><td><strong>Lanceolada</strong></td><td>0.28–0.55</td><td>0.46–0.76</td><td>≥ 0.66</td><td>—</td><td>≥ 0.55</td><td>circ &lt; 0.76 discrimina de Elipsoidal. Forma de hoja o punta de lanza.</td></tr>
+        <tr class="t-opt"><td><strong>Amigdaloide</strong></td><td>0.53–0.85</td><td>—</td><td>≥ 0.83</td><td>—</td><td>—</td><td>Muy convexa, sin concavidades. Forma almendrada.</td></tr>
+        <tr class="t-mid"><td><strong>Cordiforme</strong></td><td>—</td><td>—</td><td>0.60–0.82</td><td>—</td><td>—</td><td>Solidez intermedia. Forma de corazón o cuña.</td></tr>
+        <tr class="t-opt"><td><strong>Piriforme</strong></td><td>moderado</td><td>—</td><td>0.76–0.90</td><td>&lt; 0.25</td><td>—</td><td>Excentricidad baja con solidez moderada. Forma piriforme.</td></tr>
+        <tr class="t-mid"><td><strong>Trapezoidal</strong></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>Análisis angular: 2–3 ángulos rectos en hull simplificado.</td></tr>
+        <tr class="t-mid"><td><strong>Romboidal</strong></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>Análisis angular: 0 rectos + ≥2 agudos + ≥2 obtusos.</td></tr>
+        <tr class="t-opt"><td><strong>Circular</strong></td><td>&gt; 0.80</td><td>≥ 0.90</td><td>—</td><td>&lt; 0.22</td><td>—</td><td>Circularidad alta + equidimensional + baja excentricidad.</td></tr>
+        <tr class="t-mid"><td><strong>Triangular</strong></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>3 vértices en el hull simplificado (n<sub>v</sub> = 3).</td></tr>
+        <tr class="t-mid"><td><strong>Cuadrangular</strong></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>4 vértices + ≥3 ángulos rectos (~90°).</td></tr>
+        <tr class="t-mid"><td><strong>Rectangular</strong></td><td>AR &lt; 0.70</td><td>—</td><td>—</td><td>—</td><td>—</td><td>4 vértices + relación de aspecto alejada de 1.</td></tr>
+        <tr class="t-mid"><td><strong>Poligonal</strong></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>5+ vértices regulares en el hull simplificado.</td></tr>
+        <tr class="t-bad"><td><strong>Irregular</strong></td><td>—</td><td>—</td><td>&lt; 0.60</td><td>—</td><td>—</td><td>Fallback final cuando ningún criterio anterior se cumple.</td></tr>
+        <tr class="t-err"><td><strong>Fragmento</strong></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>Cobertura angular &lt; 300° (CA &lt; 83%). Detectado por análisis radial.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout callout-info">
+      <strong>Leyenda:</strong> <em>arNorm</em> = min(AR, 1/AR) normalizado, invariante a orientación · <em>C.Cambios</em> = concentracionCambios (ratio de concentración de cambios radiales) · «—» = parámetro no discriminante para esa forma.
+    </div>
+  </div>
+</div>
+
+<!-- ── SECCIÓN II ────────────────────────────────────────────────── -->
+<div class="section" id="sec-II">
+  <div class="section-header">
+    <span class="section-num">II</span>
+    <h2>Dimensiones Métricas del Objeto</h2>
+  </div>
+  <p>Todas las métricas de longitud y área se calculan sobre el polígono del contorno detectado. Con escala calibrada se expresan en mm / mm²; sin escala, en píxeles.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Área — Fórmula de Shoelace (Gauss)</div>
+    <div class="formula-expr">A = ½ |Σ<sub>i=0</sub><sup>n−1</sup>(x<sub>i</sub>·y<sub>i+1</sub> − x<sub>i+1</sub>·y<sub>i</sub>)|</div>
+    <div class="formula-def">
+      <span>(x<sub>i</sub>, y<sub>i</sub>)</span> = vértices del polígono del contorno en orden<br>
+      Los índices son cíclicos: (x<sub>n</sub>, y<sub>n</sub>) ≡ (x<sub>0</sub>, y<sub>0</sub>)
+    </div>
+    <div class="formula-range"><strong>Unidades:</strong> px² (sin escala) · mm² (con escala) · <strong>Mín:</strong> 0</div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Perímetro — suma de distancias euclídeas</div>
+    <div class="formula-expr">P = Σ<sub>i=0</sub><sup>n−1</sup> √((x<sub>i+1</sub>−x<sub>i</sub>)² + (y<sub>i+1</sub>−y<sub>i</sub>)²)</div>
+    <div class="formula-def">
+      Suma acumulada de la distancia entre puntos consecutivos del contorno digitalizado.<br>
+      Para el <em>contorno real</em> se usa el polígono original; para el <em>contorno Hull</em> se usa el convex hull.
+    </div>
+    <div class="formula-range"><strong>Unidades:</strong> px (sin escala) · mm (con escala)</div>
+  </div>
+
+  <div class="formula-group">
+    <div class="formula-group-header">Conversión de unidades con escala calibrada</div>
+    <div class="formula-row">
+      <div class="fr-label">Longitud</div>
+      <div class="fr-expr"><em>L<sub>mm</sub> = L<sub>px</sub> / px_por_mm</em> <span class="fr-range">px_por_mm: píxeles por milímetro de la escala</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Área</div>
+      <div class="fr-expr"><em>A<sub>mm²</sub> = A<sub>px²</sub> / (px_por_mm)²</em></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Ancho / Alto</div>
+      <div class="fr-expr"><em>w = w<sub>px</sub> / px_por_mm,&nbsp;&nbsp; h = h<sub>px</sub> / px_por_mm</em> <span class="fr-range">Bounding box ajustado al contorno (tight bounding box)</span></div>
+    </div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Centroide (centro de masa geométrico)</div>
+    <div class="formula-expr">x̄ = (1/n) Σ<sub>i=0</sub><sup>n−1</sup> x<sub>i</sub> &nbsp;&nbsp; ȳ = (1/n) Σ<sub>i=0</sub><sup>n−1</sup> y<sub>i</sub></div>
+    <div class="formula-def">
+      Media aritmética de las coordenadas de los <span>n</span> puntos del contorno digitalizado.<br>
+      Es el punto de referencia para el cálculo de regularidad radial, excentricidad, PCA y simetría bilateral.
+    </div>
+    <div class="formula-range"><strong>Unidades:</strong> px (coordenadas de imagen) · no se convierte a mm</div>
+  </div>
+
+  <div class="formula-group">
+    <div class="formula-group-header">Bounding Box ajustado (tight bounding box)</div>
+    <div class="formula-row">
+      <div class="fr-label">Ancho w</div>
+      <div class="fr-expr"><em>w = max(x<sub>i</sub>) − min(x<sub>i</sub>)</em> <span class="fr-range">eje X del contorno</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Alto h</div>
+      <div class="fr-expr"><em>h = max(y<sub>i</sub>) − min(y<sub>i</sub>)</em> <span class="fr-range">eje Y del contorno</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Área BB</div>
+      <div class="fr-expr"><em>A<sub>bb</sub> = w × h</em> <span class="fr-range">Usada en Rectangularidad (Sección III)</span></div>
+    </div>
+  </div>
+
+  <div class="formula-group">
+    <div class="formula-group-header">Ejes Mayor y Menor (longitudes desde PCA)</div>
+    <div class="formula-row">
+      <div class="fr-label">Eje Mayor <em>a</em></div>
+      <div class="fr-expr"><em>a = 2√λ₁</em> <span class="fr-range">Proyección máxima sobre el eigenvector dominante</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Eje Menor <em>b</em></div>
+      <div class="fr-expr"><em>b = 2√λ₂</em> <span class="fr-range">Proyección sobre el eigenvector secundario</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Relación a/b</div>
+      <div class="fr-expr"><em>a/b = √(λ₁/λ₂)</em> <span class="fr-range">= raíz de la Anisotropía (Sección VI)</span></div>
+    </div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Diámetro de Feret — Caliper Diameter</div>
+    <div class="formula-expr">F(θ) = max<sub>i</sub>(x<sub>i</sub>·cosθ + y<sub>i</sub>·sinθ) − min<sub>i</sub>(x<sub>i</sub>·cosθ + y<sub>i</sub>·sinθ)</div>
+    <div class="formula-def">
+      Proyección de todos los puntos del contorno sobre una línea de ángulo θ.<br>
+      <strong>F_max</strong> = máximo de F(θ) sobre θ ∈ [0°, 180°] — caliper diameter mayor.<br>
+      <strong>F_min</strong> = mínimo de F(θ) — caliper diameter menor.<br>
+      Implementado barriendo θ en pasos de 1° (180 direcciones).
+    </div>
+    <div class="formula-range"><strong>Ratio Feret:</strong> F_min / F_max ∈ [0, 1] · 1 = objeto isométrico · → 0 = muy elongado</div>
+  </div>
+
+  <div class="callout callout-info">
+    <strong>Nota:</strong> Los índices adimensionales (Circularidad, Solidez, Elongación, etc.) son cocientes en las mismas unidades — la escala se cancela. Solo las métricas absolutas (Área, Perímetro, Ancho, Alto, Ejes, Feret) dependen de la calibración.
+  </div>
+</div>
+
+<!-- ── SECCIÓN III ───────────────────────────────────────────────── -->
+<div class="section" id="sec-III">
+  <div class="section-header">
+    <span class="section-num">III</span>
+    <h2>Proporciones y Forma Global</h2>
+  </div>
+  <p>Índices adimensionales derivados del área, perímetro y bounding box. Todos tienen rango [0, 1] salvo el Factor de Forma.</p>
+
+  <div class="formula-group">
+    <div class="formula-group-header">Índices isoperimétricos (área vs. perímetro)</div>
+    <div class="formula-row">
+      <div class="fr-label">Circularidad <em>C</em></div>
+      <div class="fr-expr"><em>C = 4π·A / P²</em> <span class="fr-range">[0, 1] · círculo perfecto = 1</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Compacidad <em>K</em></div>
+      <div class="fr-expr"><em>K = 4π·A / P²</em> <span class="fr-range">Equivalente a Circularidad; alias utilizado en algunas secciones del informe</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Factor de Forma <em>FF</em></div>
+      <div class="fr-expr"><em>FF = P² / (4π·A)</em> <span class="fr-range">[1, ∞) · círculo = 1 · inversamente proporcional a C</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Esfericidad <em>Q</em></div>
+      <div class="fr-expr"><em>Q = 4π·A / P²</em> <span class="fr-range">Isoperimetric Quotient. Equivalente a C; se reporta bajo el nombre «Esfericidad» en XII</span></div>
+    </div>
+  </div>
+
+  <div class="formula-group">
+    <div class="formula-group-header">Índices de forma basados en Convex Hull</div>
+    <div class="formula-row">
+      <div class="fr-label">Solidez <em>S</em></div>
+      <div class="fr-expr"><em>S = A<sub>real</sub> / A<sub>hull</sub></em> <span class="fr-range">[0, 1] · objeto sólido convexo = 1 · fragmentado &lt; 1</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Convexidad <em>V</em></div>
+      <div class="fr-expr"><em>V = P<sub>hull</sub> / P<sub>real</sub></em> <span class="fr-range">[0, 1] · objeto liso = 1 · borde recortado &lt; 1</span></div>
+    </div>
+  </div>
+
+  <div class="formula-group">
+    <div class="formula-group-header">Índices basados en Bounding Box ajustado</div>
+    <div class="formula-row">
+      <div class="fr-label">Aspect Ratio <em>AR</em></div>
+      <div class="fr-expr"><em>AR = min(w, h) / max(w, h)</em> <span class="fr-range">[0, 1] · cuadrado/círculo = 1 · muy alargado → 0</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Elongación <em>E</em></div>
+      <div class="fr-expr"><em>E = 1 − min(w, h) / max(w, h)</em> <span class="fr-range">[0, 1] · isométrico = 0 · muy elongado = 1</span></div>
+    </div>
+  </div>
+
+  <div class="formula-group">
+    <div class="formula-group-header">Índices adicionales — área vs. geometría</div>
+    <div class="formula-row">
+      <div class="fr-label">Rectangularidad <em>Rect</em></div>
+      <div class="fr-expr"><em>Rect = A<sub>hull</sub> / A<sub>bb</sub> = A<sub>hull</sub> / (w × h)</em> <span class="fr-range">[0, 1] · rectángulo perfecto = 1</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Circularidad del Hull <em>C<sub>hull</sub></em></div>
+      <div class="fr-expr"><em>C<sub>hull</sub> = 4π·A<sub>hull</sub> / P<sub>hull</sub>²</em> <span class="fr-range">Misma fórmula isoperimétrica aplicada al hull convexo</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Aspect Ratio del Hull <em>AR<sub>hull</sub></em></div>
+      <div class="fr-expr"><em>AR<sub>hull</sub> = min(w<sub>hull</sub>, h<sub>hull</sub>) / max(w<sub>hull</sub>, h<sub>hull</sub>)</em></div>
+    </div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Simetría Bilateral — Distancia de Hausdorff modificada</div>
+    <div class="formula-expr">I<sub>s</sub> = max(0, 1 − d̄<sub>H</sub> / r̄)</div>
+    <div class="formula-def">
+      El contorno se divide en mitad izquierda y mitad derecha respecto al eje vertical x = x̄.<br>
+      La mitad derecha se refleja: <em>(x, y) → (2x̄ − x, y)</em>.<br>
+      <span>d̄<sub>H</sub></span> = distancia promedio entre cada punto de la mitad izquierda y su vecino más cercano en la mitad derecha reflejada.<br>
+      <span>r̄</span> = radio promedio del contorno: r̄ = (1/n) Σ √((x<sub>i</sub>−x̄)² + (y<sub>i</sub>−ȳ)²)<br>
+      El cociente d̄<sub>H</sub>/r̄ normaliza la asimetría por el tamaño del objeto.
+    </div>
+    <div class="formula-range"><strong>Rango:</strong> [0, 1] · 1 = perfectamente simétrico · ≥ 0.95: altamente simétrico · &lt; 0.50: asimétrico</div>
+  </div>
+
+  <table class="threshold-table">
+    <thead><tr><th>Índice</th><th>Umbral óptimo</th><th>Umbral moderado</th><th>Umbral bajo</th></tr></thead>
+    <tbody>
+      <tr class="t-opt"><td>Circularidad C</td><td>≥ 0.90 — Casi circular</td><td>0.70–0.89 — Redondeado</td><td>&lt; 0.70 — Irregular</td></tr>
+      <tr class="t-ok" ><td>Solidez S</td><td>≥ 0.95 — Sólido</td><td>0.85–0.94 — Leve concavidad</td><td>&lt; 0.85 — Cóncavo/fragmentado</td></tr>
+      <tr class="t-mid"><td>Convexidad V</td><td>≥ 0.92 — Poco irregular</td><td>0.80–0.91 — Irregular</td><td>&lt; 0.65 — Muy irregular</td></tr>
+      <tr class="t-bad"><td>Elongación E</td><td>&lt; 0.20 — Isométrico</td><td>0.20–0.50 — Moderado</td><td>&gt; 0.60 — Muy elongado</td></tr>
+      <tr class="t-opt"><td>Rectangularidad Rect</td><td>≥ 0.80 — Forma rectangular</td><td>0.60–0.79 — Semirectangular</td><td>&lt; 0.60 — No rectangular</td></tr>
+      <tr class="t-ok" ><td>Simetría Bilateral I<sub>s</sub></td><td>≥ 0.95 — Altamente simétrico</td><td>0.70–0.84 — Simetría moderada</td><td>&lt; 0.50 — Asimétrico</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ── SECCIÓN IV ────────────────────────────────────────────────── -->
+<div class="section" id="sec-IV">
+  <div class="section-header">
+    <span class="section-num">IV</span>
+    <h2>Regularidad del Contorno</h2>
+  </div>
+  <p>Métricas que cuantifican la variación de la distancia desde el centroide hacia el contorno, y la forma del elipsoide equivalente.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Regularidad Radial</div>
+    <div class="formula-expr">R = (r<sub>min</sub> / r<sub>max</sub>) × 100</div>
+    <div class="formula-def">
+      <span>r<sub>min</sub></span> = distancia mínima del centroide a cualquier punto del contorno<br>
+      <span>r<sub>max</sub></span> = distancia máxima del centroide a cualquier punto del contorno<br>
+      Mide cuán uniforme es la «corona» radial del objeto.
+    </div>
+    <div class="formula-range"><strong>Rango:</strong> 0%–100% · círculo perfecto = 100% · ≥ 90%: muy regular · ≥ 75%: regular · &lt; 50%: irregular</div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Coeficiente de Variación Radial (CV<sub>r</sub>)</div>
+    <div class="formula-expr">CV<sub>r</sub> = (σ<sub>r</sub> / μ<sub>r</sub>) × 100 (%)</div>
+    <div class="formula-def">
+      <span>μ<sub>r</sub></span> = media de todas las distancias radiales al centroide<br>
+      <span>σ<sub>r</sub></span> = desviación estándar de las distancias radiales<br>
+      σ<sub>r</sub>² = (1/n) Σ (r<sub>i</sub> − μ<sub>r</sub>)²
+    </div>
+    <div class="formula-range"><strong>Interpretación:</strong> valor bajo = forma regular · valor alto = protuberancias / concavidades</div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Excentricidad del Elipsoide Equivalente</div>
+    <div class="formula-expr">e = √(1 − b² / a²)</div>
+    <div class="formula-def">
+      <span>a</span> = semieje mayor del elipsoide equivalente (eje PCA dominante)<br>
+      <span>b</span> = semieje menor (eje PCA secundario)<br>
+      Obtenida de los eigenvalues de la matriz de covarianza del contorno.
+    </div>
+    <div class="formula-range"><strong>Rango:</strong> [0, 1] · círculo = 0 · línea = 1 · elipse alargada: e → 1</div>
+  </div>
+</div>
+
+<!-- ── SECCIÓN V ─────────────────────────────────────────────────── -->
+<div class="section" id="sec-V">
+  <div class="section-header">
+    <span class="section-num">V</span>
+    <h2>Rugosidad y Complejidad del Borde</h2>
+  </div>
+  <p>Cuantifica la irregularidad local del borde dividiendo el contorno en segmentos consecutivos y midiendo la variabilidad de sus longitudes.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Rugosidad del Contorno ρ (coeficiente de variación de longitudes)</div>
+    <div class="formula-expr">ρ = σ<sub>L</sub> / μ<sub>L</sub></div>
+    <div class="formula-def">
+      <span>μ<sub>L</sub></span> = longitud media de los segmentos del contorno: μ<sub>L</sub> = P / n<br>
+      <span>σ<sub>L</sub></span> = desviación estándar de las longitudes de segmento<br>
+      σ<sub>L</sub>² = (1/n) Σ (L<sub>i</sub> − μ<sub>L</sub>)²<br>
+      Equivale al <em>coeficiente de variación</em> de las longitudes de arco.
+    </div>
+    <div class="formula-range"><strong>Rango:</strong> ≥ 0 · 0 = borde perfectamente uniforme · valor alto = borde muy irregular</div>
+  </div>
+
+  <table class="threshold-table">
+    <thead><tr><th>Valor ρ</th><th>Clasificación</th><th>Ejemplos arqueológicos</th></tr></thead>
+    <tbody>
+      <tr class="t-opt"><td>&lt; 0.05</td><td>Muy suave (pulido/regular)</td><td>Cerámicas pulidas, obsidiana retocada</td></tr>
+      <tr class="t-ok" ><td>0.05 – 0.08</td><td>Suave</td><td>Bifaces bien trabajados, lascas regulares</td></tr>
+      <tr class="t-mid"><td>0.08 – 0.15</td><td>Moderada</td><td>Núcleos, láminas con retoque</td></tr>
+      <tr class="t-bad"><td>0.15 – 0.25</td><td>Alta rugosidad</td><td>Lascas brutas, percutores</td></tr>
+      <tr class="t-err"><td>&gt; 0.25</td><td>Muy alta (denticulado / serrado)</td><td>Denticulos, sierras, fragmentos de fractura</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-warn">
+    <strong>Nota sobre kernel gaussiano:</strong> antes de calcular la rugosidad, el contorno se suaviza con una ventana gaussiana (σ = tamaño_ventana / 3) para reducir el efecto de la digitalización. Esto previene que la resolución de captura infle artificialmente el valor de ρ.
+  </div>
+
+  <div class="subsection">
+    <h3>Curvatura Local (Curvatura de Menger)</h3>
+    <p>Para cada punto interior p<sub>i</sub> del contorno se calcula la curvatura local usando los tres puntos (p<sub>i−1</sub>, p<sub>i</sub>, p<sub>i+1</sub>).</p>
+
+    <div class="formula-block">
+      <div class="formula-name">Curvatura de Menger en el punto i</div>
+      <div class="formula-expr">κ<sub>i</sub> = 4·Area(Δ) / (d<sub>01</sub> · d<sub>12</sub> · d<sub>20</sub>)</div>
+      <div class="formula-def">
+        <span>Area(Δ)</span> = área del triángulo formado por p<sub>i−1</sub>, p<sub>i</sub>, p<sub>i+1</sub> (Shoelace de 3 puntos)<br>
+        <span>d<sub>01</sub></span> = |p<sub>i</sub> − p<sub>i−1</sub>|, <span>d<sub>12</sub></span> = |p<sub>i+1</sub> − p<sub>i</sub>|, <span>d<sub>20</sub></span> = |p<sub>i−1</sub> − p<sub>i+1</sub>|<br>
+        Equivale al recíproco del radio del círculo circunscrito al triángulo: κ = 1/R.
+      </div>
+      <div class="formula-range"><strong>Rango:</strong> ≥ 0 · 0 = borde recto · valor alto = ángulo pronunciado</div>
+    </div>
+
+    <div class="formula-group">
+      <div class="formula-group-header">Estadísticos derivados de las curvaturas locales</div>
+      <div class="formula-row">
+        <div class="fr-label">Curvatura Media κ̄</div>
+        <div class="fr-expr"><em>κ̄ = (1/(n−2)) Σ<sub>i=1</sub><sup>n−2</sup> κ<sub>i</sub></em></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Curvatura Máxima κ<sub>max</sub></div>
+        <div class="fr-expr"><em>κ<sub>max</sub> = max(κ<sub>i</sub>)</em> <span class="fr-range">Punto de mayor cambio de dirección</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Desviación σ<sub>κ</sub></div>
+        <div class="fr-expr"><em>σ<sub>κ</sub> = √((1/(n−2)) Σ (κ<sub>i</sub> − κ̄)²)</em></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Puntos de Inflexión</div>
+        <div class="fr-expr"><em>|{i : κ<sub>i</sub> &gt; κ̄ + 2σ<sub>κ</sub>}|</em> <span class="fr-range">Puntos estadísticamente pronunciados (umbral 2σ)</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Puntos de Esquina</div>
+        <div class="fr-expr"><em>|{i : κ<sub>i</sub> &gt; κ̄ + 3σ<sub>κ</sub>}|</em> <span class="fr-range">Esquinas agudas (umbral 3σ = caso extremo)</span></div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Energía de Curvatura E<sub>κ</sub></div>
+        <div class="fr-expr"><em>E<sub>κ</sub> = (1/(n−2)) Σ κ<sub>i</sub>²</em> <span class="fr-range">&gt; 0.1: muy sinuoso · &lt; 0.01: muy suave</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Índices de complejidad del contorno</h3>
+
+    <div class="formula-block">
+      <div class="formula-name">Índice de Complejidad del Contorno (ICC)</div>
+      <div class="formula-expr">ICC = P<sub>real</sub> / P<sub>círculo</sub> = P<sub>real</sub> / (2π√(A/π)) = P<sub>real</sub> / (2√(π·A))</div>
+      <div class="formula-def">
+        Ratio entre el perímetro real del contorno y el perímetro del círculo de área equivalente.<br>
+        Un círculo perfecto tiene ICC = 1; formas más complejas tienen ICC &gt; 1.
+      </div>
+      <div class="formula-range"><strong>Rango:</strong> ≥ 1 · círculo = 1 · 1.0–1.1: simple · 1.1–1.5: moderado · &gt; 2.0: muy complejo</div>
+    </div>
+
+    <div class="formula-block">
+      <div class="formula-name">Índice de Lobularidad <em>L</em></div>
+      <div class="formula-expr">L = P<sub>hull</sub> / P<sub>círculo_equiv</sub> = P<sub>hull</sub> / (2π√(A<sub>hull</sub>/π))</div>
+      <div class="formula-def">
+        Compara el perímetro del convex hull con el de un círculo de área equivalente al hull.<br>
+        Detecta lóbulos y ondulaciones en el borde del hull, no el contorno interno.
+      </div>
+      <div class="formula-range"><strong>Rango:</strong> ≥ 1 · circular suave = 1 · &gt; 1.05: lev. lobulado · &gt; 1.15: mod. lobulado · &gt; 1.30: muy lobulado</div>
+    </div>
+
+    <div class="formula-block">
+      <div class="formula-name">Índice de Estrellamiento <em>IS</em></div>
+      <div class="formula-expr">IS = (r<sub>max</sub> − r<sub>min</sub>) / r̄</div>
+      <div class="formula-def">
+        <span>r<sub>max</sub></span> = radio máximo desde el centroide (ya calculado en Sección IV)<br>
+        <span>r<sub>min</sub></span> = radio mínimo desde el centroide<br>
+        <span>r̄</span> = radio medio desde el centroide<br>
+        Mide la amplitud relativa de las variaciones radiales — formas con protuberancias pronunciadas (puntas, dentículos) tienen IS alto.
+      </div>
+      <div class="formula-range"><strong>Rango:</strong> ≥ 0 · &lt; 0.2: redondeado · 0.2–0.4: lev. estrellado · 0.4–0.6: mod. estrellado · &gt; 0.6: muy estrellado</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SECCIÓN VI ────────────────────────────────────────────────── -->
+<div class="section" id="sec-VI">
+  <div class="section-header">
+    <span class="section-num">VI</span>
+    <h2>Orientación y Posición Espacial</h2>
+  </div>
+  <p>Determina el eje principal del objeto mediante Análisis de Componentes Principales (PCA) sobre los puntos del contorno, lo que permite conocer la orientación de instrumentos elongados (lascas, puntas, láminas).</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Matriz de Covarianza del Contorno</div>
+    <div class="formula-expr">S<sub>xx</sub> = Σ(x<sub>i</sub>−x̄)² / n &nbsp;&nbsp; S<sub>yy</sub> = Σ(y<sub>i</sub>−ȳ)² / n &nbsp;&nbsp; S<sub>xy</sub> = Σ(x<sub>i</sub>−x̄)(y<sub>i</sub>−ȳ) / n</div>
+    <div class="formula-def">
+      <span>x̄, ȳ</span> = coordenadas del centroide (media aritmética de todos los puntos del contorno)<br>
+      La matriz 2×2 es: <em>Σ = [[S<sub>xx</sub>, S<sub>xy</sub>], [S<sub>xy</sub>, S<sub>yy</sub>]]</em>
+    </div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Eigenvalues y Eje Principal</div>
+    <div class="formula-expr">λ<sub>1,2</sub> = ½[(S<sub>xx</sub>+S<sub>yy</sub>) ± √((S<sub>xx</sub>−S<sub>yy</sub>)² + 4S<sub>xy</sub>²)]</div>
+    <div class="formula-def">
+      <span>λ₁ ≥ λ₂</span> = eigenvalues dominante y secundario<br>
+      Ángulo del eje principal: <em>θ = atan2(λ₁ − S<sub>xx</sub>, S<sub>xy</sub>)</em>  [radianes → grados: θ° = θ × 180/π]<br>
+      Si θ° &lt; 0: θ° += 180° para expresar en [0°, 180°]
+    </div>
+    <div class="formula-range"><strong>Rango θ°:</strong> 0° (horizontal) · 90° (vertical) · 45° (diagonal NE-SO) · 135° (diagonal NO-SE)</div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Anisotropía</div>
+    <div class="formula-expr">A<sub>anis</sub> = λ₁ / λ₂</div>
+    <div class="formula-def">
+      Mide cuán elongado es el objeto respecto a su eje principal.<br>
+      <span>λ₂ → 0</span>: objeto casi lineal · <em>A<sub>anis</sub> → 1</em>: objeto isométrico (igual extensión en todos los ejes)
+    </div>
+    <div class="formula-range"><strong>Rango:</strong> [1, ∞) · ≈1: forma circular · &gt; 3: fuertemente elongado</div>
+  </div>
+
+  <div class="formula-group">
+    <div class="formula-group-header">Longitudes de los ejes PCA</div>
+    <div class="formula-row">
+      <div class="fr-label">Longitud Eje Mayor</div>
+      <div class="fr-expr"><em>L<sub>a</sub> = 2 × máx. proy. sobre eigenvec₁</em> <span class="fr-range">Proyección del contorno sobre el vector dominante; equivale a 2√λ₁ normalizado</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Longitud Eje Menor</div>
+      <div class="fr-expr"><em>L<sub>b</sub> = 2 × máx. proy. sobre eigenvec₂</em> <span class="fr-range">Proyección perpendicular al eje mayor</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Forma Dominante</div>
+      <div class="fr-expr"><em>A<sub>anis</sub> &lt; 1.5 → Equidimensional · 1.5–3 → Elongada · &gt; 3 → Muy elongada</em></div>
+    </div>
+  </div>
+
+  <table class="threshold-table">
+    <thead><tr><th>Rango θ°</th><th>Orientación detectada</th></tr></thead>
+    <tbody>
+      <tr class="t-opt"><td>&lt; 15° o &gt; 165°</td><td>Horizontal</td></tr>
+      <tr class="t-ok" ><td>75° – 105°</td><td>Vertical</td></tr>
+      <tr class="t-mid"><td>15° – 75°</td><td>Diagonal NE-SO</td></tr>
+      <tr class="t-bad"><td>105° – 165°</td><td>Diagonal NO-SE</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ── SECCIÓN VII ───────────────────────────────────────────────── -->
+<div class="section" id="sec-VII">
+  <div class="section-header">
+    <span class="section-num">VII</span>
+    <h2>Geometría de Vértices</h2>
+  </div>
+  <p>Analiza el Convex Hull (envolvente convexa) del objeto: número de vértices, ángulos internos y curvatura media. Permite distinguir formas poligonales definidas (triangulares, romboidales) de formas curvas continuas.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Convex Hull — Algoritmo Graham Scan</div>
+    <div class="formula-expr">Hull = GrahamScan({(x<sub>i</sub>, y<sub>i</sub>)})</div>
+    <div class="formula-def">
+      Complejidad: <em>O(n log n)</em><br>
+      Produce el polígono convexo mínimo que encierra todos los puntos del contorno.<br>
+      Los vértices se simplifican adaptativamente: se conservan solo las esquinas con ángulo prominente (α &gt; 30°).
+    </div>
+    <div class="formula-range"><strong>Resultado:</strong> n<sub>v</sub> = número de vértices del hull simplificado</div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Ángulo Interno en Vértice k</div>
+    <div class="formula-expr">α<sub>k</sub> = arccos(v̂<sub>1</sub> · v̂<sub>2</sub>)</div>
+    <div class="formula-def">
+      <span>v̂<sub>1</sub></span> = vector unitario de la arista entrante en el vértice k<br>
+      <span>v̂<sub>2</sub></span> = vector unitario de la arista saliente en el vértice k<br>
+      Acotado a [−1, 1] antes del arccos para evitar error numérico: <em>arccos(max(−1, min(1, v̂₁·v̂₂)))</em>
+    </div>
+    <div class="formula-range"><strong>Rango:</strong> 0° – 180° · ángulos agudos (&lt; 90°): vértices puntiagudos · obtusos (&gt; 90°): redondeados</div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Curvatura Media del Hull (Ángulo Medio)</div>
+    <div class="formula-expr">ᾱ = (1 / n<sub>v</sub>) Σ<sub>k=1</sub><sup>n<sub>v</sub></sup> α<sub>k</sub></div>
+    <div class="formula-def">
+      Media aritmética de los ángulos internos del hull simplificado.<br>
+      Complementa el conteo de vértices para distinguir formas circulares de poligonales.
+    </div>
+  </div>
+
+  <div class="formula-group">
+    <div class="formula-group-header">Estadísticos de la distribución angular</div>
+    <div class="formula-row">
+      <div class="fr-label">Desviación Estándar σ<sub>α</sub></div>
+      <div class="fr-expr"><em>σ<sub>α</sub> = √((1/n<sub>v</sub>) Σ (α<sub>k</sub> − ᾱ)²)</em> <span class="fr-range">Variabilidad angular entre vértices</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Ángulo Predominante</div>
+      <div class="fr-expr">Valor modal del histograma de α<sub>k</sub> (discretizado cada 15°)</div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Ángulos Agudos</div>
+      <div class="fr-expr"><em>n<sub>ag</sub> = |{k : α<sub>k</sub> &lt; 85°}|</em> <span class="fr-range">Vértices puntiagudos — puntas, cúspides</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Ángulos Rectos</div>
+      <div class="fr-expr"><em>n<sub>rec</sub> = |{k : 85° ≤ α<sub>k</sub> ≤ 95°}|</em> <span class="fr-range">Esquinas ortogonales</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Ángulos Obtusos</div>
+      <div class="fr-expr"><em>n<sub>ob</sub> = |{k : α<sub>k</sub> &gt; 95°}|</em> <span class="fr-range">Vértices redondeados / suaves</span></div>
+    </div>
+  </div>
+
+  <div class="callout callout-tip">
+    <strong>Geometría Inferida:</strong> La combinación de n<sub>v</sub>, ᾱ y la distribución de ángulos permite inferir la tipología poligonal: Triángulo (n<sub>v</sub>=3), Rombo/Cuadrado (n<sub>v</sub>=4, ᾱ≈90°), Pentágono (n<sub>v</sub>=5), etc. Círculo cuando n<sub>v</sub> es alto y σ<sub>α</sub> ≈ 0.
+  </div>
+</div>
+
+<!-- ── SECCIÓN VIII ──────────────────────────────────────────────── -->
+<div class="section" id="sec-VIII">
+  <div class="section-header">
+    <span class="section-num">VIII</span>
+    <h2>Estado de Conservación y Fragmentación</h2>
+  </div>
+  <p>Cuantifica la pérdida de masa y borde del objeto comparando el contorno real con su Convex Hull ideal. Un objeto intacto y convexo tiene pérdida ≈ 0.</p>
+
+  <div class="formula-group">
+    <div class="formula-group-header">Índices de pérdida respecto al Hull</div>
+    <div class="formula-row">
+      <div class="fr-label">Pérdida de Área ΔA%</div>
+      <div class="fr-expr"><em>ΔA% = (A<sub>hull</sub> − A<sub>real</sub>) / A<sub>hull</sub> × 100</em> <span class="fr-range">0% = objeto completo y convexo</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Pérdida de Perímetro ΔP%</div>
+      <div class="fr-expr"><em>ΔP% = (P<sub>hull</sub> − P<sub>real</sub>) / P<sub>hull</sub> × 100</em> <span class="fr-range">Negativo si P_real &gt; P_hull (borde sinuoso)</span></div>
+    </div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Solidez como indicador de integridad</div>
+    <div class="formula-expr">S = A<sub>real</sub> / A<sub>hull</sub></div>
+    <div class="formula-def">
+      La solidez es el complemento directo de ΔA%: <em>S = 1 − ΔA%/100</em><br>
+      Se usa como indicador primario del estado de conservación.
+    </div>
+    <div class="formula-range"><strong>Umbral:</strong> ≥ 0.95: excelente · 0.85–0.94: buena · &lt; 0.85: fragmentación significativa</div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Circularidad sobre contorno fragmentado</div>
+    <div class="formula-expr">C<sub>frag</sub> = 4π·A<sub>real</sub> / P<sub>real</sub>²</div>
+    <div class="formula-def">
+      Se calcula sobre el contorno real (no el hull) para capturar los efectos de la fragmentación en la forma.<br>
+      Se compara con la Circularidad estándar para estimar cuánto se desvió la forma original.
+    </div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Completitud Estimada — método combinado</div>
+    <div class="formula-expr">CE = 0.6 × C<sub>ang</sub> + 0.4 × C<sub>conv</sub></div>
+    <div class="formula-def">
+      <strong>Método angular</strong> (peso 60%):<br>
+      <span>C<sub>ang</sub> (%) = (θ<sub>cubierto</sub> / 360°) × 100</span><br>
+      <span>θ<sub>cubierto</sub></span> = arco angular total cubierto por el contorno digitalizado respecto al centroide (cobertura radial).<br><br>
+      <strong>Método de convexidad</strong> (peso 40%):<br>
+      <span>C<sub>conv</sub> (%) = (A<sub>real</sub> / A<sub>bbox</sub>) × 100</span><br>
+      <span>A<sub>bbox</sub></span> = área del bounding box del contorno (aproximación del hull ideal).
+    </div>
+    <div class="formula-range"><strong>Umbral fragmento:</strong> CE &lt; 85% o θ<sub>cubierto</sub> &lt; 300° → fragmento detectado · ≥ 95%: completo · 75–94%: casi completo</div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Cobertura Angular CA</div>
+    <div class="formula-expr">CA (%) = θ<sub>cubierto</sub> / 360° × 100</div>
+    <div class="formula-def">
+      Ángulo total barrido por los vectores (centroide → puntos del contorno).<br>
+      Para un objeto completo que rodea al centroide: θ<sub>cubierto</sub> = 360°, CA = 100%.<br>
+      Un fragmento que no rodea al centroide tendrá CA &lt; 100%.
+    </div>
+    <div class="formula-range"><strong>Umbral:</strong> &lt; 300° (CA &lt; 83%): probable fragmento · &lt; 180°: fragmento &lt; 50%</div>
+  </div>
+</div>
+
+<!-- ── SECCIÓN IX ────────────────────────────────────────────────── -->
+<div class="section" id="sec-IX">
+  <div class="section-header">
+    <span class="section-num">IX</span>
+    <h2>Incertidumbre Óptica Posicional</h2>
+  </div>
+  <p>Estima el error intrínseco de la posición del contorno derivado de la resolución de captura, la calibración de escala y el suavizado gaussiano del contorno digitalizado.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Kernel Gaussiano de Suavizado del Contorno</div>
+    <div class="formula-expr">w(i) = exp(−i² / (2σ²)), &nbsp;&nbsp; σ = N<sub>w</sub> / 3</div>
+    <div class="formula-def">
+      <span>N<sub>w</sub></span> = tamaño de la ventana de suavizado (en píxeles)<br>
+      <span>i</span> = desplazamiento respecto al punto central de la ventana (i ∈ [−N<sub>w</sub>/2, N<sub>w</sub>/2])<br>
+      Los pesos w(i) se normalizan para que Σw(i) = 1. El suavizado reduce el error de cuantización posicional inherente a la digitalización del contorno.
+    </div>
+    <div class="formula-range"><strong>Efecto:</strong> σ grande → mayor suavizado → reduced ρ · σ pequeño → mayor fidelidad al contorno original</div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Incertidumbre posicional σ<sub>pos</sub></div>
+    <div class="formula-expr">σ<sub>pos</sub> (mm) = 1 / (2 · px_por_mm)</div>
+    <div class="formula-def">
+      Resolución de Nyquist en el espacio de mundo real: la mínima incertidumbre de localización es media celda píxel.<br>
+      Con px_por_mm = escala calibrada (píxeles/mm).<br>
+      Si no hay escala: σ<sub>pos</sub> se expresa en 0.5 px.
+    </div>
+    <div class="formula-range"><strong>Propósito:</strong> acotar el error de medidas absolutas de longitud y área</div>
+  </div>
+
+  <div class="col2">
+    <div class="card">
+      <h5>Fuentes de incertidumbre óptica</h5>
+      <p>① Resolución del sensor (px/mm)<br>② Profundidad de campo / desenfoque<br>③ Distorsión de lente<br>④ Condiciones de iluminación<br>⑤ Umbralización del fondo</p>
+    </div>
+    <div class="card">
+      <h5>Impacto en métricas</h5>
+      <p>Los índices adimensionales (C, S, E) son insensibles a σ<sub>pos</sub>.<br>Las métricas absolutas (A, P, w, h) acumulan error: δA ≈ P · σ<sub>pos</sub></p>
+    </div>
+  </div>
+</div>
+
+<!-- ── SECCIÓN X ─────────────────────────────────────────────────── -->
+<div class="section" id="sec-X">
+  <div class="section-header">
+    <span class="section-num">X</span>
+    <h2>Perforaciones y Horadaciones</h2>
+  </div>
+  <p>Las perforaciones se detectan como contornos cerrados interiores al polígono principal. Para cada perforación se calculan las mismas métricas de forma que para el objeto principal.</p>
+
+  <div class="formula-group">
+    <div class="formula-group-header">Métricas de perforaciones individuales</div>
+    <div class="formula-row">
+      <div class="fr-label">Área A<sub>perf</sub></div>
+      <div class="fr-expr"><em>A<sub>perf</sub> = Shoelace(contorno_perf)</em> <span class="fr-range">Misma fórmula que Sección II</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Perímetro P<sub>perf</sub></div>
+      <div class="fr-expr"><em>P<sub>perf</sub> = Σ √(Δx² + Δy²)</em></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Circularidad C<sub>perf</sub></div>
+      <div class="fr-expr"><em>C<sub>perf</sub> = 4π·A<sub>perf</sub> / P<sub>perf</sub>²</em> <span class="fr-range">1 = taladro circular perfecto</span></div>
+    </div>
+    <div class="formula-row">
+      <div class="fr-label">Regularidad radial R<sub>perf</sub></div>
+      <div class="fr-expr"><em>R<sub>perf</sub> = (r<sub>min</sub> / r<sub>max</sub>) × 100</em> <span class="fr-range">Respecto al centroide de la perforación</span></div>
+    </div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Porosidad del Objeto</div>
+    <div class="formula-expr">P<sub>poros</sub> (%) = Σ<sub>k</sub> A<sub>perf,k</sub> / A<sub>objeto</sub> × 100</div>
+    <div class="formula-def">
+      <span>Σ A<sub>perf,k</sub></span> = suma del área de todas las perforaciones detectadas<br>
+      <span>A<sub>objeto</sub></span> = área real del objeto (sin incluir perforaciones)<br>
+      Mide la proporción de material ausente por horadaciones respecto al área total.
+    </div>
+    <div class="formula-range"><strong>Rango:</strong> 0%–100% · 0% = sin perforaciones · &gt; 30%: muy horadado</div>
+  </div>
+</div>
+
+<!-- ── SECCIÓN XI ────────────────────────────────────────────────── -->
+<div class="section" id="sec-XI">
+  <div class="section-header">
+    <span class="section-num">XI</span>
+    <h2>Análisis Comparativo Objeto–P/H (Bifacial Cara A vs. Cara B)</h2>
+  </div>
+  <p>Para objetos bifaciales se comparan todas las métricas entre la cara A (anverso) y la cara B (reverso), cuantificando las diferencias en términos porcentuales respecto a la cara de referencia.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Diferencia Relativa entre caras</div>
+    <div class="formula-expr">Δ% = (V<sub>A</sub> − V<sub>B</sub>) / V<sub>A</sub> × 100</div>
+    <div class="formula-def">
+      <span>V<sub>A</sub></span> = valor de la métrica en Cara A (referencia)<br>
+      <span>V<sub>B</sub></span> = valor de la métrica en Cara B<br>
+      Se aplica a: Área, Perímetro, Circularidad, Solidez, Compacidad, Porosidad, n<sub>perforaciones</sub>
+    </div>
+    <div class="formula-range"><strong>|Δ%|:</strong> &lt; 5%: muy similar · 5–15%: diferencia moderada · ≥ 15%: diferencia significativa</div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Diferencia de Porosidad</div>
+    <div class="formula-expr">ΔP<sub>poros</sub> = P<sub>poros,A</sub> − P<sub>poros,B</sub> &nbsp; (%)</div>
+    <div class="formula-def">
+      Diferencia absoluta (no relativa) de la porosidad entre caras.<br>
+      Permite identificar asimetrías de la distribución de perforaciones entre anverso y reverso.
+    </div>
+    <div class="formula-range"><strong>|ΔP<sub>poros</sub>|:</strong> &lt; 2%: muy similar · &gt; 5%: distribución asimétrica</div>
+  </div>
+
+  <div class="callout callout-tip">
+    <strong>Nota:</strong> La comparativa bifacial utiliza las mismas fórmulas de Secciones I–X aplicadas independientemente a cada cara. No se introducen fórmulas nuevas; la novedad es la tabla diferencial.
+  </div>
+</div>
+
+<!-- ── SECCIÓN XII ───────────────────────────────────────────────── -->
+<div class="section" id="sec-XII">
+  <div class="section-header">
+    <span class="section-num">XII</span>
+    <h2>Síntesis Final</h2>
+  </div>
+  <p>Integra las métricas de todas las secciones anteriores en una inferencia de forma 3D y una evaluación global del objeto. Se utiliza la esfericidad como índice unificador.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Esfericidad (Isoperimetric Quotient) — índice central de Síntesis</div>
+    <div class="formula-expr">Q = 4π·A / P²</div>
+    <div class="formula-def">
+      Equivalente matemático a la Circularidad (Sección III). Se usa bajo el nombre «esfericidad» en la síntesis para enfatizar la inferencia tridimensional: un Q alto implica que la proyección 2D es compatible con una forma 3D globular o discoidal.<br>
+      Valores bajos (Q &lt; 0.70) son compatibles con formas irregulares, astilladas o elongadas.
+    </div>
+    <div class="formula-range"><strong>Rango:</strong> [0, 1] · círculo = 1 · idéntico a C de Sección III</div>
+  </div>
+
+  <div class="subsection">
+    <h3>Inferencia de Forma 3D</h3>
+    <p>La forma tridimensional se infiere combinando Q, E (Elongación) y AR (Aspect Ratio):</p>
+    <table>
+      <thead><tr><th>Condición</th><th>Forma 3D inferida</th></tr></thead>
+      <tbody>
+        <tr><td>Q &gt; 0.95</td><td>Esférica / Globular</td></tr>
+        <tr><td>Q &gt; 0.85 y E &lt; 0.20</td><td>Discoidal / Tabular</td></tr>
+        <tr><td>Q &gt; 0.70 y AR &gt; 0.50</td><td>Ovoidal / Elipsoidal</td></tr>
+        <tr><td>AR &lt; 0.40</td><td>Alargada / Laminar</td></tr>
+        <tr><td>Q &lt; 0.70 y S &lt; 0.85</td><td>Irregular / Fragmentada</td></tr>
+        <tr><td>S &lt; 0.70</td><td>Muy irregular / Cóncava</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Oblongación <em>Ob</em></div>
+    <div class="formula-expr">Ob = max(AR, 1/AR) &nbsp;&nbsp; donde AR = min(w,h) / max(w,h)</div>
+    <div class="formula-def">
+      Siempre ≥ 1. Equidimensional cuando AR ≈ 1 (Ob ≈ 1); muy oblonga cuando AR → 0 (Ob → ∞).<br>
+      Complementa al Aspect Ratio para expresar el alargamiento de forma monótonamente creciente.
+    </div>
+    <div class="formula-range"><strong>Clasificación:</strong> &lt; 1.15: Equidimensional · 1.15–1.5: Lev. oblonga · 1.5–2.0: Mod. oblonga · 2.0–3.0: Muy oblonga · &gt; 3.0: Extremadamente oblonga (lanceolada)</div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Aplanamiento Inferido (desde Excentricidad)</div>
+    <div class="formula-expr">Clase aplanamiento = f(e) &nbsp;&nbsp; donde e = √(1 − b²/a²)</div>
+    <div class="formula-def">
+      El aplanamiento se infiere del eje de excentricidad (Sección IV):<br>
+      <em>e &lt; 0.3</em> → Poco aplanado (casi circular)<br>
+      <em>e ∈ [0.3, 0.6)</em> → Moderadamente aplanado<br>
+      <em>e ∈ [0.6, 0.8)</em> → Bastante aplanado<br>
+      <em>e ≥ 0.8</em> → Muy aplanado (casi lineal)
+    </div>
+    <div class="formula-range"><strong>Uso:</strong> inferencia de la geometría 3D (discoidal, tabular) a partir de la proyección 2D</div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Completitud de la clasificación morfológica</div>
+    <div class="formula-expr">Com<sub>V</sub> (%) = (métodos con voto válido / métodos totales) × 100</div>
+    <div class="formula-def">
+      Indica qué fracción de los 3 métodos votantes (radial-angular p=3.0, ángulos de vértices p=2.5, tradicional p=1.5) pudo emitir un voto confiable.<br>
+      Los validadores (simetría, complejidad, curvatura, convexidad) tienen peso 0 y no afectan este índice.<br>
+      Si Com<sub>V</sub> &lt; 50%, la clasificación de Sección I debe tomarse como provisional.
+    </div>
+    <div class="formula-range"><strong>Rango:</strong> 0%–100% · 100%: clasificación fiable (3/3 métodos votantes coinciden) · &lt; 50%: clasificación provisional</div>
+  </div>
+
+  <hr>
+  <div class="callout callout-info">
+    <strong>Resumen de símbolos recurrentes:</strong><br>
+    <em>A</em> = área real del contorno &nbsp;·&nbsp;
+    <em>P</em> = perímetro real &nbsp;·&nbsp;
+    <em>A<sub>hull</sub></em> = área del Convex Hull &nbsp;·&nbsp;
+    <em>P<sub>hull</sub></em> = perímetro del Convex Hull &nbsp;·&nbsp;
+    <em>w, h</em> = ancho y alto del bounding box ajustado &nbsp;·&nbsp;
+    <em>r<sub>min</sub>, r<sub>max</sub></em> = radios mínimo y máximo desde el centroide &nbsp;·&nbsp;
+    <em>a, b</em> = semiejes mayor y menor del elipsoide equivalente &nbsp;·&nbsp;
+    <em>λ₁, λ₂</em> = eigenvalues de la matriz de covarianza (λ₁ ≥ λ₂) &nbsp;·&nbsp;
+    <em>n</em> = número de puntos del contorno digitalizado &nbsp;·&nbsp;
+    <em>L<sub>i</sub></em> = luminosidad del pixel i &nbsp;·&nbsp;
+    <em>N</em> = número de píxeles internos del objeto &nbsp;·&nbsp;
+    <em>σ²</em> = varianza interna de luminosidad &nbsp;·&nbsp;
+    <em>H</em> = entropía de Shannon &nbsp;·&nbsp;
+    <em>Ḡ</em> = gradiente medio de Sobel &nbsp;·&nbsp;
+    <em>CI</em> = Índice de Coherencia Identitaria &nbsp;·&nbsp;
+    <em>CMS</em> = Índice de Coherencia Morfológica de Superficie
+  </div>
+</div>
+
+<!-- ── SECCIÓN XIII ──────────────────────────────────────────────── -->
+<div class="section" id="sec-XIII">
+  <div class="section-header">
+    <span class="section-num">XIII</span>
+    <h2>Índices de Coherencia Bifacial: CI y CMS</h2>
+  </div>
+  <p>El análisis bifacial compara la cara A (anverso) con la cara B (reverso) de un mismo objeto, cuantificando la correspondencia morfológica mediante dos índices compuestos: el <strong>Índice de Coherencia Identitaria (CI)</strong>, que evalúa la equivalencia en dimensiones métricas, y el <strong>Índice de Coherencia Morfológica de Superficie (CMS)</strong>, que evalúa la similitud en proporciones de forma, regularidad radial y características del contorno.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Función de similitud par — base de todos los sub-índices</div>
+    <div class="formula-expr">s(a, b) = max(0, 1 − |a − b| / ((a + b) / 2))</div>
+    <div class="formula-def">
+      <span>a, b</span> = valores de la misma métrica en la cara A y cara B respectivamente<br>
+      El denominador <em>(a + b) / 2</em> es la media de ambas caras — normaliza la diferencia por la magnitud típica del par.<br>
+      El operador <em>max(0, ·)</em> acota el resultado a [0, 1]: s = 1 si las caras son idénticas, s = 0 si la diferencia supera el 200% de la media.
+    </div>
+    <div class="formula-range"><strong>Rango:</strong> [0, 1] · 1.000 = caras métricamente idénticas · 0.000 = diferencia extrema</div>
+  </div>
+
+  <div class="subsection">
+    <h3>CI — Índice de Coherencia Identitaria</h3>
+    <p>Agrupa exclusivamente las métricas dimensionales absolutas — aquellas que reflejan el tamaño real del objeto en cada cara. Evalúa si ambas caras pertenecen al mismo objeto y comparten proporciones métricas equivalentes, independientemente de su morfología de superficie.</p>
+
+    <div class="formula-block">
+      <div class="formula-name">CI — media ponderada de similitudes dimensionales</div>
+      <div class="formula-expr">CI = (Σ<sub>j</sub> w<sub>j</sub> · s(a<sub>j</sub>, b<sub>j</sub>)) / (Σ<sub>j</sub> w<sub>j</sub>)</div>
+      <div class="formula-def">
+        <span>j</span> = índice sobre las métricas dimensionales participantes<br>
+        <span>w<sub>j</sub></span> = peso asignado a cada métrica (ver tabla)<br>
+        <span>s(a<sub>j</sub>, b<sub>j</sub>)</span> = similitud par para la métrica j entre cara A y cara B<br>
+        La suma ponderada se normaliza dividiendo por la suma total de pesos.
+      </div>
+      <div class="formula-range"><strong>Rango:</strong> [0, 1] · ≥ 0.90: caras dimensionalmente muy similares · ≥ 0.75: similares · &lt; 0.60: diferencia significativa</div>
+    </div>
+
+    <table>
+      <thead><tr><th>Métrica dimensional</th><th>Peso w<sub>j</sub></th><th>Fundamento</th></tr></thead>
+      <tbody>
+        <tr><td>Área</td><td>3.0</td><td>Extensión bidimensional — diferencia más determinante de tamaño</td></tr>
+        <tr><td>Perímetro</td><td>2.0</td><td>Longitud del borde — complementa el área</td></tr>
+        <tr><td>Eje Mayor</td><td>2.0</td><td>Dimensión principal de elongación</td></tr>
+        <tr><td>Eje Menor</td><td>1.5</td><td>Dimensión secundaria de elongación</td></tr>
+        <tr><td>Feret Máximo</td><td>1.5</td><td>Anchura máxima independiente de orientación</td></tr>
+        <tr><td>Feret Mínimo</td><td>1.0</td><td>Anchura mínima independiente de orientación</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="subsection">
+    <h3>CMS — Índice de Coherencia Morfológica de Superficie</h3>
+    <p>Combina tres sub-índices que evalúan dimensiones complementarias de la forma: las proporciones globales, la regularidad radial y las características del contorno (incluyendo rugosidad, curvatura y textura superficial). La ponderación refleja la jerarquía: la forma global contribuye más que la textura.</p>
+
+    <div class="formula-block">
+      <div class="formula-name">CMS — combinación ponderada de tres sub-índices</div>
+      <div class="formula-expr">CMS = 0.50 · I<sub>forma</sub> + 0.30 · I<sub>radial</sub> + 0.20 · I<sub>contorno</sub></div>
+      <div class="formula-def">
+        <span>I<sub>forma</sub></span> = sub-índice de similitud en proporciones y forma global (circularidad, solidez, elongación, rectangularidad, simetría bilateral, convexidad, excentricidad)<br>
+        <span>I<sub>radial</sub></span> = sub-índice de similitud en regularidad radial (radio medio, ratio radial, coeficiente de variación radial, regularidad radial, índice de estrellamiento)<br>
+        <span>I<sub>contorno</sub></span> = sub-índice de similitud en el carácter del contorno (rugosidad de borde, ICI, curvatura media, varianza tonal interna, entropía de superficie, gradiente medio)<br>
+        Cada sub-índice es a su vez una media ponderada de similitudes par s(a, b) de las métricas que lo componen.
+      </div>
+      <div class="formula-range"><strong>Rango:</strong> [0, 1] · ≥ 0.85: morfología muy coherente entre caras · ≥ 0.70: coherente · &lt; 0.60: morfologías divergentes entre caras</div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Interpretación conjunta de CI y CMS</h3>
+    <table class="threshold-table">
+      <thead><tr><th>Condición</th><th>Interpretación</th></tr></thead>
+      <tbody>
+        <tr class="t-opt"><td>CI ≥ 0.85 y CMS ≥ 0.85</td><td>Correspondencia máxima — objeto perfectamente simétrico o par de caras casi idénticas</td></tr>
+        <tr class="t-ok"><td>CI ≥ 0.78 y CMS ≥ 0.62</td><td>Correspondencia normal — ambas caras pertenecen al mismo objeto con diferencias esperadas de manufactura</td></tr>
+        <tr class="t-mid"><td>CI ≥ 0.78 y CMS &lt; 0.62</td><td><strong>Diferenciación natural</strong> — tamaño equivalente, morfología de superficie divergente (talla bifacial asimétrica, tratamientos distintos por cara)</td></tr>
+        <tr class="t-bad"><td>CI &lt; 0.78 y CMS moderado</td><td>Posible par de objetos distintos con morfología superficial similar</td></tr>
+        <tr class="t-err"><td>CI &lt; 0.60 y CMS &lt; 0.60</td><td>Objetos no relacionados morfométricamente</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout callout-warn">
+      <strong>Caso especial — «Diferenciación natural»:</strong> cuando CI ≥ 0.78 (dimensiones equivalentes) y CMS &lt; 0.62 (morfología de superficie divergente), MAO Plus clasifica el resultado como «Diferenciación natural». Este patrón es característico de artefactos con retoque bifacial diferencial: el anverso y reverso pertenecen al mismo objeto y tienen tamaño equiparable, pero sus superficies fueron trabajadas con técnicas o intensidades distintas — un indicador morfométrico objetivo de especialización tecnológica.
+    </div>
+  </div>
+</div>
+
+<!-- ── SECCIÓN XIV ──────────────────────────────────────────────── -->
+<div class="section" id="sec-XIV">
+  <div class="section-header">
+    <span class="section-num">XIV</span>
+    <h2>Métricas de Textura de Superficie</h2>
+  </div>
+  <p>A diferencia de las métricas de rugosidad del contorno (sección V), que operan sobre el polígono del borde, las métricas de textura de superficie analizan los <strong>píxeles internos</strong> del objeto. Para cada pixel p<sub>i</sub> que pertenece al objeto (según la máscara binaria de detección), se extrae su luminosidad L<sub>i</sub> del canal de gris de la imagen original. Las tres métricas derivadas caracterizan la distribución tonal y la variabilidad espacial interna de la superficie.</p>
+
+  <div class="formula-block">
+    <div class="formula-name">Luminosidad del pixel — conversión a escala de grises</div>
+    <div class="formula-expr">L<sub>i</sub> = 0.299 · R<sub>i</sub> + 0.587 · G<sub>i</sub> + 0.114 · B<sub>i</sub></div>
+    <div class="formula-def">
+      <span>R<sub>i</sub>, G<sub>i</sub>, B<sub>i</sub></span> = componentes de color del pixel i en el espacio sRGB [0, 255]<br>
+      Ponderación fotométrica ITU-R BT.601 — aproxima la sensibilidad espectral del ojo humano.<br>
+      Solo se procesan los píxeles con valor de máscara binaria m<sub>i</sub> = 1 (interior del objeto).
+    </div>
+  </div>
+
+  <div class="formula-block">
+    <div class="formula-name">Luminosidad media interna</div>
+    <div class="formula-expr">L̄ = (1/N) Σ<sub>i∈obj</sub> L<sub>i</sub></div>
+    <div class="formula-def">
+      <span>N</span> = número total de píxeles del objeto: N = |{i : m<sub>i</sub> = 1}|<br>
+      Media aritmética sobre todos los píxeles interiores de la máscara.
+    </div>
+    <div class="formula-range"><strong>Rango:</strong> [0, 255] · 0 = superficie totalmente oscura · 255 = totalmente clara</div>
+  </div>
+
+  <div class="subsection">
+    <h3>Varianza Interna (σ²)</h3>
+
+    <div class="formula-block">
+      <div class="formula-name">Varianza interna — segundo momento central de la luminosidad</div>
+      <div class="formula-expr">σ² = (1/N) Σ<sub>i∈obj</sub> (L<sub>i</sub> − L̄)²</div>
+      <div class="formula-def">
+        Medida de <em>dispersión tonal</em>: cuán heterogénea es la distribución de luminosidad sobre la superficie del objeto.<br>
+        σ² → 0 implica superficie tonal uniforme (todos los píxeles con luminosidad similar a L̄).<br>
+        σ² alto implica presencia simultánea de zonas claras y oscuras bien diferenciadas.
+      </div>
+      <div class="formula-range"><strong>Unidad:</strong> niveles de gris² · <strong>Rango:</strong> [0, ≈16 384] · σ² &lt; 100: homogénea · σ² &gt; 1 000: muy heterogénea</div>
+    </div>
+
+    <table class="threshold-table">
+      <thead><tr><th>Valor σ²</th><th>Clasificación</th><th>Ejemplos arqueológicos</th></tr></thead>
+      <tbody>
+        <tr class="t-opt"><td>&lt; 100</td><td>Superficie muy homogénea (pulida)</td><td>Obsidiana pulida, cerámica vidriada, sílex fino</td></tr>
+        <tr class="t-ok"><td>100 – 400</td><td>Superficie moderada</td><td>Sílex retocado, cerámica alisada, cuarcita</td></tr>
+        <tr class="t-mid"><td>400 – 1 000</td><td>Superficie heterogénea</td><td>Arenisca, piedra caliza, cerámica basta</td></tr>
+        <tr class="t-bad"><td>1 000 – 3 000</td><td>Muy heterogénea</td><td>Granito, superficies con costras o depósitos</td></tr>
+        <tr class="t-err"><td>&gt; 3 000</td><td>Contrastes extremos</td><td>Objetos bicolores, incrustaciones contrastantes</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="subsection">
+    <h3>Entropía de Superficie (H)</h3>
+
+    <div class="formula-block">
+      <div class="formula-name">Entropía de Shannon sobre el histograma de luminosidad interna</div>
+      <div class="formula-expr">H = −Σ<sub>k=0</sub><sup>255</sup> p<sub>k</sub> · log<sub>2</sub>(p<sub>k</sub>)</div>
+      <div class="formula-def">
+        <span>p<sub>k</sub></span> = frecuencia relativa de píxeles con luminosidad discreta k dentro de la máscara:<br>
+        p<sub>k</sub> = n<sub>k</sub> / N,&nbsp; donde n<sub>k</sub> = |{i ∈ obj : ⌊L<sub>i</sub>⌋ = k}|<br>
+        La suma corre sobre los 256 niveles (histograma de resolución 1 bit de gris).<br>
+        Por convenio: 0 · log<sub>2</sub>(0) ≡ 0 (límite evaluado por la regla de l'Hôpital).
+      </div>
+      <div class="formula-range"><strong>Unidad:</strong> bits · <strong>Rango:</strong> [0, 8] · H = 0: superficie de un solo tono · H = 8: distribución perfectamente uniforme en los 256 niveles</div>
+    </div>
+
+    <div class="callout callout-info">
+      <strong>Interpretación física:</strong> La entropía cuantifica la <em>complejidad tonal</em> de la superficie. Una superficie pulida y uniforme tiene entropía baja (pocos niveles de gris representados con alta frecuencia). Una superficie con venas minerales, estrías pronunciadas, incrustaciones o depósitos diferenciados tiene entropía alta — muchos niveles de gris distintos con distribución aproximadamente uniforme.
+    </div>
+
+    <table class="threshold-table">
+      <thead><tr><th>H (bits)</th><th>Clasificación</th><th>Significado</th></tr></thead>
+      <tbody>
+        <tr class="t-opt"><td>&lt; 4.0</td><td>Complejidad tonal simple</td><td>Materia prima homogénea, superficie pulida</td></tr>
+        <tr class="t-ok"><td>4.0 – 5.5</td><td>Complejidad moderada</td><td>Materia prima con ligeras bandas o vetas</td></tr>
+        <tr class="t-mid"><td>5.5 – 6.5</td><td>Superficie tonalmente diversa</td><td>Multimineralismo, depósitos superficiales</td></tr>
+        <tr class="t-bad"><td>&gt; 6.5</td><td>Complejidad tonal alta</td><td>Incrustaciones, costras diferenciales, mezcla de materiales</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="subsection">
+    <h3>Gradiente Medio — Operador de Sobel (Ḡ)</h3>
+
+    <div class="formula-block">
+      <div class="formula-name">Gradiente local — kernel de Sobel 3×3</div>
+      <div class="formula-expr">G<sub>x</sub>(i) = [−1, 0, +1; −2, 0, +2; −1, 0, +1] ∗ <em>L</em>(i)</div>
+      <div class="formula-expr">G<sub>y</sub>(i) = [−1, −2, −1; 0, 0, 0; +1, +2, +1] ∗ <em>L</em>(i)</div>
+      <div class="formula-expr">G(i) = √(G<sub>x</sub>(i)² + G<sub>y</sub>(i)²)</div>
+      <div class="formula-def">
+        <span>∗</span> = convolución discreta entre el kernel y el vecindario 3×3 centrado en el pixel i<br>
+        <span>G<sub>x</sub>(i)</span> = respuesta al gradiente horizontal (cambios de luminosidad en dirección x)<br>
+        <span>G<sub>y</sub>(i)</span> = respuesta al gradiente vertical (cambios de luminosidad en dirección y)<br>
+        <span>G(i)</span> = magnitud del gradiente en el pixel i — detecta bordes internos en todas las direcciones<br>
+        Solo se procesan píxeles m<sub>i</sub> = 1 con vecindario 3×3 completamente dentro de la máscara.
+      </div>
+    </div>
+
+    <div class="formula-block">
+      <div class="formula-name">Gradiente Medio Ḡ — media sobre el interior erosionado</div>
+      <div class="formula-expr">Ḡ = (1/N') Σ<sub>i∈obj'</sub> G(i)</div>
+      <div class="formula-def">
+        <span>N'</span> = número de píxeles del objeto con vecindario 3×3 completamente interno a la máscara (excluye el borde de un pixel de anchura de la máscara del objeto)<br>
+        <span>obj'</span> = conjunto interior erosionado — evita sesgos del borde externo del objeto<br>
+        Media aritmética de la magnitud del gradiente de Sobel sobre todos los píxeles interiores válidos.
+      </div>
+      <div class="formula-range"><strong>Unidad:</strong> niveles de gris/pixel · <strong>Rango:</strong> [0, ≈360] · Ḡ → 0: superficie internamente lisa · Ḡ alto: estrías, costillas, bordes internos marcados</div>
+    </div>
+
+    <table class="threshold-table">
+      <thead><tr><th>Ḡ</th><th>Clasificación</th><th>Interpretación</th></tr></thead>
+      <tbody>
+        <tr class="t-opt"><td>&lt; 5</td><td>Superficie internamente muy lisa</td><td>Pulido intenso, sin variaciones tonales bruscas</td></tr>
+        <tr class="t-ok"><td>5 – 15</td><td>Gradiente moderado</td><td>Ligeras variaciones, materia prima levemente bandeada</td></tr>
+        <tr class="t-mid"><td>15 – 35</td><td>Bordes internos frecuentes</td><td>Estrías de talla, costillas, inclusiones minerales</td></tr>
+        <tr class="t-bad"><td>&gt; 35</td><td>Alta densidad de bordes internos</td><td>Superficie muy estriada, incrustaciones gruesas, depósitos diferenciados</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout callout-tip">
+      <strong>Relación con la rugosidad del contorno (§V):</strong> La rugosidad ρ mide la irregularidad del <em>borde externo</em>; el gradiente medio Ḡ mide la densidad de transiciones tonales en el <em>interior</em> del objeto. Combinados, permiten distinguir objetos con borde suave pero superficie internamente heterogénea — patrón propio de sílex con bandas minerales paralelas o cerámicas con engobes irregulares, imposible de detectar analizando únicamente el contorno.
+    </div>
+  </div>
+</div>
+
+<!-- ── SECCIÓN XV ──────────────────────────────────────────────── -->
+<div class="section" id="sec-XV">
+  <div class="section-header">
+    <span class="section-num">XV</span>
+    <h2>Refinamiento Adaptativo de Máscara por Textura</h2>
+  </div>
+  <p>Antes de extraer el contorno real del objeto, MAO Plus aplica opcionalmente un paso de refinamiento de la máscara binaria de detección. El objetivo es excluir de la máscara los píxeles del borde del objeto que pertenecen al fondo pero quedaron incluidos por la umbralización inicial, mejorando la precisión del contorno extraído y, por consiguiente, la exactitud de todas las métricas morfométricas derivadas.</p>
+
+  <div class="subsection">
+    <h3>Estimación de la luminosidad del fondo — muestreo del marco exterior</h3>
+
+    <div class="formula-block">
+      <div class="formula-name">Luminosidad media del fondo L̄<sub>fondo</sub></div>
+      <div class="formula-expr">L̄<sub>fondo</sub> = (1/n<sub>b</sub>) Σ<sub>i∈borde(2px)</sub> L<sub>i</sub></div>
+      <div class="formula-def">
+        <span>borde(2px)</span> = conjunto de píxeles que forman el marco de anchura 2 en el perímetro del canvas del objeto (región de interés recortada de la imagen original)<br>
+        <span>n<sub>b</sub></span> = número total de píxeles del marco exterior<br>
+        <span>L<sub>i</sub></span> = luminosidad del pixel i (ponderación ITU-R BT.601, idéntica a §XIV)<br>
+        La estimación asume que el borde de la región de interés corresponde al fondo real — condición cumplida siempre que el objeto no ocupe toda la región de captura.
+      </div>
+      <div class="formula-range"><strong>Propiedad:</strong> no requiere conocer a priori el color del fondo — lo estima directamente de los datos de imagen, sin intervención del usuario</div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Umbral adaptativo de refinamiento</h3>
+
+    <div class="formula-block">
+      <div class="formula-name">Umbral de luminosidad adaptativo U</div>
+      <div class="formula-expr">U = L̄<sub>obj</sub> + 0.60 × (L̄<sub>fondo</sub> − L̄<sub>obj</sub>)</div>
+      <div class="formula-def">
+        <span>L̄<sub>obj</sub></span> = luminosidad media interna del objeto (calculada en §XIV como paso previo al refinamiento)<br>
+        <span>L̄<sub>fondo</sub></span> = luminosidad media del fondo estimada por muestreo del marco exterior<br>
+        El factor 0.60 ubica el umbral al 60% del recorrido desde el centro tonal del objeto hacia el tono del fondo — excluye los píxeles significativamente más próximos al tono del fondo que al del objeto.
+      </div>
+      <div class="formula-range"><strong>Propiedad:</strong> el umbral se escala automáticamente al contraste objeto–fondo real de cada imagen — no depende de un valor absoluto de gris preestablecido</div>
+    </div>
+
+    <div class="formula-block">
+      <div class="formula-name">Aplicación del umbral — re-binarización selectiva de la máscara</div>
+      <div class="formula-expr">m'<sub>i</sub> = <em>{ 1 si m<sub>i</sub> = 1 ∧ L<sub>i</sub> ≤ U,&nbsp; 0 en caso contrario }</em></div>
+      <div class="formula-def">
+        <span>m<sub>i</sub></span> = valor de la máscara binaria original en el pixel i (1 = objeto, 0 = fondo)<br>
+        <span>m'<sub>i</sub></span> = valor de la máscara refinada<br>
+        Los píxeles interiores a la máscara original con luminosidad superior al umbral U (demasiado claros, visualmente pertenecientes al fondo) se reclasifican como fondo (0 → eliminados).
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Condiciones de activación — cuatro guardias simultáneas</h3>
+    <p>El refinamiento se activa <em>únicamente</em> cuando se satisfacen simultáneamente las cuatro condiciones siguientes. Si cualquiera falla, la máscara original se conserva sin modificación y las métricas morfométricas se calculan sobre el contorno no refinado:</p>
+
+    <table>
+      <thead><tr><th>#</th><th>Condición</th><th>Fundamento</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><em>σ² ≥ 400</em> (σ ≥ 20 niveles de gris)</td><td>El objeto es suficientemente heterogéneo para que el umbral tonal sea discriminante. Objetos muy homogéneos (σ² &lt; 400) serían sobre-erosionados al aplicar la binarización.</td></tr>
+        <tr><td>2</td><td><em>L̄<sub>fondo</sub> ≥ 200</em></td><td>El fondo es blanco o muy claro. Fondos oscuros, neutros o cromáticos (verde croma, negro, gris 50%) quedan excluidos — el umbral construido hacia luminosidades altas no distinguiría correctamente el objeto del fondo oscuro.</td></tr>
+        <tr><td>3</td><td><em>L̄<sub>obj</sub> ≤ L̄<sub>fondo</sub> − 25</em></td><td>El objeto es apreciablemente más oscuro que el fondo. Si ambos tienen tonalidad similar, el umbral no puede discriminar entre píxeles del borde del objeto y del fondo adyacente.</td></tr>
+        <tr><td>4</td><td><em>n<sub>refinado</sub> / n<sub>orig</sub> ≥ 0.60</em></td><td>Red de seguridad: si el refinamiento eliminaría más del 40% de los píxeles originales de la máscara, se cancela — indicaría que el umbral es excesivamente agresivo y estaría erosionando material real del objeto junto con el ruido de borde.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout callout-info">
+      <strong>Diseño conservador:</strong> Las condiciones 2 y 3 garantizan que el refinamiento solo se activa con fondo blanco o muy claro y objeto claramente distinguible. La condición 4 actúa como red de seguridad independiente del valor del umbral. Este diseño hace el algoritmo robusto ante casos atípicos sin requerir intervención del usuario ni configuración del tipo de fondo.
+    </div>
+  </div>
+
+  <div class="subsection">
+    <h3>Comportamiento por tipo de fondo</h3>
+    <table class="threshold-table">
+      <thead><tr><th>Tipo de fondo</th><th>L̄<sub>fondo</sub> típico</th><th>Activación del refinamiento</th></tr></thead>
+      <tbody>
+        <tr class="t-opt"><td>Fondo blanco puro</td><td>~252</td><td>Activo si σ² ≥ 400 y objeto suficientemente oscuro</td></tr>
+        <tr class="t-ok"><td>Fondo gris claro (~220)</td><td>~220</td><td>Activo con margen de contraste reducido</td></tr>
+        <tr class="t-mid"><td>Fondo gris medio (~180)</td><td>~180</td><td>Bloqueado — condición 2 no se cumple (L̄<sub>fondo</sub> &lt; 200)</td></tr>
+        <tr class="t-bad"><td>Fondo negro</td><td>~8</td><td>Bloqueado — condición 2 no se cumple</td></tr>
+        <tr class="t-err"><td>Fondo verde croma / azul croma</td><td>~80–120</td><td>Bloqueado — condición 2 no se cumple</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="subsection">
+    <h3>Integración en el flujo de extracción de contorno</h3>
+    <div class="formula-group">
+      <div class="formula-group-header">Secuencia de operaciones en calcularMetricasMorfologicas(obj)</div>
+      <div class="formula-row">
+        <div class="fr-label">Paso 1</div>
+        <div class="fr-expr"><em>calcularTexturaSuperficie(obj)</em> → σ², H, Ḡ, L̄<sub>obj</sub> y vector de píxeles internos</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Paso 2</div>
+        <div class="fr-expr"><em>refinarMascaraPorTextura(obj, textura)</em> → máscara m' refinada (o null si condiciones no se cumplen)</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Paso 3</div>
+        <div class="fr-expr"><em>extraerContornoReal(obj, {mascaraAdaptativa: m' ∥ m})</em> → polígono del contorno</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Paso 4</div>
+        <div class="fr-expr">Cálculo de todas las métricas morfométricas (§I–XII) sobre el contorno extraído</div>
+      </div>
+      <div class="formula-row">
+        <div class="fr-label">Paso 5</div>
+        <div class="fr-expr">Reutilización de σ², H, Ḡ del Paso 1 → almacenados en <em>metrics.varianza_interna, entropia_superficie, gradiente_medio</em></div>
+      </div>
+    </div>
+
+    <div class="callout callout-tip">
+      <strong>Optimización de cómputo:</strong> las métricas de textura de superficie (§XIV) se calculan <em>una sola vez</em> antes de la extracción del contorno y se reutilizan al final. El Paso 2 consume L̄<sub>obj</sub> del Paso 1; el Paso 5 almacena σ², H y Ḡ como métricas definitivas sin recálculo. Esto garantiza coherencia numérica entre el proceso de refinamiento y los valores reportados en el CSV y el informe PDF.
+    </div>
+    <div class="callout callout-info">
+      <strong>Objetos detectados por MAO IA:</strong> Los objetos generados por el módulo AIA (<code>_samSegmented = true</code>) <em>omiten el Paso 3</em> — la re-extracción de contorno. El contorno fue calculado por el pipeline AIA y se entrega directamente al Paso 4. Las métricas de textura (§XIV) sí se calculan sobre la imagen original del objeto. El campo <code>analysis_method</code> toma el valor <code><strong>MAO IA — Detección automática</strong></code> (distinguible de <code>Contorno Real Extraído [REAL]</code>). En modo bifacial, los objetos de cara A y cara B se preservan de forma independiente y quedan disponibles simultáneamente al cerrar el modal AIA.
+    </div>
+  </div>
+</div>
+
+</div><!-- /content -->
+
+<!-- ══════════════════════════════════════════════════════════════════
+     PIE DE PÁGINA
+═══════════════════════════════════════════════════════════════════ -->
+<div class="footer">
+  <strong>MAO Plus v1.3.0</strong> — Morphological Analysis &amp; Objects<br>
+  Formulario de métricas morfométricas — Análisis morfométrico de objetos arqueológicos<br>
+  Aplicación en desarrollo por JFRR/PABD
+</div>
+
+</div><!-- /page-wrapper -->
+
+</body>
+</html>

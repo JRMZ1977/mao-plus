@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glosario Tecnico de Terminos Morfometricos - MAO Plus</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #1a202c;
+    background: #f7f8fa;
+  }
+  .page-wrapper { max-width: 900px; margin: 0 auto; background: #fff; }
+
+  .cover {
+    background: #fff;
+    color: #1a202c;
+    padding: 64px 64px 52px;
+    border-top: 5px solid #1a202c;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .cover-super { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: #718096; margin-bottom: 20px; }
+  .cover-header { display: flex; align-items: center; gap: 22px; margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid #e2e8f0; }
+  .cover-wordmark-title { font-size: 26px; font-weight: 800; color: #1a202c; line-height: 1.1; letter-spacing: -0.5px; }
+  .cover-wordmark-title span { color: #2b6cb0; }
+  .cover-wordmark-sub { font-size: 11px; color: #718096; letter-spacing: 0.3px; margin-top: 5px; }
+  .cover h1 { font-size: 36px; font-weight: 800; line-height: 1.1; margin-bottom: 10px; color: #1a202c; letter-spacing: -0.5px; }
+  .cover-subtitle { font-size: 15px; color: #4a5568; margin-bottom: 36px; font-weight: 400; }
+  .cover-meta { display: flex; gap: 40px; flex-wrap: wrap; padding-top: 24px; border-top: 1px solid #e2e8f0; }
+  .cover-meta-item .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #718096; }
+  .cover-meta-item .value { font-size: 14px; color: #1a202c; font-weight: 700; }
+  .cover-badge { display: inline-block; background: #f7fafc; border: 1px solid #cbd5e0; border-radius: 4px; padding: 5px 14px; font-size: 11px; letter-spacing: 0.8px; color: #4a5568; margin-bottom: 32px; text-transform: uppercase; }
+  .cover-icon { display: block; width: 80px; height: 80px; object-fit: contain; border-radius: 18px; box-shadow: 0 2px 16px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.05); flex-shrink: 0; }
+
+  .toc { padding: 40px 64px; background: #f0f4f8; border-bottom: 2px solid #e2e8f0; }
+  .toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 2px; color: #718096; margin-bottom: 20px; }
+  .toc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 40px; }
+  .toc-entry { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; color: #2d3748; text-decoration: none; }
+  .toc-entry:hover { color: #4a5568; }
+  .toc-num { font-weight: 700; color: #718096; font-size: 11px; min-width: 24px; }
+  .toc-dots { flex: 1; border-bottom: 1px dotted #cbd5e0; min-width: 20px; }
+
+  .content { padding: 48px 64px; }
+  .section { margin-bottom: 56px; }
+  .section-header { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid #e2e8f0; }
+  .section-num { background: #2d3748; color: #fff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 4px; letter-spacing: 0.5px; flex-shrink: 0; }
+  .section h2 { font-size: 20px; font-weight: 700; color: #2d3748; }
+
+  .subsection { margin-bottom: 24px; }
+  .subsection h3 { font-size: 13px; font-weight: 700; color: #4a5568; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; padding: 8px 14px; background: #edf2f7; border-left: 3px solid #4a5568; border-radius: 0 4px 4px 0; }
+  p { color: #4a5568; margin-bottom: 10px; }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 12px; }
+  thead tr { background: #2d3748; color: #fff; }
+  thead th { padding: 8px 12px; text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; }
+  tbody tr:nth-child(even) { background: #f7f8fa; }
+  tbody tr:hover { background: #edf2f7; }
+  tbody td { padding: 8px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; color: #2d3748; }
+
+  .callout { padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 12.5px; line-height: 1.55; }
+  .callout-info  { background: #ebf8ff; border-left: 3px solid #3182ce; color: #2c5282; }
+  .callout-warn  { background: #fffbeb; border-left: 3px solid #d69e2e; color: #744210; }
+  .callout-tip   { background: #f0fff4; border-left: 3px solid #38a169; color: #22543d; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0 18px; }
+  .card { background: #f7f8fa; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; }
+  .card h4 { font-size: 12px; font-weight: 700; color: #2d3748; margin-bottom: 6px; }
+  .card p  { font-size: 11.5px; color: #718096; margin: 0; line-height: 1.5; }
+
+  ul { margin: 6px 0 14px 20px; }
+  li { margin-bottom: 6px; color: #2d3748; }
+  code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 11px; background: #edf2f7; padding: 2px 6px; border-radius: 3px; color: #2b6cb0; }
+
+  .footer { background: #2d3748; color: #ffffff; text-align: center; padding: 24px 40px; font-size: 11px; line-height: 1.8; }
+
+  @media print {
+    body { background: #fff; font-size: 11px; }
+    .page-wrapper { max-width: 100%; box-shadow: none; }
+    .cover, .section-num, thead tr, .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .section { page-break-inside: avoid; }
+    h2, h3 { page-break-after: avoid; }
+    .no-print { display: none; }
+  }
+  .print-btn {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    background: #2d3748;
+    color: #fff;
+    border: none;
+    padding: 12px 22px;
+    border-radius: 30px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    z-index: 100;
+  }
+  .print-btn:hover { background: #4a5568; }
+</style>
+</head>
+<body>
+
+<button class="print-btn no-print" onclick="window.print()">Exportar PDF</button>
+
+<div class="page-wrapper">
+  <div class="cover">
+    <div class="cover-header">
+      <img src="icon.png" alt="MAO Plus" class="cover-icon">
+      <div>
+        <div class="cover-wordmark-title">MAO <span>Plus</span></div>
+        <div class="cover-wordmark-sub">Morphological Analysis &amp; Objects</div>
+      </div>
+    </div>
+    <div class="cover-super">Documento de referencia terminologica</div>
+    <h1>Glosario Tecnico MAO</h1>
+    <div class="cover-subtitle">Estandar de terminos para morfometria arqueologica en UI, reportes, exportes y API</div>
+    <div class="cover-badge">Version canonica v1 · 2D + 3D + bifacial</div>
+    <div class="cover-meta">
+      <div class="cover-meta-item"><div class="label">Version</div><div class="value">MAO Plus v1.3+</div></div>
+      <div class="cover-meta-item"><div class="label">Fecha</div><div class="value">Mayo 2026</div></div>
+      <div class="cover-meta-item"><div class="label">Dominio</div><div class="value">Arqueologia · Morfometria</div></div>
+      <div class="cover-meta-item"><div class="label">Uso</div><div class="value">UI · CSV · JSON · Documentacion</div></div>
+    </div>
+  </div>
+
+  <div class="toc">
+    <h2>Indice</h2>
+    <div class="toc-grid">
+      <a class="toc-entry" href="#s1"><span class="toc-num">I</span>Principios del glosario<span class="toc-dots"></span></a>
+      <a class="toc-entry" href="#s4"><span class="toc-num">IV</span>Terminos 3D y PCA<span class="toc-dots"></span></a>
+      <a class="toc-entry" href="#s2"><span class="toc-num">II</span>Terminos 2D canonicos<span class="toc-dots"></span></a>
+      <a class="toc-entry" href="#s5"><span class="toc-num">V</span>Bifacialidad y caras<span class="toc-dots"></span></a>
+      <a class="toc-entry" href="#s3"><span class="toc-num">III</span>Perforaciones y horadaciones<span class="toc-dots"></span></a>
+      <a class="toc-entry" href="#s6"><span class="toc-num">VI</span>Reglas de uso rapido<span class="toc-dots"></span></a>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <div class="section" id="s1">
+      <div class="section-header">
+        <div class="section-num">I</div>
+        <h2>Principios del glosario</h2>
+      </div>
+      <div class="callout callout-info">
+        Este glosario define como deben nombrarse las metricas y conceptos en MAO Plus para mantener coherencia metodologica y evitar confusiones entre metricas 2D, indicadores 3D y terminos de interfaz.
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <h4>Regla de prioridad</h4>
+          <p>En textos para usuario, mostrar primero el termino canonico en espanol. Si se necesita alias en ingles, incluirlo entre parentesis.</p>
+        </div>
+        <div class="card">
+          <h4>Regla de no mezcla</h4>
+          <p>No usar metricas 3D PCA (linearity, sphericity) como si fueran metricas 2D (elongacion, circularidad).</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="section" id="s2">
+      <div class="section-header">
+        <div class="section-num">II</div>
+        <h2>Terminos 2D canonicos</h2>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Termino canonico</th>
+            <th>Alias permitido</th>
+            <th>Evitar como etiqueta principal</th>
+            <th>Definicion operativa</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Relacion de aspecto</td>
+            <td>AR</td>
+            <td>Aspect ratio</td>
+            <td>Eje mayor / eje menor</td>
+          </tr>
+          <tr>
+            <td>Elongacion</td>
+            <td>Elongacion normalizada</td>
+            <td>Elongation (solo EN)</td>
+            <td>Indice de alargamiento normalizado en [0,1] cuando aplica</td>
+          </tr>
+          <tr>
+            <td>Circularidad</td>
+            <td>-</td>
+            <td>Circularity como etiqueta unica</td>
+            <td>4*pi*Area / Perimetro^2</td>
+          </tr>
+          <tr>
+            <td>Solidez</td>
+            <td>-</td>
+            <td>Solidity como etiqueta unica</td>
+            <td>Area real / area del envolvente convexo (hull)</td>
+          </tr>
+          <tr>
+            <td>Convexidad</td>
+            <td>-</td>
+            <td>Convexity como etiqueta unica</td>
+            <td>Relacion entre contorno convexo y contorno real</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section" id="s3">
+      <div class="section-header">
+        <div class="section-num">III</div>
+        <h2>Perforaciones y horadaciones</h2>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Termino</th>
+            <th>Codigo</th>
+            <th>Definicion</th>
+            <th>Evitar</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Perforacion</td>
+            <td>P</td>
+            <td>Abertura pasante que conecta caras opuestas</td>
+            <td>Hueco (ambiguo)</td>
+          </tr>
+          <tr>
+            <td>Horadacion</td>
+            <td>H</td>
+            <td>Depresion no pasante o cavidad superficial</td>
+            <td>Hueco (ambiguo)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-warn">
+        Cuando no se conozca el tipo de vacio aun, usar "vacio" solo de forma temporal en diagnostico interno, nunca como etiqueta final en reportes.
+      </div>
+    </div>
+
+    <div class="section" id="s4">
+      <div class="section-header">
+        <div class="section-num">IV</div>
+        <h2>Terminos 3D y PCA</h2>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Termino 3D</th>
+            <th>Uso correcto</th>
+            <th>No equivalente automatico con</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Linealidad (PCA)</td>
+            <td>Describe dominancia del eje principal en nube 3D</td>
+            <td>Elongacion 2D</td>
+          </tr>
+          <tr>
+            <td>Esfericidad (PCA/3D)</td>
+            <td>Describe proximidad volumetrica a forma esferica</td>
+            <td>Circularidad 2D</td>
+          </tr>
+          <tr>
+            <td>Planaridad</td>
+            <td>Describe tendencia de puntos a un plano</td>
+            <td>Rectangularidad 2D</td>
+          </tr>
+          <tr>
+            <td>Anisotropia</td>
+            <td>Contraste direccional de forma 3D</td>
+            <td>Relacion de aspecto 2D</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section" id="s5">
+      <div class="section-header">
+        <div class="section-num">V</div>
+        <h2>Bifacialidad y caras</h2>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Termino canonico</th>
+            <th>Alias</th>
+            <th>Regla de presentacion</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Anverso / Reverso</td>
+            <td>FRONT / BACK</td>
+            <td>En UI final: "Anverso/Reverso (FRONT/BACK)" cuando haya modo bilingue</td>
+          </tr>
+          <tr>
+            <td>Balance bifacial</td>
+            <td>Bifacial balance</td>
+            <td>Reportar con componentes (area, perimetro, forma)</td>
+          </tr>
+          <tr>
+            <td>Homologia bifacial</td>
+            <td>Bifacial homology index</td>
+            <td>No confundir con CI/CMS si el modo no lo activa</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-tip">
+        Para consistencia metodologica, usar siempre la misma pareja semantica de caras en toda la vista: no mezclar "Cara A/B" con "Front/Back" sin equivalencia explicita en la misma pantalla.
+      </div>
+    </div>
+
+    <div class="section" id="s6">
+      <div class="section-header">
+        <div class="section-num">VI</div>
+        <h2>Reglas de uso rapido</h2>
+      </div>
+
+      <div class="subsection">
+        <h3>Checklist para UI y reportes</h3>
+        <ul>
+          <li>Usar "Relacion de aspecto (AR)" como etiqueta principal.</li>
+          <li>Mantener "Elongacion" para indice normalizado, no para linealidad PCA.</li>
+          <li>Mostrar "Anverso/Reverso (FRONT/BACK)" en contexto bilingue.</li>
+          <li>Diferenciar siempre Perforacion (P) y Horadacion (H).</li>
+          <li>No usar terminos ambiguos como etiqueta final (ejemplo: "hueco").</li>
+        </ul>
+      </div>
+
+      <div class="subsection">
+        <h3>Aplicacion recomendada</h3>
+        <p>Este glosario debe consultarse antes de editar archivos de interfaz, exportacion CSV/JSON y documentacion tecnica. Se recomienda versionar cambios semanticos con nota de migracion.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footer">
+    MAO Plus - Glosario Tecnico Canonico<br>
+    Consistencia terminologica para morfometria arqueologica 2D/3D y flujos bifaciales
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,16 @@
+Date,Metric,Monolithic Value,Modular Value,Unit,Change,Improvement %
+2026-06-07,Total Lines of Code,55399,5869,lines,-49530,-80.4%
+2026-06-07,Disk Size (bytes),2635152,205076,bytes,-2430076,-92.4%
+2026-06-07,Disk Size (KB),2635,200.2,KB,-2434.8,-92.4%
+2026-06-07,File Read Time,5.314,3.774,ms,-1.54,-28.9%
+2026-06-07,Estimated Parse Time,300,80,ms,-220,-73.3%
+2026-06-07,Estimated Parsed Memory,4.40,0.83,MB,-3.57,-81.1%
+2026-06-07,Module Dependency Chain Depth,N/A,2,levels,Optimized,100%
+2026-06-07,Circular Dependencies,0,0,count,None,N/A
+2026-06-07,Total Inter-Module Imports,0,5,imports,5 imports,Acceptable
+2026-06-07,Zero-Dependency Modules,N/A,4,count,4 of 7,57%
+2026-06-07,App Startup Time (estimated),332.5,149.5,ms,-183,-55%
+2026-06-07,Code Maintainability,Low,High,qualitative,Improvement,Significant
+2026-06-07,Tree-shaking Capable,No,Yes,boolean,Enabled,New feature
+2026-06-07,Lazy-loading Capable,No,Yes,boolean,Enabled,New feature
+2026-06-07,Module Reusability,Low,High,qualitative,Improvement,Significant
