@@ -20369,8 +20369,16 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       <tr><td style="${eTd}"><b>Cara</b></td><td style="${eTd}">${ref.cara || 'Monofacial'}</td></tr>
       <tr><td style="${eTd}"><b>Fecha análisis</b></td><td style="${eTd}">${ref.timestamp ? ref.timestamp.slice(0,10) : 'N/A'}</td></tr>
       <tr><td style="${eTd}"><b>Forma detectada</b></td><td style="${eTd}">${m.forma_detectada || 'N/A'}</td></tr>
-      <tr><td style="${eTd}"><b>Método detección</b></td><td style="${eTd}">${m.detection_method || 'N/A'}</td></tr>
-      <tr><td style="${eTd}"><b>Confianza detección</b></td><td style="${eTd}">${m.confidence_level || '—'} (${m.detection_confidence != null ? Number(m.detection_confidence).toFixed(3) : 'N/A'})</td></tr>
+      <tr><td style="${eTd}"><b>Método detección</b></td><td style="${eTd}">${
+        // ADR-016 #5: cadena de claves — analysis-core escribe detection_method;
+        // objetos IA antiguos pueden tener detectionMethod o detection_mode.
+        m.detection_method || m.detectionMethod || m.detection_mode || 'N/A'
+      }</td></tr>
+      <tr><td style="${eTd}"><b>Confianza detección</b></td><td style="${eTd}">${
+        // ADR-016 #5: clave correcta es detection_confidence_level (no confidence_level).
+        // confidence_level era un alias divergente que siempre resolvía null en metricasFinal.
+        (m.detection_confidence_level || m.confidence_level || '—')
+      } (${m.detection_confidence != null ? Number(m.detection_confidence).toFixed(3) : 'N/A'})</td></tr>
     </tbody></table>
 
     ${visualBlock}
@@ -41037,6 +41045,30 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     console.log('✅ Validación de parámetros de escala exitosa');
     return true;
   }
+
+  function normalizeNumericInput(inputElement) {
+    if (!inputElement) return null;
+    const rawValue = `${inputElement.value || ''}`.trim().replace(/\s+/g, '').replace(',', '.');
+    if (!rawValue) {
+      inputElement.value = '';
+      return null;
+    }
+    const numericValue = Number(rawValue);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+      return null;
+    }
+    inputElement.value = rawValue;
+    return numericValue;
+  }
+
+  function validarParametrosEscalaParaGuardar() {
+    const distancia = normalizeNumericInput(distanciaInput);
+    if (!distancia) {
+      UtilityHelpers.setStatus('Error: Distancia lente-objeto inválida.', true);
+      return false;
+    }
+    return true;
+  }
   
   /**
    * Función asíncrona que ejecuta la detección de objetos
@@ -41954,8 +41986,8 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     });
     
     distanciaInput.addEventListener('blur', function() {
-      // Solo validar entrada - cálculo ahora es manual
-      if (this.value && parseFloat(this.value) > 0) {
+      normalizeNumericInput(distanciaInput);
+      if (distanciaInput.value && parseFloat(distanciaInput.value) > 0) {
         UtilityHelpers.setStatus('Distancia ingresada. Use "Calcular Escala" para proceder.', false);
       }
     });
@@ -41984,14 +42016,22 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
   }
 
   guardarConfigBtn.addEventListener('click', () => {
-    if(!validarEntradas()) return;
-    localStorage.setItem('cameraModel', cameraModelInput.value);
-    localStorage.setItem('focalLength', focalInput.value);
-    localStorage.setItem('aperture', apertureInput.value);
-    localStorage.setItem('sensorWidth', sensorWidthInput.value);
-    localStorage.setItem('sensorHeight', sensorHeightInput.value);
-    localStorage.setItem('distancia', distanciaInput.value);
-    UtilityHelpers.setStatus('Configuración guardada. Use "Calcular Escala"para aplicar cambios.', false);
+    if (!validarParametrosEscalaParaGuardar()) return;
+    try {
+      normalizeNumericInput(distanciaInput);
+      UtilityHelpers.guardarConfiguracion(
+        cameraModelInput,
+        focalInput,
+        apertureInput,
+        sensorWidthInput,
+        sensorHeightInput,
+        distanciaInput
+      );
+      UtilityHelpers.setStatus('Configuración guardada. Use "Calcular Escala" para aplicar cambios.', false);
+    } catch (err) {
+      console.error('❌ Error guardando configuración de escala:', err);
+      UtilityHelpers.setStatus(`Error guardando configuración: ${err.message}`, true);
+    }
     // Cálculo automático eliminado - ahora completamente manual
   });
 
