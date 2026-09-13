@@ -997,9 +997,28 @@ el *rótulo* inferÍa integridad a partir de la convexidad, y **la convexidad no
 una pieza lunada, denticulada o anular íntegra es cóncava por manufactura. El efecto era el que
 cabía esperar: toda pieza redonda entera se reportaba como fragmento (el *extent* de un círculo es
 $\pi/4=78{,}5\,\%$, por debajo del corte de 85). El campo se conserva con el nombre que describe lo
-que realmente calcula, `indice_convexidad_percent`, y el diagnóstico de completitud queda pendiente
-de la vía que sí puede sostenerlo: ajuste contra plantilla ideal (ADR-017 F1). Sigue siendo ⚠
-heurístico —los pesos $0{,}4/0{,}6$ son criterio experto— y debe leerse como índice de triaje.
+que realmente calcula, `indice_convexidad_percent`. Sigue siendo ⚠ heurístico —los pesos
+$0{,}4/0{,}6$ son criterio experto— y debe leerse como índice de triaje.
+
+El diagnóstico de completitud lo aporta ahora la vía que sí puede sostenerlo: **ajuste contra
+plantilla ideal** (ADR-017 **F1**, `python/modules/shape_template.py`, endpoint
+`POST /api/shape-match`). Se ajusta un modelo paramétrico —círculo por Kåsa (1976), elipse por
+Halíř & Flusser (1998)— **sólo al margen original** del contorno, aislado del borde de fractura por
+contigüidad del arco de inliers bajo RANSAC; la completitud es entonces la fracción de la longitud
+de arco de esa plantilla que el margen preservado cubre, medida **alrededor del centro ajustado**:
+
+$$\texttt{plantilla\_completitud}=100\;\Bigl(1-\frac{\sum_k \ell(\text{hueco}_k)}{L_{\text{plantilla}}}\Bigr)$$
+
+La referencia importa más que la fórmula. Medir esa cobertura alrededor del **centroide del
+fragmento** —lo que hacía el estimador retirado— es degenerado: todo contorno cerrado lo rodea 360°
+por construcción. Alrededor del centro *ajustado* no: en un medio disco ese centro cae sobre la
+cuerda de fractura, **fuera** del fragmento, y la cobertura vale 180°.
+
+Envolvente operativa medida (`python/tests/test_shape_template.py`): error ≤ 1 punto porcentual
+entre el 25 % y el 100 % preservado; por debajo de ~15 % de arco **rechaza** la plantilla en vez de
+estimar, y rechaza también la plantilla equivocada. El resultado se publica como
+`es_fragmento_candidato` —sugerencia a confirmar, no veredicto— porque en lítica la fractura se
+diagnostica por atributos de la cara ventral, no por la silueta (§ invariante ADR-009/ADR-017 §7).
 
 Esta corrección es un buen ejemplo del criterio que recorre todo el sistema y que conviene que el
 revisor conozca: **se conserva la medición y se retira el rótulo que diagnostica de más**
