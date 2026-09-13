@@ -171,6 +171,24 @@ console.log('\n=== G · nombre canónico por análisis (unificación) ==========
   ok(!nombres.some(n => /^\d/.test(n)), 'ninguno empieza por el id numérico');
 }
 
+console.log('\n=== I · sellado del ID arqueológico (P1) =======================');
+{
+  const S = sandbox({ valor: 'QP1_U1_N1_E1_01' });
+  const obj = { id: 1, cara: 'A' };
+  const n1 = S._baseNombreAnalisis(obj);
+  ok(n1 === 'QP1_U1_N1_E1_01_ca', 'primera llamada resuelve del formulario');
+  ok(obj.idArqueologico === 'QP1_U1_N1_E1_01_ca', 'y SELLA el id en el objeto');
+
+  // El formulario avanza a OTRO objeto: el sellado debe prevalecer
+  const S2 = sandbox({ valor: 'OTRO_OBJETO_99' });
+  ok(S2._baseNombreAnalisis(obj) === 'QP1_U1_N1_E1_01_ca',
+     'tras sellar, ya NO depende del formulario vivo');
+  ok(S2._baseNombreAnalisis({ id: 2 }) === 'OTRO_OBJETO_99',
+     'un objeto sin sellar sí usa el formulario');
+  ok(sandbox(null)._baseNombreAnalisis({ idArqueologico: 'X_01_ca' }) === 'X_01_ca',
+     'el sellado funciona sin formulario alguno');
+}
+
 console.log('\n=== H · tope de tiempo (_conTimeout) ===========================');
 {
   const { _conTimeout } = sandbox(null);

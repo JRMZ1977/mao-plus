@@ -406,8 +406,19 @@ class ProjectManager {
     const nombreObjeto = analysis.data?.nombreObjeto || analysis.data?.identificacion?.nombre || 'SinNombre';
     const nombreSanitizado = nombreObjeto.replace(/[^a-z0-9]/gi, '_').substring(0, 30);
     
-    // Nombre de carpeta: ID arqueológico del objeto (ej: QP1_U1_N1_E1_01_ca)
-    const idArqueologico = analysis.data?.id?.replace(/[^a-zA-Z0-9_-]/g, '_');
+    // Nombre de carpeta: ID arqueológico del objeto (ej: QP1_U1_N1_E1_01_ca).
+    //
+    // Prioridad `data.idArqueologico` (2026-09-13): es el ID SELLADO en el análisis,
+    // la misma fuente que usan la carpeta de resultados y los nombres de archivo.
+    // Sin él ambas rutas divergían: el análisis caía en `<proyecto>/1/` y sus
+    // exportables en `<proyecto>/resultados/QP1_U1_N1_E1_01/` — no eran hermanas.
+    //
+    // String(): `data.id` es NUMÉRICO en el flujo de detección automática y el `?.`
+    // no protege (1 es truthy), así que `1?.replace` lanzaba TypeError, lo tragaba
+    // el try/catch de esta función y el guardado fallaba con «Error al guardar
+    // archivos». Mismo defecto sistémico corregido en la ruta de exportación.
+    const idArqueologico = String(analysis.data?.idArqueologico ?? analysis.data?.id ?? '')
+      .replace(/[^a-zA-Z0-9_-]/g, '_');
     const analysisFolderName = idArqueologico || `${nombreSanitizado}_${analysisNumber}`;
     const analysisFolderPath = `${projectFolder}/${analysisFolderName}`;
     

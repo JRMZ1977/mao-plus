@@ -28389,14 +28389,25 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    */
   function _baseNombreAnalisis(obj = {}) {
     const sanear = (v) => String(v ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    // 1) ID SELLADO en el objeto: dato persistido, inmune a que el formulario
+    //    haya avanzado a otro objeto. Es la fuente preferente.
+    if (obj && obj.idArqueologico) return sanear(obj.idArqueologico);
+
+    // 2) Identificación viva del formulario. Se SELLA en el objeto la primera vez,
+    //    de modo que a partir de aquí ya no dependemos del estado vivo.
     const ident = (typeof obtenerIdentificacionActual === 'function')
       ? obtenerIdentificacionActual() : null;
-
     if (ident && ident.valor) {
       const base = sanear(ident.valor);
-      if (/_c[ab]$/i.test(base)) return base;            // ya trae la cara
-      return obj && obj.cara ? `${base}_c${String(obj.cara).toLowerCase()}` : base;
+      const conCara = /_c[ab]$/i.test(base)               // ya trae la cara
+        ? base
+        : (obj && obj.cara ? `${base}_c${String(obj.cara).toLowerCase()}` : base);
+      if (obj) obj.idArqueologico = conCara;
+      return conCara;
     }
+
+    // 3) Respaldos: id del objeto (numérico en detección automática) y número.
     const porId = sanear(obj && obj.id);
     if (porId) return porId;
     return sanear(`OBJ_${(obj && obj.numeroObjeto) ?? 'X'}`);
@@ -31462,6 +31473,11 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     // Extraer datos completos del análisis
     const datosAnalisis = {
       id: obj.id,
+      // ID arqueológico sellado: fuente ÚNICA para la carpeta del análisis, la de
+      // resultados y los nombres de archivo. Antes no se persistía en ninguna parte
+      // y cada ruta lo derivaba por su cuenta (unas del formulario vivo, otras de
+      // `obj.id`, que es numérico en detección automática) → carpetas desalineadas.
+      idArqueologico: _baseNombreAnalisis(obj),
       numeroObjeto: obj.numeroObjeto,
       cara: obj.cara,
       fechaAnalisis: new Date().toISOString(),

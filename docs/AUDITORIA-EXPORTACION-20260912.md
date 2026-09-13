@@ -1104,7 +1104,64 @@ el flujo IA/pestañas.
 
 ---
 
-## 12. Resumen ejecutivo
+## 12. Flujo de análisis: alinear guardado y exportación (2026-09-13)
+
+Al preparar el PR salieron dos comprobaciones que invalidaban la premisa de partida
+(«una carpeta hermana de la del análisis»).
+
+### 12.1 — El guardado de un análisis automático estaba roto
+
+`project-manager.js:410` hacía `analysis.data?.id?.replace(...)`, y `data.id` es `obj.id`:
+**numérico** en detección automática. El `?.` no protege —`1` es *truthy*— así que `1?.replace`
+lanzaba `TypeError`, lo tragaba el `try/catch` de `saveAnalysisFiles` y el guardado salía como
+«Error al guardar archivos». Mismo defecto sistémico del §11.3, pero en la ruta de **guardado**,
+que no se había tocado. **Corregido con `String(...)`.**
+
+### 12.2 — Las dos carpetas no eran hermanas
+
+El ID arqueológico **no se persistía en ninguna parte**: `_baseNombreAnalisis` lo leía del
+formulario y `saveAnalysisFiles` lo derivaba de `obj.id`. Dos fuentes para el mismo dato, con
+resultados distintos: el análisis habría caído en `<proyecto>/1/` y sus exportables en
+`<proyecto>/resultados/QP1_U1_N1_E1_01/`.
+
+**Solución — sellar el ID en el objeto.** Campo nuevo y **aditivo** `obj.idArqueologico`:
+
+1. `_baseNombreAnalisis` lo usa como fuente preferente; si no existe, lo calcula del formulario
+   y lo **sella** en el objeto. A partir de ahí deja de depender del estado vivo — cierra la
+   salvedad del §11.7.
+2. `guardarAnalisisMorfologico` lo persiste en `datosAnalisis`, de donde llega a `metadata.json`.
+3. `saveAnalysisFiles` lo prefiere sobre `data.id` para nombrar la carpeta del análisis.
+
+Deliberadamente **no** reescribe `obj.id`: eso es ADR-008 C2, diferido por riesgo alto (`id` es
+clave viva de join en ~17 `find(o => o.id === ...)`). Esto captura el beneficio con riesgo
+cercano a cero, y si algún día se aborda C2, `_baseNombreAnalisis` sigue siendo el único sitio.
+
+### 12.3 — Verificado en Electron
+
+```
+<proyecto>/
+├── QP1_U1_N1_E1_01/          ← datos del análisis  (metadata, métricas, geometría, imagenes/)
+│   └── imagenes/
+└── resultados/
+    └── QP1_U1_N1_E1_01/      ← exportables        (7 archivos + manifiesto)
+```
+
+Nombres **idénticos**: ahora sí son hermanas. `collection_index.json` registra
+`carpeta: QP1_U1_N1_E1_01`. El guardado completó («Análisis 1 guardado») con 0 errores de
+renderer — antes fallaba. 5 comprobaciones del sellado en la sección I de
+`tests/test_bifacial_export.js`.
+
+### 12.4 — Pendientes propuestos y no abordados
+
+- **P3 · invertir el orden del flujo:** hoy exportar sólo funciona ANTES de «Guardar y Finalizar»,
+  que además anula `currentAnalyzedObject`; si se guarda primero se pierde la exportación sin
+  reabrir el análisis. Que ese botón guarde → exporte → cierre, con casilla recordada.
+- **P4 · chip «listo para exportar»** en la cabecera de Análisis (`.laar-chip`): *EFA pendiente* ·
+  *P/H sin decidir* · *listo*. Hoy nada avisa antes; el manifiesto sólo lo registra después.
+
+---
+
+## 13. Resumen ejecutivo
 
 | Pregunta | Respuesta |
 |---|---|
@@ -1115,6 +1172,7 @@ el flujo IA/pestañas.
 | Riesgo principal | Orden de ejecución: el PDF re-renderiza y restaura el canvas de forma asíncrona. PNG/SVG deben ir antes. |
 | Restricción heredada | Todo lo que se escriba debe quedar bajo `os.homedir()` (`_assertSafePath`). |
 | ¿La comparación bifacial entra en el mismo proceso? | **Sí, pero como segundo orquestador.** Es del *par*, no de la cara, y sólo existe tras guardar la 2ª cara. Engancha en el `return true` de `_abrirComparacionBifacialSiCompleto()` (§8.2). |
+| Carpeta hermana, ¿de verdad? | ✅ **Sí desde el 2026-09-13 (§12).** Hasta entonces el análisis iba a `<proyecto>/1/` y los exportables a `resultados/QP1_.../`. Sellando el ID arqueológico en el objeto, ambas rutas derivan del mismo dato. De paso se arregló que **guardar un análisis automático fallaba** (§12.1). |
 | Bloqueante previo al bifacial | ✅ **Resuelto el 2026-09-12.** El IMC (global, CI, CMS, 5 sub-scores con peso, rasgos divergentes) llega ya al CSV vivo, y los tres exportables del par comparten un id derivado de las caras. 31 comprobaciones en `npm run test:js` (§8.5). |
 | ¿TPS y EFA (contorno + P/H) entran? | **Sí, y es la rama más fácil de cablear** — pero exige `await currentAnalyzedObject.efaPromise` antes de exportar (§9.2), o salen carpetas vacías en silencio. |
 | Bloqueante previo al TPS/EFA | ✅ **Resuelto el 2026-09-12.** El TPS emite `SCALE=`/`IMAGE=` estándar (y calla en vez de mentir cuando no hay escala); el CSV de EFA pasa de 5 a 11 columnas + bloque de metadatos con `scale_factor`. 30 comprobaciones en `npm run test:js` (§9.3). |
