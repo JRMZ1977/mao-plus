@@ -4,6 +4,50 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-09-13 — ADR-017 F1: `shape_template.py` + `/api/shape-match`
+
+Vuelve la completitud, esta vez midiendo lo que dice medir. **Nuevo módulo canónico**
+`python/modules/shape_template.py` y endpoint `POST /api/shape-match`.
+
+Las tres etapas del ADR §3, todas en el módulo:
+- **E1 · margen original vs borde de fractura** — por **CONTIGÜIDAD** del arco de inliers,
+  no por umbral de rectitud (probado y descartado: frágil ante el ruido de contorno).
+- **E2 · ajuste robusto** — círculo por Kåsa (1976), elipse por **Halíř & Flusser (1998)**
+  (variante estable de Fitzgibbon et al. 1999). Se prefirió a `cv2.fitEllipse` porque su
+  algoritmo exacto varía entre versiones de OpenCV y hay un requisito de replicabilidad
+  abierto (ADR-013 F2). RANSAC con **semilla fija** → determinista, con test que lo verifica.
+- **E3 · completitud** = fracción de la **longitud de arco** de la plantilla cubierta,
+  medida alrededor del **CENTRO AJUSTADO** — no del centroide del fragmento. Ese error de
+  referencia era exactamente el defecto que F0 retiró.
+
+| forma sintética | verdad | medido | veredicto |
+|---|---|---|---|
+| círculo íntegro | 100 % | **100,0 %** | completo |
+| disco 75 / 50 / 25 % | 75 / 50 / 25 | **75,3 / 50,5 / 25,8** | fragmento |
+| disco 12,5 % | 12,5 % | — | **rechazada** (fuera de envolvente) |
+| elipse íntegra / media | 100 / 50 | **100,0 / 51,0** | completo / fragmento |
+| rectángulo 2:1 | n/a | — | **rechazada** (plantilla errónea) |
+
+- **Tres cosas que la implementación obligó a añadir**, ninguna prevista en el diseño:
+  (1) **tope de elongación de la elipse** `b/a ≥ 0,15` — una elipse con `b/a → 0` **es** un
+  segmento de recta y ajusta cualquier borde de fractura (análogo elíptico del «círculo
+  gigante ≈ recta» que ya acotaba `r_max`); sin él, un rectángulo y un sector de 45° se
+  aceptaban como plantillas. (2) **soporte mínimo distinto por plantilla** (círculo 0,30 ·
+  elipse 0,45): la elipse tiene 5 grados de libertad frente a 3. (3) **Un bug propio**: el
+  refinamiento actualizaba el modelo sin su tramo → el «arco de inliers» quedaba medido
+  contra otro modelo y contenía puntos fuera de tolerancia. Ahora se actualizan juntos.
+- **Coste:** ~320 ms/objeto con las dos plantillas (contorno ~430 pts); el bucle de tramos
+  contiguos se vectorizó (era 504 ms). **Relevante para F3**: conviene invocarlo bajo
+  demanda, no en cada análisis.
+- **Invariante ADR-009 respetado:** el endpoint emite `es_fragmento_candidato` — sugerencia
+  a confirmar, nunca veredicto — y `None` cuando no hay plantilla. No toca ninguna métrica.
+- **Verificado:** 19 tests nuevos · **suite completa 343 passed / 4 skipped** (antes 324/4) ·
+  sintaxis Python 3.9 comprobada con `ast.parse(feature_version=(3,9))`.
+  **Esta sesión también cerró la verificación pendiente de F0**: la suite pasa con F0 dentro.
+- **Pendiente:** F2 (ICP contra repertorio arbitrario vía `efa.reconstruct()`), F3 (registro
+  canónico + chip LAAR + modal de confirmación), F4 (calibración con corpus real). Y la
+  verificación visual en Electron, que este contenedor no puede correr.
+
 ## 🎯 Sesión 2026-09-12 — ADR-017 F0: retirada del estimador de completitud
 
 **ADR-017** (`docs/ADR-017-emparejamiento-plantillas-completitud.md`): ¿puede MAO inferir «pieza

@@ -1,6 +1,6 @@
 # ADR-017 — Emparejamiento con plantillas de forma ideal e inferencia de completitud (fragmento vs. pieza completa)
 
-**Estado:** 🟡 **F0 implementada (2026-09-12)** · F1-F4 propuestas
+**Estado:** 🟡 **F0 (2026-09-12) y F1 (2026-09-13) implementadas** · F2-F4 propuestas
 **Nota de versión F0:** `docs/NOTA-VERSION-ADR017-F0.md` (cambia valores exportados)
 **Fecha:** 2026-09-12
 **Autor:** JFRR + Claude Code
@@ -288,13 +288,60 @@ forma ideal subyacente: el caso normal en lítica). Nunca `--ok` automático.
 | Fase | Alcance | Archivos | Gate de aceptación | Riesgo |
 |---|---|---|---|---|
 | **F0** | ✅ **Hecha.** 13 archivos, 15 con docs. Ver §6.1 | los 8 previstos + `mao-ia.js`, `comparator.js`, `visualization-export.js`, `metric-presenter.js`, `index.html` | ✅ gate `tools/adr017_gate_f0.mjs` 13/13 · ✅ `node --check` 11/11 + `py_compile` 2/2 · ⏳ suite y Electron pendientes (entorno sin numpy/pytest) | 🟠 **cambia valores exportados** → `docs/NOTA-VERSION-ADR017-F0.md` |
-| **F1** | `python/modules/shape_template.py`: E1+E2+E3 para círculo y elipse; endpoint `/api/shape-match` | nuevo módulo + `server.py` | tests sobre formas sintéticas de completitud conocida: error ≤ 3 % entre 25 % y 100 %; rechazo por debajo de 15 %; rechazo de plantilla errónea | 🟢 aditivo |
+| **F1** | ✅ **Hecha.** `python/modules/shape_template.py` + `/api/shape-match` + 19 tests. Ver §6.2 | nuevo módulo, `server.py`, `modules/__init__.py`, 2 ficheros de test | ✅ error ≤ 1 punto porcentual entre 25 % y 100 % · ✅ rechaza < 15 % · ✅ rechaza plantilla errónea · suite 343/4 | 🟢 aditivo |
 | **F2** | ICP contra repertorio arbitrario, alimentado por `efa.reconstruct()` | `shape_template.py`, `efa.py` | paridad con F1 en círculo/elipse; ≥ 1 plantilla poligonal validada | 🟡 |
 | **F3** | Registro canónico + contrato + chip LAAR + modal de confirmación (patrón ADR-009) | `morphometric_registry.py`, `mao-deteccion-contract.js`, `mao-analysis-organizer.js` | chip en los 4 estados; confirmar/descartar persiste; CSV con las claves nuevas | 🟢 |
 | **F4** | Calibración de umbrales con corpus real (La Draga) + validación contra medición manual | `docs/VALIDACION-PLANTILLAS.md` | umbrales justificados con datos; acuerdo método↔observador reportado (enlaza ADR-015 A2/ICC) | 🟢 |
 
 **Secuencia recomendada:** F0 primero y por separado — es autónomo, corrige un defecto que ya
 contamina el reporte del artículo, y no depende de nada de lo demás.
+
+### 6.2 · Resultados medidos de F1
+
+Ejecutado sobre formas sintéticas de completitud conocida con ruido de contorno
+(`python/tests/test_shape_template.py`, 16 tests + 3 de endpoint):
+
+| forma | verdad | plantilla elegida | completitud medida | error |
+|---|---|---|---|---|
+| círculo íntegro | 100 % | círculo | **100,0 %** | 0,0 pp |
+| disco 75 % | 75 % | círculo | **75,3 %** | 0,3 pp |
+| disco 50 % | 50 % | círculo | **50,5 %** | 0,5 pp |
+| disco 25 % | 25 % | círculo | **25,8 %** | 0,8 pp |
+| disco 12,5 % | 12,5 % | **rechazada** | — | fuera de envolvente ✓ |
+| elipse íntegra 2:1 | 100 % | elipse | **100,0 %** | 0,0 pp |
+| media elipse | 50 % | elipse | **51,0 %** | 1,0 pp |
+| rectángulo 2:1 | n/a | **rechazada** | — | plantilla errónea ✓ |
+
+Mejor que el gate exigido (≤ 3 puntos porcentuales). En el medio disco recupera
+centro y radio verdaderos dentro de 3 px **aunque el centro real caiga sobre la
+cuerda de fractura**, fuera del fragmento — que es justamente lo que el estimador
+retirado en F0 no podía hacer.
+
+**Tres cosas que la implementación obligó a añadir, ninguna prevista en el diseño:**
+
+1. **Tope de elongación de la elipse** (`b/a ≥ 0,15`). Una elipse con `b/a → 0`
+   **es** un segmento de recta y ajusta cualquier borde de fractura: es el análogo
+   elíptico del «círculo gigante ≈ recta» que ya acotaba `r_max`. Sin él se
+   aceptaban un rectángulo y un sector de 45° como plantillas válidas.
+2. **Soporte mínimo distinto por plantilla** (círculo 0,30 · elipse 0,45). La
+   elipse tiene 5 grados de libertad frente a 3 del círculo, así que con poco arco
+   queda subdeterminada. Un umbral común de 0,30 la dejaba pasar con ajustes malos.
+3. **Un bug propio, detectado en banco:** el refinamiento iterativo actualizaba el
+   modelo sin actualizar su tramo, de modo que el «arco de inliers» quedaba medido
+   contra un modelo distinto del que lo había producido — y contenía puntos a más
+   de la tolerancia (residuo RMS 19,5 px con tolerancia 4,5). Modelo y tramo se
+   actualizan ahora juntos.
+
+**Coste:** ~320 ms por objeto con las dos plantillas (contorno de ~430 puntos).
+El bucle de tramos contiguos se vectorizó (era 504 ms). Relevante para F3, que lo
+cableará al flujo por objeto: conviene invocarlo bajo demanda, no en cada análisis.
+
+**Decisiones de diseño con fuente:** el ajuste de círculo es algebraico (Kåsa 1976)
+y el de elipse es directo con restricción, en la variante numéricamente estable de
+**Halíř & Flusser (1998)** sobre Fitzgibbon et al. (1999) — se prefirió a
+`cv2.fitEllipse` porque su algoritmo exacto varía entre versiones de OpenCV y este
+repo tiene un requisito de replicabilidad abierto (ADR-013 F2). El RANSAC usa
+semilla fija: misma entrada ⇒ misma salida, con test que lo verifica.
 
 ### 6.1 · Lo que F0 encontró de más al implementarse
 
@@ -354,8 +401,10 @@ Los números de §1.1 y §4 son **reproducibles hoy**: las dos sondas están ver
 ADR y no dependen de nada fuera del repo.
 
 ```bash
-node tools/adr017_gate_f0.mjs          # gate de no regresión de F0 (antes: sonda del defecto)
-node tools/adr017_proto_plantilla.mjs  # §4 — viabilidad de la arquitectura
+node tools/adr017_gate_f0.mjs                          # no regresión de F0
+node tools/adr017_proto_plantilla.mjs                  # §4 — prototipo de viabilidad
+python -m pytest python/tests/test_shape_template.py \
+                 tests/test_shape_match_api.py         # gate de F1 (19 tests)
 ```
 
 `adr017_gate_f0.mjs` era la sonda que documentaba el defecto (§1.1); tras F0 verifica lo
