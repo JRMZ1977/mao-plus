@@ -20,8 +20,8 @@ Salida por armónico k:
 
 Funciones exportadas:
   calculate(contour_points, n_harmonics, scale_px_mm, normalize)
-  reconstruct(coeffs, n_points)
-  distance_matrix(coeffs_list)
+  reconstruct(coeffs, n_points)   — inversa: coeficientes → contorno (ADR-017 F2)
+  compare(coeffs_a, coeffs_b)
 """
 
 import math
@@ -234,6 +234,42 @@ def _dc_components(pts: np.ndarray) -> tuple[float, float]:
 
 
 # ── API pública ─────────────────────────────────────────────────────────────
+
+def reconstruct(
+    coeffs: list,
+    n_points: int = 256,
+    dc: tuple = (0.0, 0.0),
+) -> list[list[float]]:
+    """
+    Reconstruye el contorno correspondiente a un conjunto de coeficientes EFD.
+
+    Es la operación inversa de `calculate`: convierte un punto del morfoespacio EFA
+    en una curva dibujable. La cabecera de este módulo la declaraba exportada desde
+    el principio, pero sólo existía la privada `_reconstruct_contour`; se publica
+    aquí porque ADR-017 F2 la necesita como **generador del repertorio de
+    plantillas** (un banco de coeficientes EFA se convierte en las formas ideales
+    contra las que se empareja un fragmento).
+
+    Parámetros
+    ----------
+    coeffs    lista [[an, bn, cn, dn], ...] — normalizados o crudos
+    n_points  número de puntos del contorno resultante
+    dc        offset DC (centroide) para posicionar la curva
+
+    Retorno
+    -------
+    [[x, y], ...] con `n_points` puntos, cerrado implícitamente (el último une
+    con el primero).
+    """
+    arr = np.asarray(coeffs, dtype=np.float64)
+    if arr.ndim != 2 or arr.shape[1] != 4:
+        raise ValueError("coeffs debe ser una lista de [an, bn, cn, dn]")
+    if n_points < 3:
+        raise ValueError("n_points debe ser >= 3")
+    return _reconstruct_contour(arr, n_points=int(n_points),
+                                dc=(float(dc[0]), float(dc[1])))
+
+
 
 async def calculate(
     contour_points: list,

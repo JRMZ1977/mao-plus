@@ -214,13 +214,175 @@ def test_invariante_arqueologico_es_candidato_no_veredicto():
 
 
 def test_plantilla_no_soportada_es_error_explicito():
+    """Un nombre fuera del repertorio es error explícito, no silencio.
+
+    (Antes de F2 este test usaba «triangulo»; el repertorio ICP la incorporó,
+    así que ahora se comprueba con un nombre que de verdad no existe.)
+    """
     loop = asyncio.new_event_loop()
     try:
         r = loop.run_until_complete(
             st.match(_ruido(_densificar(_arco(0, 2 * math.pi, 600)[:-1])),
-                     templates=["triangulo"])
+                     templates=["dodecaedro_estrellado"])
         )
     finally:
         loop.close()
     assert r["status"] == "error"
-    assert "triangulo" in r["message"]
+    assert "dodecaedro_estrellado" in r["message"]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# F2 — repertorio arbitrario + ICP recortado
+# ════════════════════════════════════════════════════════════════════════════
+
+def _poligono(n_lados, r=R_VERDADERO, frac=1.0):
+    """Polígono regular; con frac<1 devuelve un sector cerrado por el centro."""
+    v = [[CENTRO[0] + r * math.cos(2 * math.pi * i / n_lados),
+          CENTRO[1] + r * math.sin(2 * math.pi * i / n_lados)] for i in range(n_lados)]
+    if frac >= 1.0:
+        return _ruido(_densificar(v))
+    k = max(2, int(round(n_lados * frac)) + 1)
+    return _ruido(_densificar(v[:k] + [list(CENTRO)]))
+
+
+def _acepta(r, tipo):
+    """Candidato aceptado con ese nombre, o None."""
+    for c in r["candidatos"]:
+        if c["tipo"] == tipo and c["aceptada"]:
+            return c
+    return None
+
+
+# ── Gate del ADR: paridad vía analítica ↔ vía ICP ───────────────────────────
+
+@pytest.mark.parametrize("nombre,pts_factory,tpl", [
+    ("círculo íntegro", lambda: _ruido(_densificar(_arco(0, 2 * math.pi, 600)[:-1])), "circulo"),
+    ("disco 50 %",      lambda: _ruido(_densificar(_arco(0, math.pi, 300))),          "circulo"),
+    ("disco 75 %",      lambda: _sector(0.75),                                        "circulo"),
+    ("elipse íntegra",  lambda: _ruido(_densificar(_elipse(120, 60, 0.4, 0, 2 * math.pi, 600)[:-1])), "elipse"),
+])
+def test_paridad_analitico_vs_icp(nombre, pts_factory, tpl):
+    """
+    Gate F2 del ADR: el ICP genérico debe reproducir lo que la vía analítica
+    calcula en forma cerrada. Si divergieran, una de las dos estaría mal.
+    """
+    pts = pts_factory()
+    a = _correr(pts, templates=[tpl])
+    b = _correr(pts, templates=[tpl], forzar_icp=True)
+    assert a["plantilla_tipo"] == tpl and b["plantilla_tipo"] == tpl, (
+        f"{nombre}: analítico={a['plantilla_tipo']} icp={b['plantilla_tipo']}"
+    )
+    assert abs(a["plantilla_completitud"] - b["plantilla_completitud"]) <= 3.0, (
+        f"{nombre}: analítico {a['plantilla_completitud']:.1f} % vs "
+        f"ICP {b['plantilla_completitud']:.1f} %"
+    )
+
+
+# ── Plantillas poligonales del repertorio ───────────────────────────────────
+
+@pytest.mark.parametrize("n_lados,esperada", [(3, "triangulo"), (4, "cuadrado"), (6, "hexagono")])
+def test_poligono_integro_elige_su_plantilla(n_lados, esperada):
+    r = _correr(_poligono(n_lados),
+                templates=["triangulo", "cuadrado", "hexagono", "circulo_icp"])
+    assert r["plantilla_tipo"] == esperada, r["candidatos"]
+    assert r["plantilla_completitud"] >= 97.0
+    assert r["es_fragmento_candidato"] is False
+    assert r["plantilla_metodo"] == "icp_repertorio"
+
+
+def test_fragmento_poligonal_recupera_su_plantilla():
+    """
+    Medio hexágono: la plantilla `hexagono` debe aparecer ACEPTADA con
+    completitud ≈ 50 %.
+
+    NO se exige que gane. Un medio hexágono regular es, exactamente, un triángulo
+    equilátero de lado 2r al que le falta la punta: sus 5r de perímetro incluyen
+    4r que yacen sobre ese triángulo (66,7 % de sus 6r). Ambas lecturas —«50 % de
+    un hexágono» y «67 % de un triángulo»— son geométricamente ciertas. Por eso
+    el módulo publica TODOS los candidatos y el veredicto lo confirma un humano
+    (ADR-009 / ADR-017 §7): la ambigüedad es de la forma, no del método.
+    """
+    r = _correr(_poligono(6, frac=0.5),
+                templates=["triangulo", "cuadrado", "hexagono", "circulo_icp"])
+    hexa = _acepta(r, "hexagono")
+    assert hexa is not None, f"el hexágono no se recuperó: {r['candidatos']}"
+    assert abs(hexa["completitud"] - 50.0) <= 6.0, hexa
+    tri = _acepta(r, "triangulo")
+    assert tri is not None and abs(tri["completitud"] - 66.7) <= 6.0, (
+        "la lectura alternativa (triángulo truncado) también debe estar expuesta"
+    )
+
+
+# ── El puente EFA → repertorio (ADR-017 §2) ─────────────────────────────────
+
+def test_repertorio_alimentado_por_efa():
+    """
+    El repertorio EFA de la pregunta original, funcionando: un banco de
+    coeficientes se convierte en plantillas y el ICP hace el encaje que la
+    distancia EFA no puede hacer.
+    """
+    from python.modules import efa
+
+    coefs = [[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 0.0], [0.25, 0.0, 0.0, -0.25]]
+    st.registrar_plantilla_efa("_test_trilobulada", coefs)
+    assert "_test_trilobulada" in st.plantillas_disponibles()
+
+    base = efa.reconstruct(coefs, n_points=400)
+    pts = _ruido([[CENTRO[0] + x * 100, CENTRO[1] + y * 100] for x, y in base], s=0.8)
+    r = _correr(pts, templates=["_test_trilobulada", "circulo_icp"])
+    assert r["plantilla_tipo"] == "_test_trilobulada", r["candidatos"]
+    assert r["plantilla_completitud"] >= 95.0
+    assert r["es_fragmento_candidato"] is False
+
+
+def test_efa_reconstruct_es_la_inversa_de_calculate():
+    """`reconstruct` estaba documentada en la cabecera de efa.py pero no existía."""
+    from python.modules import efa
+
+    c = efa.reconstruct([[1.0, 0.0, 0.0, 1.0]], n_points=64)   # 1 armónico = círculo
+    assert len(c) == 64
+    radios = [math.hypot(x, y) for x, y in c]
+    # Tolerancia 1e-3, no 1e-6: `_reconstruct_contour` redondea las coordenadas a
+    # 4 decimales por diseño (salida JSON-able), así que el radio oscila ~1e-4.
+    assert max(radios) - min(radios) < 1e-3, "un armónico [1,0,0,1] debe dar el círculo unidad"
+    assert abs(sum(radios) / len(radios) - 1.0) < 1e-3
+
+    with pytest.raises(ValueError):
+        efa.reconstruct([[1.0, 0.0]], n_points=32)             # forma inválida
+    with pytest.raises(ValueError):
+        efa.reconstruct([[1.0, 0.0, 0.0, 1.0]], n_points=2)    # muy pocos puntos
+
+
+# ── Contrato y determinismo de la vía ICP ───────────────────────────────────
+
+def test_icp_es_determinista():
+    """Sin RNG: arranques equiespaciados fijos. Requisito ADR-013 F2."""
+    pts = _poligono(6, frac=0.6)
+    a = _correr(pts, templates=["hexagono"])
+    b = _correr(pts, templates=["hexagono"])
+    assert a["plantilla_completitud"] == b["plantilla_completitud"]
+    assert a["plantilla_parametros"] == b["plantilla_parametros"]
+
+
+def test_icp_publica_el_contorno_de_la_plantilla():
+    """F3 necesita la forma inferida para dibujarla sobre la pieza."""
+    r = _correr(_poligono(6), templates=["hexagono"])
+    cont = r["plantilla_contorno"]
+    assert cont and len(cont) >= 32
+    assert all(len(p) == 2 for p in cont)
+    xs = [p[0] for p in cont]
+    assert min(xs) < CENTRO[0] < max(xs), "debe estar en coordenadas absolutas"
+
+
+def test_plantillas_disponibles_es_estable():
+    d = st.plantillas_disponibles()
+    assert d == sorted(d)
+    for esperada in ("triangulo", "cuadrado", "hexagono", "circulo_icp", "elipse_2_1"):
+        assert esperada in d
+
+
+def test_icp_tambien_rechaza_la_plantilla_equivocada():
+    """La generalización no debilita el rechazo: un círculo no es un triángulo."""
+    pts = _ruido(_densificar(_arco(0, 2 * math.pi, 600)[:-1]))
+    r = _correr(pts, templates=["triangulo", "cuadrado"])
+    assert r["plantilla_tipo"] == "ninguna", r["candidatos"]

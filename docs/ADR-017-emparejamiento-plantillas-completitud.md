@@ -1,6 +1,6 @@
 # ADR-017 — Emparejamiento con plantillas de forma ideal e inferencia de completitud (fragmento vs. pieza completa)
 
-**Estado:** 🟡 **F0 (2026-09-12) y F1 (2026-09-13) implementadas** · F2-F4 propuestas
+**Estado:** 🟡 **F0, F1 y F2 implementadas (2026-09-12/13)** · F3-F4 propuestas
 **Nota de versión F0:** `docs/NOTA-VERSION-ADR017-F0.md` (cambia valores exportados)
 **Fecha:** 2026-09-12
 **Autor:** JFRR + Claude Code
@@ -289,12 +289,65 @@ forma ideal subyacente: el caso normal en lítica). Nunca `--ok` automático.
 |---|---|---|---|---|
 | **F0** | ✅ **Hecha.** 13 archivos, 15 con docs. Ver §6.1 | los 8 previstos + `mao-ia.js`, `comparator.js`, `visualization-export.js`, `metric-presenter.js`, `index.html` | ✅ gate `tools/adr017_gate_f0.mjs` 13/13 · ✅ `node --check` 11/11 + `py_compile` 2/2 · ⏳ suite y Electron pendientes (entorno sin numpy/pytest) | 🟠 **cambia valores exportados** → `docs/NOTA-VERSION-ADR017-F0.md` |
 | **F1** | ✅ **Hecha.** `python/modules/shape_template.py` + `/api/shape-match` + 19 tests. Ver §6.2 | nuevo módulo, `server.py`, `modules/__init__.py`, 2 ficheros de test | ✅ error ≤ 1 punto porcentual entre 25 % y 100 % · ✅ rechaza < 15 % · ✅ rechaza plantilla errónea · suite 343/4 | 🟢 aditivo |
-| **F2** | ICP contra repertorio arbitrario, alimentado por `efa.reconstruct()` | `shape_template.py`, `efa.py` | paridad con F1 en círculo/elipse; ≥ 1 plantilla poligonal validada | 🟡 |
+| **F2** | ✅ **Hecha.** ICP recortado sobre repertorio + `efa.reconstruct()` publicada + `/api/shape-match/templates`. Ver §6.3 | `shape_template.py`, `efa.py`, `server.py` | ✅ paridad ≤ 0,3 pp en los 4 casos · ✅ 3 plantillas poligonales validadas · suite 357/4 | 🟢 aditivo |
 | **F3** | Registro canónico + contrato + chip LAAR + modal de confirmación (patrón ADR-009) | `morphometric_registry.py`, `mao-deteccion-contract.js`, `mao-analysis-organizer.js` | chip en los 4 estados; confirmar/descartar persiste; CSV con las claves nuevas | 🟢 |
 | **F4** | Calibración de umbrales con corpus real (La Draga) + validación contra medición manual | `docs/VALIDACION-PLANTILLAS.md` | umbrales justificados con datos; acuerdo método↔observador reportado (enlaza ADR-015 A2/ICC) | 🟢 |
 
 **Secuencia recomendada:** F0 primero y por separado — es autónomo, corrige un defecto que ya
 contamina el reporte del artículo, y no depende de nada de lo demás.
+
+### 6.3 · Resultados medidos de F2
+
+**Paridad analítica ↔ ICP** (el gate del ADR: si divergieran, una de las dos
+estaría mal). Diferencia máxima **0,3 puntos porcentuales**:
+
+| forma | vía analítica | vía ICP | Δ |
+|---|---|---|---|
+| círculo íntegro | 100,0 % | 100,0 % | 0,0 pp |
+| disco 75 % | 75,3 % | 75,3 % | 0,0 pp |
+| disco 50 % | 50,5 % | 50,0 % | 0,5 pp |
+| elipse íntegra | 100,0 % | 100,0 % | 0,0 pp |
+
+**Plantillas poligonales**: triángulo, cuadrado y hexágono íntegros eligen su
+propia plantilla al 100,0 %, y las demás quedan rechazadas por soporte. Un
+círculo NO se acepta como triángulo: la generalización no debilita el rechazo.
+
+**El puente EFA → repertorio**, que era la pregunta original: `registrar_plantilla_efa`
+convierte un banco de coeficientes en plantillas vía `efa.reconstruct()`, y una
+forma trilobulada generada desde 3 armónicos se empareja consigo misma al 100 %.
+
+**Hallazgo: `efa.reconstruct()` no existía.** La cabecera de `efa.py` la declaraba
+exportada desde siempre, pero sólo estaba la privada `_reconstruct_contour`. Se
+publicó como parte de F2, con validación de entrada y test propio.
+
+**Ambigüedad de forma — medida, no teórica.** Un medio hexágono regular **es** un
+triángulo equilátero truncado: sus 5r de perímetro incluyen 4r que yacen sobre un
+triángulo de lado 2r. El módulo lo reporta correctamente por partida doble —50 %
+de un hexágono, 67 % de un triángulo (verdades geométricas: 50,0 % y 66,7 %)— y
+por eso publica **todos** los candidatos en vez de un veredicto único. Es
+evidencia empírica a favor del invariante ADR-009: la ambigüedad es de la forma,
+no del método, y resolverla es trabajo del arqueólogo.
+
+**Dos correcciones que el banco obligó a hacer:**
+
+1. **Los inliers publicados salen de la tolerancia absoluta, no del recorte ξ.**
+   ξ es un parámetro *interno* de TrICP (gobierna la búsqueda de pose); usarlo
+   también para reportar rompía dos cosas a la vez: el recorte escoge los *k*
+   globalmente más cercanos, que quedan **entreverados** a lo largo del contorno,
+   así que el tramo contiguo salía ridículo (0,11 en un disco al 75 % bien
+   ajustado, con residuo 0,9 → *rechazado*); y con ξ alto el borde de fractura
+   entraba en el residuo (10,5 px en un hexágono correctamente emparejado). Con
+   la tolerancia absoluta el criterio es además **el mismo** que el de la vía
+   analítica, que es justo lo que hace comparables ambas rutas.
+2. **El recorte entra desde el rastreo grueso.** Una fase gruesa sin recortar
+   (ξ=1) parece inocua pero falla en el caso que importa: con un fragmento al
+   50 %, el 40 % del contorno es fractura, arrastra la pose inicial y la fase
+   fina no se recupera — el sector de hexágono rechazaba *su propia* plantilla.
+   Es exactamente lo que TrICP resuelve aplicando LTS en todas las fases.
+
+**Coste:** ~200 ms por plantilla ICP (~640 ms para cuatro). Más caro que la vía
+analítica por plantilla, así que **F3 debe invocarlo bajo demanda y con el
+repertorio acotado**, no con la biblioteca entera en cada análisis.
 
 ### 6.2 · Resultados medidos de F1
 
@@ -404,7 +457,7 @@ ADR y no dependen de nada fuera del repo.
 node tools/adr017_gate_f0.mjs                          # no regresión de F0
 node tools/adr017_proto_plantilla.mjs                  # §4 — prototipo de viabilidad
 python -m pytest python/tests/test_shape_template.py \
-                 tests/test_shape_match_api.py         # gate de F1 (19 tests)
+                 tests/test_shape_match_api.py         # gate de F1+F2 (33 tests)
 ```
 
 `adr017_gate_f0.mjs` era la sonda que documentaba el defecto (§1.1); tras F0 verifica lo
@@ -445,6 +498,16 @@ implementación canónica corresponde a `python/modules/shape_template.py` (F1),
   *American Antiquity* 54: 166-168.
 - **Besl, P.J. & McKay, N.D.** (1992). A method for registration of 3-D shapes. *IEEE TPAMI* 14(2):
   239-256. — ICP.
+- **Chetverikov, D., Svirko, D., Stepanov, D. & Krsek, P.** (2002). The Trimmed Iterative Closest
+  Point algorithm. *Proc. ICPR'02*, vol. 3: 545-548. doi:10.1109/ICPR.2002.1047997 — TrICP: mínimos
+  cuadrados recortados en todas las fases; **aplicable a solapamientos por debajo del 50 %**, que es
+  exactamente el caso fragmento. Implementado en F2.
+- **Umeyama, S.** (1991). Least-squares estimation of transformation parameters between two point
+  patterns. *IEEE TPAMI* 13(4): 376-380. doi:10.1109/34.88573 — solución cerrada de la similitud; su
+  aporte sobre Arun (1987) y Horn (1987) es no devolver una **reflexión** con datos corrompidos,
+  control que F2 usa para decidir si una forma y su espejo cuentan como la misma.
+- **Kåsa, I.** (1976). A circle fitting procedure and its error analysis. *IEEE Trans. Instrum. Meas.*
+  25(1): 8-14. — ajuste algebraico de círculo usado en F1.
 - **Fischler, M.A. & Bolles, R.C.** (1981). Random Sample Consensus. *Communications of the ACM*
   24(6): 381-395. — RANSAC.
 - **Inizan, M.-L. et al.** (1999). *Technology and Terminology of Knapped Stone*. CREP, Nanterre.

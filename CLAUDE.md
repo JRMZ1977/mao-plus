@@ -4,6 +4,43 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-09-13 (b) — ADR-017 F2: repertorio arbitrario + ICP recortado
+
+Cierra la pregunta original: **el repertorio EFA sí sirve — como biblioteca de plantillas, no
+como espacio de comparación**. `registrar_plantilla_efa()` convierte un banco de coeficientes en
+plantillas vía `efa.reconstruct()`, y el **ICP recortado** hace el encaje parcial que la distancia
+EFA no puede hacer.
+
+- **TrICP** (Chetverikov et al. 2002): mínimos cuadrados recortados en todas las fases; el artículo
+  lo declara aplicable a solapamientos **por debajo del 50 %**, que es justo el caso fragmento.
+- **Umeyama (1991)** para la similitud en forma cerrada. Su aporte sobre Arun/Horn es no devolver
+  una **reflexión** con datos corrompidos → control explícito de quiralidad (`permitir_reflexion`,
+  por defecto `False`: una forma y su espejo no son la misma pieza).
+- Repertorio: `circulo_icp`, `elipse_2_1`, `triangulo`, `cuadrado`, `rectangulo_2_1`, `pentagono`,
+  `hexagono` + las registradas desde EFA. Endpoint `GET /api/shape-match/templates`.
+
+**Gate del ADR — paridad analítica ↔ ICP ≤ 0,3 pp** (círculo íntegro 0,0 · disco 75 % 0,0 ·
+disco 50 % 0,5 · elipse íntegra 0,0). Triángulo/cuadrado/hexágono íntegros → su plantilla al 100 %.
+Un círculo **no** se acepta como triángulo.
+
+- **Hallazgo: `efa.reconstruct()` no existía.** La cabecera de `efa.py` la declaraba exportada desde
+  siempre, pero sólo estaba la privada `_reconstruct_contour`. Publicada en F2, con validación y test.
+- **Dos correcciones que obligó el banco:** (1) los inliers **publicados** salen de la tolerancia
+  absoluta, no del recorte ξ — ξ es interno del TrICP y escoge los *k* globalmente más cercanos, que
+  quedan entreverados: el tramo contiguo salía 0,11 en un disco al 75 % bien ajustado, y con ξ alto
+  el borde de fractura entraba en el residuo (10,5 px). Con la tolerancia el criterio es además el
+  MISMO que el de la vía analítica, que es lo que hace comparables las rutas. (2) El recorte entra
+  **desde el rastreo grueso**: sin él, un sector de hexágono al 50 % rechazaba su propia plantilla.
+- **Ambigüedad de forma, medida:** medio hexágono regular **es** un triángulo equilátero truncado
+  (4r de sus 5r yacen sobre un triángulo de lado 2r). El módulo lo reporta bien por partida doble
+  —50 % de hexágono · 67 % de triángulo, verdades 50,0 % y 66,7 %— y por eso publica **todos** los
+  candidatos. La ambigüedad es de la forma, no del método: refuerza el invariante ADR-009.
+- **Coste:** ~200 ms por plantilla ICP (~640 ms para cuatro). **F3 debe invocarlo bajo demanda y con
+  el repertorio acotado**, no con la biblioteca entera en cada análisis.
+- **Verificado:** 14 tests nuevos · **suite 357 passed / 4 skipped** (antes 343/4) · sintaxis 3.9.
+- **Pendiente:** F3 (registro canónico + chip LAAR + modal de confirmación) · F4 (calibración con
+  corpus real) · verificación visual en Electron.
+
 ## 🎯 Sesión 2026-09-13 — ADR-017 F1: `shape_template.py` + `/api/shape-match`
 
 Vuelve la completitud, esta vez midiendo lo que dice medir. **Nuevo módulo canónico**

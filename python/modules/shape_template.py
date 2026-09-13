@@ -1,9 +1,22 @@
 """
-MAO Plus — Módulo: emparejamiento con plantillas de forma ideal (ADR-017 F1)
-===========================================================================
+MAO Plus — Emparejamiento con plantillas de forma ideal (ADR-017 F1 + F2)
+=========================================================================
 Infiere si un contorno es una pieza COMPLETA o el FRAGMENTO de una forma mayor,
-ajustando una plantilla ideal (círculo, elipse) al **margen original** del
-contorno y midiendo qué fracción de esa plantilla quedó preservada.
+ajustando una plantilla ideal al **margen original** del contorno y midiendo qué
+fracción de esa plantilla quedó preservada.
+
+Dos vías, mismo contrato de salida:
+
+  **F1 · analítica** (círculo, elipse) — ajuste algebraico en forma cerrada bajo
+  RANSAC. Exacta y barata, pero sólo sirve para formas con ecuación.
+
+  **F2 · ICP sobre repertorio** (cualquier forma) — emparejamiento por ICP
+  recortado contra un repertorio de plantillas: polígonos paramétricos y, sobre
+  todo, formas reconstruidas desde un banco de coeficientes **EFA**
+  (`registrar_plantilla_efa`). Es el puente que cierra la pregunta original del
+  ADR: el repertorio EFA aporta las formas, el ICP hace el encaje parcial que la
+  distancia EFA no puede hacer (§2 del ADR). Gate: reproduce lo que la vía
+  analítica calcula en cerrado para círculo y elipse.
 
 Doc: `docs/ADR-017-emparejamiento-plantillas-completitud.md` (§3 arquitectura,
 §4 envolvente operativa, §5 contrato de salida, §7 invariante arqueológico).
@@ -35,9 +48,16 @@ bulbo, ondas, terminación—, no por la silueta (Inizan et al. 1999; Andrefsky
 2005). Un objeto sin forma ideal subyacente devuelve `plantilla_tipo: "ninguna"`,
 nunca una plantilla forzada.
 
-Determinismo: el RANSAC usa una semilla fija (`_SEED`), así que dos ejecuciones
-sobre el mismo contorno dan el mismo resultado — requisito de replicabilidad del
-repo (ADR-013 F2).
+Determinismo: el RANSAC usa una semilla fija (`_SEED`) y el ICP no usa RNG en
+absoluto (arranques de rotación equiespaciados), así que dos ejecuciones sobre el
+mismo contorno dan el mismo resultado — requisito de replicabilidad del repo
+(ADR-013 F2), con test que lo verifica por ambas vías.
+
+Ambigüedad de forma (medida, no teórica): un mismo fragmento puede ser
+consistente con más de una forma ideal. Medio hexágono regular ES un triángulo
+equilátero truncado, y el módulo lo reporta correctamente por partida doble
+(50 % de un hexágono · 67 % de un triángulo). Por eso `match` publica TODOS los
+candidatos con su ajuste, y el veredicto lo confirma un humano.
 
 Referencias
 -----------
@@ -458,6 +478,8 @@ async def match(
     min_arco_fraccion: Optional[dict] = None,
     ransac_iters: int = _RANSAC_ITERS,
     seed: int = _SEED,
+    forzar_icp: bool = False,
+    permitir_reflexion: bool = False,
 ) -> dict[str, Any]:
     """
     Empareja un contorno con las plantillas ideales pedidas y estima completitud.
@@ -465,7 +487,15 @@ async def match(
     Parámetros
     ----------
     contour_points     lista de [x, y] en píxeles (coordenadas absolutas)
-    templates          subconjunto de ("circulo", "elipse"); None = todas
+    templates          nombres de plantilla; None = ("circulo", "elipse").
+                       Además de las analíticas, cualquier nombre del repertorio
+                       F2 (`plantillas_disponibles()`): triangulo, cuadrado,
+                       rectangulo_2_1, pentagono, hexagono… y las registradas
+                       desde coeficientes EFA con `registrar_plantilla_efa`.
+    forzar_icp         encamina también círculo y elipse por el ICP del repertorio
+                       (usado por el gate de paridad analítica↔ICP del ADR)
+    permitir_reflexion permite que el emparejamiento use una reflexión; por
+                       defecto no: una forma y su espejo no son la misma pieza
     scale_px_mm        factor px→mm; si > 0 el residuo se reporta también en mm
     gap_min_deg        hueco angular mínimo que cuenta como ausencia (default 8°)
     min_arco_fraccion  dict {tipo: fracción} — soporte mínimo del perímetro sobre
@@ -506,6 +536,7 @@ async def match(
         "plantilla_metodo": "ninguno",
         "es_fragmento_candidato": None,
         "huecos": [],
+        "plantilla_contorno": None,
         "candidatos": [],
         "motivo_rechazo": None,
     }
@@ -518,11 +549,13 @@ async def match(
                 f"contorno insuficiente: {len(pts)} puntos (mínimo {_MIN_PUNTOS})"}
 
     tipos = list(templates) if templates else ["circulo", "elipse"]
-    desconocidos = [t for t in tipos if t not in ("circulo", "elipse")]
+    analiticas = ("circulo", "elipse")
+    validos = set(analiticas) | set(_REPERTORIO)
+    desconocidos = [t for t in tipos if t not in validos]
     if desconocidos:
         return {"status": "error",
-                "message": f"plantillas no soportadas en F1: {desconocidos} "
-                           f"(disponibles: circulo, elipse)"}
+                "message": f"plantillas no soportadas: {desconocidos} "
+                           f"(disponibles: {', '.join(sorted(validos))})"}
 
     umbrales = dict(_MIN_ARCO_FRACCION)
     if isinstance(min_arco_fraccion, dict):
@@ -531,14 +564,24 @@ async def match(
     diag = _diagonal(pts)
     candidatos = []
     for tipo in tipos:
-        fit = _ajustar(pts, tipo, ransac_iters, seed)
-        if fit is None:
-            candidatos.append({"tipo": tipo, "aceptada": False,
-                               "motivo": "sin ajuste válido"})
-            continue
-        comp, huecos = _completitud(_param(fit["arco"], tipo, fit["modelo"]),
-                                    tipo, fit["modelo"], gap_min_deg)
-        min_arco = umbrales.get(tipo, 0.30)
+        via_icp = forzar_icp or tipo not in analiticas
+        if via_icp:
+            nombre_rep = {"circulo": "circulo_icp", "elipse": "elipse_2_1"}.get(tipo, tipo)
+            fit = _emparejar_icp(pts, nombre_rep, permitir_reflexion)
+            if fit is None:
+                candidatos.append({"tipo": tipo, "aceptada": False,
+                                   "motivo": "sin emparejamiento ICP válido"})
+                continue
+            comp, huecos = fit["completitud"], fit["huecos"]
+        else:
+            fit = _ajustar(pts, tipo, ransac_iters, seed)
+            if fit is None:
+                candidatos.append({"tipo": tipo, "aceptada": False,
+                                   "motivo": "sin ajuste válido"})
+                continue
+            comp, huecos = _completitud(_param(fit["arco"], tipo, fit["modelo"]),
+                                        tipo, fit["modelo"], gap_min_deg)
+        min_arco = umbrales.get(tipo, _MIN_ARCO_ICP if via_icp else 0.30)
         soporte_ok = fit["arco_fraccion"] > min_arco
         comp_ok = comp >= _MIN_COMPLETITUD
         aceptada = soporte_ok and comp_ok
@@ -557,8 +600,11 @@ async def match(
             "completitud": round(comp * 100, 2),
             "arco_fraccion": round(fit["arco_fraccion"], 4),
             "residuo_rms": round(fit["residuo_rms"], 4),
-            "modelo": {k: round(float(v), 4) for k, v in fit["modelo"].items()},
+            "modelo": {k: (round(float(v), 4) if isinstance(v, (int, float))
+                            and not isinstance(v, bool) else v)
+                       for k, v in fit["modelo"].items()},
             "huecos": huecos,
+            "metodo": "icp_repertorio" if via_icp else f"ransac_{tipo}_contiguo",
             "_fit": fit,
         })
 
@@ -574,16 +620,23 @@ async def match(
     # Elección entre plantillas. La elipse tiene 2 parámetros más y siempre ajusta
     # al menos igual de bien, así que sólo gana si mejora el residuo CON MARGEN, y
     # nunca cuando su relación de ejes la hace indistinguible de un círculo.
-    elegido = aceptados[0]
+    # Paso 1 — círculo vs elipse ANALÍTICAS son modelos anidados: la elipse tiene
+    # 2 parámetros más y siempre ajusta al menos igual de bien, así que sólo gana
+    # con margen y nunca si su relación de ejes la hace un círculo.
     por_tipo = {c["tipo"]: c for c in aceptados}
-    if "circulo" in por_tipo and "elipse" in por_tipo:
-        ci, el = por_tipo["circulo"], por_tipo["elipse"]
+    descartados_por_anidamiento = set()
+    ci, el = por_tipo.get("circulo"), por_tipo.get("elipse")
+    if ci and el and "b" in el["_fit"]["modelo"]:
         mm = el["_fit"]["modelo"]
         ratio = mm["b"] / mm["a"] if mm["a"] > 0 else 1.0
-        elegido = el if (ratio < _RATIO_EJES_CIRCULO
-                         and el["residuo_rms"] < _MARGEN_ELIPSE * ci["residuo_rms"]) else ci
-    elif len(aceptados) == 1:
-        elegido = aceptados[0]
+        gana_elipse = (ratio < _RATIO_EJES_CIRCULO
+                       and el["residuo_rms"] < _MARGEN_ELIPSE * ci["residuo_rms"])
+        descartados_por_anidamiento.add("elipse" if not gana_elipse else "circulo")
+
+    # Paso 2 — el resto del repertorio no son modelos anidados entre sí, así que
+    # compiten por bondad de ajuste directa (residuo RMS en píxeles).
+    finalistas = [c for c in aceptados if c["tipo"] not in descartados_por_anidamiento]
+    elegido = min(finalistas, key=lambda c: c["residuo_rms"])
 
     fit = elegido["_fit"]
     conf = _confianza(fit["arco_fraccion"], fit["residuo_rms"], diag)
@@ -603,13 +656,350 @@ async def match(
         "plantilla_parametros": params,
         "plantilla_confianza": conf["score"],
         "plantilla_confianza_nivel": conf["level"],
-        "plantilla_metodo": f"ransac_{elegido['tipo']}_contiguo",
+        "plantilla_metodo": elegido["metodo"],
         # CANDIDATO a confirmar (ADR-009 / ADR-017 §7), no un hecho.
         "es_fragmento_candidato": bool(completitud < _UMBRAL_COMPLETO * 100),
         "huecos": elegido["huecos"],
+        # Contorno de la plantilla ajustada, en coordenadas absolutas y submuestreado
+        # (lo consume la superficie visual de F3 para dibujar la forma inferida).
+        "plantilla_contorno": (
+            [[round(float(x), 2), round(float(y), 2)]
+             for x, y in fit["contorno_plantilla"]]
+            if "contorno_plantilla" in fit else None
+        ),
         "candidatos": [{k: v for k, v in c.items() if k != "_fit"} for c in candidatos],
         "motivo_rechazo": None,
         "umbral_completo_pct": _UMBRAL_COMPLETO * 100,
         "n_points_input": int(len(pts)),
         "seed": seed,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# F2 · REPERTORIO DE PLANTILLAS ARBITRARIAS + EMPAREJAMIENTO POR ICP RECORTADO
+# ═══════════════════════════════════════════════════════════════════════════
+# F1 resuelve círculo y elipse con ajuste algebraico, que es exacto y barato pero
+# sólo sirve para formas con ecuación cerrada. F2 generaliza a un REPERTORIO
+# arbitrario —triángulo, cuadrado, polígonos, y cualquier forma reconstruida
+# desde un banco de coeficientes EFA— emparejando por **ICP recortado**.
+#
+# Por qué ICP y no distancia EFA (ADR-017 §2): la EFA es un descriptor GLOBAL de
+# curva cerrada normalizado al primer armónico *del fragmento*, así que un
+# fragmento y su forma original caen en puntos arbitrariamente distintos del
+# morfoespacio. No existe encaje parcial en el espacio EFD. El repertorio EFA
+# entra aquí como BIBLIOTECA DE PLANTILLAS (vía `efa.reconstruct`), y el motor
+# de emparejamiento es el ICP. Wilczek et al. (2021) llegaron a la misma
+# conclusión comparando cuatro métodos sobre cerámica: ICP fue el mejor, y el
+# único que además funciona con fragmentos sin el rasgo diagnóstico.
+#
+# Referencias
+# -----------
+# Besl, P.J. & McKay, N.D. (1992) A method for registration of 3-D shapes.
+#     IEEE TPAMI 14(2): 239-256.  — ICP.
+# Chetverikov, D., Svirko, D., Stepanov, D. & Krsek, P. (2002) The Trimmed
+#     Iterative Closest Point algorithm. Proc. ICPR'02, vol. 3: 545-548.
+#     doi:10.1109/ICPR.2002.1047997  — TrICP: LTS en todas las fases; aplicable
+#     a solapamientos POR DEBAJO DEL 50 %, que es exactamente el caso fragmento.
+# Umeyama, S. (1991) Least-squares estimation of transformation parameters
+#     between two point patterns. IEEE TPAMI 13(4): 376-380. doi:10.1109/34.88573
+#     — solución cerrada de la similitud; su aporte sobre Arun (1987) y Horn
+#     (1987) es precisamente NO devolver una reflexión cuando los datos están
+#     corrompidos, control que aquí importa (una forma y su espejo no son la
+#     misma pieza salvo que se decida lo contrario).
+# Wilczek, J., Monna, F. et al. (2021) A computer tool to identify best matches
+#     for pottery fragments. J. Archaeol. Sci.: Reports 37: 102891.
+
+_N_PLANTILLA      = 360     # puntos por plantilla del repertorio
+_ICP_ITERS        = 30
+_ICP_ITERS_GRUESO = 5       # iteraciones del rastreo grueso (rotación × recorte)
+_ICP_ITERS_MEDIO  = 12      # iteraciones del barrido de recortes (sólo para ordenar)
+_ICP_REFINAR      = 3       # arranques que pasan a la fase fina
+_ICP_ROTACIONES   = 12      # arranques iniciales, equiespaciados (sin RNG)
+_ICP_XI           = (0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00)   # recortes (fase fina)
+# El rastreo grueso NO barre los siete: dos representativos —uno de solapamiento
+# bajo y otro completo— bastan para fijar la rotación, y el coste baja de ~195 ms
+# a ~60 ms por plantilla. Lo que NO puede faltar es el recorte bajo: sin él, un
+# fragmento al 50 % pierde su propia plantilla (medido en banco).
+_ICP_XI_GRUESO    = (0.50, 1.00)
+_ICP_LAMBDA       = 2.0     # exponente de la función objetivo de TrICP
+_ICP_SUBMUESTRA   = 160     # puntos del fragmento usados durante el ICP
+_GAP_MIN_ARCO     = 0.02    # hueco mínimo, como fracción del perímetro plantilla
+_MIN_ARCO_ICP     = 0.45    # soporte mínimo para aceptar una plantilla del ICP
+
+
+# ── Generadores del repertorio ─────────────────────────────────────────────
+
+def _remuestrear_cerrado(vertices: np.ndarray, n: int) -> np.ndarray:
+    """Remuestrea un polígono cerrado a `n` puntos equiespaciados en arco."""
+    v = np.vstack([vertices, vertices[:1]])
+    d = np.hypot(np.diff(v[:, 0]), np.diff(v[:, 1]))
+    s = np.concatenate([[0.0], np.cumsum(d)])
+    objetivo = np.linspace(0.0, s[-1], n, endpoint=False)
+    return np.column_stack([np.interp(objetivo, s, v[:, 0]),
+                            np.interp(objetivo, s, v[:, 1])])
+
+
+def _normalizar(pts: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+    """Centroide al origen y radio RMS = 1. Devuelve (normalizado, centro, escala)."""
+    c = pts.mean(axis=0)
+    q = pts - c
+    s = float(np.sqrt((q ** 2).sum(axis=1).mean()))
+    if s <= 0:
+        return q, c, 1.0
+    return q / s, c, s
+
+
+def _poligono_regular(n_lados: int) -> np.ndarray:
+    ang = np.linspace(0.0, 2.0 * math.pi, n_lados, endpoint=False)
+    return _remuestrear_cerrado(np.column_stack([np.cos(ang), np.sin(ang)]), _N_PLANTILLA)
+
+
+def _rectangulo(ratio: float) -> np.ndarray:
+    a, b = 1.0, 1.0 / max(ratio, 1e-6)
+    v = np.array([[-a, -b], [a, -b], [a, b], [-a, b]], dtype=np.float64)
+    return _remuestrear_cerrado(v, _N_PLANTILLA)
+
+
+def _elipse_param(ratio: float) -> np.ndarray:
+    t = np.linspace(0.0, 2.0 * math.pi, _N_PLANTILLA, endpoint=False)
+    return np.column_stack([np.cos(t), np.sin(t) / max(ratio, 1e-6)])
+
+
+# Repertorio base. Cada entrada es un callable sin argumentos → contorno cerrado.
+_REPERTORIO: "dict[str, Any]" = {
+    "circulo_icp":    lambda: _poligono_regular(_N_PLANTILLA),
+    "elipse_2_1":     lambda: _elipse_param(2.0),
+    "triangulo":      lambda: _poligono_regular(3),
+    "cuadrado":       lambda: _poligono_regular(4),
+    "rectangulo_2_1": lambda: _rectangulo(2.0),
+    "pentagono":      lambda: _poligono_regular(5),
+    "hexagono":       lambda: _poligono_regular(6),
+}
+
+
+def registrar_plantilla_efa(nombre: str, coeficientes: list,
+                            n_points: int = _N_PLANTILLA) -> None:
+    """
+    Añade al repertorio una plantilla reconstruida desde coeficientes EFA.
+
+    Es el puente que pedía ADR-017 §2: un banco de descriptores EFA —el
+    «repertorio de formas ideales» de la pregunta original— se convierte en las
+    plantillas contra las que el ICP empareja fragmentos. La EFA aporta las
+    formas; el ICP hace el encaje parcial que la EFA no puede hacer.
+    """
+    from python.modules import efa as _efa
+    contorno = np.asarray(_efa.reconstruct(coeficientes, n_points=n_points),
+                          dtype=np.float64)
+    _REPERTORIO[nombre] = lambda c=contorno: c.copy()
+
+
+def plantillas_disponibles() -> list:
+    """Nombres del repertorio, en orden estable."""
+    return sorted(_REPERTORIO)
+
+
+# ── Transformada de similitud en forma cerrada (Umeyama 1991) ──────────────
+
+def _umeyama(X: np.ndarray, Y: np.ndarray, permitir_reflexion: bool = False):
+    """
+    (c, R, t) que minimiza ||c·R·X + t − Y||². Umeyama (1991), teorema 1.
+
+    La corrección por `det(U)·det(V)` es el aporte del artículo sobre Arun (1987)
+    y Horn (1987): sin ella, con datos corrompidos la SVD puede devolver una
+    REFLEXIÓN en vez de una rotación. Aquí eso importa — una forma y su espejo no
+    son la misma pieza — así que la reflexión se permite sólo si se pide.
+    """
+    n = len(X)
+    mu_x, mu_y = X.mean(axis=0), Y.mean(axis=0)
+    Xc, Yc = X - mu_x, Y - mu_y
+    Sigma = (Yc.T @ Xc) / n
+    U, D, Vt = np.linalg.svd(Sigma)
+    S = np.eye(2)
+    if not permitir_reflexion and (np.linalg.det(U) * np.linalg.det(Vt) < 0):
+        S[1, 1] = -1.0
+    R = U @ S @ Vt
+    var_x = float((Xc ** 2).sum() / n)
+    c = float(np.trace(np.diag(D) @ S) / var_x) if var_x > 1e-12 else 1.0
+    t = mu_y - c * (R @ mu_x)
+    return c, R, t
+
+
+# ── ICP recortado (TrICP) ──────────────────────────────────────────────────
+
+def _icp_recortado(frag: np.ndarray, kd, plantilla: np.ndarray, xi: float,
+                   init, iters: int, permitir_reflexion: bool) -> dict:
+    """
+    Una corrida de TrICP con transformada de similitud, desde una pose inicial.
+
+    En cada iteración: correspondencias por punto más cercano → se conserva la
+    fracción `xi` de MENOR distancia (least trimmed squares) → se re-estima la
+    similitud con Umeyama sobre ese subconjunto. Los puntos recortados son, en un
+    fragmento, el borde de fractura: no tienen homólogo en la plantilla.
+
+    Devuelve la pose final y el objetivo de Chetverikov et al. (2002)
+    `psi = MSE_recortado / xi^(1+λ)`, que penaliza recortes agresivos y permite
+    comparar ajustes con distinta fracción de solapamiento.
+    """
+    c, R, t = init
+    k = max(5, int(round(xi * len(frag))))
+    d = np.empty(len(frag))
+    orden = np.arange(k)
+    for _ in range(iters):
+        P = c * (frag @ R.T) + t
+        d, idx = kd.query(P)
+        orden = np.argpartition(d, k - 1)[:k] if k < len(d) else np.arange(len(d))
+        c_n, R_n, t_n = _umeyama(frag[orden], plantilla[idx[orden]], permitir_reflexion)
+        if not (np.isfinite(c_n) and np.isfinite(R_n).all() and np.isfinite(t_n).all()):
+            break
+        desplazamiento = abs(c_n - c) + float(np.abs(R_n - R).sum() + np.abs(t_n - t).sum())
+        c, R, t = c_n, R_n, t_n
+        if desplazamiento < 1e-9:
+            break
+    P = c * (frag @ R.T) + t
+    d, _ = kd.query(P)
+    orden = np.argpartition(d, k - 1)[:k] if k < len(d) else np.arange(len(d))
+    mse = float((d[orden] ** 2).mean())
+    return {"c": c, "R": R, "t": t, "xi": xi, "mse": mse,
+            "psi": mse / (xi ** (1.0 + _ICP_LAMBDA))}
+
+
+def _emparejar_icp(pts: np.ndarray, nombre: str, permitir_reflexion: bool,
+                   gap_min_arco: float = _GAP_MIN_ARCO) -> Optional[dict]:
+    """
+    Empareja un contorno contra una plantilla del repertorio y estima completitud.
+
+    Generaliza E3 a formas sin ecuación cerrada: la cobertura se mide sobre la
+    LONGITUD DE ARCO de la plantilla, usando la posición de arco del punto de
+    plantilla más cercano a cada punto conservado del fragmento. Para un círculo
+    esto coincide con la cobertura angular de F1 — de ahí la paridad exigida por
+    el gate del ADR.
+    """
+    from scipy.spatial import cKDTree
+
+    gen = _REPERTORIO.get(nombre)
+    if gen is None:
+        return None
+    plantilla_raw = np.asarray(gen(), dtype=np.float64)
+    if len(plantilla_raw) < 8 or len(pts) < _MIN_PUNTOS:
+        return None
+
+    q, q_c, q_s = _normalizar(plantilla_raw)
+    f, f_c, f_s = _normalizar(pts)
+    kd = cKDTree(q)
+
+    # Submuestreo del fragmento SOLO para el ICP (la cobertura usa el contorno
+    # completo). Equiespaciado en índice: barato y determinista.
+    paso = max(1, len(f) // _ICP_SUBMUESTRA)
+    f_icp = f[::paso]
+
+    # Fase 1 — rastreo grueso sobre (rotación × recorte), pocas iteraciones.
+    #
+    # El recorte entra DESDE EL PRINCIPIO, como en TrICP. Una fase gruesa sin
+    # recortar (ξ=1) parece más simple pero falla justo en el caso que importa:
+    # con un fragmento al 50 %, el 40 % del contorno es borde de fractura y
+    # arrastra la pose inicial; la fase fina ya no se recupera. Medido en banco:
+    # un sector de hexágono al 50 % RECHAZABA su propia plantilla (arco 0,035)
+    # mientras aceptaba un triángulo espurio.
+    quiralidades = (False, True) if permitir_reflexion else (False,)
+    gruesos = []
+    for espejo in quiralidades:
+        f0 = f_icp * np.array([1.0, -1.0]) if espejo else f_icp
+        for j in range(_ICP_ROTACIONES):
+            a = 2.0 * math.pi * j / _ICP_ROTACIONES
+            R0 = np.array([[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]])
+            for xi in _ICP_XI_GRUESO:
+                r = _icp_recortado(f0, kd, q, xi, (1.0, R0, np.zeros(2)),
+                                   _ICP_ITERS_GRUESO, permitir_reflexion)
+                gruesos.append((r["psi"], j, xi, espejo, r))
+    if not gruesos:
+        return None
+
+    # Fase 2 — refinar sólo los mejores arranques; gana el menor psi (TrICP).
+    gruesos.sort(key=lambda g: g[0])
+    finos = []
+    for _, _, _, espejo_g, r0 in gruesos[:_ICP_REFINAR]:
+        f0 = f_icp * np.array([1.0, -1.0]) if espejo_g else f_icp
+        for xi in _ICP_XI:
+            r = _icp_recortado(f0, kd, q, xi, (r0["c"], r0["R"], r0["t"]),
+                               _ICP_ITERS_MEDIO, permitir_reflexion)
+            finos.append((r["psi"], espejo_g, r))
+    finos.sort(key=lambda x: x[0])
+    _, espejo, r_medio = finos[0]
+
+    # Pulido final sólo del ganador: el barrido de recortes no necesita converger,
+    # sólo ordenar; converger 21 veces era el grueso del coste.
+    f0 = f_icp * np.array([1.0, -1.0]) if espejo else f_icp
+    mejor = _icp_recortado(f0, kd, q, r_medio["xi"],
+                           (r_medio["c"], r_medio["R"], r_medio["t"]),
+                           _ICP_ITERS, permitir_reflexion)
+
+    # Plantilla llevada a COORDENADAS DE IMAGEN: se invierte la transformada y se
+    # deshace la normalización del fragmento. Así el residuo sale en píxeles y los
+    # parámetros publicados son absolutos, igual que en F1.
+    q_en_frag = ((q - mejor["t"]) @ mejor["R"]) / max(mejor["c"], 1e-12)
+    if espejo:
+        q_en_frag = q_en_frag * np.array([1.0, -1.0])
+    plantilla_img = q_en_frag * f_s + f_c
+
+    # Margen original = puntos dentro de la TOLERANCIA ABSOLUTA, no el conjunto
+    # recortado por ξ. ξ es un parámetro INTERNO del TrICP (gobierna la búsqueda
+    # de la pose); usarlo también para reportar rompía las dos cosas medidas en
+    # banco: el recorte escoge los k globalmente más cercanos, que quedan
+    # ENTREVERADOS a lo largo del contorno, así que el tramo contiguo salía
+    # ridículo (0,11 en un disco al 75 % bien ajustado, residuo 0,9 → rechazado);
+    # y cuando ξ salía alto incluía el borde de fractura en el residuo (10,5 px
+    # en un hexágono correctamente emparejado). Con la tolerancia absoluta el
+    # criterio es además el MISMO que el de la vía analítica, que es lo que hace
+    # comparables ambas rutas.
+    kd_img = cKDTree(plantilla_img)
+    d_img, idx_img = kd_img.query(pts)
+    tol = _TOL_REL_DIAG * _diagonal(pts)
+    conservados = np.nonzero(d_img < tol)[0]
+    if len(conservados) < 3:
+        return None
+    residuo_rms = float(np.sqrt((d_img[conservados] ** 2).mean()))
+
+    # Cobertura sobre la longitud de arco de la plantilla (generalización de E3).
+    largos_q = _largos_segmento(plantilla_img)
+    S = np.concatenate([[0.0], np.cumsum(largos_q)])
+    L = float(S[-1])
+    if L <= 0:
+        return None
+    s_cub = np.sort(S[idx_img[conservados]])
+    gap_min = gap_min_arco * L
+    faltante, huecos = 0.0, []
+    for i in range(len(s_cub)):
+        s0 = s_cub[i]
+        s1 = s_cub[i + 1] if i < len(s_cub) - 1 else s_cub[0] + L
+        if (s1 - s0) > gap_min:
+            faltante += (s1 - s0)
+            huecos.append({"inicio_frac": round(s0 / L, 4),
+                           "fin_frac": round((s1 % L) / L, 4)})
+    completitud = max(0.0, min(1.0, 1.0 - faltante / L))
+
+    # Soporte: fracción del PERÍMETRO DEL FRAGMENTO explicada por la plantilla,
+    # medida como tramo contiguo — mismo criterio E1 que la vía analítica.
+    largos_f = _largos_segmento(pts)
+    inliers = np.zeros(len(pts), dtype=bool)
+    inliers[conservados] = True
+    _, _, largo_tramo = _tramo_contiguo_mas_largo(inliers, largos_f)
+    perim_f = float(largos_f.sum())
+
+    a_ejes = float(np.abs(q_en_frag).max() * f_s)
+    return {
+        "modelo": {
+            "cx": float(plantilla_img[:, 0].mean()),
+            "cy": float(plantilla_img[:, 1].mean()),
+            "escala_px": a_ejes,
+            "rotacion_deg": math.degrees(math.atan2(mejor["R"][1, 0], mejor["R"][0, 0])),
+            "reflexion": bool(espejo),
+        },
+        "arco": pts[conservados],
+        "arco_fraccion": (largo_tramo / perim_f) if perim_f > 0 else 0.0,
+        "residuo_rms": residuo_rms,
+        "completitud": completitud,
+        "huecos": huecos,
+        "xi": mejor["xi"],
+        "psi": mejor["psi"],
+        "contorno_plantilla": plantilla_img[::max(1, len(plantilla_img) // 128)],
     }
