@@ -2225,9 +2225,10 @@ referencia para un dictamen debe hacerse con las versiones fijadas**.
 
 **Actualización (ADR-017 F4, mismo día).** Esa ejecución es anterior a F4, que añadió **22 tests**
 (3 en `test_shape_template.py` y 19 en `test_adr017_calibracion.py`); la tabla de abajo ya los
-incluye. En el contenedor donde se preparó F4 la suite pasa de 372 a **394 passed / 4 skipped**.
-Los totales **no son comparables entre entornos** —cuántos módulos se omiten depende de las
-dependencias opcionales presentes—, así que lo que debe leerse es el **delta**, no el absoluto.
+incluye. Sobre `main` con F4 dentro, la suite da **401 passed / 4 skipped** en el contenedor donde
+se preparó. Los totales **no son comparables entre entornos** —cuántos módulos se omiten depende de
+las dependencias opcionales presentes—, así que lo que debe leerse es el **delta** (+22), no el
+absoluto.
 
 Distribución por módulo:
 

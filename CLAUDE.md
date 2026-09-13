@@ -163,8 +163,9 @@ F1-F3 construyeron, conectaron y expusieron la completitud. F4 pregunta lo únic
   significativo posible; (2) con acuerdo perfecto `MS_error = 0` → el IC del ICC salía `NaN`.
   Y una falsa alarma corregida: con 5 pares y residuos diminutos marcaba «sesgo proporcional
   significativo» una pendiente de −0,026 pp/pp → ahora exige ≥ 10 pares **y** deriva ≥ 5 pp.
-- **Verificado:** suite **+22 tests** (372→**394 passed** / 4 skipped en este contenedor; +19 del
-  arnés, +3 del módulo — comparar el delta, no el absoluto, según el aviso de la entrada (d)) ·
+- **Verificado:** suite **+22 tests** (+19 del arnés, +3 del módulo). Aislado: 372→394. Tras
+  rebasar sobre (d): **401 passed / 4 skipped** en este contenedor — comparar el **delta**, no el
+  absoluto, según el aviso de la entrada (d) ·
   banco corrido contra los nuevos defectos («ningún juego domina») · arnés probado end-to-end
   sobre corpus sintético **renderizado** (imágenes, no listas de puntos): 100,0 / 75,1 / 51,5 /
   100,0 / 51,0 con rectángulo y blob rechazados · `ast.parse(feature_version=(3,9))` en los 5
