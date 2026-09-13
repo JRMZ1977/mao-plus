@@ -154,5 +154,43 @@ eliminan fragilidades reales del mismo camino. No se reclama precisión mayor qu
 
 ---
 
+## 9 · Barrido de código muerto y sondas (2026-09-13)
+
+**Sondas e instrumentación temporal: cero.** Verificado contra `SONDA`, `__diagLote`, `__probe`,
+`debugger;` y marcadores de pendiente en todo `js/`, `tests/`, `main.js`, `preload.js` e `index.html`.
+
+**Las 16 funciones nuevas de esta rama son todas alcanzables** (de 1 a 11 usos cada una). De la API
+de `MaoExportDestino`, cinco de seis métodos se usan desde fuera del módulo; `resolver()` solo se
+usa internamente (por `abrir`) y desde los tests, que es su papel: forma parte del contrato público
+y está cubierto por 5 aserciones.
+
+### Huérfanas causadas por la Fase 0 — corregidas
+
+El barrido encontró **42 funciones sin llamadores** en los archivos tocados. Comparadas contra la
+rama base, **39 ya estaban muertas antes** (deuda preexistente, ajena a este trabajo) y **2 las
+dejó huérfanas la Fase 0** al borrar su único consumidor:
+
+| Función | Consumidor eliminado | Líneas |
+|---|---|---:|
+| `extraerMetricasCompletasConPH` (analysis-core) | `exportarObjetoBifacialCompletoUnificado` | −345 |
+| `validarCoherenciaPreexportacion` (analysis-core) | `generarReporteMorfologico` | −101 |
+| `validarCoherenciaPreexportacion` (visualization-export) | `exportarAnalisisMorfologico` | −101 |
+
+**−547 líneas adicionales.** Verificado que no se confundieron con
+`extraerMetricasCompletasConPHSimple`, que **sigue viva** (3 referencias) y es la que usa el CSV
+monofacial. Cero referencias residuales a las eliminadas.
+
+### Las 39 preexistentes: NO se tocaron
+
+Son deuda anterior a esta rama (`procesarPerforacion`, `redrawBifacial`,
+`extraerDatosObjeto_OLD_BACKUP`, `analizarObjetoConIA`…). Borrarlas excede el alcance de un trabajo
+sobre exportación y varias podrían tener llamadores por vías que un análisis estático no ve
+—`onclick` en HTML generado dinámicamente, el puente `fns` del IIFE—. **Quedan anotadas como
+candidatas a una limpieza propia**, con la misma verificación de cero llamadores que se aplicó aquí.
+
+**Total de la rama tras este barrido: −4.810 líneas de código muerto.**
+
+---
+
 *Auditoría mecánica: 40 aserciones sobre el código fuente, más verificación E2E previa en Electron
 con backend Python real y archivos reales en disco (`docs/AUDITORIA-EXPORTACION-20260912.md` §10–§12).*

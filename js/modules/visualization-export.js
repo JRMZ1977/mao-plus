@@ -10,7 +10,6 @@
  * - generarCanvasEsquematico(obj, metricas)
  * - exportarAnalisisMorfologico(obj, metricas)
  * - generarJSON(obj, metricas)
- * - validarCoherenciaPreexportacion(obj, metricas, modo)
  *
  * MODULE DEPENDENCIES:
  * - Morphometric Metrics Module (./morphometric-metrics.js)
@@ -2915,104 +2914,5 @@ export function generarCanvasEsquematico(obj, metricas) {
 //    VisualizationExport.generarJSON. Canónica = la de analysis-core.js.
 
 
-export async function validarCoherenciaPreexportacion(obj, metricas, modo = 'monofacial') {
-    const validaciones = {
-      modo: modo,
-      errores: [],
-      advertencias: [],
-      metricas_validadas: 0,
-      integridad: true,
-      timestamp: new Date().toISOString()
-    };
-    
-    console.log(`🔐 [VALIDACIÓN] Iniciando validación de coherencia (${modo})...`);
-    
-    try {
-      // 1. VALIDAR DIMENSIONES BÁSICAS
-      if (obj && obj.width > 0 && obj.height > 0 && metricas && metricas.area > 0 && metricas.perimeter > 0) {
-        validaciones.metricas_validadas++;
-        console.log(`   ✅ Dimensiones OK: ${obj.width}×${obj.height}px, Área=${metricas.area.toFixed(2)}`);
-      } else {
-        validaciones.errores.push("Dimensiones incompletas o inválidas");
-        console.warn(`⚠️ Dimensiones faltantes o inválidas`);
-      }
-      
-      // 2. VALIDAR PROPIEDADES GEOMÉTRICAS
-      if (metricas.area && metricas.perimeter && metricas.width && metricas.height) {
-        const maxArea = metricas.width * metricas.height;
-        const ratio = metricas.area / maxArea;
-        
-        if (ratio > 1.1) {
-          validaciones.errores.push(`Área inconsistente: ${metricas.area.toFixed(2)} >${maxArea.toFixed(2)}`);
-        } else if (ratio > 0.99) {
-          validaciones.advertencias.push(`Objeto ocupa casi 100% del bounding box (${(ratio*100).toFixed(1)}%)`);
-        }
-        validaciones.metricas_validadas++;
-        console.log(`   ✅ Propiedades geométricas OK (Área=${metricas.area.toFixed(2)}, Perímetro=${metricas.perimeter.toFixed(2)})`);
-      }
-      
-      // 3. VALIDAR RADIOS Y EJES
-      if (metricas.radio_maximo && metricas.radio_minimo && typeof metricas.radio_maximo === 'number' && typeof metricas.radio_minimo === 'number') {
-        if (metricas.radio_minimo > metricas.radio_maximo) {
-          validaciones.errores.push(`Radios invertidos: Rmin=${Number(metricas.radio_minimo).toFixed(2)} >Rmax=${Number(metricas.radio_maximo).toFixed(2)}`);
-        } else if (metricas.radio_minimo <= 0) {
-          validaciones.errores.push(`Radio mínimo inválido: ${metricas.radio_minimo}`);
-        }
-        validaciones.metricas_validadas++;
-        console.log(`   ✅ Radios OK: Rmax=${Number(metricas.radio_maximo).toFixed(2)}, Rmin=${Number(metricas.radio_minimo).toFixed(2)}`);
-      } else if (metricas.radio_maximo || metricas.radio_minimo) {
-        // Existen pero no son números válidos
-        validaciones.advertencias.push(`Radios presentes pero formato inválido (Rmax=${metricas.radio_maximo}, Rmin=${metricas.radio_minimo})`);
-      }
-      
-      // 4. VALIDAR SOLIDEZ/COMPLETITUD
-      if (metricas.solidity !== undefined && typeof metricas.solidity === 'number') {
-        if (metricas.solidity >= 0 && metricas.solidity <= 1) {
-          console.log(`   ✅ Solidez OK: ${(metricas.solidity*100).toFixed(1)}%`);
-          validaciones.metricas_validadas++;
-        } else {
-          validaciones.advertencias.push(`Solidez fuera de rango [0,1]: ${metricas.solidity}`);
-        }
-      } else if (metricas.solidity !== undefined) {
-        validaciones.advertencias.push(`Solidez formato inválido: ${metricas.solidity}`);
-      }
-      
-      // 5. VALIDAR FORMA DETECTADA
-      if (!metricas.forma_detectada) {
-        validaciones.advertencias.push(`Forma detectada no disponible`);
-      } else {
-        console.log(`   ✅ Forma detectada OK: "${metricas.forma_detectada}"`);
-      }
-      
-      // 6. VALIDAR CONTEO P/H
-      if (metricas.num_perforaciones !== undefined) {
-        if (typeof metricas.num_perforaciones === 'number' && metricas.num_perforaciones >= 0) {
-          if (metricas.num_perforaciones > 20) {
-            validaciones.advertencias.push(`Número anormalmente alto de perforaciones: ${metricas.num_perforaciones}`);
-          }
-          console.log(`   ✅ Perforaciones OK: ${metricas.num_perforaciones}`);
-        } else {
-          validaciones.errores.push(`Número perforaciones inválido: ${metricas.num_perforaciones}`);
-        }
-      }
-    } catch (error) {
-      // Capturar errores sin fallar - la validación es permisiva
-      validaciones.advertencias.push(`Error durante validación: ${error.message} (continuando...)`);
-      console.warn('⚠️ Error en función de validación (no crítico):', error);
-    }
-    
-    validaciones.integridad = validaciones.errores.length === 0;
-    
-    console.log(`🔐 ────────────────────────────────────────────`);
-    console.log(`🔐 Validación (${modo}): Métricas=${validaciones.metricas_validadas}, Errores=${validaciones.errores.length}, Advertencias=${validaciones.advertencias.length}`);
-    console.log(`🔐 Integridad: ${validaciones.integridad ? '✅ ACEPTADA' : '❌ RECHAZADA'}`);
-    console.log(`🔐 ────────────────────────────────────────────`);
-    
-    if (validaciones.errores.length > 0) {
-      console.error('❌ ERRORES CRÍTICOS:');
-      validaciones.errores.forEach((e, i) => console.error(`   ${i+1}. ${e}`));
-    }
-    
-    window.ultimaValidacionCoherencia = validaciones;
-    return validaciones;
-  }
+  // validarCoherenciaPreexportacion: ELIMINADA (Fase 0 bis, 2026-09-13). Quedó sin llamadores al
+  // borrar su único consumidor — 101 líneas.
