@@ -4,6 +4,54 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-09-13 (c) — ADR-017 F3: el cable
+
+Antes de F3 el backend sabía calcular completitud y **nadie se la pedía**: las únicas
+apariciones de `plantilla_completitud` en `js/` eran comentarios de F0. F3 conecta.
+
+- **Registro canónico ADR-006**: 5 claves `plantilla_*` con `fuente_2d` prefijada
+  `shape_match.` — mismo convenio que `texture.` para GLCM, porque **no viven en
+  `/api/metrics`** (el emparejamiento se pide bajo demanda, ~200 ms por plantilla).
+- **`PythonBridge.shapeTemplate.match()`** → `/api/shape-match`, con guard
+  `isModuleActive('shape_template')`.
+- **Tarjeta en §6** con los cuatro estados, calcados de P/H (ADR-009):
+
+| estado | chip | significado |
+|---|---|---|
+| `sin-evaluar` | `--wa` | no se pidió el emparejamiento |
+| `candidata` | `--wa` | hipótesis sin ratificar |
+| `confirmada` | `--ok` | ratificada por un humano — **sólo esto va al CSV** |
+| `sin-plantilla` | `--none` | se evaluó y no hay forma ideal: **resultado, no fallo** |
+
+- **Persistencia**: los 4 campos (`plantillaEvaluada/Candidata/Confirmada/Descartada`)
+  se escriben y releen del caché de análisis, como `phCandidatos` en ADR-009. Sin eso la
+  confirmación se perdía en el siguiente render y había que volver a pagar el cálculo.
+- **Repertorio del botón ACOTADO** a propósito (`circulo`, `elipse`, `triangulo`,
+  `cuadrado`, `hexagono`): pedir la biblioteca entera multiplica los 200 ms por plantilla.
+
+**Tres bugs encontrados, los tres MUDOS** — la clase propia de una fase de cableado:
+código que nadie ejecuta hasta que un humano pulsa un botón.
+1. **Los tres nombres de campo del contorno que escribí eran inventados**
+   (`obj.contorno.points`, `obj.contourPoints`, `obj.puntos_contorno`). Los canónicos son
+   `obj.contour_data.points` (real) y `obj.contour_points` (puede venir simplificado para
+   dibujo). El botón habría dicho siempre «sin contorno suficiente».
+2. **Argumentos de `toast` invertidos.** `MaoOrganizer.toast(kind, msg)` hace
+   `window.toast[kind](msg)`; al revés evalúa `window.toast['El emparejamiento…']`, que no
+   es función → **ningún aviso se habría mostrado jamás**, sin error en consola.
+3. **Colisión de selector**: `set()` usa `querySelector`, y al añadir el segundo
+   `.laar-chip` a la cabecera el selector sin acotar habría escrito siempre en el primero
+   (el chip de P/H mostrando el estado de la forma). Ambos acotados ahora.
+
+Los tres con test estático, más un cuarto contrato verificado end-to-end: si
+`shape_template` no se anunciara en `/api/capabilities`, el guard del bridge devolvería
+`null` siempre y el botón quedaría muerto sin error visible.
+
+- **Verificado:** 15 tests de cableado · **suite 372 passed / 4 skipped** (antes 357/4) ·
+  `node --check` en los 7 JS tocados · contratos window 33/33 · cache-bust `?v=20260913a`.
+- **NO hecho:** superponer `plantilla_contorno` en el lienzo. El backend ya lo publica en
+  coords absolutas, pero exige tocar el pipeline de render y **verificación visual en
+  Electron**, imposible en estos contenedores. Es lo primero de F4.
+
 ## 🎯 Sesión 2026-09-13 (b) — ADR-017 F2: repertorio arbitrario + ICP recortado
 
 Cierra la pregunta original: **el repertorio EFA sí sirve — como biblioteca de plantillas, no

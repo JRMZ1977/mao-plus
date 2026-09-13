@@ -11479,6 +11479,22 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
         obj.phCandidatos = metricasCached.phCandidatos;
       }
 
+      // ADR-017 F3: restaurar el emparejamiento con plantilla y la decisión humana.
+      // El `!obj.X` de cada guarda preserva lo que el usuario acabe de decidir en
+      // esta sesión frente a un caché más viejo.
+      if (metricasCached.plantillaEvaluada && !obj.plantillaEvaluada) {
+        obj.plantillaEvaluada = true;
+      }
+      if (metricasCached.plantillaCandidata && !obj.plantillaCandidata) {
+        obj.plantillaCandidata = metricasCached.plantillaCandidata;
+      }
+      if (metricasCached.plantillaConfirmada && !obj.plantillaConfirmada) {
+        obj.plantillaConfirmada = metricasCached.plantillaConfirmada;
+      }
+      if (metricasCached.plantillaDescartada && obj.plantillaDescartada === undefined) {
+        obj.plantillaDescartada = true;
+      }
+
       // 🔧 Asignar obj.metricas al caché para que la exportación PDF y otros
       // flujos que leen obj.metricas directamente (en lugar de analisisCached.metricas)
       // encuentren los datos correctos. Se hace siempre, no solo en modo interactivo.
@@ -12191,7 +12207,15 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       perforaciones: obj.perforaciones || metricas.perforaciones || [],
       horadaciones: obj.horadaciones || metricas.horadaciones || [],
       // ADR-009: candidatos P/H seedless (sugerencias sin confirmar) persistidos
-      phCandidatos: obj.phCandidatos || metricas.phCandidatos || []
+      phCandidatos: obj.phCandidatos || metricas.phCandidatos || [],
+      // ADR-017 F3: emparejamiento con plantilla ideal. Se persisten los TRES
+      // estados —evaluada, candidata, decisión humana— porque sin ellos la
+      // confirmación se perdería en el siguiente render y el usuario tendría que
+      // volver a decidir (el emparejamiento cuesta ~200 ms por plantilla).
+      plantillaEvaluada:   !!obj.plantillaEvaluada,
+      plantillaCandidata:  obj.plantillaCandidata || metricas.plantillaCandidata || null,
+      plantillaConfirmada: obj.plantillaConfirmada || metricas.plantillaConfirmada || null,
+      plantillaDescartada: !!obj.plantillaDescartada
     };
     
     targetObj.analisisCached = {

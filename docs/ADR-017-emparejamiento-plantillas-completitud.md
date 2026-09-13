@@ -1,6 +1,6 @@
 # ADR-017 — Emparejamiento con plantillas de forma ideal e inferencia de completitud (fragmento vs. pieza completa)
 
-**Estado:** 🟡 **F0, F1 y F2 implementadas (2026-09-12/13)** · F3-F4 propuestas
+**Estado:** 🟡 **F0-F3 implementadas (2026-09-12/13)** · F4 propuesta
 **Nota de versión F0:** `docs/NOTA-VERSION-ADR017-F0.md` (cambia valores exportados)
 **Fecha:** 2026-09-12
 **Autor:** JFRR + Claude Code
@@ -290,11 +290,69 @@ forma ideal subyacente: el caso normal en lítica). Nunca `--ok` automático.
 | **F0** | ✅ **Hecha.** 13 archivos, 15 con docs. Ver §6.1 | los 8 previstos + `mao-ia.js`, `comparator.js`, `visualization-export.js`, `metric-presenter.js`, `index.html` | ✅ gate `tools/adr017_gate_f0.mjs` 13/13 · ✅ `node --check` 11/11 + `py_compile` 2/2 · ⏳ suite y Electron pendientes (entorno sin numpy/pytest) | 🟠 **cambia valores exportados** → `docs/NOTA-VERSION-ADR017-F0.md` |
 | **F1** | ✅ **Hecha.** `python/modules/shape_template.py` + `/api/shape-match` + 19 tests. Ver §6.2 | nuevo módulo, `server.py`, `modules/__init__.py`, 2 ficheros de test | ✅ error ≤ 1 punto porcentual entre 25 % y 100 % · ✅ rechaza < 15 % · ✅ rechaza plantilla errónea · suite 343/4 | 🟢 aditivo |
 | **F2** | ✅ **Hecha.** ICP recortado sobre repertorio + `efa.reconstruct()` publicada + `/api/shape-match/templates`. Ver §6.3 | `shape_template.py`, `efa.py`, `server.py` | ✅ paridad ≤ 0,3 pp en los 4 casos · ✅ 3 plantillas poligonales validadas · suite 357/4 | 🟢 aditivo |
-| **F3** | Registro canónico + contrato + chip LAAR + modal de confirmación (patrón ADR-009) | `morphometric_registry.py`, `mao-deteccion-contract.js`, `mao-analysis-organizer.js` | chip en los 4 estados; confirmar/descartar persiste; CSV con las claves nuevas | 🟢 |
+| **F3** | ✅ **Hecha.** Registro + bridge + chip de 4 estados + confirmar/descartar + persistencia + CSV. Ver §6.4 | `morphometric_registry.py`, `python-bridge.js`, `mao-deteccion-contract.js`, `mao-analysis-organizer.js`, `analysis-core.js`, `project-manager.js`, `tabla-metricas-completa.js`, `mao-tabs-laar.css`, `index.html` | ✅ 4 estados · ✅ persiste en el caché · ✅ CSV sólo lo confirmado · 15 tests de cableado · suite 372/4 | 🟢 |
 | **F4** | Calibración de umbrales con corpus real (La Draga) + validación contra medición manual | `docs/VALIDACION-PLANTILLAS.md` | umbrales justificados con datos; acuerdo método↔observador reportado (enlaza ADR-015 A2/ICC) | 🟢 |
 
 **Secuencia recomendada:** F0 primero y por separado — es autónomo, corrige un defecto que ya
 contamina el reporte del artículo, y no depende de nada de lo demás.
+
+### 6.4 · Lo que F3 conectó, y los tres bugs que encontró al hacerlo
+
+Antes de F3 el backend sabía calcular completitud y **nadie se la pedía**: las
+únicas apariciones de `plantilla_completitud` en `js/` eran comentarios de F0
+diciendo «vuelve en F1». F3 es el cable.
+
+**Cableado**: claves en el registro canónico ADR-006 (con `fuente_2d` prefijada
+`shape_match.`, mismo convenio que `texture.` para GLCM, porque no viven en
+`/api/metrics`) · `PythonBridge.shapeTemplate.match()` · campos de telemetría en
+el contrato · tarjeta en §6 con los cuatro estados · persistencia en el caché de
+análisis · CSV y reporte.
+
+**Los cuatro estados**, calcados de P/H (ADR-009):
+
+| estado | chip | significado |
+|---|---|---|
+| `sin-evaluar` | `--wa` | no se ha pedido el emparejamiento |
+| `candidata` | `--wa` | hay hipótesis sin ratificar |
+| `confirmada` | `--ok` | un humano la ratificó — **sólo esto viaja al CSV** |
+| `sin-plantilla` | `--none` | se evaluó y no hay forma ideal: **resultado, no fallo** |
+
+Que `sin-plantilla` sea un estado propio es el punto arqueológico del ADR: en
+lítica, no tener forma ideal subyacente es el caso **normal**.
+
+**Tres bugs, los tres de la clase propia de una fase de cableado** — código que
+nadie ejecuta hasta que un humano pulsa un botón, y que por eso falla en silencio:
+
+1. **Los tres nombres de campo del contorno eran inventados.** Escribí
+   `obj.contorno.points`, `obj.contourPoints` y `obj.puntos_contorno`; los
+   canónicos son `obj.contour_data.points` (contorno real) y `obj.contour_points`
+   (puede venir simplificado para dibujo). El botón habría respondido siempre
+   «sin contorno suficiente».
+2. **Argumentos de `toast` invertidos.** `MaoOrganizer.toast(kind, msg)` hace
+   `window.toast[kind](msg)`; con los argumentos al revés evalúa
+   `window.toast['El emparejamiento…']`, que no es función: **ningún aviso se
+   habría mostrado nunca**, sin error en consola.
+3. **Colisión de selector en la cabecera.** `set()` resuelve con `querySelector`,
+   y al añadir el segundo `.laar-chip` (forma, junto al de P/H) el selector sin
+   acotar habría escrito siempre en el primero — el chip de P/H mostrando el
+   estado de la forma.
+
+Los tres están cubiertos por tests estáticos: nombres de campo contra los que
+`analysis-core.js` fija de verdad, firma de `toast`, y selectores acotados.
+
+**Un cuarto contrato verificado end-to-end**: el bridge sólo llama al endpoint si
+`isModuleActive('shape_template')`. Si el módulo no se anunciara en
+`/api/capabilities`, el guard devolvería `null` siempre y el botón quedaría muerto
+sin error visible. Comprobado que se anuncia, y fijado con test.
+
+**Decisión de diseño**: el repertorio por defecto del botón está **acotado**
+(`circulo`, `elipse`, `triangulo`, `cuadrado`, `hexagono`) por el coste de ~200 ms
+por plantilla que midió F2. Pedir la biblioteca entera multiplicaría el tiempo.
+
+**No hecho**: dibujar la plantilla ajustada sobre el lienzo. El backend ya publica
+`plantilla_contorno` en coordenadas absolutas para eso, pero superponerlo exige
+tocar el pipeline de render y **verificación visual en Electron**, que ningún
+contenedor de estas sesiones puede ejecutar. Queda como lo primero de F4.
 
 ### 6.3 · Resultados medidos de F2
 

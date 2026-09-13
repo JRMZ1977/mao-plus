@@ -53,7 +53,7 @@ import * as ContourQuality from './contour-quality.js';
 import * as GeometryPrimitives from './geometry-primitives.js';
 import * as UtilityHelpers from './utility-helpers.js';
 import * as MetricsOrchestrator from './metrics-orchestrator.js';
-import { generarTablaMetricasCompleta as _generarTablaMetricasCompleta } from './tabla-metricas-completa.js?v=20260912a';
+import { generarTablaMetricasCompleta as _generarTablaMetricasCompleta } from './tabla-metricas-completa.js?v=20260913a';
 
 // ============================================================================
 // PUBLIC API - ES6 EXPORT STATEMENTS (Functions extracted from analysis-core.js)

@@ -1077,7 +1077,16 @@ class ProjectManager {
     // ADR-017 F0 — concavidad, no «pérdida»; completitud retirada hasta F1.
     rows.push(`08_Concavidad,Concavidad de area,${metricas.concavidad_area_percent ?? metricas.perdida_area_fragmentacion_percent ?? 'N/D'},%,Deficit de area respecto al hull = (1 - solidez)`);
     rows.push(`08_Concavidad,Exceso de perimetro sobre hull,${metricas.concavidad_perimetro_percent ?? 'N/D'},%,Sinuosidad frente a la envolvente convexa`);
-    rows.push(`08_Conservacion,Completitud,Sin evaluar,,Requiere ajuste de plantilla (ADR-017 F1)`);
+    // ADR-017 F3 — sólo viaja lo CONFIRMADO por el usuario. Un candidato sin
+    // ratificar es una hipótesis, y el CSV es un registro, no una conjetura.
+    if (metricas.plantilla_tipo) {
+      rows.push(`08_Conservacion,Plantilla emparejada,${metricas.plantilla_tipo},,Forma ideal confirmada por el usuario`);
+      rows.push(`08_Conservacion,Completitud de plantilla,${metricas.plantilla_completitud ?? 'N/D'},%,Fraccion de la forma ideal preservada`);
+      rows.push(`08_Conservacion,Soporte de plantilla,${metricas.plantilla_arco_fraccion ?? 'N/D'},,Fraccion del contorno sobre la plantilla`);
+      rows.push(`08_Conservacion,Confianza de plantilla,${metricas.plantilla_confianza_nivel || 'N/D'},,alta/media/baja (ADR-007)`);
+    } else {
+      rows.push(`08_Conservacion,Completitud,Sin confirmar,,Requiere emparejar plantilla y confirmarla (ADR-017 F3)`);
+    }
     rows.push(`08_Conservacion,Circularidad s-Fragmentacion,${metricas.circularity_fragmentada || 0},,Circularidad sobre contorno real`);
     rows.push(`08_Conservacion,Compacidad s-Fragmentacion,${metricas.compactness_fragmentada || 0},,Compacidad sobre contorno real`);
     rows.push(`08_Conservacion,Rectangularidad s-Fragmentacion,${metricas.rectangularity_fragmentada || 0},,Rectangularidad sobre contorno real`);

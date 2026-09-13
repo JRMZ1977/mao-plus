@@ -256,6 +256,60 @@ _3D: list[MetricSpec] = [
 # NIVEL 2D — Exclusivas 2D (dependen del raster / píxel)
 # ─────────────────────────────────────────────────────────────────────────────
 _2D: list[MetricSpec] = [
+    # ── ADR-017 F1/F2 — emparejamiento con plantilla ideal ───────────────────
+    # No salen de /api/metrics sino de /api/shape-match, que se invoca BAJO
+    # DEMANDA (cuesta ~200 ms por plantilla). Por eso `fuente_2d` lleva el
+    # prefijo "shape_match." — misma señal que usa GLCM con "texture.".
+    #
+    # Invariante ADR-009/ADR-017 §7: `plantilla_completitud` describe una
+    # hipótesis geométrica, no un hecho. Hasta que el usuario la confirma no
+    # alimenta ninguna otra métrica; el área neta y el pool morfométrico no la
+    # consultan.
+    MetricSpec(
+        id="plantilla_completitud", nombre="Completitud de plantilla",
+        formula="100·(1 − Σ huecos / L_plantilla) sobre la plantilla AJUSTADA",
+        nivel="2D",
+        modalidad=("2d",),
+        invariante=True, adimensional=True, homologo=None,
+        unidad="porcentaje",
+        fuente_2d="shape_match.plantilla_completitud", fuente_3d=None,
+    ),
+    MetricSpec(
+        id="plantilla_tipo", nombre="Plantilla emparejada",
+        formula="nombre de la forma ideal ajustada (circulo | elipse | repertorio | ninguna)",
+        nivel="2D",
+        modalidad=("2d",),
+        invariante=True, adimensional=True, homologo=None,
+        unidad="categoria",
+        fuente_2d="shape_match.plantilla_tipo", fuente_3d=None,
+    ),
+    MetricSpec(
+        id="plantilla_arco_fraccion", nombre="Soporte de la plantilla",
+        formula="longitud del arco contiguo sobre la plantilla / perímetro del contorno",
+        nivel="2D",
+        modalidad=("2d",),
+        invariante=True, adimensional=True, homologo=None,
+        unidad="adimensional",
+        fuente_2d="shape_match.plantilla_arco_fraccion", fuente_3d=None,
+    ),
+    MetricSpec(
+        id="plantilla_residuo_rms", nombre="Residuo de ajuste de plantilla",
+        formula="RMS de la distancia del margen original a la plantilla",
+        nivel="2D",
+        modalidad=("2d",),
+        invariante=False, adimensional=False, homologo=None,
+        unidad="px",
+        fuente_2d="shape_match.plantilla_residuo_rms", fuente_3d=None,
+    ),
+    MetricSpec(
+        id="plantilla_confianza", nombre="Confianza del emparejamiento",
+        formula="0.55·soporte + 0.45·ajuste — cortes LAAR alta/media/baja (ADR-007)",
+        nivel="2D",
+        modalidad=("2d",),
+        invariante=True, adimensional=True, homologo=None,
+        unidad="adimensional",
+        fuente_2d="shape_match.plantilla_confianza", fuente_3d=None,
+    ),
     MetricSpec(
         id="glcm_contrast", nombre="Contraste GLCM",
         formula="GLCM textura — contraste (endpoint /api/texture, no /api/metrics)",

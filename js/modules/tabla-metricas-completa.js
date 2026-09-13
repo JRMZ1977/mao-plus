@@ -304,8 +304,12 @@ function generarSeccionFragmentacion(metricas, estiloTabla, estiloTh, estiloTd) 
     const perdidaPerimetro = parseFloat(metricas.concavidad_perimetro_percent) || 0;
     // ADR-017 F0 — sin dato de completitud hasta el ajuste de plantilla (F1).
     // Antes: `|| 100` y `|| 'Completo'` fabricaban «pieza completa» por defecto.
-    const completitud = null;
-    const tipoFragmento = 'Sin evaluar';
+    // ADR-017 F3: si el usuario confirmó una plantilla, el dato existe.
+    const completitud = (metricas.plantilla_completitud != null)
+      ? parseFloat(metricas.plantilla_completitud) : null;
+    const tipoFragmento = metricas.plantilla_tipo
+      ? `${metricas.plantilla_tipo} · ${Number(metricas.plantilla_completitud).toFixed(0)} % preservado`
+      : 'Sin evaluar';
     const coberturaAngular = null;
     
     return `
@@ -344,7 +348,7 @@ function generarSeccionFragmentacion(metricas, estiloTabla, estiloTh, estiloTd) 
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}; font-weight: 600;">Completitud</td>
             <td style="${estiloTd}; font-weight: 700; color: #6c757d; font-size: 15px;">${tipoFragmento}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Requiere ajuste de plantilla (ADR-017 F1)</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">${completitud != null ? 'Plantilla ideal confirmada por el usuario (ADR-017)' : 'Requiere emparejar plantilla y confirmarla (ADR-017 F3)'}</td>
           </tr>
         </tbody>
       </table>

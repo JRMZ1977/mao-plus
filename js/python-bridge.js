@@ -372,6 +372,44 @@ const PythonBridge = (() => {
    * Módulo EFA (Elliptic Fourier Analysis).
    * Retorna null si no está implementado o el servidor no está disponible.
    */
+  /**
+   * ADR-017 F1/F2 — emparejamiento con plantillas de forma ideal.
+   *
+   * Responde si una pieza es COMPLETA o el FRAGMENTO de una forma mayor,
+   * ajustando una plantilla al margen original del contorno.
+   *
+   * ⚠ Coste ~200 ms por plantilla: invocar BAJO DEMANDA (acción del usuario),
+   * nunca dentro del bucle de análisis por objeto. Y acotar `templates` — pedir
+   * el repertorio entero multiplica el coste por el número de plantillas.
+   *
+   * El resultado es un CANDIDATO a confirmar (ADR-009): no altera ninguna
+   * métrica por sí solo.
+   */
+  const shapeTemplate = {
+    async match(contourPoints, {
+      templates = null, scalePxMm = 1.0, forzarIcp = false, permitirReflexion = false,
+    } = {}) {
+      if (!_serverAvailable || !isModuleActive('shape_template')) return null;
+      if (!Array.isArray(contourPoints) || contourPoints.length < 12) return null;
+      const campos = {
+        contour_json: JSON.stringify(contourPoints),
+        scale_px_mm: scalePxMm,
+        forzar_icp: forzarIcp,
+        permitir_reflexion: permitirReflexion,
+      };
+      if (Array.isArray(templates) && templates.length) {
+        campos.templates_json = JSON.stringify(templates);
+      }
+      return _fetch('/shape-match', { method: 'POST', body: _formData(campos) });
+    },
+
+    /** Repertorio disponible (paramétricas + registradas desde EFA). */
+    async templates() {
+      if (!_serverAvailable || !isModuleActive('shape_template')) return null;
+      return _fetch('/shape-match/templates', { method: 'GET' });
+    },
+  };
+
   const efa = {
     async calculate(contourPoints, { nHarmonics = 20, scalePxMm = 1.0, normalize = true } = {}) {
       if (!_serverAvailable || !isModuleActive('efa')) return null;
@@ -862,6 +900,7 @@ const PythonBridge = (() => {
     contour,
     metrics,
     efa,
+    shapeTemplate,
     obj3d,
     morphology,
     scale,

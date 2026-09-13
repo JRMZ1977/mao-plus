@@ -1706,3 +1706,12 @@ html.mao-debug .dev-only { display: revert !important; }
   from { transform: rotate(0deg);   }
   to   { transform: rotate(360deg); }
 }
+
+
+/* ── ADR-017 F3 — completitud por plantilla ideal ──────────────────────────
+   La tarjeta reusa `.adr2-ph-card` (misma caja que P/H, ADR-005 D2); aquí sólo
+   lo específico: dos botones en fila y el chip de la cabecera. */
+.adr2-forma-card { margin-top: 8px; }
+.adr2-forma-card .adr2-btn-ph + .adr2-btn-ph { margin-left: 6px; }
+.adr2-h-plantilla { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
+#adr2Header .adr2-h-plantilla .laar-chip { white-space: nowrap; }

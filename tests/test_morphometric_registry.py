@@ -123,11 +123,16 @@ class TestContrato2D3D:
             (m.id, m.fuente_2d) for m in REGISTRY.values()
             if m.fuente_2d
             and m.fuente_2d not in claves_reales
-            # Excepciones documentadas:
-            #   "efa.*"     → subestructura en un endpoint EFA separado (documental)
-            #   "texture.*" → endpoint /api/texture separado, no /api/metrics
+            # Excepciones documentadas — métricas que NO viven en /api/metrics
+            # porque las sirve un endpoint propio:
+            #   "efa.*"         → subestructura del endpoint EFA (documental)
+            #   "texture.*"     → endpoint /api/texture
+            #   "shape_match.*" → endpoint /api/shape-match (ADR-017 F1/F2). Se
+            #       invoca BAJO DEMANDA porque cuesta ~200 ms por plantilla, así
+            #       que por diseño no forma parte de la respuesta de /api/metrics.
             and not m.fuente_2d.startswith("efa.")
             and not m.fuente_2d.startswith("texture.")
+            and not m.fuente_2d.startswith("shape_match.")
         ]
         assert fallos == [], (
             f"fuente_2d declaradas en el registro que no aparecen en /api/metrics: {fallos}\n"

@@ -40,3 +40,15 @@ def test_endpoint_respeta_seleccion_de_plantillas(client):
     assert r.status_code == 200
     d = r.json()
     assert all(c["tipo"] == "circulo" for c in d["candidatos"])
+
+def test_el_modulo_se_anuncia_en_capabilities(client):
+    """
+    El bridge sólo llama al endpoint si `isModuleActive('shape_template')`. Si el
+    módulo no se anuncia en /api/capabilities, el guard devuelve null SIEMPRE y el
+    botón queda muerto sin ningún error visible — el fallo más caro de diagnosticar.
+    """
+    caps = client.get("/api/capabilities").json()
+    mods = caps.get("modules", caps)
+    assert mods.get("shape_template") is True, (
+        f"shape_template no se anuncia como activo: {mods.get('shape_template')!r}"
+    )
