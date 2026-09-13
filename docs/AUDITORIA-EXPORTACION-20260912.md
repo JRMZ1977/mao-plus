@@ -999,9 +999,7 @@ del manifiesto (aparecía en disco pero no en la lista de generados). Ahora la f
 ### 11.6 — Pendiente conocido
 
 - ~~**Nombres mixtos dentro de la carpeta**~~ → ✅ **unificado**, ver §11.7.
-- **Lote bifacial no ejercitado end-to-end:** implementado y con la misma capa de destino, pero la
-  verificación en Electron del par completo sigue limitada por la máquina de estados bifacial
-  (§10.3).
+- ~~**Lote bifacial no ejercitado end-to-end**~~ → ✅ verificado, ver §11.8.
 - **`landmarks.tps` con 1 espécimen** en la corrida verificada, por no haber P/H confirmadas; la
   lógica multi-fuente está probada en §10.2.
 
@@ -1041,6 +1039,45 @@ Carpeta y archivos comparten base; los de `landmarks/` mantienen sus claves esta
 el objeto** — deuda ADR-008 C2. Si se implementa C2, `_baseNombreAnalisis` es el único sitio a
 cambiar. Cobertura: 11 comprobaciones en `tests/test_bifacial_export.js` (sección G).
 
+### 11.8 — Verificación E2E del lote bifacial y timeout del PDF (2026-09-13)
+
+Con **dos análisis reales y distintos** (fixtures cara A y cara B, 230 métricas cada uno), el IMC
+salió **98,9 %** —no el 100 % degenerado de la comprobación estructural del §10.3— con tres rasgos
+divergentes reales (`Varianza Tonal Δ46,0 % | Entropía Tonal Δ34,3 % | Gradiente Interno Δ26,5 %`).
+
+**Primer intento: el PDF bifacial se colgó >5 minutos** sin error, con el status congelado en
+«puede tomar 20-30 segundos», el destino abierto y el manifiesto sin escribir.
+
+**Causa raíz:** `html2canvas(..., { imageTimeout: 0 })` en dos sitios. `0` **no** significa «sin
+espera» sino **espera indefinida**: basta una imagen que no cargue para que la captura no resuelva
+nunca. Corregido a `15000` ms.
+
+**Defensa en profundidad** (un cuelgue silencioso es peor que un fallo):
+
+| Capa | Tope |
+|---|---|
+| `renderizarCanvasDesdeTrazos` por cara | 20 s |
+| `html2canvas` por página | 45 s |
+| Paso PDF completo en ambos orquestadores | 180 s |
+
+Helper `_conTimeout(promesa, ms, etiqueta)`: rechaza con motivo y etiqueta legibles, y **propaga
+tal cual los fallos reales** sin enmascararlos de timeout. 3 comprobaciones en la sección H de
+`tests/test_bifacial_export.js`.
+
+**Resultado verificado:** PDF de 679 KB (`%PDF-1.3`), CSV de comparación con el bloque IMC y
+`comparacion.json`, en `resultados/QP1_U1_N1_E1_01__bifacial/`. 0 errores de renderer.
+
+#### Hueco de auditabilidad cerrado de paso
+
+El paso «CSV de ambas caras» no aparecía **ni** en `archivos` ni en `omitidos`: su exportador sale
+antes con un toast, sin lanzar y sin escribir, así que el manifiesto declaraba «0 omitidos»
+ocultando un paso que no hizo nada. Nuevo `_pasoLote(destino, etiqueta, fn)` compara el número de
+escritos antes y después y registra la omisión. Los 7 pasos de ambos orquestadores pasan por él.
+
+Ahora el manifiesto dice la verdad: `3 generados · 1 omitido — «el exportador terminó sin escribir
+ningún archivo»`. (Esa omisión concreta es límite del montaje de prueba: las caras se construyeron
+a mano y no quedaron registradas en `analisisMorfologicos.objetos`, donde ese exportador las busca.)
+
 ---
 
 ## 12. Resumen ejecutivo
@@ -1062,5 +1099,6 @@ cambiar. Cobertura: 11 comprobaciones en `tests/test_bifacial_export.js` (secci�
 | ⚠️ Hallazgo fuera de encargo | Un `TypeError` **preexistente** tumbaba el panel morfológico entero. ✅ Corregido en los dos niveles: guarda defensiva en el render (§10.4) y, en el productor, el fallback de `analysis-core.js:12060` — el único de los **cinco** productores de `_forma_idealizada` que incumplía el contrato (§10.6). Verificado en Electron. |
 | ¿Exportación en lote implementada? | **Sí, §11.** Un clic → 7 archivos + manifiesto en `<proyecto>/resultados/<ID>/`, **todos con el ID arqueológico** (§11.7). Verificado en Electron con PDF, SVG, PNG, CSV y landmarks reales en disco. |
 | ⚠️ Defecto sistémico destapado | `obj.id` es **numérico** en detección automática y 6 sitios asumían cadena: **el PDF integral y el SVG fallaban también al exportarlos uno a uno** (§11.3). Corregido. |
+| Lote bifacial | ✅ **Verificado E2E (§11.8)** con IMC real 98,9 %. Destapó `imageTimeout: 0` (espera INDEFINIDA) que colgaba el PDF: corregido + topes en tres capas. |
 | ⚠️ Trampa de ámbito | `currentAnalyzedObject` son dos bindings distintos (local del IIFE vs global que escribe el módulo ESM); los exportadores individuales siguen leyendo el que queda en `null` (§11.4). |
 | Código muerto | ✅ **Eliminado (Fase 0):** −4.263 líneas en 10 funciones + `js/export-manager.js` completo, con verificación de cero llamadores y arranque en Electron (§3.1). |

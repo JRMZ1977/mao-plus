@@ -24835,6 +24835,29 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * 🆕 GENERA REPORTE PDF COMPARATIVO BIFACIAL COMPLETO
    * Incluye: Portada, Canvas comparativos, Tabla de métricas
    */
+  /**
+   * Envuelve una promesa con un tope de tiempo. Rechaza con un error legible en
+   * vez de quedarse colgada para siempre.
+   *
+   * Motivo (verificación E2E 2026-09-13): `generarReporteBifacialPDF()` se quedó
+   * >5 min sin terminar, sin error y sin timeout — el status decía «puede tomar
+   * 20-30 segundos» indefinidamente y, dentro de la exportación en lote, el
+   * destino nunca se cerraba ni se escribía el manifiesto. html2canvas sobre un
+   * contenedor fuera de pantalla puede no resolver nunca si una imagen queda
+   * pendiente. Un cuelgue silencioso es peor que un fallo: con tope, el lote lo
+   * registra como omisión en el manifiesto y sigue.
+   */
+  function _conTimeout(promesa, ms, etiqueta) {
+    let temporizador;
+    return Promise.race([
+      Promise.resolve(promesa).finally(() => clearTimeout(temporizador)),
+      new Promise((_, reject) => {
+        temporizador = setTimeout(
+          () => reject(new Error(`Tiempo agotado (${Math.round(ms / 1000)} s): ${etiqueta}`)), ms);
+      }),
+    ]);
+  }
+
   async function generarReporteBifacialPDF() {
     // Variables de preservación declaradas fuera del try para ser accesibles en catch
     let vistaAnterior = null;
@@ -25051,8 +25074,8 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         throw new Error('No se encontraron los canvas en el layout temporal');
       }
       
-      await renderizarCanvasDesdeTrazos(caraA, canvasA);
-      await renderizarCanvasDesdeTrazos(caraB, canvasB);
+      await _conTimeout(renderizarCanvasDesdeTrazos(caraA, canvasA), 20000, 'render del canvas de la cara A');
+      await _conTimeout(renderizarCanvasDesdeTrazos(caraB, canvasB), 20000, 'render del canvas de la cara B');
 
       // 🖼️ CONVERTIR CANVAS A IMÁGENES ESTÁTICAS antes de html2canvas
       // html2canvas no puede leer píxeles de elementos <canvas> en contenedores
@@ -25133,14 +25156,16 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         // 📐 Escala adaptativa: reduce de 3.0 a 1.5x-2.0x (40% más rápido)
         const optimalScale = pages[i].offsetHeight > 2000 ? 1.5 : 2.0;
         
-        const canvas = await html2canvas(pages[i], {
+        const canvas = await _conTimeout(html2canvas(pages[i], {
           scale: optimalScale,
           useCORS: true,
           logging: false,
           backgroundColor: '#ffffff',
           windowWidth: 1000,
-          imageTimeout: 0
-        });
+          // CAUSA RAÍZ del cuelgue: 0 = ESPERA INDEFINIDA por cada imagen. Con un
+          // tope, html2canvas descarta la imagen que no carga y sigue.
+          imageTimeout: 15000
+        }), 45000, `captura de la página ${i + 1}/${pages.length} del PDF bifacial`);
         
         console.log(`📐 html2canvas scale: ${optimalScale}x (adaptativo para página ${i+1})`);
         
@@ -27523,7 +27548,9 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           logging: false,
           backgroundColor: '#ffffff',
           windowWidth: 800,
-          imageTimeout: 0,
+          // CAUSA RAÍZ del cuelgue: 0 = ESPERA INDEFINIDA por cada imagen. Con un
+          // tope, html2canvas descarta la imagen que no carga y sigue.
+          imageTimeout: 15000,
           allowTaint: true,
           removeContainer: true,
           // Configuración específica para imágenes
@@ -29270,6 +29297,30 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   // docs/AUDITORIA-EXPORTACION-20260912.md §7 (plan) · §5.1 (orden) · §9.2 (EFA)
   // ===========================================================================
 
+  /**
+   * Ejecuta un paso del lote y garantiza que quede registrado.
+   *
+   * Un sub-exportador que sale antes con un toast —sin lanzar y sin escribir—
+   * no aparecía ni en `archivos` ni en `omitidos`: el manifiesto declaraba
+   * «0 omitidos» ocultando un paso que no hizo nada. Comparar el número de
+   * escritos antes y después cierra ese hueco.
+   */
+  async function _pasoLote(destino, etiqueta, fn) {
+    const antes = destino.activo ? destino.activo.escritos.length : 0;
+    try {
+      await fn();
+    } catch (e) {
+      destino.omitir(etiqueta, e.message);
+      return false;
+    }
+    const despues = destino.activo ? destino.activo.escritos.length : 0;
+    if (despues === antes) {
+      destino.omitir(etiqueta, 'el exportador terminó sin escribir ningún archivo');
+      return false;
+    }
+    return true;
+  }
+
   /** Guardia de reentrada: el lote tarda 20-40 s y no debe solaparse (§5.3). */
   let _loteEnCurso = false;
 
@@ -29395,18 +29446,15 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 
       // ── 1 · CSV de métricas ────────────────────────────────────────────────
       _loteProgreso(1, TOTAL, 'CSV de métricas');
-      try { await exportarAnalisisMonofacialUnificado(obj, metricas); }
-      catch (e) { destino.omitir('CSV de métricas', e.message); }
+      await _pasoLote(destino, 'CSV de métricas', () => exportarAnalisisMonofacialUnificado(obj, metricas));
 
       // ── 2 · SVG vectorial ──────────────────────────────────────────────────
       _loteProgreso(2, TOTAL, 'SVG vectorial');
-      try { await exportarSVGMorfologicoActual(); }
-      catch (e) { destino.omitir('SVG', e.message); }
+      await _pasoLote(destino, 'SVG', () => exportarSVGMorfologicoActual());
 
       // ── 3 · PNG morfológico (lee el canvas vivo → antes del PDF) ────────────
       _loteProgreso(3, TOTAL, 'PNG morfológico');
-      try { await exportarPNGMorfologicoActual(); }
-      catch (e) { destino.omitir('PNG', e.message); }
+      await _pasoLote(destino, 'PNG', () => exportarPNGMorfologicoActual());
 
       // ── 4 · Landmarks TPS + coeficientes EFA ───────────────────────────────
       _loteProgreso(4, TOTAL, 'landmarks TPS y coeficientes EFA');
@@ -29415,8 +29463,9 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 
       // ── 5 · PDF integral — SIEMPRE el último (§5.1) ─────────────────────────
       _loteProgreso(5, TOTAL, 'PDF integral (puede tardar 10-15 s)');
-      try { await exportarPDFIntegralCaraActiva(); }
-      catch (e) { destino.omitir('PDF integral', e.message); }
+      // Tope global: defensa en profundidad. Si el generador se cuelga por dentro,
+      // el lote lo registra como omisión y cierra el manifiesto igualmente.
+      await _pasoLote(destino, 'PDF integral', () => _conTimeout(exportarPDFIntegralCaraActiva(), 180000, 'PDF integral'));
 
       // ── 6 · Manifiesto ─────────────────────────────────────────────────────
       _loteProgreso(6, TOTAL, 'manifiesto');
@@ -29479,13 +29528,11 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 
       // ── 1 · CSV de comparación (incluye el bloque IMC, §8.5a) ───────────────
       _loteProgreso(1, TOTAL, 'CSV de comparación bifacial');
-      try { await exportarComparacionBifacialDesdeUI(); }
-      catch (e) { destino.omitir('CSV de comparación', e.message); }
+      await _pasoLote(destino, 'CSV de comparación', () => exportarComparacionBifacialDesdeUI());
 
       // ── 2 · CSV con las métricas completas de ambas caras ───────────────────
       _loteProgreso(2, TOTAL, 'CSV de ambas caras');
-      try { await exportarObjetoBifacialCompletoDesdeDatos(numeroObjeto); }
-      catch (e) { destino.omitir('CSV de ambas caras', e.message); }
+      await _pasoLote(destino, 'CSV de ambas caras', () => exportarObjetoBifacialCompletoDesdeDatos(numeroObjeto));
 
       // ── 3 · JSON del análisis comparativo ──────────────────────────────────
       // Hasta ahora sólo existía suelto en la RAÍZ del proyecto y con timestamp,
@@ -29507,8 +29554,9 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 
       // ── 4 · PDF bifacial — el último: restaura el canvas vivo (§8.5c) ───────
       _loteProgreso(4, TOTAL, 'PDF bifacial (puede tardar 20-30 s)');
-      try { await generarReporteBifacialPDF(); }
-      catch (e) { destino.omitir('PDF bifacial', e.message); }
+      // Tope global: ver _conTimeout. Sin él, un cuelgue aquí dejaba el destino
+      // abierto y sin manifiesto (verificación E2E 2026-09-13).
+      await _pasoLote(destino, 'PDF bifacial', () => _conTimeout(generarReporteBifacialPDF(), 180000, 'PDF bifacial'));
 
       const resumen = await destino.cerrar({
         objeto: { id: idPar, numeroObjeto, caraA: caraA.id, caraB: caraB.id, modo: 'bifacial' },

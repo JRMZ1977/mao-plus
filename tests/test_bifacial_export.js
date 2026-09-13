@@ -28,12 +28,12 @@ function extraer(nombre) {
   const resto = src.slice(i);
   return resto.slice(0, resto.indexOf('\n  }\n') + 4);
 }
-const cuerpo = ['_csvEscapeValue', '_csvRow', '_baseNombreParBifacial', '_generarBloqueCsvIMC', '_baseNombreAnalisis']
+const cuerpo = ['_csvEscapeValue', '_csvRow', '_baseNombreParBifacial', '_generarBloqueCsvIMC', '_baseNombreAnalisis', '_conTimeout']
   .map(extraer).join('\n');
 
 const sandbox = (identViva) =>
   new Function('obtenerIdentificacionActual', 'window',
-    `${cuerpo}\nreturn { _baseNombreParBifacial, _generarBloqueCsvIMC, _csvRow, _baseNombreAnalisis };`
+    `${cuerpo}\nreturn { _baseNombreParBifacial, _generarBloqueCsvIMC, _csvRow, _baseNombreAnalisis, _conTimeout };`
   )(() => identViva, {});
 
 const parseCsv = (linea) => {
@@ -171,5 +171,24 @@ console.log('\n=== G · nombre canónico por análisis (unificación) ==========
   ok(!nombres.some(n => /^\d/.test(n)), 'ninguno empieza por el id numérico');
 }
 
-console.log('\n' + (fallos === 0 ? 'RESULTADO: todas las comprobaciones pasan' : `RESULTADO: ${fallos} FALLOS`));
-process.exit(fallos === 0 ? 0 : 1);
+console.log('\n=== H · tope de tiempo (_conTimeout) ===========================');
+{
+  const { _conTimeout } = sandbox(null);
+  const pendiente = [];
+  Promise.all([
+    _conTimeout(Promise.resolve('ok'), 1000, 'x').then(v => pendiente.push(['resuelve', v === 'ok'])),
+    _conTimeout(new Promise(() => {}), 60, 'render colgado')
+      .then(() => pendiente.push(['cuelgue', false]))
+      .catch(e => pendiente.push(['cuelgue', /Tiempo agotado/.test(e.message) && /render colgado/.test(e.message)])),
+    _conTimeout(Promise.reject(new Error('fallo real')), 1000, 'x')
+      .catch(e => pendiente.push(['propaga', e.message === 'fallo real'])),
+  ]).then(() => {
+    const m = new Map(pendiente);
+    ok(m.get('resuelve'), 'deja pasar el valor si la promesa resuelve a tiempo');
+    ok(m.get('cuelgue'), 'una promesa que NO resuelve nunca rechaza con el motivo y la etiqueta');
+    ok(m.get('propaga'), 'un fallo real se propaga tal cual, sin enmascararse de timeout');
+    console.log('\n' + (fallos === 0 ? 'RESULTADO: todas las comprobaciones pasan' : `RESULTADO: ${fallos} FALLOS`));
+    process.exit(fallos === 0 ? 0 : 1);
+  });
+}
+
