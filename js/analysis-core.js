@@ -134,8 +134,17 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   let anchoImagen = 0;  // Dimensiones de imagen para verificación de escala
   let altoImagen = 0;   // Dimensiones de imagen para verificación de escala
   let objects = []; // Array para almacenar objetos detectados
-  let currentAnalyzedObject = null; // Objeto actualmente en análisis morfológico
-  window.currentAnalyzedObject = null; // Expuesto globalmente para exportarSVGMorfologicoActual
+  // currentAnalyzedObject — FUENTE ÚNICA (2026-09-13).
+  // Aquí había un `let` local del IIFE. Como visualization-export.js es un módulo
+  // ESM donde el identificador NO está declarado, sus asignaciones resolvían al
+  // objeto global, no a ese `let`: eran DOS variables distintas y la local quedaba
+  // en null en el flujo IA/pestañas. Cualquier exportador que leyera la local
+  // salía en vacío (el repo ya lo parcheaba a mano en el modal de P/H).
+  // Sin el `let`, el identificador resuelve dentro del IIFE a esta misma propiedad
+  // global: un solo binding compartido por el IIFE y por los módulos. La
+  // declaración debe ir ANTES de cualquier uso, porque en modo estricto solo es
+  // legal asignar a una propiedad global que YA existe.
+  window.currentAnalyzedObject = null; // Objeto actualmente en análisis morfológico
   // Getters para mao-ia.js (que no puede acceder a las vars locales del IIFE)
   window._maoGetImage      = () => image;
   window._maoGetImageCaraA = () => imageCaraA;
@@ -29398,13 +29407,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     if (!destino) { toast.error('Capa de destino no disponible', 4000); return; }
     if (_loteEnCurso) { toast.warning('Ya hay una exportación en curso.', 3000); return; }
 
-    // FUENTE AUTORITATIVA: `window.currentAnalyzedObject`, no la var local del IIFE.
-    // Son DOS bindings distintos: el `let` de la línea ~137 y la propiedad global
-    // que escribe visualization-export.js (módulo ESM, donde el identificador
-    // resuelve al global). En el flujo IA/pestañas la local queda en null — el
-    // propio repo ya documenta y parchea esa divergencia en el modal de P/H
-    // (~:44573). Leer la local aquí hacía que el lote saliera en silencio.
-    const _cao = window.currentAnalyzedObject || currentAnalyzedObject;
+    const _cao = currentAnalyzedObject;   // binding único (ver declaración ~:137)
     if (!_cao?.obj || !_cao?.metricas) {
       toast.warning('No hay análisis activo para exportar. Analiza un objeto primero.', 3500);
       return;
@@ -29428,11 +29431,6 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 
       const obj = _cao.obj;
       const metricas = _cao.metricas;
-
-      // Alinear la var LOCAL del IIFE con la autoritativa durante todo el lote:
-      // los sub-exportadores que la leen (p. ej. exportarPDFIntegralCaraActiva)
-      // salían en vacío sin escribir nada. Mismo remedio que el modal de P/H (~:44573).
-      currentAnalyzedObject = _cao;
 
       // Carpeta y archivos comparten base canónica: `_baseNombreAnalisis`.
       const idArq = _baseNombreAnalisis(obj);
@@ -41321,11 +41319,10 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         return;
       }
 
-      // Sincronizar la var local del IIFE con la fuente autoritativa. El flujo IA/tabs
-      // deja `currentAnalyzedObject` (local) en null → finalizarTodosTrazados y los
-      // confirmadores de candidatos, que leen la local, no sincronizaban las P/H al
-      // objeto real ni refrescaban la tabla. Alinearla aquí lo arregla para toda la
-      // sesión del modal (el modal solo se abre por esta vía).
+      // OBSOLETO desde 2026-09-13: ya no hay «var local» que alinear — el IIFE y los
+      // módulos comparten un único binding (ver declaración ~:137). Se conserva por
+      // ser inocuo (auto-asignación) y porque `cao` puede traer un objeto ya
+      // resuelto por el llamador.
       currentAnalyzedObject = cao;
 
       // Extraer el objeto real del análisis morfológico

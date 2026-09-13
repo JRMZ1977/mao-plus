@@ -986,8 +986,7 @@ Cualquier exportador que lea la local sale en vacío. El orquestador lee ahora
 `window.currentAnalyzedObject` y, además, **alinea la local** durante el lote —mismo remedio que el
 modal— para que los sub-exportadores que la leen (`exportarPDFIntegralCaraActiva`) funcionen.
 
-⚠️ **Pendiente, fuera de encargo:** los exportadores individuales siguen leyendo la local. La
-corrección de altitud sería una sola fuente (un getter sobre la global), no parches por sitio.
+✅ **Resuelto el 2026-09-13 con una sola fuente**, ver §11.9.
 
 ### 11.5 — `exportarPNGMorfologicoActual` no era esperable
 
@@ -1078,6 +1077,31 @@ Ahora el manifiesto dice la verdad: `3 generados · 1 omitido — «el exportado
 ningún archivo»`. (Esa omisión concreta es límite del montaje de prueba: las caras se construyeron
 a mano y no quedaron registradas en `analisisMorfologicos.objetos`, donde ese exportador las busca.)
 
+### 11.9 — `currentAnalyzedObject`: una sola fuente (2026-09-13)
+
+El arreglo resultó ser **eliminar una línea**, no añadir getters ni parches.
+
+`analysis-core.js:137` declaraba `let currentAnalyzedObject` dentro del IIFE, y `:138` creaba
+además la propiedad global. Como `visualization-export.js` es un módulo ESM donde el identificador
+**no está declarado**, sus asignaciones resolvían al objeto global — nunca a ese `let`. Dos
+variables con el mismo nombre y distinto contenido.
+
+Quitando el `let`, el identificador resuelve **dentro del IIFE a esa misma propiedad global**:
+un único binding compartido por el IIFE y por los módulos. Funciona porque `analysis-core.js` es
+un módulo (modo estricto) y en modo estricto sí es legal asignar a una propiedad global que **ya
+existe** — de ahí que la declaración de `:138` deba ir antes de cualquier uso.
+
+Retirados los dos parches que compensaban la divergencia: la alineación que había añadido el
+orquestador del lote, y el comentario del modal de P/H (`~:41329`), cuya auto-asignación se
+conserva por inocua.
+
+**Verificado en Electron:** arranque sin errores de renderer (un `ReferenceError` aquí sería
+fatal), y el lote produciendo sus **7 archivos con 0 omitidos**. La prueba decisiva es el PDF
+integral: lee el identificador *bare* y ya no recibe ninguna ayuda de alineación, así que sólo
+puede aterrizar si el binding es realmente único. Con ello, los exportadores individuales que
+leen ese identificador —el botón «PDF — Reporte integral» entre ellos— dejan de salir en vacío en
+el flujo IA/pestañas.
+
 ---
 
 ## 12. Resumen ejecutivo
@@ -1100,5 +1124,5 @@ a mano y no quedaron registradas en `analisisMorfologicos.objetos`, donde ese ex
 | ¿Exportación en lote implementada? | **Sí, §11.** Un clic → 7 archivos + manifiesto en `<proyecto>/resultados/<ID>/`, **todos con el ID arqueológico** (§11.7). Verificado en Electron con PDF, SVG, PNG, CSV y landmarks reales en disco. |
 | ⚠️ Defecto sistémico destapado | `obj.id` es **numérico** en detección automática y 6 sitios asumían cadena: **el PDF integral y el SVG fallaban también al exportarlos uno a uno** (§11.3). Corregido. |
 | Lote bifacial | ✅ **Verificado E2E (§11.8)** con IMC real 98,9 %. Destapó `imageTimeout: 0` (espera INDEFINIDA) que colgaba el PDF: corregido + topes en tres capas. |
-| ⚠️ Trampa de ámbito | `currentAnalyzedObject` son dos bindings distintos (local del IIFE vs global que escribe el módulo ESM); los exportadores individuales siguen leyendo el que queda en `null` (§11.4). |
+| Trampa de ámbito | ✅ **Resuelta (§11.9):** `currentAnalyzedObject` pasa a ser un único binding eliminando el `let` del IIFE. Los dos parches que compensaban la divergencia, retirados. |
 | Código muerto | ✅ **Eliminado (Fase 0):** −4.263 líneas en 10 funciones + `js/export-manager.js` completo, con verificación de cero llamadores y arranque en Electron (§3.1). |
