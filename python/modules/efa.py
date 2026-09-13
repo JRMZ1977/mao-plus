@@ -18,6 +18,27 @@ Salida por armónico k:
   an, bn, cn, dn  — coeficientes elípticos (equivalentes a Re/Im de la
                     transformada de Fourier del contorno 2D parametrizado)
 
+⚠ CONVENIO DE FASE (documentar antes de tocar nada aquí)
+  `_efd_raw` almacena los coeficientes DESFASADOS 90° respecto de las ecuaciones
+  de Kuhl & Giardina: intercambia los papeles de seno y coseno, de modo que
+
+      a_k(MAO) =  b_k(K&G)        c_k(MAO) =  d_k(K&G)
+      b_k(MAO) = −a_k(K&G)        d_k(MAO) = −c_k(K&G)
+
+  Consecuencias, verificadas numéricamente (2026-09-13):
+  · El DESCRIPTOR es correcto. Tras la normalización el desfase residual del
+    armónico k es (1−k)·π/2, una transformación ORTOGONAL fija del vector de
+    coeficientes: el morfoespacio es isométrico al canónico, y por tanto las
+    distancias d_EFD, el espectro de potencia, la varianza explicada y el
+    Procrustes sobre contornos reconstruidos son IDÉNTICOS al convenio K&G.
+    Las invariancias (traslación, escala, rotación, punto de inicio, reflexión)
+    se cumplen a precisión de máquina — ver tests/test_efa.py.
+  · La SÍNTESIS debe deshacer el desfase (ver `_reconstruct_contour`). Aplicar
+    la fórmula canónica x=Σ(a·cos+b·sin) sobre estos coeficientes dibuja una
+    curva distinta, sistemáticamente MÁS REDONDEADA que el contorno medido.
+  · Los coeficientes NO son intercambiables con Momocs / pyefd sin convertirlos
+    con las igualdades de arriba.
+
 Funciones exportadas:
   calculate(contour_points, n_harmonics, scale_px_mm, normalize)
   reconstruct(coeffs, n_points)   — inversa: coeficientes → contorno (ADR-017 F2)
@@ -173,6 +194,18 @@ def _reconstruct_contour(coeffs: np.ndarray, n_points: int = 256,
     """
     Reconstruye contorno a partir de coeficientes EFD.
     dc: offset DC (centroide) para posicionar correctamente el contorno.
+
+    Síntesis en el CONVENIO DE FASE del módulo (ver cabecera). Como
+    a_k(MAO)=b_k(K&G) y b_k(MAO)=−a_k(K&G), la serie de Kuhl & Giardina
+    x(t)=Σ[a·cos+b·sin] se escribe aquí:
+
+        x(t) = Σ_k [ −b_k·cos(2πkt) + a_k·sin(2πkt) ]
+        y(t) = Σ_k [ −d_k·cos(2πkt) + c_k·sin(2πkt) ]
+
+    Aplicar la forma canónica directamente sobre estos coeficientes devolvía una
+    curva más redondeada que el contorno de entrada (circularidad 0,947 frente a
+    0,850 real en la forma de prueba de tres lóbulos). El gate está en
+    tests/test_efa.py::TestReconstruccion.
     """
     t = np.linspace(0, 1, n_points, endpoint=False)
     x = np.full(n_points, dc[0])
@@ -182,8 +215,8 @@ def _reconstruct_contour(coeffs: np.ndarray, n_points: int = 256,
     for k in range(1, n + 1):
         a, b, c_, d = coeffs[k - 1]
         angle = 2.0 * math.pi * k * t
-        x += a * np.cos(angle) + b * np.sin(angle)
-        y += c_ * np.cos(angle) + d * np.sin(angle)
+        x += -b * np.cos(angle) + a * np.sin(angle)
+        y += -d * np.cos(angle) + c_ * np.sin(angle)
 
     return [[round(float(xi), 4), round(float(yi), 4)] for xi, yi in zip(x, y)]
 

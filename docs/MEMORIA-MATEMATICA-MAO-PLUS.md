@@ -5,10 +5,10 @@
 | Campo | Valor |
 |---|---|
 | Software | MAO Plus (Morfometría Arqueológica Objetiva) — aplicación Electron + backend FastAPI/Python |
-| Versión documentada | commit `3a43f92` (2026-09-12), rama `main` — incluye ADR-017 F0 |
+| Versión documentada | rama `main` al 2026-09-13: ADR-017 F0-F3 (`4c2e261`) más las correcciones de O-16 y O-20 que acompañan a este documento |
 | Fecha del documento | 2026-09-13 |
 | Autoría del análisis matemático | J. F. Ruiz Rodríguez (LAAR) · asistencia de documentación: Claude Code |
-| Estado de verificación | Suite de pruebas del motor: **343 pasadas / 2 omitidas** (ejecución del 2026-09-13, ver §12) |
+| Estado de verificación | Suite de pruebas del motor: **398 pasadas / 2 omitidas** (ejecución del 2026-09-13, ver §12) |
 | Alcance | Núcleo de cálculo 2D (canónico), puente 2D↔3D, estadística de colección. No cubre la capa de interfaz. |
 
 ---
@@ -1416,7 +1416,12 @@ varianza), mínimo 8 puntos, y saturación a Nyquist $K\le N/2$ (`efa.py:34, 287
 
 ### 6.2 Convención de los coeficientes implementada — hallazgo verificado
 
-> **⚠ Observación O-16 — el hallazgo más relevante de esta revisión matemática.**
+> **✔ Observación O-16 — el hallazgo más relevante de esta revisión, ya corregido.**
+>
+> **Estado:** la síntesis quedó corregida el 2026-09-13 (remedio 1 de los tres de abajo) con su
+> gate de fidelidad, `tests/test_efa.py::TestReconstruccion`. Se conserva aquí el análisis
+> completo porque explica *por qué* el descriptor era correcto mientras la curva no lo era, y
+> porque el remedio 2 —adoptar el convenio canónico en los coeficientes— sigue abierto.
 >
 > La implementación (`efa.py:77-91`) intercambia los papeles del seno y el coseno respecto de las
 > ecuaciones de Kuhl y Giardina: calcula
@@ -1461,19 +1466,28 @@ varianza), mínimo 8 puntos, y saturación a Nyquist $K\le N/2$ (`efa.py:34, 287
 > contra la forma de entrada**. Una única prueba de fidelidad lo habría revelado.
 >
 > **Remedios (en orden de menor a mayor alcance):**
-> 1. *Mínimo, sin migración de datos* — corregir solo la síntesis:
+> 1. ✔ **Aplicado** — *mínimo, sin migración de datos*: corregir solo la síntesis:
 >    $x(t)=\sum_k\big[-b_k\cos+a_k\sin\big]$, $y(t)=\sum_k\big[-d_k\cos+c_k\sin\big]$. Dos líneas en
->    `_reconstruct_contour`; arregla la visualización y el «contorno típico» 3D sin tocar ningún
->    coeficiente almacenado ni ningún resultado analítico previo.
-> 2. *Canónico, con recálculo* — adoptar el convenio de Kuhl-Giardina en `_efd_raw` y en la síntesis.
+>    `_reconstruct_contour` (`efa.py:192`); arregla la visualización y el «contorno típico» 3D sin
+>    tocar ningún coeficiente almacenado ni ningún resultado analítico previo. Verificado: la
+>    circularidad de la curva sintetizada pasa de un error del **21,6 %** a **0,15 %** sobre la
+>    forma de tres lóbulos, y las similitudes de Procrustes de `js/procrustes.js` no se mueven
+>    (Δ ≤ 3·10⁻¹⁶ sobre seis pares), como predice la invariancia demostrada arriba.
+>    **El arreglo llegó justo a tiempo para algo más que la visualización:** ADR-017 F2 publicó
+>    `efa.reconstruct()` —que delega en esta misma función— como **generador del repertorio de
+>    plantillas** contra las que se empareja un fragmento (`shape_template.py:791`). Con la
+>    síntesis anterior, las formas ideales del banco se habrían generado más redondeadas que la
+>    forma que codifican sus coeficientes.
+> 2. ⏸ *Canónico, con recálculo* (abierto) — adoptar el convenio de Kuhl-Giardina en `_efd_raw`.
 >    Ninguna conclusión analítica cambia (el espacio es isométrico), pero **las tablas de
 >    coeficientes ya almacenadas quedan en otro sistema de coordenadas y no deben mezclarse con las
 >    nuevas**: exige recalcular el banco EFA completo. A cambio, los coeficientes pasan a ser
 >    directamente comparables con Momocs [Bonhomme et al. 2014] y pyefd, lo que importa si el
 >    artículo publica la matriz de coeficientes o si se reanaliza en R.
-> 3. En cualquiera de los dos casos, añadir el test de fidelidad:
->    *reconstruir con $K=20$ y exigir circularidad y solidez dentro del 1 % de las del contorno de
->    entrada*.
+> 3. ✔ **Aplicado** — el test de fidelidad que faltaba: reconstruir con $K=20$ y exigir que la
+>    circularidad (2 %) y el ratio de Feret (5 %) de la curva sintetizada coincidan con los del
+>    contorno de entrada, magnitudes invariantes a semejanza y por tanto comparables contra una
+>    reconstrucción normalizada. Sobre el código anterior el test falla con un 21,6 % de error.
 
 ### 6.3 Normalización canónica: las cuatro invariancias
 
@@ -2017,7 +2031,8 @@ $$d_i=\sqrt{(\mathbf{z}_i-\bar{\mathbf{z}})^{\!\top}\,\hat{\mathbf{\Sigma}}^{+}\
 (`comparator.py:222-239`). Bajo normalidad multivariante, $d_i^2\sim\chi^2_p$ con $p$ el número de
 variables, lo que da el corte natural $d>\sqrt{\chi^2_{0{,}975,\,p}}$.
 
-> **⚠ Observación O-20 — el umbral de atípicos está fijado para $p=2$ y se aplica en dimensión $p$.**
+> **✔ Observación O-20 — el umbral de atípicos estaba fijado para $p=2$ y se aplicaba en dimensión
+> $p$; corregido el 2026-09-13.**
 > El código usa `_OUTLIER_THRESHOLD = 2.716`, documentado como «percentil 97,5 %»
 > (`comparator.py:38`). En efecto $\sqrt{\chi^2_{0{,}975,\,2}}=2{,}716$ — es el corte correcto **en
 > dos dimensiones**, coherente con el nombre de la función JS que se portó
@@ -2041,13 +2056,22 @@ variables, lo que da el corte natural $d>\sqrt{\chi^2_{0{,}975,\,p}}$.
 > covarianza muestral es singular y, con pseudo-inversa, **todas las distancias colapsan al mismo
 > valor** — el estadístico deja de discriminar por completo.
 >
-> **Remedios**: (a) calcular la distancia sobre los *scores* de PCA retenidos (que es lo que hacía el
-> original y para lo que el umbral es correcto), o fijar el umbral a
-> $\sqrt{\chi^2_{0{,}975,\,r}}$ con $r=\operatorname{rank}(\hat{\mathbf\Sigma})$; (b) exigir
-> $n\ge3p$ para usar la covarianza muestral y, por debajo, un estimador robusto —MCD
-> [Rousseeuw & Van Driessen 1999]— o regularizado (Ledoit-Wolf); (c) reportar el umbral empleado
-> junto a la lista de atípicos. Mientras no se corrija, **la lista `outliers` no debe usarse como
-> criterio de exclusión** de piezas en un análisis publicable.
+> **Corrección aplicada** (`comparator.py:48, 249`): el umbral dejó de ser una constante y se deriva
+> en tiempo de ejecución como $\sqrt{\chi^2_{0{,}975,\,r}}$ con $r=\operatorname{rank}(\hat{\mathbf\Sigma})$,
+> los grados de libertad efectivos de la covarianza realmente empleada. El caso degenerado se
+> declara en vez de rellenarse: cuando $r\ge n-1$ la respuesta trae
+> `outlier_status = "no_evaluable_pocos_objetos"`, lista vacía y umbral `null` — la misma doctrina
+> de ADR-017 F0 («donde no hay dato se dice sin evaluar, nunca un resultado fabricado»). La
+> respuesta expone además `mahalanobis_df` y `outlier_threshold`, de modo que el criterio queda
+> auditable en el informe. Sobre los 60×10 gaussianos de la tabla, la fracción marcada cae del
+> **70 % al 2 %** (nominal 2,5 %). El espejo JS `mahalanobisDistancesZ`
+> (`js/comparator.js:4745`) tenía el mismo defecto con estimador diagonal y se corrigió en
+> paralelo, con el cuantil por la aproximación de Wilson-Hilferty. Gate:
+> `tests/test_comparator.py::TestUmbralAtipicos` (4 pruebas).
+>
+> **Pendiente relacionado, no abordado:** con $n<3p$ la covarianza muestral sigue siendo pobre
+> aunque el umbral ya sea correcto; el refuerzo natural es un estimador robusto —MCD
+> [Rousseeuw & Van Driessen 1999]— o regularizado (Ledoit-Wolf).
 
 ### 10.5 Estadística descriptiva y correlación
 
@@ -2170,7 +2194,7 @@ Ejecución realizada al preparar este documento (2026-09-13):
 
 ```
 $ python -m pytest tests/ python/tests/ -q
-343 passed, 2 skipped in 13.46s
+398 passed, 2 skipped in 14.07s
 ```
 
 Los 2 omitidos son los de paridad bifacial contra la instalación externa `MAO_A`, que se saltan si
@@ -2192,13 +2216,15 @@ Distribución por módulo:
 | `tests/test_metrics.py` | 20 | repertorio 2D |
 | `tests/test_contour.py` | 20 | extracción y refinamiento de contorno |
 | `tests/test_morphometric_registry.py` | 19 | integridad del contrato ADR-006 |
-| `tests/test_efa.py` | 18 | descriptor elíptico e invariancias |
-| `tests/test_comparator.py` | 16 | PCA, estadística, bifacial |
+| `tests/test_efa.py` | 21 | descriptor elíptico, invariancias y **fidelidad de la reconstrucción** |
+| `tests/test_comparator.py` | 20 | PCA, estadística, bifacial y **umbral de atípicos** |
 | `tests/test_obj3d_*.py` | 45 | motor 3D, ráster canónico, homologación |
 | `python/tests/test_estandar_matematico.py` | 11 | **exactitud analítica e invariancia** |
 | `tests/test_scale.py` | 8 | escala y error óptico |
 | `python/tests/test_ph_candidates.py` | 8 | detección de huecos sin semillas |
-| resto | 51 | persistencia, exportador, confianza IA, salud del servidor, coherencia de entrega |
+| `python/tests/test_shape_template.py` | 30 | ajuste contra plantilla ideal (ADR-017 F1) |
+| `python/tests/test_adr017_f3_cableado.py` | 14 | cableado del emparejamiento al flujo (F3) |
+| resto | 55 | persistencia, exportador, confianza IA, salud del servidor, coherencia de entrega |
 
 ### 12.2 Pruebas de respuesta conocida (*known-answer*)
 
@@ -2261,7 +2287,7 @@ error que ninguna prueba matemática detecta: **el número correcto mal transpor
 | **Exactitud** frente a patrones de dimensión conocida (*trueness*): sesgo por métrica, límites de acuerdo de Bland-Altman | **no realizada** | ADR-015 A1 |
 | **Reproducibilidad** intra e inter-observador (ICC, descomposición de varianza método/objeto) | **no realizada** | ADR-015 A2 |
 | **Calibración** del índice de confianza de detección contra anotación manual | no realizada | §3.9 |
-| **Fidelidad de la reconstrucción** EFA frente al contorno de entrada | **no cubierta** — es la ausencia que permitió O-16 | §6.2 |
+| **Fidelidad de la reconstrucción** EFA frente al contorno de entrada | ✔ cubierta desde 2026-09-13 (`TestReconstruccion`) — su ausencia fue lo que permitió O-16 | §6.2 |
 | **Invariancia numérica** de cada métrica declarada de nivel H, recorriendo el registro | parcial (lista escrita a mano, no derivada del registro) | §7.1 |
 | **Replicabilidad del contorno** ante cambio de ROI y de modo de captura | **abierta**, variación documentada de hasta $\pm20\,\%$ | ADR-013 F2 |
 | Verificación visual en Electron de varios flujos de interfaz | pendiente (limitación de `<input type=file>`; hay un *hook* E2E) | ADR-010 |
@@ -2289,9 +2315,9 @@ llevan demostración numérica se reprodujeron con el módulo real el 2026-09-13
 | Id | Asunto | Efecto | Remedio | Seguimiento |
 |---|---|---|---|---|
 | **O-1** | Escala fotogramétrica en aproximación de campo lejano: $s=p\,d/f$ en vez de $p\,(d-f)/f$ | sesgo **sistemático multiplicativo** $f/(d-f)$ en toda magnitud en mm: 25 % a $d=500$ mm con $f=100$ mm. **No afecta a adimensionales.** | usar siempre la calibración por longitud conocida (§2.5), que lo absorbe; y añadir el término exacto | **nueva** |
-| **O-20** | Umbral de atípicos de Mahalanobis fijado a $\sqrt{\chi^2_{0{,}975,2}}=2{,}716$ pero aplicado en dimensión $p$ | 67–100 % de objetos marcados como atípicos sobre datos **sin** atípicos; con $n\lesssim p$ todas las distancias colapsan | umbral $\sqrt{\chi^2_{0{,}975,r}}$ con $r=\operatorname{rank}$, o calcular sobre *scores* de PCA; estimador robusto si $n<3p$ | **nueva** |
+| **O-20** | Umbral de atípicos de Mahalanobis fijado a $\sqrt{\chi^2_{0{,}975,2}}=2{,}716$ pero aplicado en dimensión $p$ | 67–100 % de objetos marcados como atípicos sobre datos **sin** atípicos; con $n\lesssim p$ todas las distancias colapsan | ✔ **corregido** (2026-09-13, Python y espejo JS): umbral por $r=\operatorname{rank}$ + caso degenerado declarado «sin evaluar». Queda el estimador robusto para $n<3p$ | nueva · resuelta |
 | **O-19** | Multicolinealidad exacta en el *pool* métrico (§5.5, §5.6, §5.8, §7.2) | PCA con varianza inflada en PC1 y cargas no interpretables | marcar derivadas en el registro; filtro VIF $<10$ | ADR-015 **C2** |
-| **O-16** | Convenio de los coeficientes EFD desfasado 90° respecto de Kuhl-Giardina | descriptor y distancias **correctos** (espacio isométrico); **contorno reconstruido erróneo** (más redondeado) y coeficientes no intercambiables con Momocs/pyefd | corregir la síntesis (2 líneas, sin migración) y/o adoptar el convenio canónico recalculando el banco EFA; añadir test de fidelidad | **nueva** |
+| **O-16** | Convenio de los coeficientes EFD desfasado 90° respecto de Kuhl-Giardina | descriptor y distancias **correctos** (espacio isométrico); **contorno reconstruido erróneo** (más redondeado) y coeficientes no intercambiables con Momocs/pyefd | ✔ **corregido** (2026-09-13): síntesis arreglada + gate de fidelidad. Queda abierto adoptar el convenio canónico en los coeficientes (exige recalcular el banco EFA) | nueva · resuelta |
 | **O-10** | `rugosidad_contorno` mide variabilidad del muestreo, no rugosidad física | clasificaba como «fracturada/erosionada» una cuenta intacta | redefinir como desviación radial respecto de la reconstrucción EFA de bajo orden | ADR-016 #6 (diferido) |
 | — | Replicabilidad del contorno ante cambio de ROI/modo | variación de hasta $\pm20\,\%$; el color de fondo se estima desde el recorte | estimar el fondo siempre desde la imagen completa; gate de invariancia $\le2\,\%$ | ADR-013 **F2** |
 | — | Ausencia de validación de exactitud y de reproducibilidad | sin sesgo por métrica ni ICC publicados | Bland-Altman + ICC sobre corpus de patrones | ADR-015 **A1/A2** |
@@ -2336,9 +2362,15 @@ geométrico**, que es la parte verificada contra valores analíticos y contra un
 externa de referencia. Dicho de otro modo, MAO Plus mide bien la forma —lo que hace bien y con
 pruebas— y sus puntos débiles están en (a) convertir esa forma a milímetros absolutos con
 trazabilidad completa y (b) el aparato inferencial que se aplica después. Ambas son áreas donde el
-proyecto ya tiene un plan aprobado y por fases (ADR-015), y donde tres de los remedios propuestos
-aquí —el término $-f$ de la escala, el grado de libertad del umbral de Mahalanobis y la síntesis del
-EFA— son correcciones de pocas líneas con efecto inmediato y comprobable.
+proyecto ya tiene un plan aprobado y por fases (ADR-015).
+
+**Estado al cierre de esta revisión.** De las tres observaciones nuevas de severidad alta, **dos ya
+están corregidas con su gate de prueba**: el grado de libertad del umbral de Mahalanobis (O-20) y la
+síntesis del EFA (O-16), ambas el 2026-09-13. La tercera —el término $-f$ de la escala (O-1)— no es
+un parche de dos líneas: cambia valores ya exportados a CSV/PDF y exige fijar antes qué significa
+operativamente «distancia» en el protocolo de campo, de modo que corresponde a un ADR con su nota de
+versión, como se hizo con ADR-017 F0. Su comprobación previa es barata y no toca código: si los
+proyectos guardados registran factores de corrección de escala, deben agruparse en torno a $1-f/d$.
 
 ---
 <a id="14-bibliografia"></a>
@@ -2686,7 +2718,7 @@ en el registro canónico (H = núcleo comparable, P = proxy, 2D/3D = exclusiva d
 
 ## Anexo B — Mapa de trazabilidad fórmula ↔ código
 
-Referencias verificadas contra el commit `3a43f92`.
+Referencias verificadas contra `main` al 2026-09-13 (base `3a43f92` + correcciones O-16 y O-20).
 
 | Concepto | Ubicación |
 |---|---|
@@ -2720,11 +2752,11 @@ Referencias verificadas contra el commit `3a43f92`.
 | Ensamblado del repertorio (~55 claves) | `python/modules/metrics.py:496-1082` |
 | Cascada de clasificación de forma (22 reglas) | `python/modules/metrics.py:821-965` |
 | GLCM / textura | `python/modules/metrics.py:1087-1149` |
-| Coeficientes EFD | `python/modules/efa.py:40-95` |
-| Normalización EFA (θ₁, ψ₁, escala, quiralidad) | `python/modules/efa.py:98-168` |
-| Reconstrucción EFA | `python/modules/efa.py:171-188` |
-| Espectro y varianza explicada | `python/modules/efa.py:191-209` |
-| Distancias EFD | `python/modules/efa.py:336-383` |
+| Coeficientes EFD | `python/modules/efa.py:61-116` |
+| Normalización EFA (θ₁, ψ₁, escala, quiralidad) | `python/modules/efa.py:119-189` |
+| Reconstrucción EFA (convenio de fase) | `python/modules/efa.py:192-221` |
+| Espectro y varianza explicada | `python/modules/efa.py:224-242` |
+| Distancias EFD | `python/modules/efa.py:369-416` |
 | Registro canónico (contrato ADR-006) | `python/modules/morphometric_registry.py` |
 | Métricas 3D (Wadell, compacidad, hull) | `python/modules/obj3d_v2.py:682-760` |
 | Descriptores por autovalores 3D | `python/modules/obj3d_v2.py:620-654` |
@@ -2732,10 +2764,10 @@ Referencias verificadas contra el commit `3a43f92`.
 | Coherencia cross-dimensional | `python/modules/obj3d_v2.py:2409-2530` |
 | Métricas de P/H | `python/modules/ph.py:182-333` |
 | Área efectiva y contención | `python/modules/ph.py:336-430` |
-| PCA + K-means + silueta | `python/modules/comparator.py:106-219` |
-| Mahalanobis | `python/modules/comparator.py:222-239` |
-| Estadística descriptiva y correlación | `python/modules/comparator.py:244-321` |
-| Comparación bifacial, CI/CMS | `python/modules/comparator.py:340-700` |
+| PCA + K-means + silueta | `python/modules/comparator.py:118-246` |
+| Mahalanobis + umbral por grados de libertad | `python/modules/comparator.py:48-52, 249-270` |
+| Estadística descriptiva y correlación | `python/modules/comparator.py:275-352` |
+| Comparación bifacial, CI/CMS | `python/modules/comparator.py:371-731` |
 | Tipología y fusión EFA | `python/modules/classifier.py:108-245` |
 | Defectos de convexidad | `python/modules/mao_ia_analyzer.py:152-230` |
 
@@ -2749,7 +2781,7 @@ primaria) · `docs/ADR-015` (plan de mejoras matemáticas) · `docs/ADR-016` (sa
 
 ---
 
-*Documento generado el 2026-09-13 sobre el commit `3a43f92`. Las demostraciones numéricas de las
+*Documento generado el 2026-09-13 sobre `main` (base `3a43f92` + correcciones O-16 y O-20). Las demostraciones numéricas de las
 observaciones O-1, O-16 y O-20 son reproducibles ejecutando los fragmentos descritos contra los
 módulos citados; la suite de referencia se ejecuta con
 `python -m pytest tests/ python/tests/ -q`.*

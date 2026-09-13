@@ -258,3 +258,72 @@ def test_bifacial_ci_alto_cms_bajo_diferenciacion_natural(client, enable_ci_cms)
     assert body["CMS"] is not None and body["CMS"] < 0.62
     assert body["interpretacionCI_CMS"]["categoria"] == "Diferenciación natural"
     assert body["interpretacionCI_CMS"]["diferenciacionNatural"] is True
+
+
+# ── Criterio de atípicos: grados de libertad del umbral ──────────────────────
+
+class TestUmbralAtipicos:
+    """
+    El umbral de Mahalanobis depende de los GRADOS DE LIBERTAD: d² ~ χ²_r.
+    Estaba fijado a 2,716 = sqrt(χ²(2, 0,975)) —correcto solo en 2D, heredado de
+    cuando la distancia se calculaba sobre PC1+PC2— pero aplicado a distancias
+    de p dimensiones. Sobre datos gaussianos SIN atípicos marcaba el 67 % de los
+    objetos con p=10 y el 100 % con p=30.
+    """
+
+    @staticmethod
+    def _gaussianos(n, p, seed=7, outlier_en=None, desvio=8.0):
+        import numpy as _np
+        rng = _np.random.default_rng(seed)
+        X = rng.standard_normal((n, p))
+        if outlier_en is not None:
+            X[outlier_en] += desvio          # una pieza claramente fuera del perfil
+        keys = [f"m{j}" for j in range(p)]
+        return [
+            {"id": f"obj_{i}", "metricas": {k: float(X[i, j]) for j, k in enumerate(keys)}}
+            for i in range(n)
+        ]
+
+    @staticmethod
+    def _pca(client, objetos):
+        r = client.post("/api/pca", data={"objects_json": json.dumps(objetos),
+                                          "n_components": "2"})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_ruido_puro_no_es_una_coleccion_de_atipicos(self, client):
+        """60 objetos gaussianos, 10 métricas, cero atípicos reales."""
+        body = self._pca(client, self._gaussianos(60, 10))
+        frac = len(body["outliers"]) / body["n_objects"]
+        assert frac <= 0.15, (
+            f"{frac:.0%} de objetos marcados como atípicos sobre ruido puro "
+            f"(umbral={body['outlier_threshold']}, gl={body['mahalanobis_df']})"
+        )
+
+    def test_umbral_escala_con_los_grados_de_libertad(self, client):
+        """sqrt(χ²(0,975; gl)): 4,53 con 10 gl — nunca el 2,716 de 2 gl."""
+        body = self._pca(client, self._gaussianos(60, 10))
+        assert body["mahalanobis_df"] == 10, body["mahalanobis_df"]
+        assert abs(body["outlier_threshold"] - 4.5348) < 0.01, body["outlier_threshold"]
+        assert body["outlier_status"] == "ok"
+
+    def test_pocos_objetos_se_declara_no_evaluable(self, client):
+        """
+        Con n ≤ p+1 la covarianza se satura: con pseudo-inversa todas las
+        distancias colapsan al mismo valor y el estadístico no discrimina.
+        No se fabrican atípicos — se dice «sin evaluar».
+        """
+        body = self._pca(client, self._gaussianos(8, 20))
+        assert body["outlier_status"] == "no_evaluable_pocos_objetos"
+        assert body["outliers"] == []
+        assert body["outlier_threshold"] is None
+        # y efectivamente las distancias son indistinguibles entre sí
+        d = body["mahalanobis"]
+        assert max(d) - min(d) < 1e-3, d
+
+    def test_atipico_real_si_se_detecta(self, client):
+        """El criterio corregido no es ciego: una pieza desplazada sí sale."""
+        body = self._pca(client, self._gaussianos(40, 4, outlier_en=0, desvio=9.0))
+        assert body["outlier_status"] == "ok"
+        assert 0 in body["outliers"], (body["outliers"], body["mahalanobis"][:5])
+        assert len(body["outliers"]) <= 4, body["outliers"]

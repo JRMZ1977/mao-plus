@@ -4503,6 +4503,14 @@ const ComparadorMultiObjeto = (() => {
       : sil >= 0.5 ? '#166534' : sil >= 0.25 ? '#854d0e' : '#9f1239';
     const outlierNames = outlierIdx
       .map(i => objs[i] ? esc(objs[i].nombre) : `Obj ${i+1}`).join(', ');
+    // El criterio de atípicos puede no ser evaluable: con n ≤ p+1 la covarianza
+    // se satura y todas las distancias de Mahalanobis colapsan al mismo valor.
+    // En ese caso el backend devuelve lista vacía + estado; se dice «sin evaluar»
+    // en vez de dejar el silencio, que se leería como «no hay atípicos».
+    const outlierNoEval = pyPCA.outlier_status === 'no_evaluable_pocos_objetos';
+    const outlierThr    = typeof pyPCA.outlier_threshold === 'number'
+      ? `d &gt; ${pyPCA.outlier_threshold.toFixed(2)} · χ² 97,5 % con ${pyPCA.mahalanobis_df ?? '—'} gl`
+      : '';
 
     // Quitar badge anterior si ya existía (re-comparación)
     const prev = diagEl.querySelector('.cmo-pca-py-badge');
@@ -4520,9 +4528,12 @@ const ComparadorMultiObjeto = (() => {
           ? ` &nbsp;·&nbsp; Silhouette <strong style="color:${silCls}">${sil.toFixed(3)}</strong>`
           : '')
       + ` &nbsp;<span style="color:#94a3b8">(${nFeat} métricas / ${nObj} objetos)</span>`
-      + (outlierNames
-          ? `<br><span style="color:#c05621">⚠ Outliers sklearn: ${outlierNames}</span>`
-          : '');
+      + (outlierNoEval
+          ? `<br><span style="color:#64748b">Atípicos: sin evaluar — se necesitan más objetos que métricas`
+            + ` (${nObj} objetos / ${nFeat} métricas)</span>`
+          : outlierNames
+            ? `<br><span style="color:#c05621">⚠ Outliers sklearn (${outlierThr}): ${outlierNames}</span>`
+            : '');
 
     diagEl.insertBefore(badge, diagEl.firstChild);
   }
@@ -4744,20 +4755,43 @@ const ComparadorMultiObjeto = (() => {
     // donde componentes menores capturan varianza diagnóstica.
     function mahalanobisDistancesZ(Z) {
       const n = Z.length;
-      if (n < 3 || !Z[0]?.length) return Z.map(() => 0);
+      if (n < 3 || !Z[0]?.length) return { d: Z.map(() => 0), df: 1 };
       const p = Z[0].length;
       // Centroide
       const mu = Array.from({length: p}, (_, j) => Z.reduce((s, row) => s + row[j], 0) / n);
       // Varianza por dimensión (ddof=1) como aproximación diagonal de la covarianza
       // (la covarianza completa p×p es no invertible cuando n < p+1, situación frecuente
       //  en MAO con 20-40 métricas y 3-10 objetos → usamos la diagonal regularizada)
+      let df = 0;
       const variances = Array.from({length: p}, (_, j) => {
         const v = Z.reduce((s, row) => s + (row[j] - mu[j]) ** 2, 0) / Math.max(n - 1, 1);
-        return v > 1e-10 ? v : 1; // regularización: dimensiones constantes no penalizan
+        if (v > 1e-10) { df++; return v; }
+        return 1; // regularización: dimensiones constantes no penalizan (ni suman gl)
       });
-      return Z.map(row =>
+      const d = Z.map(row =>
         Math.sqrt(row.reduce((s, z, j) => s + (z - mu[j]) ** 2 / variances[j], 0))
       );
+      // Grados de libertad = dimensiones que realmente varían. Con covarianza
+      // diagonal d² ~ χ²_df de forma exacta si son independientes y aproximada si
+      // están correlacionadas; en cualquier caso el gl NO es 2 (ver _olThreshold).
+      return { d, df: Math.max(1, df) };
+    }
+
+    /**
+     * Umbral de Mahalanobis al percentil 97,5 % para `df` grados de libertad.
+     * d² ~ χ²_df bajo normalidad multivariante, así que el corte DEPENDE de df:
+     * 2,72 con df=2 pero 4,53 con df=10 y 6,85 con df=30. Antes había aquí una
+     * constante 2,716 (correcta solo en 2D, heredada de cuando la distancia se
+     * calculaba sobre PC1+PC2) aplicada a distancias de p dimensiones: marcaba
+     * como atípicos el 67-100 % de los objetos de una colección sin atípicos.
+     * Cuantil por la aproximación de Wilson-Hilferty (1931), error < 1 % para
+     * df ≥ 2 — suficiente para un corte de presentación y sin dependencias.
+     */
+    function _olThreshold(df) {
+      const k = Math.max(1, df);
+      const z = 1.959964;                       // percentil 97,5 % de la normal
+      const t = 1 - 2 / (9 * k) + z * Math.sqrt(2 / (9 * k));
+      return Math.sqrt(k * t * t * t);
     }
 
     // ── Paleta de clusters (diferente a PALETA de objetos) ─────────────────
@@ -4878,9 +4912,11 @@ const ComparadorMultiObjeto = (() => {
       : _sil >= 0.5  ? { col:'#276749', bg:'#c6f6d5', cls:'status-ok',   kpiBg:'#f0fdf4', kpiCol:'#166534', sub:'Bien definidos'  }
       : _sil >= 0.25 ? { col:'#744210', bg:'#fefcbf', cls:'status-warn', kpiBg:'#fefce8', kpiCol:'#854d0e', sub:'Separación mod.' }
       :                { col:'#742a2a', bg:'#fed7d7', cls:'status-bad',  kpiBg:'#fff1f2', kpiCol:'#9f1239', sub:'Solapados'       };
-    // Outliers (Mahalanobis > umbral)
-    const _mdists   = mahalanobisDistancesZ(Z);
-    const _OL_THR   = 2.716; // sqrt(chi²(2, 0.975)) — percentil 97.5%, alineado con Python
+    // Outliers (Mahalanobis > umbral χ² al 97,5 % con los gl efectivos)
+    const _mah      = mahalanobisDistancesZ(Z);
+    const _mdists   = _mah.d;
+    const _OL_THR   = _olThreshold(_mah.df);
+    const _OL_LBL   = `${_OL_THR.toFixed(2)} · χ² 97,5 % con ${_mah.df} gl`;
     const _outliers = objs.filter((_, i) => _mdists[i] > _OL_THR);
     // Interpretación de ejes (hasta PC5)
     const _nPCs = Math.min(5, loadings.length);
@@ -4937,13 +4973,13 @@ const ComparadorMultiObjeto = (() => {
     const _outlierRow = _outliers.length > 0
       ? `<div class="cmo-pca-diag-row status-warn">
           <span class="cmo-pca-diag-icon">⚠️</span>
-          <span>Outliers (&gt;${_OL_THR}σ):</span>
+          <span>Outliers (d &gt; ${_OL_LBL}):</span>
           <span style="color:#c05621;font-weight:700;">${_outliers.map(o => esc(o.nombre)).join(', ')}</span>
         </div>`
       : `<div class="cmo-pca-diag-row status-ok">
           <span class="cmo-pca-diag-icon">✅</span>
           <span>Sin outliers morfológicos:</span>
-          <span style="color:#2f855a;font-size:10px;">todos los objetos dentro de ${_OL_THR}σ del centroide</span>
+          <span style="color:#2f855a;font-size:10px;">todos los objetos dentro de d = ${_OL_LBL} del centroide</span>
         </div>`;
     // ── Párrafo interpretativo final
     let _interpLine = '';
@@ -4959,7 +4995,7 @@ const ComparadorMultiObjeto = (() => {
       if (_outliers.length === 1)
         _interpLine += ` <strong>${esc(_outliers[0].nombre)}</strong> se aleja significativamente del perfil colectivo — revisarlo como pieza atípica o de distinta adscripción.`;
       else if (_outliers.length > 1)
-        _interpLine += ` ${_outliers.length} objetos se alejan del perfil colectivo (&gt;${_OL_THR}σ): ${_outliers.map(o => `<strong>${esc(o.nombre)}</strong>`).join(', ')}.`;
+        _interpLine += ` ${_outliers.length} objetos se alejan del perfil colectivo (d &gt; ${_OL_LBL}): ${_outliers.map(o => `<strong>${esc(o.nombre)}</strong>`).join(', ')}.`;
     }
     // ── Mini bar chart del silhouette sweep ─────────────────────────────
     const _maxSweepSil = Math.max(..._sweep.scores.map(s => s.sil), 0.01);
