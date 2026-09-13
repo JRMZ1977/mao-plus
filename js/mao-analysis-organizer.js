@@ -437,10 +437,21 @@
   function schedule() {
     if (scheduled) return;
     scheduled = true;
-    requestAnimationFrame(function () {
+    /* rAF NO dispara en ventanas ocultas/minimizadas. Con el patrón anterior una
+       sola pasada perdida dejaba `scheduled` en true de forma indefinida y el
+       organizer se quedaba mudo el resto de la sesión: la cabecera no volvía a
+       refrescarse aunque los datos cambiaran. Se corre lo primero que llegue —
+       rAF (pinta antes del frame) o el temporizador de respaldo— y `ejecutar` es
+       idempotente, así que la segunda llegada no hace nada. */
+    var hecho = false;
+    var ejecutar = function () {
+      if (hecho) return;
+      hecho = true;
       scheduled = false;
       try { organize(); } catch (e) { console.warn('[ADR2] organize falló:', e); }
-    });
+    };
+    requestAnimationFrame(ejecutar);
+    setTimeout(ejecutar, 250);
   }
 
   function organize() {
@@ -463,14 +474,23 @@
   }
 
   function boot() {
-    var mm = $('morphologicalMetrics');
-    if (!mm) return;
-    new MutationObserver(schedule).observe(mm, { childList: true, subtree: false });
-    var efa = $('efaMetricsPanel');
-    if (efa) {
-      new MutationObserver(schedule)
-        .observe(efa, { childList: true, attributes: true, attributeFilter: ['style'] });
-    }
+    /* Observar el CONTENEDOR con subtree, no `#morphologicalMetrics` a secas.
+       El panel se re-renderiza reemplazando nodos internos, así que un observador
+       enganchado al nodo hijo quedaba HUÉRFANO tras el primer re-render: seguía
+       vigilando un elemento ya desconectado del documento y no volvía a disparar.
+       Ése era el origen real de la cabecera obsoleta — `adr2-on` engañaba porque
+       classList.add es sticky y probaba que organize() corrió alguna vez, no que
+       siguiera corriendo. El contenedor sí es estable durante toda la sesión. */
+    var cont = $('morphologicalAnalysisContainer');
+    if (!cont) return;
+    new MutationObserver(schedule).observe(cont, { childList: true, subtree: true });
+    /* Señales de intención, además de los observadores de DOM: el refresco pasa a
+       depender de que los datos cambien, no de que el re-render produzca una
+       mutación observable en el instante justo. `mao:ph:changed` lo emite
+       analysis-core al aplicar/confirmar/descartar trazados. */
+    ['mao:ph:changed', 'mao:objects:changed', 'mao:analysis:done']
+      .forEach(function (ev) { document.addEventListener(ev, schedule); });
+
     schedule();
     MO.log('ADR2', 'Analysis Organizer activo (Fase 2: jerarquía §1–§8 + chip P/H)');
   }

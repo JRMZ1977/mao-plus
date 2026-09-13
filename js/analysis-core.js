@@ -44484,6 +44484,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     actualizarListaTrazados();
     redibujarPoligonoEnCanvasAmpliado();
     sincronizarCandidatosPHEnObjeto();
+    _emitirPHCambiado(selectedObjectForPerforation);
     const nombre = tipo === 'perforacion' ? 'Perforación' : 'Horadación';
     UtilityHelpers.setStatus(`Candidato confirmado como ${nombre}. Finalice los trazados para aplicarlo al objeto.`, false);
   }
@@ -44501,6 +44502,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     actualizarListaTrazados();
     redibujarPoligonoEnCanvasAmpliado();
     sincronizarCandidatosPHEnObjeto();
+    _emitirPHCambiado(selectedObjectForPerforation);
     const rest = trazadosPerforaciones.filter(t => t.tipo === 'candidato').length;
     UtilityHelpers.setStatus(`Candidato descartado. Candidatos restantes: ${rest}.`, false);
   }
@@ -45483,6 +45485,25 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Finalizar todos los trazados y aplicarlos al objeto
    */
+  /**
+   * Señal de que el conjunto de P/H del objeto cambió (aplicar trazados, confirmar
+   * o descartar un candidato de ADR-009). La emite quien MUTA los datos, para que
+   * los organizers no tengan que adivinarlo observando mutaciones del DOM en el
+   * instante justo — que era la causa de la cabecera ADR-002 obsoleta.
+   */
+  function _emitirPHCambiado(obj) {
+    try {
+      document.dispatchEvent(new CustomEvent('mao:ph:changed', {
+        detail: {
+          id: obj && obj.id,
+          perforaciones: (obj && obj.perforaciones || []).length,
+          horadaciones:  (obj && obj.horadaciones  || []).length,
+          candidatos:    (obj && obj.phCandidatos  || []).length,
+        },
+      }));
+    } catch (_) { /* la señal nunca debe romper el flujo que la emite */ }
+  }
+
   function finalizarTodosTrazados() {
     if (trazadosPerforaciones.length === 0) {
       // Permitir eliminación total de P/H preexistentes.
@@ -45510,6 +45531,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         }
 
         UtilityHelpers.setStatus('Se eliminaron todas las perforaciones/horadaciones del objeto.', false);
+        _emitirPHCambiado(selectedObjectForPerforation);
         ocultarCanvasAmpliadoPerforation();
         return;
       }
@@ -45673,6 +45695,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     contadorTrazados = 0;
     
     UtilityHelpers.setStatus(`${perforaciones.length} perforaciones y ${horadaciones.length} horadaciones aplicadas al objeto.`, false);
+    _emitirPHCambiado(selectedObjectForPerforation);
     
     // Ocultar canvas ampliado
     ocultarCanvasAmpliadoPerforation();

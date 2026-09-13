@@ -110,10 +110,47 @@ bug real, y distinguirlos exige mirar cada uno.
 
 | # | Asunto | Severidad |
 |---|---|---|
-| 1 | **Staleness de la cabecera ADR-002**: tras confirmar una P/H los datos cambian pero la cabecera no se refresca. Afecta **igual** al chip P/H preexistente y al nuevo de exportación. | Media — funcionalidad informativa degradada |
+| 1 | ~~Staleness de la cabecera ADR-002~~ → ✅ **CORREGIDA** (2026-09-13, ver §8) | — |
 | 2 | **`analysis-core.js` sigue en ~30k líneas** tras quitar 4.263. La frontera IIFE↔ESM con 128 puentes a `window` seguirá generando defectos de este tipo. | Media — estructural, no urgente |
 | 3 | **Nombres del par bifacial** ambiguos (`_comparacion.csv` vs `_bifacial.csv` vs `_bifacial.pdf`). | Baja — nomenclatura |
 | 4 | **Lote bifacial** verificado con caras construidas a mano; la máquina de estados bifacial no se ejercita por script. | Baja — cobertura de prueba |
+
+---
+
+## 8 · Corrección: staleness de la cabecera ADR-002 (2026-09-13)
+
+**Síntoma.** Tras confirmar una P/H los datos cambiaban (`perforaciones: 1, candidatos: 0`) pero la
+cabecera seguía mostrando «1 candidata — confirmar». Afectaba **igual al chip P/H preexistente y al
+nuevo de exportación**, así que no era del chip sino del refresco.
+
+**Lo que despistó.** `#morphologicalAnalysisContainer` tenía la clase `adr2-on`, que parecía probar
+que el organizer seguía vivo. No lo prueba: `classList.add` es **sticky** — atestigua que
+`organize()` corrió *alguna vez*, no que siga corriendo. Con una sonda temporal en `buildHeader` se
+vio la secuencia real.
+
+**Tres fragilidades corregidas**, todas en el camino «dato cambia → cabecera se entera»:
+
+1. **Latch del planificador.** `schedule()` marcaba `scheduled = true` y confiaba en
+   `requestAnimationFrame`, **que no dispara en ventanas ocultas o minimizadas**. Ahora corre lo
+   primero que llegue —rAF o un temporizador de respaldo de 250 ms— con ejecución idempotente.
+2. **Observador huérfano.** Vigilaba `#morphologicalMetrics`; el panel se re-renderiza reemplazando
+   nodos internos, así que tras el primer re-render observaba un elemento ya desconectado. Reanclado
+   al **contenedor**, que sí es estable, con `subtree: true`.
+3. **Ninguna señal de intención.** `finalizarTodosTrazados` y los confirmadores de candidatos mutaban
+   las P/H sin avisar a nadie: el refresco dependía de que el re-render produjera una mutación
+   observable en el instante justo. Nuevo evento **`mao:ph:changed`**, emitido por quien muta los
+   datos (4 puntos) y escuchado por el organizer junto a `mao:objects:changed` y `mao:analysis:done`.
+
+**Verificado en Electron**, con la ventana en segundo plano (el escenario que antes lo rompía):
+
+| Chip | Antes de confirmar | Después |
+|---|---|---|
+| P/H | `1 candidata — confirmar` | `1 perforacion · 0 horadaciones` |
+| Exportar | `1 P/H sin confirmar` (`--wa`) | **`Listo para exportar`** (`--ok`) |
+
+**Nota honesta sobre la atribución:** las tres correcciones se aplicaron juntas y no se aisló cuál
+bastaba por sí sola. La (1) es la que explica el fallo observado en ventana oculta; la (2) y la (3)
+eliminan fragilidades reales del mismo camino. No se reclama precisión mayor que ésa.
 
 ---
 
