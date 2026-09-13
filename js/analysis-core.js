@@ -14624,6 +14624,32 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     }
   }
 
+  /**
+   * P3 — preferencia «Exportar al finalizar», recordada entre sesiones.
+   * Por defecto DESACTIVADA: el lote tarda 20-40 s y no debe sorprender a nadie
+   * la primera vez. Quien lo active lo mantiene.
+   */
+  const _EXPORT_AL_FINALIZAR_KEY = 'mao.exportarAlFinalizar';
+  function _exportarAlFinalizarActivo() {
+    const chk = document.getElementById('exportarAlFinalizarChk');
+    return !!(chk && chk.checked);
+  }
+  (function _initExportarAlFinalizar() {
+    const aplicar = () => {
+      const chk = document.getElementById('exportarAlFinalizarChk');
+      if (!chk || chk.dataset.wired) return;
+      chk.dataset.wired = '1';
+      try { chk.checked = localStorage.getItem(_EXPORT_AL_FINALIZAR_KEY) === '1'; } catch (_) {}
+      chk.addEventListener('change', () => {
+        try { localStorage.setItem(_EXPORT_AL_FINALIZAR_KEY, chk.checked ? '1' : '0'); } catch (_) {}
+      });
+    };
+    aplicar();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', aplicar, { once: true });
+    }
+  })();
+
   // Event listeners para análisis morfológico
   if (closeAnalysisBtn) closeAnalysisBtn.addEventListener('click', async () => {
     if (closeAnalysisBtn.disabled) return; // evitar doble clic
@@ -14654,6 +14680,13 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         if (iconEl)  iconEl.innerHTML  = '✗';
         if (labelEl) labelEl.textContent = 'Error — Reintentar';
         closeAnalysisBtn.title = 'Error al guardar — intentar de nuevo';
+      } else if (state === 'exportando') {
+        closeAnalysisBtn.disabled = true;
+        closeAnalysisBtn.style.opacity = '0.75';
+        closeAnalysisBtn.style.cursor = 'wait';
+        if (iconEl)  iconEl.innerHTML  = '📦';
+        if (labelEl) labelEl.textContent = 'Exportando...';
+        closeAnalysisBtn.title = 'Exportando a la carpeta de resultados...';
       } else { // reset
         closeAnalysisBtn.disabled = false;
         closeAnalysisBtn.style.background = 'linear-gradient(135deg,#1b7a3e 0%,#28a745 100%)';
@@ -14702,6 +14735,24 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           setBtnState('ok');
           actualizarTarjetaObjeto(obj);
           UtilityHelpers.setStatus(`Análisis ${labelCompleto} guardado. Puede cargar la siguiente imagen.`, false);
+
+          // ── P3 · Exportar en lote tras guardar ────────────────────────────
+          // Aquí, y no antes: la carpeta del análisis YA existe, así que la de
+          // resultados nace junto a su hermana. Y aquí, y no después: el cierre
+          // oculta el panel y anula `currentAnalyzedObject`, del que dependen los
+          // exportadores (el PNG lee el canvas vivo). Es el único punto del flujo
+          // donde ambas condiciones se cumplen a la vez.
+          if (_exportarAlFinalizarActivo()) {
+            setBtnState('exportando');
+            try {
+              await exportarTodoElAnalisis();
+            } catch (e) {
+              console.error('❌ Exportación al finalizar:', e);
+              toast.error(`Guardado OK, pero la exportación falló: ${e.message}`, 5000);
+            }
+            setBtnState('ok');
+          }
+
           await new Promise(r => setTimeout(r, 600));
           morphologicalAnalysisContainer.style.display = 'none';
           // Si esta cara completó el par bifacial → abrir la comparación en Análisis;

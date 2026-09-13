@@ -1153,11 +1153,38 @@ renderer — antes fallaba. 5 comprobaciones del sellado en la sección I de
 
 ### 12.4 — Pendientes propuestos y no abordados
 
-- **P3 · invertir el orden del flujo:** hoy exportar sólo funciona ANTES de «Guardar y Finalizar»,
-  que además anula `currentAnalyzedObject`; si se guarda primero se pierde la exportación sin
-  reabrir el análisis. Que ese botón guarde → exporte → cierre, con casilla recordada.
+- ~~**P3 · invertir el orden del flujo**~~ → ✅ implementado, ver §12.5.
 - **P4 · chip «listo para exportar»** en la cabecera de Análisis (`.laar-chip`): *EFA pendiente* ·
   *P/H sin decidir* · *listo*. Hoy nada avisa antes; el manifiesto sólo lo registra después.
+
+### 12.5 — P3 · Exportar al finalizar (2026-09-13)
+
+Hasta ahora exportar sólo funcionaba **antes** de «Guardar y Finalizar»: ese botón anula
+`currentAnalyzedObject`, del que dependen todos los exportadores. Quien guardaba primero perdía
+la exportación sin reabrir el análisis, y la carpeta de resultados nacía antes que la del análisis.
+
+**Casilla «Exportar al finalizar»** junto al botón, recordada en `localStorage` y **desactivada por
+defecto**: el lote tarda 20-40 s y no debe sorprender a nadie la primera vez. Quien la activa la
+mantiene entre sesiones.
+
+El punto de inserción no es arbitrario. La exportación va **después** de guardar —así la carpeta
+del análisis ya existe y la de resultados nace junto a su hermana— y **antes** de cerrar —el cierre
+oculta el panel y anula `currentAnalyzedObject`, y el PNG lee el canvas vivo—. Es el único punto
+del flujo donde ambas condiciones se cumplen a la vez. El botón muestra un estado `exportando`
+propio para que los 20-40 s no parezcan un cuelgue.
+
+**Verificado en Electron con UNA sola acción** (clic en «Guardar y Finalizar» con la casilla
+activa):
+
+```
+<proyecto>/
+├── QP1_U1_N1_E1_01/        metadata · metricas.json · metricas.csv · geometria · trazados · imagenes/
+├── resultados/QP1_U1_N1_E1_01/   4 formatos + landmarks/ + manifiesto.json
+├── collection_index.json · resumen.csv · e2e_lote.mao
+```
+
+Panel cerrado, `currentAnalyzedObject` anulado, botón de vuelta a «Guardar y Finalizar»,
+preferencia persistida y 0 errores de renderer.
 
 ---
 
@@ -1179,6 +1206,7 @@ renderer — antes fallaba. 5 comprobaciones del sellado en la sección I de
 | ¿Y las P/H candidatas de ADR-009? | Quedan fuera **por diseño**: sin confirmar no tienen `metricas` ni `_efa_data`. El invariante «la detección propone, el humano dispone» se mantiene en la exportación. |
 | ¿Verificado en Electron? | **Sí, §10.** App real + backend Python real + archivos reales en disco. TPS/EFA verificado end-to-end (contorno y P/H): aplicar `SCALE` devuelve las dimensiones reales con **0,00 % / 0,61 %** de error. Bifacial verificado hasta el diálogo nativo, que no es automatizable. |
 | ⚠️ Hallazgo fuera de encargo | Un `TypeError` **preexistente** tumbaba el panel morfológico entero. ✅ Corregido en los dos niveles: guarda defensiva en el render (§10.4) y, en el productor, el fallback de `analysis-core.js:12060` — el único de los **cinco** productores de `_forma_idealizada` que incumplía el contrato (§10.6). Verificado en Electron. |
+| ¿Una sola acción de verdad? | ✅ **Sí (§12.5).** Con «Exportar al finalizar» activa, un clic en «Guardar y Finalizar» guarda el análisis Y exporta sus 7 formatos a la carpeta hermana. |
 | ¿Exportación en lote implementada? | **Sí, §11.** Un clic → 7 archivos + manifiesto en `<proyecto>/resultados/<ID>/`, **todos con el ID arqueológico** (§11.7). Verificado en Electron con PDF, SVG, PNG, CSV y landmarks reales en disco. |
 | ⚠️ Defecto sistémico destapado | `obj.id` es **numérico** en detección automática y 6 sitios asumían cadena: **el PDF integral y el SVG fallaban también al exportarlos uno a uno** (§11.3). Corregido. |
 | Lote bifacial | ✅ **Verificado E2E (§11.8)** con IMC real 98,9 %. Destapó `imageTimeout: 0` (espera INDEFINIDA) que colgaba el PDF: corregido + topes en tres capas. |
