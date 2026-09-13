@@ -4,6 +4,121 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-09-13 (d) — Memoria matemática para revisión externa + O-16/O-20
+
+Encargo: un documento que explique la matemática del motor a un **revisor externo**, con
+glosario de métricas y fuentes citadas. Escribirlo obligó a leer cada fórmula contra su
+implementación, y de ahí salieron tres defectos. **Dos corregidos aquí** (commit `c0e9ca6`).
+
+**`docs/MEMORIA-MATEMATICA-MAO-PLUS.md`** — 14 secciones + 2 anexos. Página publicada para
+el revisor: https://claude.ai/code/artifact/e1d888e8-99b8-469a-8d51-0fade4904eef
+
+Tres decisiones de forma que conviene mantener si se amplía:
+- **Cada fórmula lleva su `archivo:línea`** (Anexo B). La doc es contrastable contra el
+  código, no contra la intención. Al tocar `metrics.py`/`efa.py`/`comparator.py`, revisar
+  el Anexo B — ya se desfasó una vez con ADR-017 F0.
+- **Tres etiquetas explícitas**: método canónico de la literatura · **⚙ convención MAO**
+  (cambia el número respecto de la práctica estándar) · **⚠ heurística calibrada** (nunca
+  presentada como probabilidad).
+- **§13 = 22 observaciones** con severidad, remedio y el ADR que las sigue. Es el índice de
+  deuda matemática; al cerrar una, marcarla ahí.
+
+### Los tres hallazgos
+
+| | Qué | Estado |
+|---|---|---|
+| **O-16** | Los coeficientes EFD están **desfasados 90°** respecto de Kuhl & Giardina | ✅ corregido |
+| **O-20** | Umbral de atípicos de Mahalanobis fijado para `p=2`, aplicado en dimensión `p` | ✅ corregido |
+| **O-1** | La escala usa `s = p·d/f` (campo lejano) en vez de `p·(d−f)/f` | ⏸ requiere ADR-018 |
+| (O-7) | Signo invertido de la pérdida de perímetro | ✅ lo arregló ADR-017 F0 en paralelo, mismo remedio |
+
+### O-16 · síntesis EFA — `python/modules/efa.py`
+
+**El descriptor SIEMPRE fue correcto y no se ha tocado.** `_efd_raw` almacena
+`a_k(MAO)=b_k(K&G)`, `b_k(MAO)=−a_k(K&G)` (ídem c,d). Tras normalizar, el desfase residual
+del armónico k es **(1−k)·π/2**: una transformación **ortogonal fija** ⇒ el morfoespacio es
+**isométrico** al canónico. Medido: distancias `d_EFD` idénticas entre convenios (máx 1,7e-16
+sobre 15 pares), espectros idénticos, invariancias a ~5e-15.
+
+Lo que fallaba era la **síntesis**: `_reconstruct_contour` aplicaba la fórmula canónica
+`x=Σ(a·cos+b·sin)` sobre coeficientes que no están en ese convenio → curva sistemáticamente
+**más redondeada**. Sobre una forma de tres lóbulos: circularidad **0,8586 vs 0,7061** real
+(21,6 % de error); tras el arreglo, 0,15 %.
+
+- **El convenio queda documentado en la cabecera del módulo.** Leerlo antes de tocar nada
+  ahí, y antes de exportar coeficientes: **no son intercambiables con Momocs/pyefd** sin
+  convertirlos con esas igualdades.
+- **Alcance real, mayor de lo que parecía:** además de la superposición visual y del
+  «contorno típico» 3D, **ADR-017 F2 publicó `efa.reconstruct()` —que delega en esta misma
+  función— como generador del repertorio de plantillas** (`shape_template.py:791`). Las
+  formas ideales del banco se generaban más redondeadas que la forma que codifican sus
+  coeficientes.
+- **NO afecta a `js/procrustes.js`**, que compara contornos reconstruidos: verificado
+  Δ ≤ 3,3e-16 sobre seis pares. Es demostrable — `Φᵀ Φ = (n/2)·I` deja invariante la matriz
+  de productos cruzados ante una rotación de fase fija.
+- **Por qué no se detectó:** `test_efa.py` cubría exhaustivamente el descriptor pero **nadie
+  contrastaba la curva sintetizada contra la forma de entrada**. Añadido `TestReconstruccion`
+  (3) con magnitudes invariantes a semejanza —circularidad 2 %, ratio de Feret 5 %— porque
+  `contour_reconstructed` viene de los coeficientes normalizados.
+- **Abierto:** adoptar el convenio canónico en `_efd_raw` exigiría **recalcular el banco EFA
+  entero** (viejos y nuevos no se mezclan). Sólo si se publica la matriz de coeficientes.
+
+### O-20 · umbral de atípicos — `comparator.py` + espejo `js/comparator.js`
+
+El umbral era la constante **2,716 = √χ²(2; 0,975)** — correcta sólo en 2D, heredada de
+cuando la distancia se calculaba sobre PC1+PC2 (`mahalanobisDistances2D`) — aplicada a
+distancias de **p** dimensiones. Sobre gaussianas **sin ningún atípico**: marcaba el **67 %**
+con p=10 y el **100 %** con p=30.
+
+- Ahora se deriva en ejecución: `√χ²(0,975; r)` con **r = rango de la covarianza empleada**
+  (`_outlier_threshold`; `_mahalanobis_distances` devuelve los gl efectivos). Fracción
+  marcada **70 % → 2 %** (nominal 2,5 %).
+- **Segundo defecto del mismo bloque:** con `n ≤ p+1` la covarianza se satura y, con
+  pseudo-inversa, **todas las distancias colapsan a (n−1)/√n** — el estadístico no discrimina.
+  Se declara: `outlier_status="no_evaluable_pocos_objetos"`, lista vacía, umbral `null`
+  (**doctrina ADR-017 F0**). La respuesta expone `mahalanobis_df` y `outlier_threshold` para
+  que el criterio quede auditable en el informe.
+- **Gotcha de duplicados, otra vez:** `mahalanobisDistancesZ` (js) arrastraba el mismo 2,716
+  con estimador diagonal. Corregido con cuantil por **Wilson-Hilferty** (error < 1 % para
+  df ≥ 2, sin dependencias). Los rótulos dejan de decir «>2.716σ» —que además no eran
+  sigmas— y el badge dice «sin evaluar» en vez de callar. Cache-bust `comparator.js?v=20260913a`.
+
+### O-1 · escala en campo lejano — **NO tocado a propósito**
+
+Sesgo sistemático multiplicativo **f/(d−f)**: 20 % con f=50/d=300 (el propio caso de
+`test_scale_px_mm_formula`), 25 % con f=100/d=500, 100 % en macro 1:1.
+
+- **No contamina el estudio de estandarización:** el CV es invariante a un factor
+  multiplicativo constante, y **nada adimensional cambia**. Sólo se desplazan las medias en
+  mm. ⚠ Salvedad: si las piezas se fotografiaron a distancias distintas, el factor deja de
+  ser constante y sí contamina el CV.
+- **Comprobación empírica sin tocar código:** los proyectos con verificación de escala
+  guardan `correction_factor` y `original_error_percent`. Si O-1 es real deben agruparse en
+  **1 − f/d** (0,80 para 100/500) y **f/(d−f)** (25 %), siempre **por debajo de 1**.
+- **Por qué ADR-018 y no un parche:** hay que fijar antes qué significa «distancia» en el
+  protocolo (objetivo→objeto ⇒ `d−f`; plano del sensor→objeto ⇒ `d−2f`) y **cambia valores ya
+  exportados a CSV/PDF**. Toca `scale.py:278`, los dos espejos JS (`analysis-core.js:13156`
+  y `:13434`) y el test que fija la fórmula. Mismo patrón que la nota de versión de F0.
+
+### Otras convenciones que la memoria dejó por escrito (§5)
+
+- **⚙ La forma canónica es la envolvente convexa:** `area`/`perimeter` son **del hull**, no
+  del contorno. `area_real` ↔ `regionprops.area`. Declararlo en cualquier publicación.
+- **Redundancia algebraica exacta** (§5.5, O-6/O-19): `compactness ≡ circularity`,
+  `shape_factor = 1/c`, `indice_lobularidad = c^(−1/2)`, `ICI = c_frag^(−1/2)`,
+  `concavidad_area = 100(1−solidez)`, `bounding_box_efficiency ≡ rectangularity`,
+  `anisotropy = 1 − circularity_proxy`, `compactness_3d = Ψ_Wadell³`. **Meterlas juntas en un
+  PCA infla PC1** — es la brecha C2 de ADR-015.
+
+- **Verificado:** **suite 398 passed / 2 skipped** (antes de esta sesión, 391/2 en este mismo
+  contenedor) · `node --check` en `comparator.js` + los 11 módulos ES · los dos gates muerden
+  sobre el código anterior (21,6 % y 70 %) · Procrustes sin regresión.
+- ⚠ **Los conteos de suite NO son comparables entre contenedores**: aquí 398/2 (los 2 omitidos
+  son los módulos de paridad `MAO_A`), mientras la entrada (c) reporta 372/4 desde otro
+  contenedor con distintas dependencias opcionales. **Comparar deltas, no absolutos.**
+- **Pendiente:** verificación visual en Electron de los rótulos del comparador (`node --check`
+  no ve layout) · ADR-018 para O-1 · estimador robusto (MCD / Ledoit-Wolf) para `n < 3p`.
+
 ## 🎯 Sesión 2026-09-13 (c) — ADR-017 F3: el cable
 
 Antes de F3 el backend sabía calcular completitud y **nadie se la pedía**: las únicas
