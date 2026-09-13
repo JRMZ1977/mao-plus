@@ -4,6 +4,70 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Estado de la sesión 2026-09-12/13 — Exportación (rama `claude/audit-export-modules-b320d2`)
+
+Auditoría completa de los módulos de exportación + implementación del lote. **7 commits, +2.922 /
+−4.263 líneas.** Rama **subida** (`4c435cc`); **PR pendiente de abrir** contra
+`feat/laar-runtime-fix-estetica` (cuerpo redactado, fuera del repo por decisión de JFRR).
+
+> 📋 Detalle exhaustivo con líneas y evidencias → **`docs/AUDITORIA-EXPORTACION-20260912.md`** (§1–§13).
+
+| Commit | Qué |
+|--------|-----|
+| `c884f38` | Lote a carpeta de resultados + corrección del payload científico (TPS/EFA, IMC bifacial) |
+| `fcc730c` | Fase 0 — eliminar código muerto de exportación (−4.263 líneas) |
+| `4960add` | Timeout del PDF bifacial y manifiesto auditable |
+| `fade583` | `currentAnalyzedObject` como fuente única |
+| `0a7d92e` | Sellar el ID arqueológico y alinear análisis con resultados |
+| `79c3481` | P3 — exportar al finalizar el análisis |
+| `4c435cc` | P4 — chip «listo para exportar» en la cabecera de Análisis |
+
+### Qué hay ahora
+Un clic en **«Guardar y Finalizar»** (con la casilla «Exportar al finalizar») guarda el análisis
+**y** exporta sus 7 formatos a la carpeta hermana:
+
+```
+<proyecto>/QP1_U1_N1_E1_01/            ← datos del análisis
+<proyecto>/resultados/QP1_U1_N1_E1_01/ ← CSV · SVG · PNG · PDF · landmarks/ · manifiesto.json
+```
+
+- **`js/mao-export-destino.js`** (nuevo): `window.MaoExportDestino`. Sin IPC nuevo. **Con
+  `activo === null` el comportamiento es idéntico al anterior** (diálogo nativo) → reversible.
+- **`js/export-manager.js` ELIMINADO** (era una implementación paralela y muerta de SVG/PNG).
+- **`npm run test:js`** → 95 comprobaciones en 3 suites sin dependencias
+  (`tests/test_efa_tps_export.js`, `test_bifacial_export.js`, `test_export_destino.js`).
+  Extraen las funciones REALES del IIFE: renombrarlas hace fallar el test, no pasar en vacío.
+- Caché: `analysis-core.js?v=20260913e`, `mao-analysis-organizer.js?v=20260913a`.
+
+### ⚠️ Gotchas permanentes descubiertos (valen para todo el repo)
+
+1. **`obj.id` es NUMÉRICO** en el flujo de detección automática. `obj.id?.replace(...)` **no
+   protege** (`1` es *truthy*) → `TypeError`. Rompía el PDF integral, el SVG **y el guardado del
+   análisis**. Saneado con `String(...)` en 8 sitios. Al escribir código nuevo que use `obj.id`
+   para nombres o rutas: **`String(obj.id ?? '')` siempre**.
+2. **`requestAnimationFrame` NO dispara en ventanas ocultas.** Los organizers programan con rAF,
+   así que `#adr2Header` y sus chips no se construyen si Electron corre en segundo plano. En
+   cualquier verificación E2E por CDP hay que llamar **`Page.bringToFront`** antes de inspeccionar.
+3. **`currentAnalyzedObject` era DOS variables** (el `let` del IIFE y la propiedad global que
+   escribe `visualization-export.js`, módulo ESM donde el identificador resuelve al global).
+   Resuelto eliminando el `let`: ahora es **un único binding**. No volver a declararlo local.
+4. **El ID arqueológico se sella en `obj.idArqueologico`** (campo aditivo). Es la fuente única de
+   la carpeta del análisis, la de resultados y los nombres. `_baseNombreAnalisis()` es el único
+   sitio a tocar si algún día se implementa ADR-008 C2.
+5. **`imageTimeout: 0` en html2canvas significa ESPERA INDEFINIDA**, no «sin espera». Colgaba el
+   PDF bifacial >5 min. Corregido a 15 s + topes con `_conTimeout` en tres capas.
+
+### Pendientes
+- **Abrir el PR** (`gh` no disponible en la sesión de Claude; el remoto rechaza su clave).
+- **Staleness de la cabecera ADR-002**: tras confirmar una P/H los datos cambian pero la cabecera
+  no se refresca — afecta **igual** al chip P/H preexistente y al nuevo de exportación. Tarea propia.
+- **Nombres del par bifacial**: `_comparacion.csv` (tabla A-vs-B) vs `_bifacial.csv` (métricas de
+  ambas caras) vs `_bifacial.pdf` (informe) es ambiguo. Decisión de nomenclatura, no tocada.
+- **Lote bifacial** verificado con caras construidas a mano (la máquina de estados bifacial no se
+  ejercita por script); el paso «CSV de ambas caras» salió como omisión por ese motivo.
+
+---
+
 ## 🎯 Estado de la sesión 2026-06-14 (lote de cierre)
 
 Commits del lote: `526cf42` (ADR-010 E2E hook) · `be20a0e` (webSecurity + cv2 warmup + Resultados organizer + deuda técnica) · `63694bf` (ADR-006).
@@ -18,7 +82,7 @@ Commits del lote: `526cf42` (ADR-010 E2E hook) · `be20a0e` (webSecurity + cv2 w
 | ADR-006 Fases 1-3: `morphometric_registry.py` + 19 tests + refactor coherencia | ✅ | 63694bf |
 | ADR-008 C2 rewrite id compuesto | ⏸ DIFERIDO — riesgo alto | — |
 
-**Suite tras el lote:** 288 passed, 2 skipped. `node -c` limpio. Caché: `analysis-core.js?v=20260614h`.
+**Suite tras el lote:** 288 passed, 2 skipped. `node -c` limpio. Caché: `analysis-core.js?v=20260614h` ⚠️ *(superado: ver bloque 2026-09-12/13)*.
 
 **Verificación E2E pendiente (requiere npm start matar+relanzar, no Cmd+R):**
 `await window.__maoE2E.flujoCompleto('sintetico_escala_objeto_ph.png')` → validar checklist en `docs/ADR-010-hook-verificacion-e2e.md`.
