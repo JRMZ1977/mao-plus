@@ -1154,8 +1154,7 @@ renderer — antes fallaba. 5 comprobaciones del sellado en la sección I de
 ### 12.4 — Pendientes propuestos y no abordados
 
 - ~~**P3 · invertir el orden del flujo**~~ → ✅ implementado, ver §12.5.
-- **P4 · chip «listo para exportar»** en la cabecera de Análisis (`.laar-chip`): *EFA pendiente* ·
-  *P/H sin decidir* · *listo*. Hoy nada avisa antes; el manifiesto sólo lo registra después.
+- ~~**P4 · chip «listo para exportar»**~~ → ✅ implementado, ver §12.6.
 
 ### 12.5 — P3 · Exportar al finalizar (2026-09-13)
 
@@ -1185,6 +1184,41 @@ activa):
 
 Panel cerrado, `currentAnalyzedObject` anulado, botón de vuelta a «Guardar y Finalizar»,
 preferencia persistida y 0 errores de renderer.
+
+### 12.6 — P4 · Chip «listo para exportar» (2026-09-13)
+
+Dos cosas pueden dejar huecos en la carpeta de resultados sin que nada avise **antes**: que el EFA
+aún no haya resuelto (es asíncrono → `landmarks/` saldría vacío) y que queden candidatos P/H de
+ADR-009 sin confirmar (sólo se exportan los confirmados). El manifiesto lo registra **después**;
+este chip lo dice antes.
+
+Implementado en `mao-analysis-organizer.js` con el lenguaje canónico `.laar-chip` de ADR-005, en la
+cabecera `#adr2Header`. Cuatro estados, por prioridad:
+
+| Estado | Clase | Cuándo |
+|---|---|---|
+| `Exportar: sin EFA` | `--none` | el módulo EFA del backend no está activo — no es «pendiente», no va a llegar |
+| `Exportar: EFA pendiente` | `--wa` | `metricas._efa_data` aún ausente |
+| `Exportar: N P/H sin confirmar` | `--wa` | quedan candidatos ADR-009 sin tipar |
+| `Listo para exportar` | `--ok` | contorno y P/H resueltos |
+
+Cada estado lleva un `title` que explica qué faltaría en la carpeta. El nodo se añade **después**
+del chip de P/H a propósito: el updater del organizer localiza aquél con
+`querySelector('.laar-chip')`, así que el primero en el DOM debe seguir siendo el suyo; éste se
+localiza por su clase propia `.adr2-chip-export`.
+
+**Verificado en Electron:** chip renderizado con el texto, la clase `laar-chip--wa` y el tooltip
+correctos para el caso «1 P/H sin confirmar», y el chip de P/H intacto y aún primero en el DOM.
+
+⚠️ **Limitación preexistente, fuera de P4.** Tras confirmar la P/H, los datos cambian
+(`perforaciones: 1, candidatos: 0`) pero **la cabecera no se refresca**: el chip nuevo y el de P/H
+—que no se tocó— se quedan ambos con el texto anterior. Es staleness del refresco del organizer
+ADR-002, idéntica para los dos chips, no de este cambio. Merece tarea propia.
+
+**Nota de método para futuras verificaciones E2E:** el organizer programa su trabajo con
+`requestAnimationFrame`, que **no dispara en ventanas ocultas**. Media sesión de diagnóstico se fue
+en esto: `#adr2Header` no existía porque la ventana de Electron corría en segundo plano. Hay que
+llamar a `Page.bringToFront` por CDP antes de inspeccionar cualquier cosa que dependa de rAF.
 
 ---
 
