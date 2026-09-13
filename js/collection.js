@@ -2945,64 +2945,14 @@ async function exportarPNGMorfologicoActual() {
 /**
  * 🖼️  MEJORADO: Exportar a JPEG (comprimido)
  */
-async function exportarJPEGMorfologicoActual() {
-  if (!window.currentAnalyzedObject || !window.currentAnalyzedObject.obj) {
-    toast.error('No hay análisis morfológico activo para exportar');
-    return;
-  }
-
-  const obj = window.currentAnalyzedObject.obj;
-  console.log('📸 Exportar a JPEG:', obj.nombre);
-
-  try {
-    const resultado = await ExportManager.exportToJPEG(obj, {
-      quality: 0.95
-    });
-    
-    if (resultado) {
-      toast.success(`JPEG exportado: ${obj.nombre}_morfologia.jpg`);
-    } else {
-      toast.error('Error al exportar JPEG');
-    }
-  } catch (err) {
-    console.error('❌ Error:', err);
-    toast.error('Error exportando JPEG: ' + err.message);
-  }
-}
+// exportarJPEGMorfologicoActual: ELIMINADA (Fase 0, docs/AUDITORIA-EXPORTACION-20260912.md §3/§8.6).
+// Código muerto sin llamadores — 24 líneas.
 
 /**
  * 📦 MEJORADO: Exportar en múltiples formatos simultáneamente
  */
-async function exportarTodosMorfologicoActual() {
-  if (!window.currentAnalyzedObject || !window.currentAnalyzedObject.obj) {
-    toast.error('No hay análisis morfológico activo para exportar');
-    return;
-  }
-
-  const obj = window.currentAnalyzedObject.obj;
-  console.log('📦 Exportar todos los formatos:', obj.nombre);
-
-  try {
-    const progressToast = toast.loading(`Exportando ${obj.nombre} en múltiples formatos...`);
-    
-    const resultados = await ExportManager.exportAll(obj, ['svg', 'png', 'jpeg']);
-    
-    const formatoExitosos = Object.entries(resultados)
-      .filter(([_, ok]) => ok)
-      .map(([fmt]) => fmt.toUpperCase())
-      .join(', ');
-
-    if (formatoExitosos) {
-      toast.success(`✅ Exportados: ${formatoExitosos}`);
-      console.log('📦 Exportación completa:', resultados);
-    } else {
-      toast.error('❌ Fallo en la exportación');
-    }
-  } catch (err) {
-    console.error('❌ Error:', err);
-    toast.error('Error exportando: ' + err.message);
-  }
-}
+// exportarTodosMorfologicoActual: ELIMINADA (Fase 0, docs/AUDITORIA-EXPORTACION-20260912.md §3/§8.6).
+// Código muerto sin llamadores — 30 líneas.
 
 /**
  * Exportar geometría como PNG de alta resolución (3×, sin grid, con barra de escala real y etiqueta)

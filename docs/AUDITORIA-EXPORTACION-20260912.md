@@ -94,7 +94,7 @@ Los tres primeros son el mismo algoritmo escrito tres veces. El cuarto ni siquie
 
 ---
 
-## 3. Código muerto encontrado (relevante: infla la percepción de complejidad)
+## 3. Código muerto encontrado — ✅ **ELIMINADO** (Fase 0, 2026-09-12)
 
 Buena noticia para el esfuerzo estimado: parte de lo que parece «módulo de exportación»
 no está conectado a nada.
@@ -114,6 +114,37 @@ se pide; al contrario, `export-manager.js` es una implementación paralela y peo
 formatos 3 y 4 y conviene borrarla antes de construir encima, para no dejar dos caminos.
 
 ---
+
+### 3.1 — Ejecución de la Fase 0
+
+**−4.263 líneas, +99 de lápidas.** Cada borrado se verificó con cero llamadores reales antes de
+aplicarlo (ignorando comentarios, la propia definición y funciones homónimas de otros archivos), y
+con `node --check` después.
+
+| Artefacto | Líneas |
+|---|---|
+| `generarReporteMorfologico()` | −2.868 |
+| `js/export-manager.js` completo (`window.ExportManager`) + su `<script>` | −429 |
+| `VisualizationExport.exportarAnalisisMorfologico()` | −343 |
+| `generarTablaComparativaBifacialCSV()` | −166 |
+| `descargarImagenConEtiquetas()` | −135 |
+| `exportarComparacionBifacial()` | −109 |
+| `exportarObjetoBifacialCompletoUnificado()` | −51 |
+| `exportarTodosMorfologicoActual()` | −30 |
+| `exportarJSON()` (analysis-core) | −27 |
+| `exportarJPEGMorfologicoActual()` | −24 |
+
+Dos artefactos **no previstos** cayeron dentro del rango de `generarReporteMorfologico` y se
+comprobó que también eran muertos: el bloque ya comentado de `generarReportePDFIntegral()` (que
+la propia ADR-011 daba por retirado) y `crearImagenRecortadaDesdeImagen()`, que en `HEAD` sólo
+tenía su definición y ningún llamador.
+
+`exportarJSON()` de `analysis-core.js` se eliminó; la **homónima de `js/procrustes.js`** es otra
+función en otro ámbito y queda intacta.
+
+Verificación posterior: cero referencias colgantes a ninguna de las 10 funciones eliminadas ·
+`node --check` limpio en 52 archivos · 87 comprobaciones JS · arranque en Electron con 0 errores
+de renderer, Tier 1 API 5/5 y la exportación en lote produciendo sus 7 archivos igual que antes.
 
 ## 4. Precedente que ya existe en el repo
 
@@ -1032,4 +1063,4 @@ cambiar. Cobertura: 11 comprobaciones en `tests/test_bifacial_export.js` (secci�
 | ¿Exportación en lote implementada? | **Sí, §11.** Un clic → 7 archivos + manifiesto en `<proyecto>/resultados/<ID>/`, **todos con el ID arqueológico** (§11.7). Verificado en Electron con PDF, SVG, PNG, CSV y landmarks reales en disco. |
 | ⚠️ Defecto sistémico destapado | `obj.id` es **numérico** en detección automática y 6 sitios asumían cadena: **el PDF integral y el SVG fallaban también al exportarlos uno a uno** (§11.3). Corregido. |
 | ⚠️ Trampa de ámbito | `currentAnalyzedObject` son dos bindings distintos (local del IIFE vs global que escribe el módulo ESM); los exportadores individuales siguen leyendo el que queda en `null` (§11.4). |
-| Bonus | ~3.700 líneas de exportación muerta en el flujo por cara (§3) + 3 funciones muertas en el bifacial (§8.6). Y `comparacion_bifacial_*.json` deja de acumularse en la raíz del proyecto (§8.4). |
+| Código muerto | ✅ **Eliminado (Fase 0):** −4.263 líneas en 10 funciones + `js/export-manager.js` completo, con verificación de cero llamadores y arranque en Electron (§3.1). |
