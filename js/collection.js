@@ -1510,7 +1510,7 @@ async function exportGeometryToSVG() {
   // ── Nombre del objeto + indicador de escala (esquina superior izquierda) ──
   const nameFS    = Math.max(height * 0.03, 10);
   const namePad   = nameFS * 0.6;
-  const nameLabel = (analysis.nombreObjeto || 'Objeto').replace(/[<>&"']/g,
+  const nameLabel = String(analysis.nombreObjeto || 'Objeto').replace(/[<>&"']/g,
     c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
   const scaleLabel = scalado ? `E ${SCALE_RATIO}:1` : 'E s/escala';
   const blockW = Math.max(nameLabel.length * nameFS * 0.62 + nameFS, scaleLabel.length * (nameFS * 0.82) * 0.62 + nameFS);
@@ -1526,14 +1526,22 @@ async function exportGeometryToSVG() {
   svg += `</svg>`;
 
   // Guardar usando el mismo flujo de diálogo nativo que CSV y PDF
-  const idArq = analysis.id?.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const nombreObjeto = analysis.nombreObjeto?.replace(/[^a-zA-Z0-9_\-]/g, '_') || 'objeto';
+  const idArq = String(analysis.id ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  // String(): `nombreObjeto` puede venir de `obj.id`, que es NUMÉRICO en el flujo
+  // de detección automática — `.replace` no existe en Number y abortaba el SVG.
+  const nombreObjeto = String(analysis.nombreObjeto ?? '').replace(/[^a-zA-Z0-9_\-]/g, '_') || 'objeto';
   const filename = `${idArq || nombreObjeto}_geometria`;
 
   const svgBlob = new Blob([svg], { type: 'image/svg+xml' });
   const svgText = await svgBlob.text();
   let saveResult = null;
-  if (window.electronAPI?.showSaveDialog && window.electronAPI?.saveFile) {
+
+  // Desvío a la carpeta de resultados (exportación en lote); inactivo → diálogo.
+  const _destino = window.MaoExportDestino;
+  if (_destino?.activo) {
+    saveResult = await _destino.escribir(`${filename}.svg`, svgText, 'svg');
+    if (!saveResult.success) console.warn(`⚠️ [lote] no se pudo escribir ${filename}.svg: ${saveResult.error}`);
+  } else if (window.electronAPI?.showSaveDialog && window.electronAPI?.saveFile) {
     const dialogResult = await window.electronAPI.showSaveDialog(filename, 'svg');
     if (!dialogResult || dialogResult.canceled || !dialogResult.filePath) return;
     saveResult = await window.electronAPI.saveFile(dialogResult.filePath, svgText);
@@ -1732,6 +1740,13 @@ async function descargarImagenViewer(cacheKey, filename) {
  */
 async function _guardarPNGNativo(dataURL, filename) {
   try {
+    // Desvío a la carpeta de resultados (exportación en lote); inactivo → diálogo.
+    const _destino = window.MaoExportDestino;
+    if (_destino?.activo) {
+      const _r = await _destino.escribir(filename, dataURL, 'png');
+      if (!_r.success) console.warn(`⚠️ [lote] no se pudo escribir ${filename}: ${_r.error}`);
+      return _r;
+    }
     const dialogResult = await window.electronAPI.showSaveDialog(filename, 'png');
     if (!dialogResult || dialogResult.canceled || !dialogResult.filePath) return; // usuario canceló
     const saveResult = await window.electronAPI.saveFile(dialogResult.filePath, dataURL);
@@ -2779,6 +2794,13 @@ async function exportarSVGMorfologicoActual() {
 
   // Construir analysisData para metadatos SVG
   const analysisData = {
+    // `id`: base canónica compartida con CSV/PNG/PDF y con la carpeta de
+    // resultados (window.maoBaseNombreAnalisis, definida en analysis-core.js).
+    // Antes no se pasaba y exportGeometryToSVG caía a `nombreObjeto` = obj.id,
+    // numérico en detección automática → «1_geometria.svg».
+    id: (typeof window.maoBaseNombreAnalisis === 'function')
+          ? window.maoBaseNombreAnalisis(obj)
+          : (obj.id || null),
     nombreObjeto: obj.nombre || obj.id || 'Objeto',
     modo: obj.tipo || 'monofacial',
     cara: obj.cara || null
@@ -2810,7 +2832,10 @@ async function exportarPNGMorfologicoActual() {
   }
 
   const objData = window.currentAnalyzedObject?.obj;
-  const nombre = objData?.nombre || objData?.id || 'objeto';
+  // Base canónica compartida con CSV/SVG/PDF y la carpeta de resultados.
+  const nombre = ((typeof window.maoBaseNombreAnalisis === 'function')
+                    ? window.maoBaseNombreAnalisis(objData)
+                    : null) || objData?.nombre || objData?.id || 'objeto';
 
   // Factor mm/px: preferir métricas del objeto, fallback a currentScale global
   const m = objData?.metricas || {};
@@ -2888,19 +2913,28 @@ async function exportarPNGMorfologicoActual() {
       console.log('📏 Barra de escala PNG:', barLabel, `(${barPx}px)`);
     }
 
-    expCanvas.toBlob(async blob => {
-      if (!blob) { toast.error('Error generando PNG'); return; }
-      try {
-        const reader = new FileReader();
-        reader.onload = async () => {
-          await _guardarPNGNativo(reader.result, `${nombre}_morfologia.png`);
-        };
-        reader.readAsDataURL(blob);
-      } catch (err) {
-        console.error('❌ Error guardando PNG morfológico:', err);
-        toast.error('Error al guardar PNG: ' + err.message);
-      }
-    }, 'image/png');
+    // Devolver una PROMESA que se resuelva cuando el archivo esté escrito.
+    // Antes la función retornaba antes de que corriera el callback de toBlob, así
+    // que un `await exportarPNGMorfologicoActual()` no esperaba nada: en la
+    // exportación en lote el PNG aterrizaba DESPUÉS del manifiesto.
+    await new Promise((resolve) => {
+      expCanvas.toBlob(async blob => {
+        if (!blob) { toast.error('Error generando PNG'); return resolve(); }
+        try {
+          const reader = new FileReader();
+          reader.onload = async () => {
+            await _guardarPNGNativo(reader.result, `${nombre}_morfologia.png`);
+            resolve();
+          };
+          reader.onerror = () => resolve();
+          reader.readAsDataURL(blob);
+        } catch (err) {
+          console.error('❌ Error guardando PNG morfológico:', err);
+          toast.error('Error al guardar PNG: ' + err.message);
+          resolve();
+        }
+      }, 'image/png');
+    });
 
   } catch (err) {
     console.error('❌ Error exportando PNG morfológico:', err);

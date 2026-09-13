@@ -12057,11 +12057,54 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
                   console.warn('[Python-path] calcularMetricasMorfologicas falló:', _eJsNC.message);
                 }
               }
-              metricas._forma_idealizada = _jsFormaNC || {
-                nombre: metricas.forma_detectada,
-                vertices: (metricas.vertices_coords || []).map(p => Array.isArray(p) ? p : [p.x, p.y]),
-                distribucionRadialAngular: null
-              };
+              if (_jsFormaNC) {
+                metricas._forma_idealizada = _jsFormaNC;
+              } else {
+                // ── Fallback sin análisis JS: NO hubo depuración estadística ──────
+                // Debe cumplir el MISMO contrato que los otros cuatro productores de
+                // `_forma_idealizada` (shape-classification.js:1303 canónico, el
+                // fallback IA de ~:11723 y mao-ia.js:2199): `{nombre, color, vertices,
+                // parametros{...}, distribucionRadialAngular}`.
+                //
+                // Hasta 2026-09-12 este era el ÚNICO productor que devolvía un objeto
+                // parcial (sin `parametros` ni `color`), y hay consumidores que
+                // desreferencian `parametros` sin guarda — el reporte HTML/PDF
+                // (~:24943) y el panel morfológico (visualization-export.js:903).
+                // Resultado: TypeError que abortaba la construcción de ESOS PANELES
+                // ENTEROS, no solo de la sección de depuración.
+                //
+                // Los valores dicen la verdad: N puntos de entrada, 0 eliminados, 0 %
+                // de reducción; `umbral_continuidad` marca explícitamente que no se
+                // ejecutó depuración, igual que la rama IA marca '— (contorno IA)'.
+                const _vertsNC = (metricas.vertices_coords || []).map(p => Array.isArray(p) ? p : [p.x, p.y]);
+                // Puntos de la máscara: entrada y salida COINCIDEN porque no se
+                // eliminó ninguno (reducción 0 %). `vertices_coords` son los vértices
+                // de la forma idealizada por el clasificador Python —otra cosa— y van
+                // en `vertices` / `vertices_significativos`, no en el recuento de la
+                // depuración: mezclarlos daría «680 → 4 puntos, reducción 0,0 %».
+                const _nMascaraNC = (Array.isArray(obj.contour_points) && obj.contour_points.length)
+                  ? obj.contour_points.length
+                  : _vertsNC.length;
+                const _nSignifNC = _vertsNC.length || _nMascaraNC;
+                metricas._forma_idealizada = {
+                  nombre: metricas.forma_detectada,
+                  color: '#007bff',
+                  vertices: _vertsNC,
+                  distribucionRadialAngular: null,
+                  parametros: {
+                    puntos_originales:       _nMascaraNC,
+                    artefactos_eliminados:   0,
+                    puntos_simplificados:    _nMascaraNC,
+                    reduccion_porcentaje:    '0.0',
+                    continuidad_promedio:    '1.000',
+                    umbral_continuidad:      '— (sin depuración estadística)',
+                    vertices_significativos: _nSignifNC,
+                    epsilon_usado:           0,
+                    ancho:                   obj.width,
+                    alto:                    obj.height,
+                  },
+                };
+              }
             }
 
             // ── Forzar etiqueta de fragmento en _forma_idealizada si Python indica baja completitud ──
@@ -22976,6 +23019,37 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     };
   }
 
+  /**
+   * Resuelve el factor de escala mm/px aplicable a una fuente EFA/TPS.
+   * Prioridad: el factor REALMENTE usado por el backend para esta fuente >
+   * clave legada en métricas > escala viva del IIFE.
+   * Devuelve `null` si no hay escala configurada (el backend usa 0 como
+   * centinela de «sin escala»: efa.py solo escala si scale_px_mm > 0).
+   * @returns {number|null} mm por píxel, o null si no hay escala.
+   */
+  function _resolverEscalaMmPx(metricas = {}) {
+    const candidatos = [
+      metricas?._efa_data?.scale_px_mm,
+      metricas?.scale_px_mm,
+      scale,
+    ];
+    for (const c of candidatos) {
+      const n = Number(c);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return null;
+  }
+
+  /**
+   * Genera un bloque TPS (Rohlf) de un espécimen.
+   * Orden de campos conforme al formato: LM= · coordenadas · IMAGE= · ID= · SCALE= · COMMENT=
+   *
+   * Las coordenadas van en PÍXELES de imagen, que es la convención del formato
+   * (tpsDig las guarda así); `SCALE=` es el multiplicador a unidades reales, y
+   * es lo que leen tpsRelw y geomorph::readland.tps(..., scale = TRUE).
+   * Si no hay escala configurada NO se emite SCALE= (emitir 1.0 afirmaría
+   * falsamente 1 mm/px); en su lugar se deja constancia explícita en COMMENT=.
+   */
   function _generarTextoTPSLandmarks(landmarks, obj = {}, metricas = {}) {
     const id = String(obj?.id || `OBJ_${obj?.numeroObjeto || 'X'}`);
     const lines = [];
@@ -22983,10 +23057,21 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     landmarks.forEach((p) => {
       lines.push(`${Number(p[0]).toFixed(6)} ${Number(p[1]).toFixed(6)}`);
     });
+
+    const imagen = (typeof resolverNombreFotografia === 'function')
+      ? (resolverNombreFotografia(obj) || '')
+      : '';
+    if (imagen) lines.push(`IMAGE=${imagen}`);
+
     lines.push(`ID=${id}`);
-    if (Number.isFinite(Number(metricas?.scale_px_mm))) {
-      lines.push(`COMMENT=scale_px_mm ${Number(metricas.scale_px_mm).toFixed(8)}`);
+
+    const mmPx = _resolverEscalaMmPx(metricas);
+    if (mmPx !== null) {
+      lines.push(`SCALE=${mmPx.toFixed(8)}`);
+    } else {
+      lines.push('COMMENT=SIN ESCALA — coordenadas en pixeles de imagen, no convertibles a mm');
     }
+
     lines.push('COMMENT=MAO Plus semi-landmarks (curvatura + arco)');
     return lines.join('\n') + '\n';
   }
@@ -23004,15 +23089,91 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     URL.revokeObjectURL(link.href);
   }
 
-  function _descargarCoeficientesEFA(efaData, obj = {}, fileBaseOverride = null) {
+  /**
+   * Genera el CSV completo de un análisis EFA.
+   *
+   * Estructura (misma convención que exportarAnalisisMorfologico: tabla primero,
+   * bloque de metadatos después de una línea en blanco) para que `read.csv(...)`
+   * / `pandas.read_csv(..., nrows=n)` puedan leer la tabla directamente.
+   *
+   * Incluye los coeficientes CRUDOS y `normalization.scale_factor`, sin los
+   * cuales la normalización es irreversible: `coefficients` sale con |1er
+   * armónico| = 1 para toda forma, de modo que el tamaño desaparece. Verificado
+   * contra python/modules/efa.py: `scale_factor` es el semieje mayor del primer
+   * armónico tras la alineación (NO el del objeto — la razón entre ambos varía
+   * con la elongación) y es la variable de tamaño para alometría.
+   *
+   * @param {Object} efaData respuesta de /api/efa
+   * @param {string} fuente  etiqueta identificadora de la fuente (contorno, P1, H1…)
+   * @returns {string} contenido CSV
+   */
+  function _generarCsvEFA(efaData, fuente = '') {
     const coeffs = Array.isArray(efaData?.coefficients) ? efaData.coefficients : [];
-    const csvLines = ['harmonic,an,bn,cn,dn'];
+    const raw    = Array.isArray(efaData?.coefficients_raw) ? efaData.coefficients_raw : [];
+    const ps     = Array.isArray(efaData?.power_spectrum) ? efaData.power_spectrum : [];
+    const varAc  = Array.isArray(efaData?.variance_explained) ? efaData.variance_explained : [];
+
+    const num = (v) => (v === null || v === undefined || Number.isNaN(Number(v))) ? '' : String(v);
+    const txt = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+    // ── Tabla principal: un armónico por fila ────────────────────────────────
+    const lines = [
+      'harmonic,a_norm,b_norm,c_norm,d_norm,a_raw,b_raw,c_raw,d_raw,power_spectrum,variance_acum_pct'
+    ];
     coeffs.forEach((c, idx) => {
       if (!Array.isArray(c) || c.length < 4) return;
-      csvLines.push(`${idx + 1},${c[0]},${c[1]},${c[2]},${c[3]}`);
+      const r = Array.isArray(raw[idx]) ? raw[idx] : [];
+      lines.push([
+        idx + 1,
+        num(c[0]), num(c[1]), num(c[2]), num(c[3]),
+        num(r[0]), num(r[1]), num(r[2]), num(r[3]),
+        num(ps[idx]), num(varAc[idx]),
+      ].join(','));
     });
+
+    // ── Bloque de metadatos ──────────────────────────────────────────────────
+    const n = efaData?.normalization || {};
+    const dc = Array.isArray(efaData?.dc) ? efaData.dc : [];
+    const esc = Number(efaData?.scale_px_mm);
+    // `fila` cita Valor y Nota: varias notas llevan comas y ':' — sin comillas
+    // desalinearían las columnas del bloque (mismo fallo que ADR-008 corrigió en
+    // el CSV morfológico).
+    const fila = (seccion, campo, valor, nota) =>
+      `${seccion},${campo},${txt(valor)},${txt(nota)}`;
+
+    const meta = [
+      'Seccion,Campo,Valor,Nota',
+      fila('EFA_Metadatos', 'Fuente', fuente,
+        'Contorno al que corresponden los coeficientes'),
+      fila('EFA_Metadatos', 'Armonicos', num(efaData?.n_harmonics),
+        'Numero de armonicos calculados'),
+      fila('EFA_Metadatos', 'Puntos_contorno', num(efaData?.n_points_input),
+        'Puntos de entrada del contorno'),
+      fila('EFA_Metadatos', 'Armonicos_95pct', num(efaData?.harmonics_for_95pct),
+        'Armonicos necesarios para explicar el 95% de la varianza'),
+      fila('EFA_Metadatos', 'Armonicos_99pct', num(efaData?.harmonics_for_99pct),
+        'Armonicos necesarios para explicar el 99% de la varianza'),
+      fila('EFA_Metadatos', 'Escala_mm_px', (Number.isFinite(esc) && esc > 0) ? esc : '',
+        'mm/px aplicados al contorno ANTES del EFD; vacio = sin escala configurada'),
+      fila('EFA_Normalizacion', 'scale_factor', num(n.scale_factor),
+        'TAMANO: semieje mayor del PRIMER ARMONICO tras alinear la orientacion, en las unidades del contorno (mm si Escala_mm_px no esta vacio). Multiplicar los coeficientes normalizados por el restituye la magnitud. NO es el semieje mayor del objeto: la razon entre ambos varia con la elongacion'),
+      fila('EFA_Normalizacion', 'theta_1_deg', num(n.theta_1_deg),
+        'Rotacion de alineacion al semieje mayor eliminada (grados)'),
+      fila('EFA_Normalizacion', 'psi_1_deg', num(n.psi_1_deg),
+        'Rotacion de fase en el plano eliminada (grados)'),
+      fila('EFA_Normalizacion', 'convenio_quiralidad', 'd1>=0',
+        'Reflexion canonizada: si d1<0 se niegan cn y dn de todos los armonicos. Se aplica DESPUES del escalado, de modo que coef_norm x scale_factor puede diferir en el signo de las componentes-y'),
+      fila('EFA_DC', 'dc_a', num(dc[0]), 'Componente DC en X: centroide del contorno'),
+      fila('EFA_DC', 'dc_c', num(dc[1]), 'Componente DC en Y: centroide del contorno'),
+    ];
+
+    return `${lines.join('\n')}\n\n${meta.join('\n')}\n`;
+  }
+
+  function _descargarCoeficientesEFA(efaData, obj = {}, fileBaseOverride = null) {
     const fileBase = String(fileBaseOverride || obj?.id || `obj_${obj?.numeroObjeto || 'x'}`).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const blob = new Blob([csvLines.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' });
+    const csv = _generarCsvEFA(efaData, fileBaseOverride || obj?.id || '');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `${fileBase}_efa_coeffs.csv`;
@@ -23091,6 +23252,10 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     if (efaDataPrincipal) {
       const areaContorno = Number(metricas?.area);
       fuentes.push({
+        // `clave`: identificador ESTABLE para nombres de archivo (no traducir).
+        // `etiqueta`: rótulo de UI, puede cambiar sin afectar a los exportables.
+        key: 'contorno',
+        clave: 'contorno',
         etiqueta: 'Contorno principal',
         tipo: 'contorno',
         efaData: efaDataPrincipal,
@@ -23106,6 +23271,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         if (!metricasPH?._efa_data) return;
         fuentes.push({
           key: `${tipo}_${item?.id ?? index + 1}`,
+          clave: `${prefijo}${item?.id ?? index + 1}`,
           etiqueta: `${prefijo}${item?.id ?? index + 1}`,
           tipo,
           efaData: metricasPH._efa_data,
@@ -23224,7 +23390,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
             fuente.landmarks,
             fuente.objRef || obj,
             fuente.metricasRef || metricas,
-            `${obj?.id || 'obj'}_${fuente.etiqueta}`
+            `${obj?.id || 'obj'}_${fuente.clave}`
           );
         };
       }
@@ -23235,7 +23401,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           _descargarCoeficientesEFA(
             fuente.efaData,
             fuente.objRef || obj,
-            `${obj?.id || 'obj'}_${fuente.etiqueta}`
+            `${obj?.id || 'obj'}_${fuente.clave}`
           );
         };
       }
@@ -25470,7 +25636,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 `;
       
       // 4. Generar y descargar según el formato solicitado
-      const filename = `${obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `obj_${obj.numeroObjeto}`}_reporte`;
+      const filename = `${String(obj.id ?? '').replace(/[^a-zA-Z0-9_-]/g, '_') || `obj_${obj.numeroObjeto}`}_reporte`;
       
       if (formato === 'pdf') {
         // ========================================================================
@@ -29016,16 +29182,9 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
       
-      // 🆕 Usar identificación asignada para el nombre del archivo
-      const identificacion = obtenerIdentificacionActual();
-      let nombreBase = `Obj${numeroObjeto}`;
-      
-      if (identificacion && identificacion.valor) {
-        // Limpiar el valor de la identificación para usar como nombre de archivo
-        nombreBase = identificacion.valor.replace(/[^a-zA-Z0-9_-]/g, '_');
-      }
-      
-      const filenameAttr = `${nombreBase}_bifacial`;
+      // Nombre derivado del PAR exportado, no de la identificación viva del
+      // formulario. Comparte helper con el CSV para que no vuelvan a divergir.
+      const filenameAttr = `${_baseNombreParBifacial(caraA, caraB, numeroObjeto)}_bifacial`;
       
       // Exportar a Blob y guardar con diálogo
       const pdfBlob = pdf.output('blob');
@@ -30473,7 +30632,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       const blob = new Blob([jsonString], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       
-      const idArq = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `obj_${obj.numeroObjeto}`;
+      const idArq = String(obj.id ?? '').replace(/[^a-zA-Z0-9_-]/g, '_') || `obj_${obj.numeroObjeto}`;
       const filename = `${idArq}_datos.json`;
       
       const link = document.createElement('a');
@@ -30853,6 +31012,21 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    */
   async function saveFileWithDialog(filename, content, format = 'csv') {
     try {
+      // ── Desvío a la carpeta de resultados (exportación en lote) ─────────────
+      // Con MaoExportDestino inactivo esto no hace nada y el flujo sigue al
+      // diálogo nativo de siempre. Es el único punto que hay que tocar para
+      // redirigir CSV y PDF: ambos exportadores pasan por aquí.
+      const _destino = window.MaoExportDestino;
+      if (_destino?.activo) {
+        const _ext = { csv:'.csv', pdf:'.pdf', html:'.html', json:'.json', png:'.png',
+                       jpg:'.jpg', jpeg:'.jpg', svg:'.svg', tps:'.tps' };
+        const _f = String(format || 'csv').toLowerCase();
+        const _nombre = filename.endsWith(_ext[_f] || `.${_f}`) ? filename : filename + (_ext[_f] || `.${_f}`);
+        const _r = await _destino.escribir(_nombre, content, _f);
+        if (!_r.success) console.warn(`⚠️ [lote] no se pudo escribir ${_nombre}: ${_r.error}`);
+        return _r;
+      }
+
       const extensionMap = {
         csv: '.csv',
         pdf: '.pdf',
@@ -31178,6 +31352,148 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Genera CSV de comparación bifacial usando objetos guardados en memoria
    * GARANTIZA 100% coherencia con CSVs individuales
    */
+  /**
+   * Base de nombre CANÓNICA para los exportables de UNA cara / análisis.
+   *
+   * Fuente única para los cuatro formatos (CSV, SVG, PNG, PDF) y para la carpeta
+   * de resultados. Antes cada exportador la derivaba por su cuenta y salían
+   * nombres mixtos dentro de la misma carpeta: `QP1_U1_N1_E1_01_analisis.csv`
+   * junto a `1_geometria.svg`, porque SVG/PNG/PDF usaban `obj.id` —que es
+   * NUMÉRICO en el flujo de detección automática— en vez de la identificación
+   * arqueológica.
+   *
+   * Convención de cara: sufijo `_ca`/`_cb`, el mismo que usan `obj.id` en
+   * bifacial y las carpetas de análisis (`QP1_U1_N1_E1_01_ca`). No se duplica si
+   * la identificación ya lo trae.
+   *
+   * ⚠️ La identificación se lee del formulario (`obtenerIdentificacionActual`),
+   * que es estado VIVO: es la única fuente disponible porque el ID arqueológico
+   * no viaja en el objeto (deuda ADR-008 C2). Si se implementa C2, esta función
+   * es el único sitio a cambiar.
+   *
+   * @param {Object} obj objeto analizado
+   * @returns {string} base saneada, sin extensión ni sufijo de formato
+   */
+  function _baseNombreAnalisis(obj = {}) {
+    const sanear = (v) => String(v ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const ident = (typeof obtenerIdentificacionActual === 'function')
+      ? obtenerIdentificacionActual() : null;
+
+    if (ident && ident.valor) {
+      const base = sanear(ident.valor);
+      if (/_c[ab]$/i.test(base)) return base;            // ya trae la cara
+      return obj && obj.cara ? `${base}_c${String(obj.cara).toLowerCase()}` : base;
+    }
+    const porId = sanear(obj && obj.id);
+    if (porId) return porId;
+    return sanear(`OBJ_${(obj && obj.numeroObjeto) ?? 'X'}`);
+  }
+  // Expuesta para los exportadores de collection.js (SVG y PNG), que viven fuera
+  // de este IIFE. Mismo patrón que `window.calcularEscala`.
+  window.maoBaseNombreAnalisis = _baseNombreAnalisis;
+
+  /**
+   * Base de nombre ESTABLE para los exportables de un PAR bifacial.
+   *
+   * Los artefactos de comparación pertenecen al OBJETO, no a una cara, así que
+   * su nombre se deriva del id del par (`QP1_U1_N1_E1_01`), obtenido quitando el
+   * sufijo de cara `_ca`/`_cb` del id de cualquiera de las dos caras.
+   *
+   * Antes cada exportador lo resolvía por su cuenta: el CSV y el PDF usaban
+   * `obtenerIdentificacionActual()` — la identificación que hay AHORA en el
+   * formulario, no la del par exportado, de modo que tras pasar a otro objeto el
+   * archivo salía con el nombre equivocado; y el CSV de ambas caras usaba
+   * `caraA.id`, dejando el sufijo `_ca` en un archivo que es del par.
+   *
+   * @param {Object} caraA cara A del par (se usa su id)
+   * @param {Object} caraB cara B — respaldo si A no tiene id
+   * @param {number|string} numeroObjeto último recurso
+   * @returns {string} base saneada, sin extensión ni sufijo de formato
+   */
+  function _baseNombreParBifacial(caraA, caraB, numeroObjeto) {
+    const sanear = (v) => String(v || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sinCara = (id) => String(id || '').replace(/_c[ab]$/i, '');
+
+    const desdeCara = sinCara(caraA?.id) || sinCara(caraB?.id);
+    if (desdeCara) return sanear(desdeCara);
+
+    // Respaldo: identificación viva (comportamiento anterior). Solo se alcanza
+    // si ninguna cara tiene id, caso en el que no hay nada mejor disponible.
+    const ident = (typeof obtenerIdentificacionActual === 'function')
+      ? obtenerIdentificacionActual()
+      : null;
+    if (ident?.valor) return sanear(ident.valor);
+
+    return sanear(`OBJ_${numeroObjeto ?? 'X'}`);
+  }
+
+  /**
+   * Bloque CSV del Índice Morfométrico Comparativo (IMC).
+   *
+   * El IMC se calcula en `generarComparacionBifacialSimple()` y se guarda en
+   * `window.ultimaComparacionBifacial.imc`, pero hasta 2026-09-12 no llegaba a
+   * NINGÚN archivo exportado: el único exportador que lo escribía era
+   * `exportarComparacionBifacial()`, que es código muerto sin callers. El dato
+   * más interpretativo de la comparación bilateral se veía en pantalla y se
+   * perdía al exportar.
+   *
+   * Devuelve una sub-tabla de 4 columnas autodescriptiva. Si no hay IMC deja
+   * constancia explícita en lugar de omitir el bloque en silencio: la ausencia
+   * del índice no debe confundirse con un índice bajo.
+   *
+   * @param {Object|null} imc payload de ultimaComparacionBifacial.imc
+   * @returns {string} bloque CSV terminado en línea en blanco
+   */
+  function _generarBloqueCsvIMC(imc) {
+    const fila = (...celdas) => _csvRow(celdas);
+    const pct  = (v) => (v === null || v === undefined || Number.isNaN(Number(v)))
+      ? 'N/D'
+      : (Number(v) * 100).toFixed(1) + '%';
+
+    let out = '# COHERENCIA MORFOMÉTRICA INTEGRAL (IMC)\n';
+
+    if (!imc) {
+      out += fila('Indicador', 'Valor', 'Peso', 'Descripción');
+      out += fila('IMC', 'No disponible', '-',
+        'El índice se calcula al abrir la tabla de comparación bifacial; ábrela antes de exportar');
+      return out + '\n';
+    }
+
+    out += fila('Indicador', 'Valor', 'Peso', 'Descripción');
+    out += fila('IMC Global', pct(imc.global), '100%',
+      'Índice de compatibilidad morfológica bilateral [0-100%]');
+    out += fila('Nivel de coherencia', imc.nivel || 'N/D', '-',
+      'Clasificación interpretativa del IMC global');
+    out += fila('Coherencia Identitaria (CI)', pct(imc.ci), '-',
+      'Solo dimensional: confirma que ambas caras son del mismo objeto');
+    out += fila('Coherencia de Superficie (CMS)', pct(imc.cms), '-',
+      'Forma + radial + contorno: similitud superficial entre caras');
+    out += fila('Dimensional (tamaño)', pct(imc.dimensional), '30%',
+      'Área / perímetro / ejes / Feret');
+    out += fila('Forma (descriptores)', pct(imc.forma), '30%',
+      'Circularidad / solidez / aspecto / elongación');
+    out += fila('Radial (perfil)', pct(imc.radial), '20%',
+      'Radios / regularidad radial / CV radial');
+    out += fila('Contorno (textura)', pct(imc.contorno), '10%',
+      'Rugosidad / curvatura / lobularidad / simetría');
+    out += fila('Conservación', pct(imc.conservacion), '10%',
+      'Completitud / pérdida de área / solidez');
+
+    if (Array.isArray(imc.divergentes) && imc.divergentes.length) {
+      out += fila(
+        'Rasgos divergentes (Δ>20%)',
+        imc.divergentes.slice(0, 6).map(d => `${d.nombre} Δ${d.dif}%`).join(' | '),
+        '-',
+        'Métricas con mayor discordancia bilateral'
+      );
+    } else {
+      out += fila('Rasgos divergentes (Δ>20%)', 'Ninguno', '-',
+        'Ninguna métrica supera el umbral de discordancia bilateral');
+    }
+
+    return out + '\n';
+  }
+
   async function exportarComparacionBifacialDesdeUI() {
     console.log('📊 Exportando comparación bifacial desde datos reales...');
     
@@ -31338,6 +31654,14 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       }
       // ========================================================================
       
+      // ── COHERENCIA MORFOMÉTRICA INTEGRAL (IMC) ────────────────────────────
+      // Hasta 2026-09-12 el IMC se calculaba, se pintaba en #imcSummaryCard y se
+      // perdía al exportar: el único exportador que lo escribía era el muerto
+      // `exportarComparacionBifacial()`. Va antes de la tabla, igual que # PROYECTO.
+      csv += _generarBloqueCsvIMC(window.ultimaComparacionBifacial?.imc || null);
+      // ──────────────────────────────────────────────────────────────────────
+
+      csv += '# COMPARACIÓN MÉTRICA POR CARA\n';
       csv += 'Categoría,Métrica,Cara A (Anverso),Cara B (Reverso),Diferencia %\n';
       
       const addRow = (cat, metrica, valA, valB, dif = '-') => {
@@ -31668,16 +31992,9 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       
       addRow('ESTADO DE CONSERVACIÓN', 'Integridad Estructural', integridadA, integridadB, '-');
       
-      // Usar diálogo nativo para guardar
-      const identificacion = obtenerIdentificacionActual();
-      let nombreBase = 'bifacial';
-      
-      if (identificacion && identificacion.valor) {
-        // Limpiar el valor de la identificación para usar como nombre de archivo
-        nombreBase = identificacion.valor.replace(/[^a-zA-Z0-9_-]/g, '_');
-      }
-      
-      const filename = `${nombreBase}_comparacion`;
+      // Nombre derivado del PAR exportado, no de la identificación viva del
+      // formulario (que puede haber avanzado a otro objeto). Ver _baseNombreParBifacial.
+      const filename = `${_baseNombreParBifacial(caraA, caraB, numeroObjeto)}_comparacion`;
       await saveFileWithDialog(filename, csv, 'csv');
       
       const numMetricas = csv.split('\n').length - 2;
@@ -31939,8 +32256,9 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       }
       
       // Usar diálogo nativo para guardar
-      const objetoId = caraA.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const filename = `${objetoId}_bifacial`;
+      // Es un archivo del PAR: usar el id sin sufijo de cara (antes salía
+      // «..._ca_bifacial.csv», nombrando con una cara un artefacto de ambas).
+      const filename = `${_baseNombreParBifacial(caraA, caraB, numeroObjeto)}_bifacial`;
       
       await saveFileWithDialog(filename, csvContent, 'csv');
       console.log(`📊 CSV bifacial generado con ${numLineas} métricas totales`);
@@ -31970,6 +32288,308 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * - Formato adaptativo según modo de análisis
    * - Simplifica la UI (elimina 3 botones redundantes)
    */
+  // ===========================================================================
+  // EXPORTACIÓN EN LOTE — una acción → carpeta de resultados
+  // docs/AUDITORIA-EXPORTACION-20260912.md §7 (plan) · §5.1 (orden) · §9.2 (EFA)
+  // ===========================================================================
+
+  /** Guardia de reentrada: el lote tarda 20-40 s y no debe solaparse (§5.3). */
+  let _loteEnCurso = false;
+
+  /** Mensaje de progreso unificado (status + consola). */
+  function _loteProgreso(paso, total, texto) {
+    const msg = `Exportando ${paso}/${total} — ${texto}`;
+    UtilityHelpers.setStatus(msg, false);
+    console.log(`📦 [lote] ${msg}`);
+  }
+
+  /**
+   * TPS multi-espécimen: contorno + cada P/H confirmada en UN archivo.
+   * TPS es un formato multi-espécimen; un archivo por contorno obliga al
+   * investigador a concatenarlos a mano antes de poder usar tpsRelw o
+   * geomorph::readland.tps(). Generarlo es concatenar bloques que ya existen.
+   */
+  function _generarTpsMultiEspecimen(fuentes, obj, metricas) {
+    return fuentes
+      .filter(f => Array.isArray(f.landmarks) && f.landmarks.length)
+      .map(f => _generarTextoTPSLandmarks(f.landmarks, f.objRef || obj, f.metricasRef || metricas))
+      .join('');
+  }
+
+  /**
+   * Escribe TPS + CSV EFA de cada fuente confirmada (contorno + P/H) y el TPS
+   * agregado. Registra en el manifiesto lo que NO pudo generarse y por qué:
+   * una carpeta incompleta en silencio es peor que un error (§9.7).
+   */
+  async function _exportarLandmarksLote(obj, metricas, destino) {
+    const fuentes = _colectarFuentesEFAConfirmadas(
+      obj, metricas, metricas._efa_data, { landmarks: metricas._landmarks_semiauto }
+    );
+
+    if (!fuentes.length) {
+      const bridgeOk = window.PythonBridge && PythonBridge.isModuleActive('efa');
+      destino.omitir('landmarks/', bridgeOk
+        ? 'EFA no calculado para este objeto (contorno < 8 puntos o cálculo fallido)'
+        : 'módulo EFA del backend Python inactivo');
+      return 0;
+    }
+
+    for (const f of fuentes) {
+      const clave = f.clave || 'fuente';
+      const etiquetaArchivo = `${obj?.id || 'obj'}_${clave}`;
+      await destino.escribir(`landmarks/${clave}.tps`,
+        _generarTextoTPSLandmarks(f.landmarks, f.objRef || obj, f.metricasRef || metricas), 'tps');
+      await destino.escribir(`landmarks/${clave}_efa.csv`,
+        _generarCsvEFA(f.efaData, etiquetaArchivo), 'csv');
+    }
+
+    // P/H confirmadas que quedaron fuera por no tener EFA hidratado
+    const confirmadas = (obj.perforaciones || []).length + (obj.horadaciones || []).length;
+    const conEfa = fuentes.filter(f => f.tipo !== 'contorno').length;
+    if (confirmadas > conEfa) {
+      destino.omitir('landmarks/ (P/H)',
+        `${confirmadas - conEfa} P/H confirmadas sin EFA hidratado — no exportadas`);
+    }
+
+    await destino.escribir('landmarks/landmarks.tps',
+      _generarTpsMultiEspecimen(fuentes, obj, metricas), 'tps');
+    return fuentes.length;
+  }
+
+  /**
+   * Exporta TODOS los formatos del análisis activo a
+   * `<proyecto>/resultados/<ID>/` en una sola acción.
+   *
+   * Orden OBLIGATORIO (§5.1): los lectores de canvas van ANTES que el PDF
+   * integral, porque éste re-renderiza `#morphologicalCanvas` y lo restaura de
+   * forma ASÍNCRONA (`img.onload`); si el PNG corriese después capturaría un
+   * canvas a medio restaurar.
+   */
+  async function exportarTodoElAnalisis() {
+    const destino = window.MaoExportDestino;
+    if (!destino) { toast.error('Capa de destino no disponible', 4000); return; }
+    if (_loteEnCurso) { toast.warning('Ya hay una exportación en curso.', 3000); return; }
+
+    // FUENTE AUTORITATIVA: `window.currentAnalyzedObject`, no la var local del IIFE.
+    // Son DOS bindings distintos: el `let` de la línea ~137 y la propiedad global
+    // que escribe visualization-export.js (módulo ESM, donde el identificador
+    // resuelve al global). En el flujo IA/pestañas la local queda en null — el
+    // propio repo ya documenta y parchea esa divergencia en el modal de P/H
+    // (~:44573). Leer la local aquí hacía que el lote saliera en silencio.
+    const _cao = window.currentAnalyzedObject || currentAnalyzedObject;
+    if (!_cao?.obj || !_cao?.metricas) {
+      toast.warning('No hay análisis activo para exportar. Analiza un objeto primero.', 3500);
+      return;
+    }
+
+    _loteEnCurso = true;
+    const btn = document.getElementById('exportarTodoLoteBtn');
+    const sidebarBtn = document.getElementById('sidebarExportTodoBtn');
+    [btn, sidebarBtn].forEach(b => { if (b) b.disabled = true; });
+
+    const TOTAL = 6;
+    try {
+      // ── 0 · Esperar al EFA (§9.2) ───────────────────────────────────────────
+      // renderPanelEFA() es asíncrona y nadie la espera salvo «Guardar y
+      // Finalizar». Sin este await el lote escribe carpetas sin landmarks.
+      _loteProgreso(0, TOTAL, 'esperando descriptores de Fourier…');
+      if (_cao.efaPromise) {
+        try { await Promise.resolve(_cao.efaPromise); }
+        catch (e) { console.warn('⚠️ [lote] EFA falló:', e.message); }
+      }
+
+      const obj = _cao.obj;
+      const metricas = _cao.metricas;
+
+      // Alinear la var LOCAL del IIFE con la autoritativa durante todo el lote:
+      // los sub-exportadores que la leen (p. ej. exportarPDFIntegralCaraActiva)
+      // salían en vacío sin escribir nada. Mismo remedio que el modal de P/H (~:44573).
+      currentAnalyzedObject = _cao;
+
+      // Carpeta y archivos comparten base canónica: `_baseNombreAnalisis`.
+      const idArq = _baseNombreAnalisis(obj);
+
+      const ab = await destino.abrir({ tipo: 'cara', id: idArq });
+      if (!ab.success) {
+        if (ab.error !== 'cancelado') toast.error(`No se pudo abrir la carpeta de resultados: ${ab.error}`, 5000);
+        return;
+      }
+      console.log(`📦 [lote] destino: ${ab.carpeta}`);
+
+      // ── 1 · CSV de métricas ────────────────────────────────────────────────
+      _loteProgreso(1, TOTAL, 'CSV de métricas');
+      try { await exportarAnalisisMonofacialUnificado(obj, metricas); }
+      catch (e) { destino.omitir('CSV de métricas', e.message); }
+
+      // ── 2 · SVG vectorial ──────────────────────────────────────────────────
+      _loteProgreso(2, TOTAL, 'SVG vectorial');
+      try { await exportarSVGMorfologicoActual(); }
+      catch (e) { destino.omitir('SVG', e.message); }
+
+      // ── 3 · PNG morfológico (lee el canvas vivo → antes del PDF) ────────────
+      _loteProgreso(3, TOTAL, 'PNG morfológico');
+      try { await exportarPNGMorfologicoActual(); }
+      catch (e) { destino.omitir('PNG', e.message); }
+
+      // ── 4 · Landmarks TPS + coeficientes EFA ───────────────────────────────
+      _loteProgreso(4, TOTAL, 'landmarks TPS y coeficientes EFA');
+      try { await _exportarLandmarksLote(obj, metricas, destino); }
+      catch (e) { destino.omitir('landmarks/', e.message); }
+
+      // ── 5 · PDF integral — SIEMPRE el último (§5.1) ─────────────────────────
+      _loteProgreso(5, TOTAL, 'PDF integral (puede tardar 10-15 s)');
+      try { await exportarPDFIntegralCaraActiva(); }
+      catch (e) { destino.omitir('PDF integral', e.message); }
+
+      // ── 6 · Manifiesto ─────────────────────────────────────────────────────
+      _loteProgreso(6, TOTAL, 'manifiesto');
+      const resumen = await destino.cerrar({
+        objeto: { id: idArq, cara: obj.cara || null, modo: obj.cara ? 'bifacial' : 'monofacial' },
+        escala_mm_px: _resolverEscalaMmPx(metricas),
+      });
+
+      const n = resumen.escritos.length, om = resumen.omitidos.length;
+      UtilityHelpers.setStatus(`Exportación completa: ${n} archivo(s) en ${resumen.carpeta}`, false);
+      if (om) {
+        toast.warning(`Exportados ${n} archivos · ${om} omitido(s), ver manifiesto.json`, 6000);
+        console.warn('📦 [lote] omitidos:', resumen.omitidos);
+      } else {
+        toast.success(`Exportación completa: ${n} archivos en resultados/${idArq}`, 5000);
+      }
+      document.dispatchEvent(new CustomEvent('mao:export:done', { detail: resumen }));
+    } catch (error) {
+      console.error('❌ [lote] error en exportación:', error);
+      toast.error(`Error en la exportación: ${error.message}`, 5000);
+      try { await destino.cerrar({ error: error.message }); } catch (_) { destino.abortar(); }
+    } finally {
+      _loteEnCurso = false;
+      [btn, sidebarBtn].forEach(b => { if (b) b.disabled = false; });
+    }
+  }
+
+  /**
+   * Exporta TODOS los formatos de la comparación bifacial a
+   * `<proyecto>/resultados/<ID_par>__bifacial/`.
+   *
+   * Es un orquestador SEPARADO porque la comparación pertenece al OBJETO, no a
+   * una cara, y sólo existe tras guardar la 2ª cara (§8.1).
+   */
+  async function exportarTodoElObjetoBifacial() {
+    const destino = window.MaoExportDestino;
+    if (!destino) { toast.error('Capa de destino no disponible', 4000); return; }
+    if (_loteEnCurso) { toast.warning('Ya hay una exportación en curso.', 3000); return; }
+
+    if (!window.ultimaComparacionBifacial) {
+      toast.warning('No hay comparación bifacial activa. Ábrela antes de exportar.', 3500);
+      return;
+    }
+    const { caraA, caraB, numeroObjeto } = window.ultimaComparacionBifacial;
+    if (!caraA || !caraB) { toast.error('Datos de comparación incompletos', 3500); return; }
+
+    _loteEnCurso = true;
+    const btn = document.getElementById('exportarTodoBifacialBtn');
+    if (btn) btn.disabled = true;
+
+    const TOTAL = 4;
+    try {
+      const idPar = _baseNombreParBifacial(caraA, caraB, numeroObjeto);
+      const ab = await destino.abrir({ tipo: 'bifacial', id: idPar });
+      if (!ab.success) {
+        if (ab.error !== 'cancelado') toast.error(`No se pudo abrir la carpeta de resultados: ${ab.error}`, 5000);
+        return;
+      }
+      console.log(`📦 [lote bifacial] destino: ${ab.carpeta}`);
+
+      // ── 1 · CSV de comparación (incluye el bloque IMC, §8.5a) ───────────────
+      _loteProgreso(1, TOTAL, 'CSV de comparación bifacial');
+      try { await exportarComparacionBifacialDesdeUI(); }
+      catch (e) { destino.omitir('CSV de comparación', e.message); }
+
+      // ── 2 · CSV con las métricas completas de ambas caras ───────────────────
+      _loteProgreso(2, TOTAL, 'CSV de ambas caras');
+      try { await exportarObjetoBifacialCompletoDesdeDatos(numeroObjeto); }
+      catch (e) { destino.omitir('CSV de ambas caras', e.message); }
+
+      // ── 3 · JSON del análisis comparativo ──────────────────────────────────
+      // Hasta ahora sólo existía suelto en la RAÍZ del proyecto y con timestamp,
+      // acumulando un archivo por cada guardado (§8.4).
+      _loteProgreso(3, TOTAL, 'JSON comparativo');
+      const comparativo = caraA.analisisComparativo || caraB.analisisComparativo || null;
+      if (comparativo) {
+        await destino.escribir('comparacion.json', JSON.stringify({
+          tipo: 'analisis_comparativo_bifacial',
+          version: '1.0.0',
+          generadoEn: new Date().toISOString(),
+          objeto: { id: idPar, numeroObjeto, caraA: caraA.id, caraB: caraB.id },
+          imc: window.ultimaComparacionBifacial.imc || null,
+          comparacion: comparativo,
+        }, null, 2), 'json');
+      } else {
+        destino.omitir('comparacion.json', 'sin analisisComparativo en las caras');
+      }
+
+      // ── 4 · PDF bifacial — el último: restaura el canvas vivo (§8.5c) ───────
+      _loteProgreso(4, TOTAL, 'PDF bifacial (puede tardar 20-30 s)');
+      try { await generarReporteBifacialPDF(); }
+      catch (e) { destino.omitir('PDF bifacial', e.message); }
+
+      const resumen = await destino.cerrar({
+        objeto: { id: idPar, numeroObjeto, caraA: caraA.id, caraB: caraB.id, modo: 'bifacial' },
+        imc_global: window.ultimaComparacionBifacial.imc?.global ?? null,
+      });
+
+      const n = resumen.escritos.length, om = resumen.omitidos.length;
+      UtilityHelpers.setStatus(`Exportación bifacial completa: ${n} archivo(s) en ${resumen.carpeta}`, false);
+      if (om) {
+        toast.warning(`Exportados ${n} archivos · ${om} omitido(s), ver manifiesto.json`, 6000);
+        console.warn('📦 [lote bifacial] omitidos:', resumen.omitidos);
+      } else {
+        toast.success(`Exportación bifacial completa: ${n} archivos`, 5000);
+      }
+      document.dispatchEvent(new CustomEvent('mao:export:done', { detail: resumen }));
+    } catch (error) {
+      console.error('❌ [lote bifacial] error:', error);
+      toast.error(`Error en la exportación bifacial: ${error.message}`, 5000);
+      try { await destino.cerrar({ error: error.message }); } catch (_) { destino.abortar(); }
+    } finally {
+      _loteEnCurso = false;
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // ── Cableado de los botones del lote ───────────────────────────────────────
+  // A NIVEL DE IIFE, no dentro de un `window.addEventListener('DOMContentLoaded')`.
+  // Este módulo evalúa tarde (grafo ESM de 11 módulos sobre el protocolo app://) y
+  // los handlers registrados en aquellos bloques no llegaron a ejecutarse al pulsar
+  // el botón — el propio archivo ya usa el guard `document.readyState` al final
+  // para `inicializarMAO()` por la misma razón. Aquí se aplica el mismo patrón.
+  (function _cablearBotonesLote() {
+    const conectar = () => {
+      const bLote = document.getElementById('exportarTodoLoteBtn');
+      if (bLote && !bLote.dataset.loteWired) {
+        bLote.dataset.loteWired = '1';
+        bLote.addEventListener('click', () => {
+          console.log('🖱️ Click en Exportar TODO (lote → carpeta de resultados)');
+          exportarTodoElAnalisis();
+        });
+        console.log('✅ Botón de exportación en lote conectado');
+      }
+      const bBif = document.getElementById('exportarTodoBifacialBtn');
+      if (bBif && !bBif.dataset.loteWired) {
+        bBif.dataset.loteWired = '1';
+        bBif.addEventListener('click', () => {
+          console.log('🖱️ Click en Exportar TODO bifacial (lote → carpeta de resultados)');
+          exportarTodoElObjetoBifacial();
+        });
+        console.log('✅ Botón de exportación en lote bifacial conectado');
+      }
+    };
+    conectar();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', conectar, { once: true });
+    }
+  })();
+
   function exportarAnalisisCompletoUnificado() {
     console.log('🎯 Iniciando exportación unificada inteligente...');
     
@@ -32128,8 +32748,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       }
       
       // Añadir sufijo de cara para diferenciar exportaciones bifaciales (igual que PDF integral)
-      const caraSufijo = obj.cara ? `_Cara${obj.cara}` : '';
-      const nombreArchivo = `${nombreBase}${caraSufijo}_analisis`;
+      const nombreArchivo = `${_baseNombreAnalisis(obj)}_analisis`;
       
       csvContent = _normalizarCsvEstructural(csvContent, 4);
       await saveFileWithDialog(nombreArchivo, csvContent, 'csv');
@@ -32374,7 +32993,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           // `.contenedor` (la función generarReportePDFIntegral no existe — estaba
           // comentada y nunca se movió al módulo; llamarla lanzaba el error del botón).
           const htmlContent = '<div class="contenedor"></div>';
-          const nombreBase = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `OBJ_${obj.numeroObjeto}`;
+          const nombreBase = String(obj.id ?? '').replace(/[^a-zA-Z0-9_-]/g, '_') || `OBJ_${obj.numeroObjeto}`;
           const filename = `${nombreBase}_reporte`;
           await generarPDFDesdeHTML(htmlContent, filename, obj, metricas, { integral: true });
           console.log(`   ✅ PDF completado para ${etiqueta}`);
@@ -32643,9 +33262,8 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           // comentada y nunca se movió al módulo; llamarla lanzaba el error del botón).
           const htmlContent = '<div class="contenedor"></div>';
           
-          // Crear nombre de archivo para el PDF
-          const nombreBase = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `OBJ_${obj.numeroObjeto}`;
-          const filename = `${nombreBase}_integral`;
+          // Nombre canónico compartido con CSV/SVG/PNG y la carpeta de resultados.
+          const filename = `${_baseNombreAnalisis(obj)}_integral`;
           
           // Convertir HTML a PDF y guardar con diálogo
           await generarPDFDesdeHTML(htmlContent, filename, obj, metricas, { integral: true });

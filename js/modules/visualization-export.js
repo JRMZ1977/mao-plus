@@ -884,7 +884,16 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
         </div>`;
         
         // Agregar información de contorno depurado estadísticamente
-        if (metricas._forma_idealizada) {
+        // GUARDA (2026-09-12): exigir `parametros`, no solo `_forma_idealizada`.
+        // La rama Python de analysis-core (~:12060) construye un fallback
+        // `{nombre, vertices, distribucionRadialAngular}` SIN `parametros` ni
+        // `color` cuando la clasificación JS no produjo forma. Con la guarda
+        // anterior se entraba igualmente y `params.puntos_originales` (línea ~903)
+        // lanzaba TypeError, abortando la construcción de TODO el panel
+        // morfológico — incluido el panel EFA, que se renderiza al final.
+        // Sin `parametros` la depuración estadística sencillamente no ocurrió,
+        // así que el camino correcto es el esqueleto estable de ADR-011 (else).
+        if (metricas._forma_idealizada && metricas._forma_idealizada.parametros) {
           const forma = metricas._forma_idealizada;
           const params = forma.parametros;
           metricsHTML += `

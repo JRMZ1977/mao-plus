@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --enable-logging",
-    "package": "electron-builder --mac"
+    "package": "electron-builder --mac",
+    "test:js": "node tests/test_efa_tps_export.js && node tests/test_bifacial_export.js && node tests/test_export_destino.js"
   },
   "keywords": [
     "electron",

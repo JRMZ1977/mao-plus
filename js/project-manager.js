@@ -1790,7 +1790,10 @@ class ProjectManager {
       //    - El formato antiguo usa el ID arqueológico directamente (ej: DRG21_25069_01_ca)
       //    - Se incluyen TODAS las subcarpetas no ocultas (la presencia de metadata.json
       //      confirma si es un análisis; la lectura fallida descarta carpetas no-análisis)
-      const CARPETAS_SISTEMA = new Set(['imagenes', 'img', 'images', 'thumbnails']);
+      // 'resultados' y 'aps' NO son análisis: son carpetas de artefactos derivados
+      // (exportación en lote y Procrustes). Sin excluirlas se cuentan como
+      // candidatas y, en el conteo de projects-ui.js, inflan el nº de análisis.
+      const CARPETAS_SISTEMA = new Set(['imagenes', 'img', 'images', 'thumbnails', 'resultados', 'aps']);
       const analysisFolders = listResult.items.filter(item =>
         item.isDirectory &&
         !item.name.startsWith('.') &&

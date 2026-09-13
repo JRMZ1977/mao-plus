@@ -353,7 +353,7 @@ function initProjectsUI() {
           } else {
             const listResult = await window.electronAPI.listDirectory(project.folderPath);
             if (listResult.success) {
-              const _SYS = new Set(['imagenes', 'img', 'images', 'thumbnails']);
+              const _SYS = new Set(['imagenes', 'img', 'images', 'thumbnails', 'resultados', 'aps']);
               realCount = listResult.items.filter(i =>
                 i.isDirectory && !i.name.startsWith('.') && !_SYS.has(i.name.toLowerCase())
               ).length;
