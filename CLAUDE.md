@@ -118,6 +118,63 @@ Sesgo sistemático multiplicativo **f/(d−f)**: 20 % con f=50/d=300 (el propio 
   contenedor con distintas dependencias opcionales. **Comparar deltas, no absolutos.**
 - **Pendiente:** verificación visual en Electron de los rótulos del comparador (`node --check`
   no ve layout) · ADR-018 para O-1 · estimador robusto (MCD / Ledoit-Wolf) para `n < 3p`.
+## 🎯 Sesión 2026-09-13 (e) — ADR-017 F4: los umbrales dejan de ser criterio
+
+F1-F3 construyeron, conectaron y expusieron la completitud. F4 pregunta lo único que faltaba:
+**¿los números son defendibles?** Protocolo y tablas: `docs/VALIDACION-PLANTILLAS.md`.
+
+- **Banco de umbrales** (`tools/adr017_banco_umbrales.py`): 87 formas de completitud EXACTA
+  (2 familias × 12 niveles × 3 ruidos) + 15 controles negativos. Barrido **exacto, no
+  aproximado**: los umbrales se aplican *después* del ajuste → se ajusta una vez por forma y
+  se reevalúa la rejilla post-hoc. Ruido determinista ⇒ reproducible.
+- **Recalibrado: círculo 0,30 → 0,40 · elipse 0,45 → 0,50.** Cuesta 11 pp de cobertura y
+  **ninguno de los 5 casos que deja de aceptar estaba bien medido** (errores 5,4 · 10,0 ·
+  11,3 · 15,8 · **31,6 pp**). No se cambia exactitud por cobertura: se retira el **modo
+  degenerado** —un círculo *pequeño* encajado en un trozo del arco— que los producía. Falsos
+  positivos de forma y aceptaciones por debajo del 15 % caen **a cero**.
+
+| ruido de contorno | 0,35/0,50 (cob · MAE · peor) | **0,40/0,50** |
+|---|---|---|
+| 0,5 px | 100 % · 1,73 · 10,0 | 94 % · 1,48 · 10,0 |
+| 1,2 px | 100 % · 2,09 · 13,1 | 100 % · 2,09 · 13,1 |
+| 2,5 px | 81 % · **5,79** · **31,6** | 62 % · **0,84** · **3,4** |
+
+  Con segmentación pobre, el umbral bajo no cubre más: **inventa** más.
+
+- **Hallazgo de método: el MAE ocultaba el fallo grave.** 0,35/0,50 parecía bueno (MAE 3,03)
+  mientras publicaba **18 % sobre una pieza que conservaba el 50 %**. El error **máximo** es la
+  columna que lo delata y se añadió al banco a mitad de fase. El residuo NO sirve para
+  detectarlo (es el mismo que el de un ajuste bueno con ese ruido); sólo lo delata la fracción
+  de arco, que es justo lo que filtra el umbral.
+- **Corrección a lo ya escrito** (3 documentos): «rechaza por debajo de ~15 %» era **falso** con
+  los umbrales de F1 — se aceptaba el **22 %** de esas formas. La medición del prototipo no era
+  incorrecta; la generalización desde contornos poco ruidosos sí. Corregido en ADR-017 §4,
+  `MEMORIA-MATEMATICA` §5.6 (el doc que va al revisor) y la cabecera del gate de F1.
+- **Sesgo documentado:** la elipse fragmentaria se **sobreestima** cuanto menos arco queda
+  (30 % → 40-43 %), por razón mecánica. Por debajo del 50 %, léase como **cota superior**.
+- **Arnés para el corpus real** (`tools/adr017_calibracion_draga.py`), dos pasadas:
+  `--inventario` emite la hoja de registro; `--evaluar` corre el pipeline REAL
+  (`detect` → `contour.extract` → `match`) y emite **ICC(2,1) de acuerdo absoluto**,
+  **Bland-Altman** + sesgo proporcional, **κ de Cohen** y la tasa de rechazo con forma visible.
+  **El inventario NO escribe la respuesta de la máquina, a propósito**: si el observador la ve
+  antes de anotar, lo medido deja de ser concordancia y pasa a ser anclaje.
+- **Dos bugs propios en el arnés**, ambos encontrados por los tests: (1) con ajuste PERFECTO
+  `se_pendiente = 0` → el contraste dividía por cero y declaraba «no significativo» el caso más
+  significativo posible; (2) con acuerdo perfecto `MS_error = 0` → el IC del ICC salía `NaN`.
+  Y una falsa alarma corregida: con 5 pares y residuos diminutos marcaba «sesgo proporcional
+  significativo» una pendiente de −0,026 pp/pp → ahora exige ≥ 10 pares **y** deriva ≥ 5 pp.
+- **Verificado:** suite **+22 tests** (372→**394 passed** / 4 skipped en este contenedor; +19 del
+  arnés, +3 del módulo — comparar el delta, no el absoluto, según el aviso de la entrada (d)) ·
+  banco corrido contra los nuevos defectos («ningún juego domina») · arnés probado end-to-end
+  sobre corpus sintético **renderizado** (imágenes, no listas de puntos): 100,0 / 75,1 / 51,5 /
+  100,0 / 51,0 con rectángulo y blob rechazados · `ast.parse(feature_version=(3,9))` en los 5
+  archivos Python tocados.
+- **NO hecho / bloqueado:** la corrida sobre **DRG_19-15** — el corpus vive en el Mac del
+  usuario (`/Users/…/ANALISIS AGOSTO/DRG_19-15`) y estos contenedores son Linux sin acceso a él.
+  Los criterios de éxito quedan declarados **antes** de ver los datos (VALIDACION §4), que es la
+  única forma de que signifiquen algo. Sigue pendiente la superposición de `plantilla_contorno`
+  en el lienzo (exige verificación visual en Electron) y un **segundo observador humano**, sin
+  el cual no se puede separar el error del método de la variabilidad entre arqueólogos (ADR-015 A2).
 
 ## 🎯 Sesión 2026-09-13 (c) — ADR-017 F3: el cable
 

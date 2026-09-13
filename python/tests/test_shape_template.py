@@ -1,5 +1,5 @@
 """
-ADR-017 F1 — gate de `python/modules/shape_template.py`.
+ADR-017 F1-F4 — gate de `python/modules/shape_template.py`.
 
 Verifica la envolvente operativa DECLARADA en el ADR §4 sobre formas sintéticas
 de completitud conocida:
@@ -9,6 +9,13 @@ de completitud conocida:
   • RECHAZA la plantilla equivocada (un rectángulo no es un círculo ni una elipse),
   • el centro se recupera aunque el fragmento no lo contenga — el defecto que F0
     retiró era precisamente medir alrededor del centroide del fragmento.
+
+Los casos de abajo usan contornos poco ruidosos. Eso **no** basta para afirmar la
+segunda viñeta en general: el banco sistemático de F4 (87 formas × 3 niveles de
+ruido) demostró que con los umbrales de F1 se aceptaba el 22 % de las formas por
+debajo del 15 %. El suelo real depende del ruido de contorno, y quien lo mide es
+`tools/adr017_banco_umbrales.py` — ver `docs/VALIDACION-PLANTILLAS.md` §2.5. La
+última sección de este archivo fija lo que aquel banco dejó calibrado.
 
 El módulo es math-critical: ningún cambio entra sin que estos números sigan saliendo.
 """
@@ -386,3 +393,63 @@ def test_icp_tambien_rechaza_la_plantilla_equivocada():
     pts = _ruido(_densificar(_arco(0, 2 * math.pi, 600)[:-1]))
     r = _correr(pts, templates=["triangulo", "cuadrado"])
     assert r["plantilla_tipo"] == "ninguna", r["candidatos"]
+
+
+# ── F4 · Los umbrales calibrados (banco `tools/adr017_banco_umbrales.py`) ────
+#
+# Los tres casos de abajo son los que MOVIERON los umbrales por defecto en F4.
+# Con los valores de F1 (círculo 0,30 · elipse 0,45) los tres pasaban el filtro y
+# publicaban un número inventado. No son casos hipotéticos: salieron del banco.
+
+def _blob(ruido=0.5):
+    """Forma orgánica sin cónica subyacente (suma de armónicos).
+
+    Es el control negativo que con soporte 0,30 se aceptaba como «círculo al
+    39,5 %»: el peor error posible, porque no hay ninguna forma ideal que
+    recuperar y aun así se publicaba una completitud.
+    """
+    pts = []
+    for i in range(240):
+        a = 2 * math.pi * i / 240
+        rr = R_VERDADERO * (1 + 0.18 * math.sin(3 * a) + 0.11 * math.cos(5 * a + 1.2))
+        pts.append([CENTRO[0] + rr * math.cos(a), CENTRO[1] + rr * math.sin(a)])
+    return _ruido(_densificar(pts), ruido)
+
+
+def test_una_forma_organica_no_recibe_plantilla():
+    r = _correr(_blob())
+    assert r["plantilla_tipo"] == "ninguna", (
+        f"aceptó '{r['plantilla_tipo']}' al {r['plantilla_completitud']} % sobre una "
+        f"forma sin cónica subyacente (falso positivo que F4 eliminó)"
+    )
+
+
+def test_el_modo_degenerado_no_publica_un_numero_disparatado():
+    """Sector de elipse al 50 % con segmentación pobre (ruido 2,5 px).
+
+    Modo de fallo caracterizado en F4: con poco soporte gana un círculo PEQUEÑO
+    encajado en un trozo del arco, que reporta ~18 % de completitud sobre una
+    pieza que conserva el 50 % — 31,6 pp de error en el número que acaba en el
+    CSV. El residuo no lo delata (es el mismo que el de un ajuste bueno con ese
+    ruido); sólo lo delata la fracción de arco, que es lo que filtra el umbral.
+    """
+    pts = _ruido(_densificar(_elipse(120, 60, 0.4, 0, math.pi, 300) + [list(CENTRO)]), 2.5)
+    r = _correr(pts)
+    if r["plantilla_tipo"] != "ninguna":
+        assert abs(r["plantilla_completitud"] - 50.0) <= 10.0, (
+            f"publicó {r['plantilla_completitud']} % sobre una forma que conserva el "
+            f"50 %: es el modo degenerado, debe rechazarse antes que mentir"
+        )
+
+
+def test_los_umbrales_no_bajan_de_lo_calibrado():
+    """Guard de no-regresión de la calibración F4.
+
+    No fija un número mágico: fija el SUELO que el banco avaló. Bajarlo reabre
+    el modo degenerado de arriba (los 5 casos que se dejaron de aceptar traían
+    errores de 5,4 · 10,0 · 11,3 · 15,8 y 31,6 pp). Subirlo está permitido —
+    cuesta cobertura, no exactitud. Protocolo: `docs/VALIDACION-PLANTILLAS.md`.
+    """
+    assert st._MIN_ARCO_FRACCION["circulo"] >= 0.40
+    assert st._MIN_ARCO_FRACCION["elipse"] >= 0.50
+    assert st._MIN_COMPLETITUD >= 0.15

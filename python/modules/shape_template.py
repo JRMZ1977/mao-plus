@@ -89,7 +89,17 @@ _GAP_MIN_DEG       = 8.0     # hueco angular mínimo para contar como ausencia
 # MÁS que el círculo porque tiene 5 grados de libertad frente a 3: con poco arco
 # queda subdeterminada y se amolda a un borde de fractura (verificado en banco:
 # con un umbral común de 0.30 aceptaba un rectángulo y un sector de 45°).
-_MIN_ARCO_FRACCION = {"circulo": 0.30, "elipse": 0.45}
+#
+# Valores calibrados en F4 con `tools/adr017_banco_umbrales.py` (87 formas de
+# completitud exacta conocida + 15 controles negativos). Subir el círculo de 0,30
+# a 0,40 y la elipse de 0,45 a 0,50 NO sacrifica ninguna medición correcta: los
+# cinco casos que dejan de aceptarse venían con error de 5,4 · 10,0 · 11,3 · 15,8
+# y 31,6 pp — todos el mismo modo degenerado (un círculo pequeño encajado en parte
+# del arco). A cambio caen a cero los falsos positivos de forma y las aceptaciones
+# por debajo del 15 % de completitud. Detalle en `docs/VALIDACION-PLANTILLAS.md`.
+# Son el valor POR DEFECTO, no una constante: `match(min_arco_fraccion=…)` los
+# sobrescribe, que es lo que permitirá recalibrarlos contra corpus real.
+_MIN_ARCO_FRACCION = {"circulo": 0.40, "elipse": 0.50}
 _MIN_COMPLETITUD   = 0.15    # por debajo, el ajuste degenera → rechazo (ADR-017 §4)
 _UMBRAL_COMPLETO   = 0.93    # cobertura por encima de la cual se declara completo
 _RANSAC_ITERS      = 600
@@ -581,7 +591,10 @@ async def match(
                 continue
             comp, huecos = _completitud(_param(fit["arco"], tipo, fit["modelo"]),
                                         tipo, fit["modelo"], gap_min_deg)
-        min_arco = umbrales.get(tipo, _MIN_ARCO_ICP if via_icp else 0.30)
+        # `umbrales` parte SIEMPRE de _MIN_ARCO_FRACCION, que cubre las dos
+        # plantillas analíticas → el defecto sólo lo toma el repertorio ICP.
+        # (Antes había aquí un 0,30 suelto que quedaba desfasado al recalibrar.)
+        min_arco = umbrales.get(tipo, _MIN_ARCO_ICP)
         soporte_ok = fit["arco_fraccion"] > min_arco
         comp_ok = comp >= _MIN_COMPLETITUD
         aceptada = soporte_ok and comp_ok

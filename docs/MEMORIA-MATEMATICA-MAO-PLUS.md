@@ -1015,10 +1015,29 @@ por construcción. Alrededor del centro *ajustado* no: en un medio disco ese cen
 cuerda de fractura, **fuera** del fragmento, y la cobertura vale 180°.
 
 Envolvente operativa medida (`python/tests/test_shape_template.py`): error ≤ 1 punto porcentual
-entre el 25 % y el 100 % preservado; por debajo de ~15 % de arco **rechaza** la plantilla en vez de
-estimar, y rechaza también la plantilla equivocada. El resultado se publica como
+entre el 25 % y el 100 % preservado; por debajo del umbral de soporte **rechaza** la plantilla en
+vez de estimar, y rechaza también la plantilla equivocada. El resultado se publica como
 `es_fragmento_candidato` —sugerencia a confirmar, no veredicto— porque en lítica la fractura se
 diagnostica por atributos de la cara ventral, no por la silueta (§ invariante ADR-009/ADR-017 §7).
+
+**Calibración de ese umbral, y tres advertencias para quien cite el número** (ADR-017 F4,
+`docs/VALIDACION-PLANTILLAS.md`; banco de 87 formas de completitud exacta × 3 niveles de ruido de
+contorno + 15 controles negativos):
+
+1. **El suelo no es un valor fijo: depende del ruido de contorno.** Con contorno limpio la medición
+   sigue siendo correcta hasta ~20 % preservado; con segmentación pobre (≈2,5 px de ruido) el suelo
+   sube al 40-50 %. La frase «rechaza por debajo del 15 %» sólo es cierta con los umbrales
+   recalibrados en F4 (soporte mínimo 0,40 círculo · 0,50 elipse) y sólo como resultado de ese
+   banco: con los umbrales anteriores se aceptaba el **22 %** de las formas por debajo del 15 %.
+2. **La elipse fragmentaria se sobreestima, y tanto más cuanto menos arco queda** (30 % real →
+   40-43 % medido). Es mecánico: con poco arco el mejor ajuste es una elipse *más pequeña* que la
+   original, de modo que la fracción cubierta **de esa elipse** resulta mayor. Por debajo del 50 %
+   preservado, la completitud de una elipse debe leerse como **cota superior**.
+3. **Lo verificado es autoconsistencia, no acuerdo con un observador.** El banco compara contra
+   formas generadas con completitud impuesta. La concordancia con el juicio de un arqueólogo sobre
+   piezas reales —ICC de acuerdo absoluto, Bland-Altman, κ del tipo de plantilla— está
+   instrumentada (`tools/adr017_calibracion_draga.py`) pero **aún no ejecutada**: hasta entonces,
+   `plantilla_completitud` es una medida reproducible de validez de uso no establecida.
 
 Esta corrección es un buen ejemplo del criterio que recorre todo el sistema y que conviene que el
 revisor conozca: **se conserva la medición y se retira el rótulo que diagnostica de más**
@@ -1475,7 +1494,7 @@ varianza), mínimo 8 puntos, y saturación a Nyquist $K\le N/2$ (`efa.py:34, 287
 >    (Δ ≤ 3·10⁻¹⁶ sobre seis pares), como predice la invariancia demostrada arriba.
 >    **El arreglo llegó justo a tiempo para algo más que la visualización:** ADR-017 F2 publicó
 >    `efa.reconstruct()` —que delega en esta misma función— como **generador del repertorio de
->    plantillas** contra las que se empareja un fragmento (`shape_template.py:791`). Con la
+>    plantillas** contra las que se empareja un fragmento (`shape_template.py:804`). Con la
 >    síntesis anterior, las formas ideales del banco se habrían generado más redondeadas que la
 >    forma que codifican sus coeficientes.
 > 2. ⏸ *Canónico, con recálculo* (abierto) — adoptar el convenio de Kuhl-Giardina en `_efd_raw`.
@@ -2204,6 +2223,12 @@ ejecución se hizo con OpenCV 5.0.0 y NumPy 2.x, versiones más recientes que la
 indicio favorable de robustez frente a la versión de las dependencias, pero **la ejecución de
 referencia para un dictamen debe hacerse con las versiones fijadas**.
 
+**Actualización (ADR-017 F4, mismo día).** Esa ejecución es anterior a F4, que añadió **22 tests**
+(3 en `test_shape_template.py` y 19 en `test_adr017_calibracion.py`); la tabla de abajo ya los
+incluye. En el contenedor donde se preparó F4 la suite pasa de 372 a **394 passed / 4 skipped**.
+Los totales **no son comparables entre entornos** —cuántos módulos se omiten depende de las
+dependencias opcionales presentes—, así que lo que debe leerse es el **delta**, no el absoluto.
+
 Distribución por módulo:
 
 | Archivo | N.º | Qué verifica |
@@ -2222,8 +2247,9 @@ Distribución por módulo:
 | `python/tests/test_estandar_matematico.py` | 11 | **exactitud analítica e invariancia** |
 | `tests/test_scale.py` | 8 | escala y error óptico |
 | `python/tests/test_ph_candidates.py` | 8 | detección de huecos sin semillas |
-| `python/tests/test_shape_template.py` | 30 | ajuste contra plantilla ideal (ADR-017 F1) |
+| `python/tests/test_shape_template.py` | 33 | ajuste contra plantilla ideal (F1) y **umbrales calibrados (F4)** |
 | `python/tests/test_adr017_f3_cableado.py` | 14 | cableado del emparejamiento al flujo (F3) |
+| `python/tests/test_adr017_calibracion.py` | 19 | **concordancia método ↔ observador** (ICC, Bland-Altman, κ) |
 | resto | 55 | persistencia, exportador, confianza IA, salud del servidor, coherencia de entrega |
 
 ### 12.2 Pruebas de respuesta conocida (*known-answer*)

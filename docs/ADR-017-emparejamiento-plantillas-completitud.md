@@ -1,7 +1,9 @@
 # ADR-017 — Emparejamiento con plantillas de forma ideal e inferencia de completitud (fragmento vs. pieza completa)
 
-**Estado:** 🟡 **F0-F3 implementadas (2026-09-12/13)** · F4 propuesta
+**Estado:** 🟡 **F0-F3 implementadas · F4 parcial (2026-09-12/13)** — umbrales recalibrados con
+evidencia y arnés de calibración listo; la corrida sobre el corpus real la ejecuta el observador
 **Nota de versión F0:** `docs/NOTA-VERSION-ADR017-F0.md` (cambia valores exportados)
+**Validación:** `docs/VALIDACION-PLANTILLAS.md` (protocolo, banco de umbrales, sesgos conocidos)
 **Fecha:** 2026-09-12
 **Autor:** JFRR + Claude Code
 **Relacionado:** ADR-006 (repertorio canónico) · ADR-007 (confianza por objeto) · **ADR-009 (patrón
@@ -242,8 +244,20 @@ ajuste degenera y el método lo rechaza en vez de inventar.** El rechazo del rec
 una plantilla equivocada no se acepta. El límite coincide con el conocido en estimación de diámetro
 de borde a partir de tiestos pequeños.
 
-El umbral de rechazo (`fracción del perímetro en el arco ajustado > 0,30`) y el de «completo»
-(`cobertura > 0,93`) son parámetros del módulo, calibrables con corpus real en F3.
+> ⚠ **Corrección de F4 (2026-09-13) a la frase anterior.** Con los umbrales que dejó F1 esa
+> afirmación **no era cierta**: el banco sistemático de F4 (87 formas × 3 niveles de ruido) encontró
+> que el **22 %** de las formas con ≤ 15 % de completitud se aceptaban igualmente. El prototipo de
+> esta tabla usaba contornos poco ruidosos, y el suelo real depende del ruido de contorno. Con los
+> umbrales recalibrados en F4 la cifra baja a **0 %** y la frase pasa a ser cierta *sobre ese banco*
+> — que no es lo mismo que una garantía universal. La formulación defendible es: **no se aceptó
+> ninguna forma por debajo del 15 % en 87 formas sintéticas con tres niveles de ruido**, y el suelo
+> efectivo sube al 40-50 % cuando la segmentación es pobre. Detalle y evidencia caso a caso en
+> `docs/VALIDACION-PLANTILLAS.md` §2.5.
+
+El umbral de rechazo (`fracción del perímetro en el arco ajustado`, hoy 0,40 círculo / 0,50 elipse)
+y el de «completo» (`cobertura > 0,93`) son parámetros del módulo, no constantes:
+`match(min_arco_fraccion=…)` los sobrescribe sin tocar código. Los valores vigentes salen del banco
+de F4; la recalibración con corpus real es el paso pendiente (§6.5).
 
 ---
 
@@ -291,10 +305,58 @@ forma ideal subyacente: el caso normal en lítica). Nunca `--ok` automático.
 | **F1** | ✅ **Hecha.** `python/modules/shape_template.py` + `/api/shape-match` + 19 tests. Ver §6.2 | nuevo módulo, `server.py`, `modules/__init__.py`, 2 ficheros de test | ✅ error ≤ 1 punto porcentual entre 25 % y 100 % · ✅ rechaza < 15 % · ✅ rechaza plantilla errónea · suite 343/4 | 🟢 aditivo |
 | **F2** | ✅ **Hecha.** ICP recortado sobre repertorio + `efa.reconstruct()` publicada + `/api/shape-match/templates`. Ver §6.3 | `shape_template.py`, `efa.py`, `server.py` | ✅ paridad ≤ 0,3 pp en los 4 casos · ✅ 3 plantillas poligonales validadas · suite 357/4 | 🟢 aditivo |
 | **F3** | ✅ **Hecha.** Registro + bridge + chip de 4 estados + confirmar/descartar + persistencia + CSV. Ver §6.4 | `morphometric_registry.py`, `python-bridge.js`, `mao-deteccion-contract.js`, `mao-analysis-organizer.js`, `analysis-core.js`, `project-manager.js`, `tabla-metricas-completa.js`, `mao-tabs-laar.css`, `index.html` | ✅ 4 estados · ✅ persiste en el caché · ✅ CSV sólo lo confirmado · 15 tests de cableado · suite 372/4 | 🟢 |
-| **F4** | Calibración de umbrales con corpus real (La Draga) + validación contra medición manual | `docs/VALIDACION-PLANTILLAS.md` | umbrales justificados con datos; acuerdo método↔observador reportado (enlaza ADR-015 A2/ICC) | 🟢 |
+| **F4** | 🟡 **Parcial.** Banco de umbrales + recalibración + arnés de calibración real. Ver §6.5 | `shape_template.py`, `tools/adr017_banco_umbrales.py`, `tools/adr017_calibracion_draga.py`, `docs/VALIDACION-PLANTILLAS.md`, 2 ficheros de test | ✅ umbrales justificados con datos (87 formas + 15 controles) · ✅ arnés ICC/Bland-Altman/κ probado end-to-end · suite 394/4 · ⏳ **la corrida sobre La Draga la ejecuta el observador**: el corpus está en su equipo | 🟢 |
 
 **Secuencia recomendada:** F0 primero y por separado — es autónomo, corrige un defecto que ya
 contamina el reporte del artículo, y no depende de nada de lo demás.
+
+### 6.5 · F4: lo que el banco dijo de los umbrales (y de este ADR)
+
+Protocolo completo, tablas y fuentes: **`docs/VALIDACION-PLANTILLAS.md`**. Resumen de lo que cambió.
+
+**El banco existe porque los umbrales de F1 eran criterio, no dato.** Salieron de unos pocos casos
+mientras se implementaba. `tools/adr017_banco_umbrales.py` los somete a 87 formas de completitud
+exactamente conocida (2 familias × 12 niveles × 3 ruidos) más 15 controles negativos, y barre la
+rejilla de umbrales. El barrido es **exacto, no aproximado**: los umbrales se aplican *después* del
+ajuste, así que se ajusta una vez por forma y se reevalúa post-hoc.
+
+**Recalibración: círculo 0,30 → 0,40 · elipse 0,45 → 0,50.** Cuesta 11 puntos de cobertura y
+**ninguno de los cinco casos que deja de aceptar estaba bien medido** (errores de 5,4 · 10,0 · 11,3 ·
+15,8 y 31,6 pp). No se cambia exactitud por cobertura: se retira el **modo degenerado** —un círculo
+*pequeño* encajado en un trozo del arco— que los producía. A cambio, las aceptaciones por debajo del
+15 % de completitud y los falsos positivos de forma caen **a cero**. Bajo la doctrina «MAO propone, el
+humano dispone» (§7), un número falso es peor que ningún número: el rechazo se muestra como *«sin
+plantilla»* y no llega al CSV; el número inventado llega hasta la publicación.
+
+**Hallazgo de método: el MAE ocultaba el fallo grave.** Con MAE como único criterio, el juego
+0,35/0,50 parecía bueno (3,03 pp) mientras publicaba **18 % sobre una pieza que conservaba el 50 %**.
+El error **máximo** es la columna que lo delata, y se añadió al banco a mitad de fase. El residuo no
+sirve para detectarlo —es el mismo que el de un ajuste bueno con ese ruido—; sólo lo delata la
+fracción de arco, que es justo lo que filtra el umbral.
+
+**Corrección a este ADR.** La envolvente declarada en §4 («rechaza por debajo de ~15 %») era **falsa**
+con los umbrales de F1: se aceptaba el 22 % de esas formas. Ver la nota en §4. La medición del
+prototipo no era incorrecta; la generalización a partir de contornos poco ruidosos sí lo era.
+
+**Sesgos que el banco dejó documentados** (§2.5 del documento de validación): la elipse fragmentaria
+se **sobreestima** tanto más cuanto menos arco queda (30 % → 40-43 %), por una razón mecánica —con
+poco arco el mejor ajuste es una elipse más pequeña—; y el suelo efectivo **no es un valor fijo**:
+20 % con contorno limpio, 40-50 % con segmentación pobre.
+
+**Arnés para el corpus real** — `tools/adr017_calibracion_draga.py`, dos pasadas:
+`--inventario` recorre la carpeta y emite la hoja de registro; `--evaluar` corre el pipeline real
+(detección → contorno → emparejamiento) y emite ICC(2,1) de acuerdo absoluto, Bland-Altman con
+comprobación de sesgo proporcional, κ de Cohen y la tasa de rechazo con forma visible. **El
+inventario no escribe la respuesta de la máquina**, a propósito: si el observador la ve antes de
+anotar, lo medido deja de ser concordancia y pasa a ser anclaje. Probado de punta a punta contra un
+corpus sintético renderizado (imágenes, no listas de puntos) y con 19 tests que fijan **propiedades**
+de los estadísticos —acuerdo perfecto = 1, el sesgo constante baja el ICC aunque la correlación siga
+valiendo 1, simetría entre jueces—, no valores copiados de la propia implementación.
+
+**Lo que queda, y por qué no está hecho aquí:** el corpus DRG_19-15 reside en el equipo del
+observador; este repositorio no lo contiene y ningún contenedor de estas sesiones puede alcanzarlo.
+Los criterios de éxito están declarados **antes** de ver los datos (§4 del documento de validación),
+que es la única forma de que signifiquen algo.
 
 ### 6.4 · Lo que F3 conectó, y los tres bugs que encontró al hacerlo
 
@@ -515,8 +577,16 @@ ADR y no dependen de nada fuera del repo.
 node tools/adr017_gate_f0.mjs                          # no regresión de F0
 node tools/adr017_proto_plantilla.mjs                  # §4 — prototipo de viabilidad
 python -m pytest python/tests/test_shape_template.py \
-                 tests/test_shape_match_api.py         # gate de F1+F2 (33 tests)
+                 tests/test_shape_match_api.py \
+                 python/tests/test_adr017_f3_cableado.py \
+                 python/tests/test_adr017_calibracion.py   # gates de F1-F4
+python tools/adr017_banco_umbrales.py                  # §6.5 — banco de umbrales (~3 min)
 ```
+
+El banco de F4 es reproducible en el mismo sentido que las sondas: su ruido es **determinista**
+(función del índice del punto, no un generador aleatorio), así que dos ejecuciones dan la misma
+tabla, y compara siempre contra los umbrales **que el módulo tenga en vigor**, no contra unos
+valores copiados en el propio script.
 
 `adr017_gate_f0.mjs` era la sonda que documentaba el defecto (§1.1); tras F0 verifica lo
 contrario — que el estimador degenerado no ha vuelto y que la medición fiel que lo sustituye
