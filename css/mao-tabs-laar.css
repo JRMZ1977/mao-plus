@@ -1706,3 +1706,238 @@ html.mao-debug .dev-only { display: revert !important; }
   from { transform: rotate(0deg);   }
   to   { transform: rotate(360deg); }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MODAL «EXPORTAR COLECCIÓN»
+   Exportación por lote configurable: qué objetos, qué formatos, a qué carpeta.
+   Lenguaje canónico ADR-005 (tokens --laar-*, chips, botones planos).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#exportColeccionModal {
+  display            : none;
+  position           : fixed;
+  inset              : 0;
+  z-index            : 9200;
+  background         : rgba(17, 24, 39, .48);
+  align-items        : center;
+  justify-content    : center;
+}
+#exportColeccionModal.is-open { display: flex; }
+
+.exc-panel {
+  width              : min(94vw, 620px);
+  max-height         : 88vh;
+  display            : flex;
+  flex-direction     : column;
+  background         : var(--laar-white);
+  border             : var(--laar-border-md);
+  border-radius      : calc(var(--laar-radius) * 2);
+  box-shadow         : 0 18px 48px rgba(17, 24, 39, .28);
+  overflow           : hidden;
+}
+
+.exc-header {
+  display            : flex;
+  align-items        : center;
+  gap                : 8px;
+  padding            : 12px 16px;
+  border-bottom      : var(--laar-border-md);
+  background         : var(--laar-g50);
+  flex-shrink        : 0;
+}
+.exc-title {
+  font-size          : 13px;
+  font-weight        : 600;
+  color              : var(--laar-g900);
+  letter-spacing     : .01em;
+}
+.exc-close {
+  margin-left        : auto;
+  border             : none;
+  background         : none;
+  cursor             : pointer;
+  color              : var(--laar-g500);
+  font-size          : 16px;
+  line-height        : 1;
+  padding            : 2px 4px;
+}
+.exc-close:hover { color: var(--laar-g900); }
+
+.exc-body {
+  padding            : 4px 16px 12px;
+  overflow-y         : auto;
+  flex               : 1;
+}
+
+.exc-sec { margin-top: 14px; }
+.exc-sec-head {
+  display            : flex;
+  align-items        : center;
+  gap                : 8px;
+  margin-bottom      : 6px;
+}
+.exc-sec-title {
+  font-size          : 10px;
+  font-weight        : 700;
+  text-transform     : uppercase;
+  letter-spacing     : .07em;
+  color              : var(--laar-g500);
+}
+.exc-sec-actions {
+  margin-left        : auto;
+  display            : flex;
+  gap                : 4px;
+}
+.exc-mini {
+  font-size          : 10px;
+  padding            : 2px 7px;
+  border             : var(--laar-border-md);
+  border-radius      : var(--laar-radius);
+  background         : var(--laar-white);
+  color              : var(--laar-g600);
+  cursor             : pointer;
+}
+.exc-mini:hover { background: var(--laar-g100); }
+
+/* Lista de objetos con checkbox */
+.exc-objetos {
+  max-height         : 190px;
+  overflow-y         : auto;
+  border             : var(--laar-border-md);
+  border-radius      : var(--laar-radius);
+  background         : var(--laar-g50);
+  padding            : 4px;
+}
+.exc-obj-row {
+  display            : flex;
+  align-items        : center;
+  gap                : 8px;
+  padding            : 4px 6px;
+  border-radius      : var(--laar-radius);
+  font-size          : 12px;
+  color              : var(--laar-g800);
+  cursor             : pointer;
+}
+.exc-obj-row:hover { background: var(--laar-g100); }
+.exc-obj-name {
+  flex               : 1;
+  overflow           : hidden;
+  text-overflow      : ellipsis;
+  white-space        : nowrap;
+}
+.exc-obj-meta {
+  font-size          : 10px;
+  color              : var(--laar-g500);
+  flex-shrink        : 0;
+}
+.exc-vacio {
+  padding            : 14px;
+  text-align         : center;
+  font-size          : 12px;
+  color              : var(--laar-g500);
+}
+
+/* Rejilla de formatos */
+.exc-formatos {
+  display            : grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap                : 6px;
+}
+.exc-fmt {
+  display            : flex;
+  align-items        : flex-start;
+  gap                : 8px;
+  padding            : 8px 10px;
+  border             : var(--laar-border-md);
+  border-radius      : var(--laar-radius);
+  background         : var(--laar-white);
+  cursor             : pointer;
+  transition         : background var(--laar-transition), border-color var(--laar-transition);
+}
+.exc-fmt:hover { background: var(--laar-g50); }
+.exc-fmt input { margin-top: 2px; flex-shrink: 0; }
+.exc-fmt-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.exc-fmt-nom {
+  font-size          : 12px;
+  font-weight        : 500;
+  color              : var(--laar-g800);
+}
+.exc-fmt-desc {
+  font-size          : 10px;
+  color              : var(--laar-g500);
+  line-height        : 1.35;
+}
+
+/* Destino */
+.exc-destino {
+  display            : flex;
+  align-items        : center;
+  gap                : 8px;
+}
+.exc-destino-path {
+  flex               : 1;
+  min-width          : 0;
+  padding            : 6px 9px;
+  font-size          : 11px;
+  font-family        : ui-monospace, SFMono-Regular, Menlo, monospace;
+  color              : var(--laar-g700);
+  background         : var(--laar-g50);
+  border             : var(--laar-border-md);
+  border-radius      : var(--laar-radius);
+  overflow           : hidden;
+  text-overflow      : ellipsis;
+  white-space        : nowrap;
+}
+
+/* Opción de recálculo */
+.exc-recalcular {
+  display            : flex;
+  align-items        : flex-start;
+  gap                : 8px;
+  margin-top         : 14px;
+  padding            : 8px 10px;
+  border             : var(--laar-border-md);
+  border-radius      : var(--laar-radius);
+  background         : var(--laar-g50);
+  cursor             : pointer;
+}
+.exc-recalcular input { margin-top: 2px; flex-shrink: 0; }
+
+/* Pie */
+.exc-footer {
+  display            : flex;
+  align-items        : center;
+  gap                : 8px;
+  padding            : 10px 16px;
+  border-top         : var(--laar-border-md);
+  background         : var(--laar-g50);
+  flex-shrink        : 0;
+}
+.exc-resumen {
+  font-size          : 11px;
+  color              : var(--laar-g600);
+  flex               : 1;
+}
+.exc-btn {
+  font-size          : 12px;
+  font-weight        : 500;
+  padding            : 6px 14px;
+  border-radius      : var(--laar-radius);
+  border             : var(--laar-border-md);
+  background         : var(--laar-white);
+  color              : var(--laar-g700);
+  cursor             : pointer;
+}
+.exc-btn:hover { background: var(--laar-g100); }
+.exc-btn--primary {
+  background         : var(--laar-b500);
+  border-color       : var(--laar-b500);
+  color              : var(--laar-white);
+}
+.exc-btn--primary:hover { background: var(--laar-b600); }
+.exc-btn--primary:disabled {
+  background         : var(--laar-g300);
+  border-color       : var(--laar-g300);
+  color              : var(--laar-g500);
+  cursor             : not-allowed;
+}

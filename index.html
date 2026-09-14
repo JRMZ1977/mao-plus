@@ -34,7 +34,7 @@
   =====================================================================================
   -->
   <link rel="stylesheet" href="css/main.css?v=20260623c">
-  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260630a">
+  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260827a">
   <link rel="stylesheet" href="css/procrustes.css?v=20260629e">
 </head>
 <body>
@@ -1876,7 +1876,11 @@
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="width:11px;height:11px;margin-right:4px;vertical-align:middle;" aria-hidden="true"><circle cx="4" cy="8" r="2.5"/><circle cx="12" cy="4" r="2.5"/><circle cx="12" cy="12" r="2.5"/><path d="M6.2 7.2L9.8 5M6.2 8.8L9.8 11"/></svg>
           Procrustes
         </button>
-        <button id="adr5BtnEnriquecer" class="laar-btn" title="Actualizar métricas de todos los análisis guardados con los nuevos cálculos (error óptico, incertidumbre)" style="font-size:11px;padding:3px 10px;">
+        <button id="adr5BtnExportarColeccion" class="laar-btn" title="Exportar la colección completa: elegir objetos, formatos y carpeta de destino" style="font-size:11px;padding:3px 10px;">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;margin-right:4px;vertical-align:middle;" aria-hidden="true"><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/><path d="M3 13h10"/></svg>
+          Exportar colección…
+        </button>
+        <button id="adr5BtnEnriquecer" class="laar-btn" title="Recalcular las métricas de todos los análisis guardados (error óptico, incertidumbre, EFA) y reescribir metricas.json. También deja PDFs y EFAs en _exportados/." style="font-size:11px;padding:3px 10px;">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="width:11px;height:11px;margin-right:4px;vertical-align:middle;" aria-hidden="true"><path d="M2 8a6 6 0 1 1 1.5 4"/><polyline points="2,12 2,8 6,8"/><line x1="8" y1="5" x2="8" y2="8"/><line x1="8" y1="8" x2="10.5" y2="8"/></svg>
           Actualizar colección
         </button>
@@ -2863,10 +2867,10 @@
   <script src="js/backend-status-badge.js"></script>
   <script src="js/sam-status-ui.js?v=20260618a" defer></script>
   <script src="js/progress.js"></script>
-  <script src="js/project-manager.js?v=20260731a"></script>
+  <script src="js/project-manager.js?v=20260827a"></script>
   <script src="js/file-io.js"></script>
   <script src="js/projects-ui.js"></script>
-  <script src="js/collection.js?v=20260630f"></script>
+  <script src="js/collection.js?v=20260827a"></script>
   <script src="js/export-manager.js"></script>
   <script src="js/tooltips.js"></script>
   <script type="module" src="js/analysis-core.js?v=20260827a"></script>
@@ -3987,6 +3991,111 @@
   })();
   </script>
 
+  <!-- ═══ MODAL «EXPORTAR COLECCIÓN» ═════════════════════════════════════
+       Exportación por lote configurable. El motor es projectManager.enrichCollection
+       (el mismo de «Actualizar colección»); aquí se eligen objetos, formatos y destino.
+       Cableado en js/mao-resultados-organizer.js. ══════════════════════════ -->
+  <div id="exportColeccionModal" role="dialog" aria-modal="true" aria-labelledby="excTitle">
+    <div class="exc-panel">
+
+      <div class="exc-header">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;color:var(--laar-b500);" aria-hidden="true"><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/><path d="M3 13h10"/></svg>
+        <span id="excTitle" class="exc-title">Exportar colección</span>
+        <button type="button" class="exc-close" id="excCerrar" title="Cerrar" aria-label="Cerrar">&#10005;</button>
+      </div>
+
+      <div class="exc-body">
+
+        <!-- §1 Objetos -->
+        <div class="exc-sec">
+          <div class="exc-sec-head">
+            <span class="exc-sec-title">Objetos</span>
+            <span class="exc-sec-actions">
+              <button type="button" class="exc-mini" id="excSelTodos">Todos</button>
+              <button type="button" class="exc-mini" id="excSelNinguno">Ninguno</button>
+            </span>
+          </div>
+          <div class="exc-objetos" id="excListaObjetos">
+            <div class="exc-vacio">Cargando colección…</div>
+          </div>
+        </div>
+
+        <!-- §2 Formatos -->
+        <div class="exc-sec">
+          <div class="exc-sec-head">
+            <span class="exc-sec-title">Formatos</span>
+          </div>
+          <div class="exc-formatos">
+            <label class="exc-fmt">
+              <input type="checkbox" id="excFmtPdf" checked>
+              <span class="exc-fmt-txt">
+                <span class="exc-fmt-nom">PDF — Reporte integral</span>
+                <span class="exc-fmt-desc">Un informe por objeto, con índice canónico</span>
+              </span>
+            </label>
+            <label class="exc-fmt">
+              <input type="checkbox" id="excFmtCsv" checked>
+              <span class="exc-fmt-txt">
+                <span class="exc-fmt-nom">CSV — Colección</span>
+                <span class="exc-fmt-desc">Una fila por objeto, tabla única</span>
+              </span>
+            </label>
+            <label class="exc-fmt">
+              <input type="checkbox" id="excFmtEfa" checked>
+              <span class="exc-fmt-txt">
+                <span class="exc-fmt-nom">CSV — EFA</span>
+                <span class="exc-fmt-desc">Coeficientes de contorno y de cada P/H</span>
+              </span>
+            </label>
+            <label class="exc-fmt">
+              <input type="checkbox" id="excFmtPng">
+              <span class="exc-fmt-txt">
+                <span class="exc-fmt-nom">PNG — Morfología</span>
+                <span class="exc-fmt-desc">Los tres renders guardados del análisis</span>
+              </span>
+            </label>
+            <label class="exc-fmt">
+              <input type="checkbox" id="excFmtSvg">
+              <span class="exc-fmt-txt">
+                <span class="exc-fmt-nom">SVG — Trazado vectorial</span>
+                <span class="exc-fmt-desc">Contorno, ejes, centroides y P/H a escala 10:1</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <!-- §3 Destino -->
+        <div class="exc-sec">
+          <div class="exc-sec-head">
+            <span class="exc-sec-title">Carpeta de destino</span>
+          </div>
+          <div class="exc-destino">
+            <span class="exc-destino-path" id="excDestinoPath" title="">—</span>
+            <button type="button" class="exc-btn" id="excElegirCarpeta">Elegir…</button>
+            <button type="button" class="exc-btn" id="excDestinoDefecto" title="Volver a la carpeta del proyecto">Por defecto</button>
+          </div>
+        </div>
+
+        <!-- §4 Recálculo -->
+        <label class="exc-recalcular">
+          <input type="checkbox" id="excRecalcular">
+          <span class="exc-fmt-txt">
+            <span class="exc-fmt-nom">Recalcular métricas antes de exportar</span>
+            <span class="exc-fmt-desc">Recomputa error óptico, incertidumbre y EFA, y reescribe metricas.json. Más lento; solo hace falta tras cambiar la calibración.</span>
+          </span>
+        </label>
+
+      </div>
+
+      <div class="exc-footer">
+        <span class="exc-resumen" id="excResumen"></span>
+        <button type="button" class="exc-btn" id="excCancelar">Cancelar</button>
+        <button type="button" class="exc-btn exc-btn--primary" id="excExportar">Exportar</button>
+      </div>
+
+    </div>
+  </div>
+
   <!-- ═══ MODAL DE ANÁLISIS PROCRUSTES (PS) ══════════════════════════════ -->
   <div id="psModal" role="dialog" aria-modal="true" aria-labelledby="psModalTitle">
     <div class="ps-modal-panel">
@@ -4603,7 +4712,7 @@
   <!-- ADR-004 Fase 2 — Organizador de la pestaña Captura (chips de estado) -->
   <script src="js/mao-captura-organizer.js?v=20260612e" defer></script>
   <!-- ADR-005 Resultados — Organizador de la pestaña Resultados (chips de estado) -->
-  <script src="js/mao-resultados-organizer.js?v=20260630h" defer></script>
+  <script src="js/mao-resultados-organizer.js?v=20260827a" defer></script>
 
 </body>
 </html>

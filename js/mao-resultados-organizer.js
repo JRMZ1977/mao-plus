@@ -105,15 +105,24 @@
   }
 
   function _setEnrichBtn(disabled) {
-    var btn = document.getElementById('adr5BtnEnriquecer');
-    if (!btn) return;
-    btn.disabled = disabled;
-    btn.style.opacity = disabled ? '0.5' : '';
-    btn.style.cursor  = disabled ? 'not-allowed' : '';
+    // Ambos botones disparan el mismo motor por lote: mientras uno corre, los dos
+    // quedan inhabilitados.
+    ['adr5BtnEnriquecer', 'adr5BtnExportarColeccion'].forEach(function (id) {
+      var btn = document.getElementById(id);
+      if (!btn) return;
+      btn.disabled = disabled;
+      btn.style.opacity = disabled ? '0.5' : '';
+      btn.style.cursor  = disabled ? 'not-allowed' : '';
+    });
   }
 
-  function onEnriquecerColeccion() {
-    if (_enrichRunning) return;
+  /**
+   * Resuelve a qué proyecto apuntan las acciones por lote.
+   * Compartido por «Actualizar colección» y «Exportar colección…».
+   *
+   * @returns {{projectId: (string|null), folderPath: (string|null), project: (Object|null)}}
+   */
+  function _resolverProyecto() {
     var pm = window.projectManager;
 
     // Derivar projectId — 3 fuentes en orden de prioridad:
@@ -138,7 +147,17 @@
       overrideFolderPath = window.currentCollection.folderPath;
     }
 
-    if (!projectId && !overrideFolderPath) {
+    var project = (projectId && pm && typeof pm.getProject === 'function')
+      ? pm.getProject(projectId) : null;
+
+    return { projectId: projectId || null, folderPath: overrideFolderPath, project: project };
+  }
+
+  function onEnriquecerColeccion() {
+    if (_enrichRunning) return;
+    var r = _resolverProyecto();
+
+    if (!r.projectId && !r.folderPath) {
       if (window.toast) window.toast.warning('Abre primero la colección de un proyecto usando "Ver Colección".');
       return;
     }
@@ -148,39 +167,64 @@
     _setProgress(0, 1, 'Cargando colección…');
     document.dispatchEvent(new CustomEvent('mao:enrich:request', {
       detail: {
-        projectId: projectId,
-        folderPath: overrideFolderPath,   // para proyectos externos sin proyectoId
+        projectId: r.projectId,
+        folderPath: r.folderPath,   // para proyectos externos sin proyectoId
         options: {}
       }
     }));
   }
 
+  /* Etiqueta por fase del lote. `guardado` cierra el objeto; el resto son etapas. */
+  var _FASE_ETIQUETA = { efa: 'EFA', pdf: 'PDF', png: 'PNG', svg: 'SVG' };
+
   function onEnrichProgress(e) {
     var d = e && e.detail || {};
-    var label = d.fase === 'guardado'
-      ? (d.done + ' / ' + d.total + ' — ' + (d.nombreObjeto || ''))
-      : d.fase === 'efa'
-      ? ('EFA ' + d.done + ' / ' + d.total + ' — ' + (d.nombreObjeto || ''))
-      : d.fase === 'pdf'
-      ? ('PDF ' + d.done + ' / ' + d.total + ' — ' + (d.nombreObjeto || ''))
-      : ('Leyendo ' + (d.done + 1) + ' / ' + d.total + '…');
+    var nom = d.nombreObjeto || '';
+    var label;
+    if (d.fase === 'guardado') {
+      label = d.done + ' / ' + d.total + ' — ' + nom;
+    } else if (_FASE_ETIQUETA[d.fase]) {
+      label = _FASE_ETIQUETA[d.fase] + ' ' + d.done + ' / ' + d.total + ' — ' + nom;
+    } else {
+      label = 'Leyendo ' + (d.done + 1) + ' / ' + d.total + '…';
+    }
     _setProgress(d.done || 0, d.total || 1, label);
+  }
+
+  /** Nombres cortos de los formatos realmente escritos, para el mensaje final. */
+  function _formatosEscritos(fmt) {
+    if (!fmt) return [];
+    var etiquetas = { pdf: 'PDF', csvColeccion: 'CSV', efa: 'EFA', png: 'PNG', svg: 'SVG' };
+    var out = [];
+    for (var k in etiquetas) if (fmt[k]) out.push(etiquetas[k]);
+    return out;
   }
 
   function onEnrichComplete(e) {
     _enrichRunning = false;
     _setEnrichBtn(false);
     var d = e && e.detail || {};
-    _setProgress(d.total || 0, d.total || 0, '✓ ' + (d.enriched || 0) + ' actualizados' +
+    // `recalculado === false` ⇒ fue una exportación pura, nada se reescribió en disco.
+    var esExportacion = d.recalculado === false;
+    var verbo = esExportacion ? 'exportados' : 'actualizados';
+
+    _setProgress(d.total || 0, d.total || 0, '✓ ' + (d.enriched || 0) + ' ' + verbo +
       (d.skipped ? ' · ' + d.skipped + ' omitidos' : ''));
 
     var exportDir = d.exportDir || null;
+    var fmts      = _formatosEscritos(d.formatos);
 
     if (window.toast) {
-      var msg = (d.enriched || 0) + ' análisis actualizados';
+      var msg = (d.enriched || 0) + (esExportacion ? ' objetos exportados' : ' análisis actualizados');
       if (d.skipped) msg += ' · ' + d.skipped + ' omitidos';
-      if (exportDir) msg += ' · PDFs y EFAs en _exportados/';
+      if (exportDir && fmts.length) msg += ' · ' + fmts.join(' + ');
       window.toast.success(msg);
+    }
+
+    /* Chip «Exportado» de la cabecera */
+    if (exportDir && fmts.length) {
+      var chipExp = $('adr5ChipExportado');
+      if (chipExp) MO.setChip(chipExp, 'ok', fmts.join(' + '));
     }
 
     // Mostrar botón "Abrir exportados" si la carpeta existe
@@ -236,6 +280,264 @@
     if (window.toast) window.toast.error('Error al actualizar colección: ' + msg);
   }
 
+  /* ── Modal «Exportar colección» ──────────────────────────────────────────
+     Exportación por lote configurable. Comparte motor con «Actualizar colección»
+     (projectManager.enrichCollection vía el evento mao:enrich:request); lo que
+     cambia son las `options`: selección de objetos, formatos y destino, y
+     `recalcular:false` para exportar sin recomputar. ───────────────────────── */
+
+  var _excColeccion = null;   // colección cargada para el modal
+  var _excDestino   = null;   // destino elegido por el usuario (null = por defecto)
+  var _excCtx       = null;   // { projectId, folderPath, project }
+
+  function _excFecha() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function _excDirDefecto() {
+    var base = (_excCtx && _excCtx.project && _excCtx.project.folderPath) ||
+               (_excCtx && _excCtx.folderPath) || '';
+    return base ? (base + '/_exportados/' + _excFecha()) : '';
+  }
+
+  function _excSetDestino(dir) {
+    _excDestino = dir || null;
+    var out = document.getElementById('excDestinoPath');
+    if (!out) return;
+    var mostrado = _excDestino || _excDirDefecto() || '—';
+    out.textContent = mostrado;
+    out.title = mostrado;
+  }
+
+  function _excFormatos() {
+    var chk = function (id) {
+      var n = document.getElementById(id);
+      return !!(n && n.checked);
+    };
+    return {
+      pdf         : chk('excFmtPdf'),
+      csvColeccion: chk('excFmtCsv'),
+      efa         : chk('excFmtEfa'),
+      png         : chk('excFmtPng'),
+      svg         : chk('excFmtSvg')
+    };
+  }
+
+  function _excSeleccion() {
+    var nodos = document.querySelectorAll('#excListaObjetos input[type="checkbox"]:checked');
+    var out = [];
+    for (var i = 0; i < nodos.length; i++) out.push(nodos[i].value);
+    return out;
+  }
+
+  function _excActualizarResumen() {
+    var sel   = _excSeleccion();
+    var fmt   = _excFormatos();
+    var nFmt  = 0;
+    for (var k in fmt) if (fmt[k]) nFmt++;
+
+    var resumen = document.getElementById('excResumen');
+    var btn     = document.getElementById('excExportar');
+    var listo   = sel.length > 0 && nFmt > 0;
+
+    if (resumen) {
+      if (!sel.length)      resumen.textContent = 'Selecciona al menos un objeto';
+      else if (!nFmt)       resumen.textContent = 'Selecciona al menos un formato';
+      else resumen.textContent = sel.length + (sel.length === 1 ? ' objeto' : ' objetos') +
+                                 ' · ' + nFmt + (nFmt === 1 ? ' formato' : ' formatos');
+    }
+    if (btn) btn.disabled = !listo;
+  }
+
+  function _excRenderLista(objetos) {
+    var cont = document.getElementById('excListaObjetos');
+    if (!cont) return;
+    cont.textContent = '';
+
+    if (!objetos || !objetos.length) {
+      var vacio = document.createElement('div');
+      vacio.className = 'exc-vacio';
+      vacio.textContent = 'La colección está vacía.';
+      cont.appendChild(vacio);
+      return;
+    }
+
+    objetos.forEach(function (o) {
+      var row = document.createElement('label');
+      row.className = 'exc-obj-row';
+
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = o.carpeta;
+      cb.checked = true;
+      cb.addEventListener('change', _excActualizarResumen);
+
+      var nom = document.createElement('span');
+      nom.className = 'exc-obj-name';
+      nom.textContent = o.nombreObjeto || o.carpeta;
+      nom.title = o.carpeta;
+
+      var meta = document.createElement('span');
+      meta.className = 'exc-obj-meta';
+      var partes = [];
+      if (o.cara && o.cara !== 'Mono') partes.push('cara ' + o.cara);
+      if (o.timestamp) partes.push(String(o.timestamp).slice(0, 10));
+      meta.textContent = partes.join(' · ');
+
+      row.appendChild(cb);
+      row.appendChild(nom);
+      row.appendChild(meta);
+      cont.appendChild(row);
+    });
+  }
+
+  /** Carga la colección del proyecto resuelto, con los mismos fallbacks que enrichCollection. */
+  function _excCargarColeccion(ctx) {
+    var pm = window.projectManager;
+    if (!pm) return Promise.resolve(null);
+
+    var p = Promise.resolve(null);
+    if (ctx.projectId && typeof pm.loadProjectCollection === 'function') {
+      p = pm.loadProjectCollection(ctx.projectId);
+    }
+    return p.then(function (col) {
+      if (col) return col;
+      var fp = (ctx.project && ctx.project.folderPath) || ctx.folderPath;
+      if (window.currentCollection && window.currentCollection.folderPath === fp) {
+        return window.currentCollection;
+      }
+      if (typeof pm.rebuildCollectionIndex === 'function') {
+        var proj = ctx.project || { id: ctx.projectId, name: '', folderPath: fp };
+        return pm.rebuildCollectionIndex(proj);
+      }
+      return null;
+    }).catch(function (err) {
+      console.warn('[Exportar colección] No se pudo cargar la colección:', err && err.message);
+      return null;
+    });
+  }
+
+  function _excAbrir() {
+    if (_enrichRunning) {
+      if (window.toast) window.toast.warning('Hay una exportación en curso.');
+      return;
+    }
+    var ctx = _resolverProyecto();
+    if (!ctx.projectId && !ctx.folderPath) {
+      if (window.toast) window.toast.warning('Abre primero la colección de un proyecto usando "Ver Colección".');
+      return;
+    }
+    _excCtx = ctx;
+
+    var modal = document.getElementById('exportColeccionModal');
+    if (!modal) return;
+    modal.classList.add('is-open');
+
+    var cont = document.getElementById('excListaObjetos');
+    if (cont) {
+      cont.textContent = '';
+      var cargando = document.createElement('div');
+      cargando.className = 'exc-vacio';
+      cargando.textContent = 'Cargando colección…';
+      cont.appendChild(cargando);
+    }
+    _excSetDestino(null);
+    _excActualizarResumen();
+
+    _excCargarColeccion(ctx).then(function (col) {
+      _excColeccion = col;
+      _excRenderLista(col && col.objetos);
+      _excActualizarResumen();
+    });
+  }
+
+  function _excCerrar() {
+    var modal = document.getElementById('exportColeccionModal');
+    if (modal) modal.classList.remove('is-open');
+  }
+
+  function _excMarcarTodos(valor) {
+    var nodos = document.querySelectorAll('#excListaObjetos input[type="checkbox"]');
+    for (var i = 0; i < nodos.length; i++) nodos[i].checked = valor;
+    _excActualizarResumen();
+  }
+
+  function _excElegirCarpeta() {
+    if (!window.electronAPI || typeof window.electronAPI.selectFolder !== 'function') {
+      if (window.toast) window.toast.warning('El selector de carpeta no está disponible en esta ventana.');
+      return;
+    }
+    var base = _excDestino || _excDirDefecto();
+    window.electronAPI.selectFolder({ defaultPath: base }).then(function (dir) {
+      if (dir) _excSetDestino(dir);
+    }).catch(function (err) {
+      console.warn('[Exportar colección] selectFolder:', err && err.message);
+    });
+  }
+
+  function _excExportar() {
+    var sel = _excSeleccion();
+    var fmt = _excFormatos();
+    if (!sel.length) return;
+
+    var total = (_excColeccion && _excColeccion.objetos) ? _excColeccion.objetos.length : 0;
+    // Si están todos marcados, no enviamos lista: enrichCollection procesa la colección entera.
+    var objetos = (total && sel.length === total) ? null : sel;
+
+    var recalcNode = document.getElementById('excRecalcular');
+    var recalcular = !!(recalcNode && recalcNode.checked);
+
+    _excCerrar();
+
+    _enrichRunning = true;
+    _setEnrichBtn(true);
+    _showProgress(true);
+    _setProgress(0, 1, 'Preparando exportación…');
+
+    document.dispatchEvent(new CustomEvent('mao:enrich:request', {
+      detail: {
+        projectId : _excCtx ? _excCtx.projectId : null,
+        folderPath: _excCtx ? _excCtx.folderPath : null,
+        options   : {
+          objetos   : objetos,
+          formatos  : fmt,
+          exportDir : _excDestino || null,
+          recalcular: recalcular
+        }
+      }
+    }));
+  }
+
+  function bindModalExportacion() {
+    var on = function (id, ev, fn) {
+      var n = document.getElementById(id);
+      if (n) n.addEventListener(ev, fn);
+    };
+    on('adr5BtnExportarColeccion', 'click', _excAbrir);
+    on('excCerrar',          'click', _excCerrar);
+    on('excCancelar',        'click', _excCerrar);
+    on('excExportar',        'click', _excExportar);
+    on('excSelTodos',        'click', function () { _excMarcarTodos(true);  });
+    on('excSelNinguno',      'click', function () { _excMarcarTodos(false); });
+    on('excElegirCarpeta',   'click', _excElegirCarpeta);
+    on('excDestinoDefecto',  'click', function () { _excSetDestino(null); });
+
+    ['excFmtPdf', 'excFmtCsv', 'excFmtEfa', 'excFmtPng', 'excFmtSvg'].forEach(function (id) {
+      on(id, 'change', _excActualizarResumen);
+    });
+
+    /* Cerrar al clicar el fondo o con Escape */
+    var modal = document.getElementById('exportColeccionModal');
+    if (modal) {
+      modal.addEventListener('click', function (e) { if (e.target === modal) _excCerrar(); });
+    }
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      var m = document.getElementById('exportColeccionModal');
+      if (m && m.classList.contains('is-open')) _excCerrar();
+    });
+  }
+
   /* ── Cableado de señales ─────────────────────────────────────────────────── */
 
   function bindEvents() {
@@ -254,6 +556,9 @@
     /* Botón Actualizar colección */
     var btnEnrich = document.getElementById('adr5BtnEnriquecer');
     if (btnEnrich) btnEnrich.addEventListener('click', onEnriquecerColeccion);
+
+    /* Modal «Exportar colección…» */
+    bindModalExportacion();
 
     /* Cerrar barra de progreso manualmente */
     var btnClose = document.getElementById('enrichProgressClose');

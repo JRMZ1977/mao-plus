@@ -2444,6 +2444,20 @@ class ProjectManager {
     const _emit = (nombre, detail) =>
       document.dispatchEvent(new CustomEvent(nombre, { detail }));
 
+    /* ── Opciones de exportación por lote ────────────────────────────────────
+       Aditivas: con `options = {}` (lo que envía «Actualizar colección») los
+       valores por defecto reproducen exactamente el comportamiento previo.
+
+       formatos   → qué se escribe en la carpeta de exportación
+       objetos    → subconjunto de `carpeta` a procesar (null/vacío = todos)
+       exportDir  → destino explícito (por defecto {proyecto}/_exportados/FECHA)
+       recalcular → false ⇒ exportar sin recomputar ni reescribir metricas.json  */
+    const fmt = Object.assign(
+      { pdf: true, efa: true, csvColeccion: true, png: false, svg: false },
+      options.formatos || {}
+    );
+    const recalcular = options.recalcular !== false;
+
     // Resolver project: desde projectId o desde folderPath directo (proyectos externos)
     let project = projectId ? this.getProject(projectId) : null;
     if (!project && overrideFolderPath) {
@@ -2490,15 +2504,25 @@ class ProjectManager {
       return { enriched: 0, skipped: 0, errors: ['Colección vacía'] };
     }
 
-    const objetos   = collection.objetos;
+    // Selección de objetos: `options.objetos` es una lista de `carpeta`.
+    let objetos = collection.objetos;
+    if (Array.isArray(options.objetos) && options.objetos.length) {
+      const _sel = new Set(options.objetos);
+      objetos = objetos.filter(o => _sel.has(o.carpeta));
+      if (!objetos.length) {
+        _emit('mao:enrich:error', { message: 'Ninguno de los objetos seleccionados existe en la colección' });
+        return { enriched: 0, skipped: 0, errors: ['Selección vacía'], total: 0, exportDir: null };
+      }
+    }
     const total     = objetos.length;
     let enriched = 0, skipped = 0;
     const errors = [];
     const filasCsv = []; // acumula una fila por objeto para el CSV colección
 
     // Carpeta centralizada de exportación: {proyecto}/_exportados/YYYY-MM-DD/
+    // `options.exportDir` la sustituye (destino elegido por el usuario).
     const fechaExport = new Date().toISOString().slice(0, 10);
-    const exportDir   = `${project.folderPath}/_exportados/${fechaExport}`;
+    const exportDir   = options.exportDir || `${project.folderPath}/_exportados/${fechaExport}`;
     let   exportDirOk = false;
     try {
       if (window.electronAPI?.ensureFolder) {
@@ -2525,7 +2549,7 @@ class ProjectManager {
 
         // 3. Normalizar ID heredado con _IA_ (análisis anteriores al fix canónico)
         const metadataPath = `${folderPath}/metadata.json`;
-        if (analysis.nombreObjeto && typeof analysis.nombreObjeto === 'string') {
+        if (recalcular && analysis.nombreObjeto && typeof analysis.nombreObjeto === 'string') {
           // Solo leer/reescribir si el id del objeto en disco tiene _IA_ embebido
           const metaResult = await _fs.readFile ? _fs.readFile(metadataPath) :
                              (window.electronAPI ? await window.electronAPI.readFile(metadataPath) : { success: false });
@@ -2556,7 +2580,10 @@ class ProjectManager {
 
         let nuevasMetricas = {};
 
-        if (focalMM && sensorW && imgW && distanciaObjMM) {
+        // Exportación pura (`recalcular:false`): sin recómputo, `metricasFinal`
+        // queda siendo exactamente lo que hay en metricas.json.
+        if (!recalcular) { /* sin recómputo */ }
+        else if (focalMM && sensorW && imgW && distanciaObjMM) {
           const eo = window.estimarErrorOptico({
             objCentroide: { x: cx, y: cy },
             imgW, imgH, focalMM, sensorW, sensorH, distanciaObjMM
@@ -2593,7 +2620,7 @@ class ProjectManager {
         }
 
         // 4b. EFA retroactivo: si no hay _efa_data pero hay puntos de contorno, calcular ahora
-        if (!metricas._efa_data && window.PythonBridge && typeof window.PythonBridge.efa?.calculate === 'function') {
+        if (recalcular && !metricas._efa_data && window.PythonBridge && typeof window.PythonBridge.efa?.calculate === 'function') {
           const _contourPts = metricas._contour_data?.points;
           if (Array.isArray(_contourPts) && _contourPts.length >= 8) {
             try {
@@ -2626,9 +2653,11 @@ class ProjectManager {
           // aplicarIncertidumbreOptica ya escribe _incertidumbre_optica_aplicada = true
         }
 
-        // 6. Sellar con trazabilidad de versión
-        metricasFinal.enriched_at   = new Date().toISOString();
-        metricasFinal.mao_version   = MAO_VERSION;
+        // 6. Sellar con trazabilidad de versión (solo si hubo recómputo)
+        if (recalcular) {
+          metricasFinal.enriched_at = new Date().toISOString();
+          metricasFinal.mao_version = MAO_VERSION;
+        }
 
         // 7. Escribir metricas.json actualizado (sin tocar el resto de la carpeta)
         const metricasPath = `${folderPath}/metricas.json`;
@@ -2645,97 +2674,157 @@ class ProjectManager {
         const writeApi = window.electronAPI || null;
         if (!writeApi) { skipped++; errors.push(`${nombreObj}: sin API de escritura`); continue; }
 
-        const writeResult = await writeApi.saveFile(
-          metricasPath,
-          JSON.stringify(metricasDoc, null, 2)
-        );
-        if (!writeResult || !writeResult.success) {
-          errors.push(`${nombreObj}: error escribiendo metricas.json`);
-          skipped++;
-          continue;
+        // En exportación pura no se reescribe metricas.json: solo se lee para
+        // alimentar los informes.
+        if (recalcular) {
+          const writeResult = await writeApi.saveFile(
+            metricasPath,
+            JSON.stringify(metricasDoc, null, 2)
+          );
+          if (!writeResult || !writeResult.success) {
+            errors.push(`${nombreObj}: error escribiendo metricas.json`);
+            skipped++;
+            continue;
+          }
         }
 
-        // 7b-7c. Exportar EFA (CSV) y PDF a carpeta centralizada _exportados/FECHA/
+        // 7b-7e. Exportar a la carpeta centralizada de exportación.
+        //   EFA (CSV) · PDF · PNG (renders guardados) · SVG (trazado vectorial)
+        //   Cada formato se escribe solo si `options.formatos` lo pide.
         if (exportDirOk) {
           const objSlug = ref.carpeta.replace(/[^a-zA-Z0-9_-]/g, '_');
 
-          // EFA contorno principal
-          const efaContorno = metricasDoc.objeto && metricasDoc.objeto._efa_data;
-          if (efaContorno && Array.isArray(efaContorno.coefficients) && efaContorno.coefficients.length > 0) {
-            try {
-              await writeApi.saveFile(
-                `${exportDir}/${objSlug}_efa_contorno.csv`,
-                _buildEfaCsvContent(efaContorno, nombreObj, 'contorno')
-              );
-            } catch (_) { /* no crítico */ }
-          }
-
-          // EFA perforaciones y horadaciones
-          for (let _phIdx = 0; _phIdx < (metricasDoc.perforaciones || []).length; _phIdx++) {
-            const _phEfa = metricasDoc.perforaciones[_phIdx]._efa_data;
-            if (_phEfa && Array.isArray(_phEfa.coefficients) && _phEfa.coefficients.length > 0) {
+          if (fmt.efa) {
+            // EFA contorno principal
+            const efaContorno = metricasDoc.objeto && metricasDoc.objeto._efa_data;
+            if (efaContorno && Array.isArray(efaContorno.coefficients) && efaContorno.coefficients.length > 0) {
               try {
                 await writeApi.saveFile(
-                  `${exportDir}/${objSlug}_efa_perforacion_${_phIdx + 1}.csv`,
-                  _buildEfaCsvContent(_phEfa, nombreObj, `perforacion_${_phIdx + 1}`)
+                  `${exportDir}/${objSlug}_efa_contorno.csv`,
+                  _buildEfaCsvContent(efaContorno, nombreObj, 'contorno')
                 );
               } catch (_) { /* no crítico */ }
             }
-          }
-          for (let _hoIdx = 0; _hoIdx < (metricasDoc.horadaciones || []).length; _hoIdx++) {
-            const _hoEfa = metricasDoc.horadaciones[_hoIdx]._efa_data;
-            if (_hoEfa && Array.isArray(_hoEfa.coefficients) && _hoEfa.coefficients.length > 0) {
-              try {
-                await writeApi.saveFile(
-                  `${exportDir}/${objSlug}_efa_horadacion_${_hoIdx + 1}.csv`,
-                  _buildEfaCsvContent(_hoEfa, nombreObj, `horadacion_${_hoIdx + 1}`)
-                );
-              } catch (_) { /* no crítico */ }
-            }
-          }
 
-          // PDF del reporte enriquecido
-          if (typeof window.generarHTMLReporteParaBatch === 'function' &&
-              typeof window.electronAPI?.generatePDFFromHTML === 'function') {
-            try {
-              _emit('mao:enrich:progress', { done: i + 1, total, nombreObjeto: nombreObj, fase: 'pdf' });
-              // Imagen recortada del objeto
-              let imgBase64 = null;
-              for (const imgPath of [
-                `${folderPath}/imagenes/objeto_recortado.png`,
-                `${folderPath}/imagenes/objeto_recortado.jpg`,
-                `${folderPath}/imagenes/objeto.png`,
-              ]) {
-                const imgRes = await window.electronAPI.readFile(imgPath);
-                if (imgRes && imgRes.success && imgRes.content) { imgBase64 = imgRes.content; break; }
+            // EFA perforaciones y horadaciones
+            for (let _phIdx = 0; _phIdx < (metricasDoc.perforaciones || []).length; _phIdx++) {
+              const _phEfa = metricasDoc.perforaciones[_phIdx]._efa_data;
+              if (_phEfa && Array.isArray(_phEfa.coefficients) && _phEfa.coefficients.length > 0) {
+                try {
+                  await writeApi.saveFile(
+                    `${exportDir}/${objSlug}_efa_perforacion_${_phIdx + 1}.csv`,
+                    _buildEfaCsvContent(_phEfa, nombreObj, `perforacion_${_phIdx + 1}`)
+                  );
+                } catch (_) { /* no crítico */ }
               }
-              // PNGs de análisis ya renderizados — fuente canónica, sin recálculo
-              const _readImg = async (p) => {
-                const r = await window.electronAPI.readFile(p);
-                return (r && r.success && r.content) ? r.content : null;
-              };
-              const pngs = {
-                morf:  await _readImg(`${folderPath}/imagenes/analisis_morfologico.png`),
-                esqu:  await _readImg(`${folderPath}/imagenes/esquema_morfometrico.png`),
-                ideal: await _readImg(`${folderPath}/imagenes/forma_idealizada.png`),
-              };
-              const htmlReporte = await window.generarHTMLReporteParaBatch(
-                ref, metricasFinal, metricasDoc, pngs);
-              await window.electronAPI.generatePDFFromHTML(
-                htmlReporte, `${exportDir}/${objSlug}_reporte_MAO.pdf`);
-            } catch (_pdfErr) {
-              console.warn(`[enrichCollection] PDF error ${nombreObj}:`, _pdfErr.message, _pdfErr.stack);
             }
-          } else {
-            // ADR-017 F1: este gate estuvo siempre falso desde bc9cdc9 y el PDF se
-            // saltaba sin dejar rastro. Que se note cuál de las dos piezas falta.
-            console.warn(
-              `[enrichCollection] PDF omitido para ${nombreObj} — falta: ` +
-              [
-                typeof window.generarHTMLReporteParaBatch !== 'function' && 'window.generarHTMLReporteParaBatch',
-                typeof window.electronAPI?.generatePDFFromHTML !== 'function' && 'electronAPI.generatePDFFromHTML',
-              ].filter(Boolean).join(', ')
-            );
+            for (let _hoIdx = 0; _hoIdx < (metricasDoc.horadaciones || []).length; _hoIdx++) {
+              const _hoEfa = metricasDoc.horadaciones[_hoIdx]._efa_data;
+              if (_hoEfa && Array.isArray(_hoEfa.coefficients) && _hoEfa.coefficients.length > 0) {
+                try {
+                  await writeApi.saveFile(
+                    `${exportDir}/${objSlug}_efa_horadacion_${_hoIdx + 1}.csv`,
+                    _buildEfaCsvContent(_hoEfa, nombreObj, `horadacion_${_hoIdx + 1}`)
+                  );
+                } catch (_) { /* no crítico */ }
+              }
+            }
+          }
+
+          if (fmt.pdf) {
+            // PDF del reporte enriquecido
+            if (typeof window.generarHTMLReporteParaBatch === 'function' &&
+                typeof window.electronAPI?.generatePDFFromHTML === 'function') {
+              try {
+                _emit('mao:enrich:progress', { done: i + 1, total, nombreObjeto: nombreObj, fase: 'pdf' });
+                // Imagen recortada del objeto
+                let imgBase64 = null;
+                for (const imgPath of [
+                  `${folderPath}/imagenes/objeto_recortado.png`,
+                  `${folderPath}/imagenes/objeto_recortado.jpg`,
+                  `${folderPath}/imagenes/objeto.png`,
+                ]) {
+                  const imgRes = await window.electronAPI.readFile(imgPath);
+                  if (imgRes && imgRes.success && imgRes.content) { imgBase64 = imgRes.content; break; }
+                }
+                // PNGs de análisis ya renderizados — fuente canónica, sin recálculo
+                const _readImg = async (p) => {
+                  const r = await window.electronAPI.readFile(p);
+                  return (r && r.success && r.content) ? r.content : null;
+                };
+                const pngs = {
+                  morf:  await _readImg(`${folderPath}/imagenes/analisis_morfologico.png`),
+                  esqu:  await _readImg(`${folderPath}/imagenes/esquema_morfometrico.png`),
+                  ideal: await _readImg(`${folderPath}/imagenes/forma_idealizada.png`),
+                };
+                const htmlReporte = await window.generarHTMLReporteParaBatch(
+                  ref, metricasFinal, metricasDoc, pngs);
+                await window.electronAPI.generatePDFFromHTML(
+                  htmlReporte, `${exportDir}/${objSlug}_reporte_MAO.pdf`);
+              } catch (_pdfErr) {
+                console.warn(`[enrichCollection] PDF error ${nombreObj}:`, _pdfErr.message, _pdfErr.stack);
+              }
+            } else {
+              // ADR-017 F1: este gate estuvo siempre falso desde bc9cdc9 y el PDF se
+              // saltaba sin dejar rastro. Que se note cuál de las dos piezas falta.
+              console.warn(
+                `[enrichCollection] PDF omitido para ${nombreObj} — falta: ` +
+                [
+                  typeof window.generarHTMLReporteParaBatch !== 'function' && 'window.generarHTMLReporteParaBatch',
+                  typeof window.electronAPI?.generatePDFFromHTML !== 'function' && 'electronAPI.generatePDFFromHTML',
+                ].filter(Boolean).join(', ')
+              );
+            }
+          }
+
+          // ── PNG: copia de los renders canónicos ya guardados con el análisis.
+          //    Se copian tal cual (no se re-renderizan): son la misma imagen que
+          //    produce el botón «PNG — Morfología con escala» en su momento.
+          if (fmt.png && typeof window.electronAPI?.copyFile === 'function') {
+            _emit('mao:enrich:progress', { done: i + 1, total, nombreObjeto: nombreObj, fase: 'png' });
+            for (const [src, sufijo] of [
+              ['analisis_morfologico.png', 'morfologico'],
+              ['esquema_morfometrico.png', 'esquema'],
+              ['forma_idealizada.png',     'idealizada'],
+            ]) {
+              try {
+                await window.electronAPI.copyFile(
+                  `${folderPath}/imagenes/${src}`,
+                  `${exportDir}/${objSlug}_${sufijo}.png`
+                );   // devuelve {success:false} si el render no existe — no crítico
+              } catch (_) { /* no crítico */ }
+            }
+          }
+
+          // ── SVG: trazado vectorial, mismo motor que la exportación interactiva.
+          //    Frontera de contrato con collection.js (ver ADR-017 F1): si el
+          //    productor no está expuesto, se avisa en vez de omitir en silencio.
+          if (fmt.svg) {
+            if (typeof window.generarSVGMorfologicoParaLote === 'function') {
+              try {
+                _emit('mao:enrich:progress', { done: i + 1, total, nombreObjeto: nombreObj, fase: 'svg' });
+                // geometria.json ES un geometryData serializado — fuente preferida
+                let _geo = null;
+                try {
+                  const _geoRes = await window.electronAPI.readFile(`${folderPath}/geometria.json`);
+                  if (_geoRes && _geoRes.success) _geo = JSON.parse(_geoRes.content);
+                } catch (_) { /* se reconstruye desde metricas.json */ }
+
+                const svgContent = await window.generarSVGMorfologicoParaLote(
+                  ref, metricasFinal, metricasDoc, _geo);
+                if (svgContent) {
+                  await writeApi.saveFile(`${exportDir}/${objSlug}_geometria.svg`, svgContent);
+                } else {
+                  console.warn(`[enrichCollection] SVG omitido para ${nombreObj} — sin geometría utilizable`);
+                }
+              } catch (_svgErr) {
+                console.warn(`[enrichCollection] SVG error ${nombreObj}:`, _svgErr.message);
+              }
+            } else {
+              console.warn(
+                `[enrichCollection] SVG omitido para ${nombreObj} — falta: window.generarSVGMorfologicoParaLote`
+              );
+            }
           }
         }
 
@@ -2756,14 +2845,19 @@ class ProjectManager {
     }
 
     // 8. Regenerar resumen CSV del proyecto con datos actualizados
-    try { await this.updateProjectSummaryCSV(); } catch (_) { /* no crítico */ }
+    //    (solo tras un recómputo: en exportación pura nada cambió en disco)
+    if (recalcular) {
+      try { await this.updateProjectSummaryCSV(); } catch (_) { /* no crítico */ }
+    }
 
     // 9. Guardar CSV de colección en _exportados/ + descarga en browser
-    if (filasCsv.length > 0) {
+    if (fmt.csvColeccion && filasCsv.length > 0) {
       try {
         const csvContent = _buildEnrichCsvContent(collection.nombre || project.name, filasCsv);
         const csvSlug    = (collection.nombre || project.name).replace(/[^a-zA-Z0-9_-]/g, '_');
-        const csvName    = `${csvSlug}_enriquecido_${fechaExport}.csv`;
+        const csvName    = recalcular
+          ? `${csvSlug}_enriquecido_${fechaExport}.csv`
+          : `${csvSlug}_exportado_${fechaExport}.csv`;
         // Guardar copia en _exportados/ para tenerlo junto a PDFs y EFAs
         if (exportDirOk) {
           try {
@@ -2777,7 +2871,12 @@ class ProjectManager {
 
     // El evento mao:enrich:complete lo emite el listener en analysis-core.js
     // desde el .then() del Promise — no emitirlo aquí para evitar doble disparo.
-    return { enriched, skipped, errors, total, exportDir: exportDirOk ? exportDir : null };
+    return {
+      enriched, skipped, errors, total,
+      exportDir: exportDirOk ? exportDir : null,
+      formatos : fmt,
+      recalculado: recalcular
+    };
   }
 }
 

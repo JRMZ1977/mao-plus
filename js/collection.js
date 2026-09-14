@@ -1196,7 +1196,7 @@ function renderGeometryCanvas(geometryData, options = {}) {
 /**
  * Exportar geometría a formato SVG vectorial
  */
-async function exportGeometryToSVG() {
+async function exportGeometryToSVG(opts = {}) {
   if (!window.currentGeometryData || !window.currentAnalysisData) {
     toast.error('No hay geometría cargada para exportar');
     return;
@@ -1551,6 +1551,11 @@ async function exportGeometryToSVG() {
 
   // Cerrar SVG
   svg += `</svg>`;
+
+  // Modo lote: devolver el string y no abrir diálogo ni emitir toast. El llamador
+  // (enrichCollection) escribe el archivo en la carpeta de exportación. Aditivo:
+  // sin `opts.returnString` el flujo interactivo queda exactamente igual.
+  if (opts && opts.returnString) return svg;
 
   // Guardar usando el mismo flujo de diálogo nativo que CSV y PDF
   // String(): `analysis.id` hereda de `obj.id` (línea ~153), que es numérico en
@@ -2777,29 +2782,143 @@ async function exportarPDFDesdeViewer() {
 }
 
 /**
- * 📐 Exportar geometría del análisis morfológico ACTIVO como SVG vectorial
- * Funciona desde el panel de análisis (monofacial/bifacial), incluyendo P/H
+ * Reconstruye un objeto compatible con construirGeometryDataMorfologico a partir de
+ * lo que hay en disco (metricas.json), sin objeto vivo en el canvas.
+ *
+ * El bounding box no se persiste como tal: se deriva del contorno (o del hull), que
+ * es exactamente la caja que necesita el viewBox del SVG.
+ *
+ * @param {Object} ref          - entrada del índice de colección (carpeta, nombreObjeto, cara…)
+ * @param {Object} metricasFinal- metricasDoc.objeto ya enriquecido
+ * @param {Object} metricasDoc  - documento completo (incluye perforaciones/horadaciones)
+ * @returns {Object|null} objeto sintético, o null si no hay geometría utilizable
  */
-async function exportarSVGMorfologicoActual() {
-  const _cao = window.currentAnalyzedObject;
-  if (!_cao || !_cao.obj) {
-    toast.error('No hay análisis morfológico activo para exportar como SVG');
-    return;
+function construirObjetoDesdeDisco(ref, metricasFinal, metricasDoc) {
+  const m   = metricasFinal || {};
+  const doc = metricasDoc   || {};
+
+  const contorno = m._contour_data?.points || [];
+  const hull     = m._contour_data?.metrics?.convex_hull || [];
+  if (!contorno.length && !hull.length) return null;
+
+  // Derivar bbox del contorno (fallback: hull). Los puntos pueden venir como
+  // [x,y] o {x,y} — mismo par de accesores que usa exportGeometryToSVG.
+  const base = contorno.length ? contorno : hull;
+  const px = (p) => (Array.isArray(p) ? p[0] : (p && p.x)) || 0;
+  const py = (p) => (Array.isArray(p) ? p[1] : (p && p.y)) || 0;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of base) {
+    const x = px(p), y = py(p);
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  if (!isFinite(minX) || !isFinite(minY)) return null;
+
+  return {
+    id            : ref?.carpeta || m.id || 'objeto',
+    nombre        : ref?.nombreObjeto || ref?.carpeta || 'objeto',
+    tipo          : ref?.modo || 'monofacial',
+    cara          : ref?.cara || null,
+    unidad        : 'mm',
+    metricas      : m,
+    convexHull    : hull,
+    perforaciones : doc.perforaciones || [],
+    horadaciones  : doc.horadaciones  || [],
+    minX, minY, maxX, maxY,
+    width : maxX - minX,
+    height: maxY - minY
+  };
+}
+
+/**
+ * Genera el SVG morfológico de un objeto guardado, para la exportación por lote.
+ * Reusa exactamente el mismo motor que la exportación interactiva
+ * (construirGeometryDataMorfologico → exportGeometryToSVG), así que el archivo
+ * es idéntico al que produciría el botón «SVG — Trazado vectorial».
+ *
+ * Fuente preferida: `geometria.json`, que ES un geometryData serializado (mismo
+ * contrato que consume exportGeometryToSVG) y por tanto reproduce la geometría tal
+ * como se guardó. Solo si falta o viene vacío se reconstruye desde metricas.json.
+ *
+ * @param {Object} ref
+ * @param {Object} metricasFinal
+ * @param {Object} metricasDoc
+ * @param {Object} [geometriaGuardada] - contenido de geometria.json, si se pudo leer
+ * @returns {Promise<string|null>} contenido SVG, o null si el objeto no tiene geometría
+ */
+async function generarSVGMorfologicoParaLote(ref, metricasFinal, metricasDoc, geometriaGuardada) {
+  let geometryData = null;
+  let obj = null;
+
+  const _tieneTrazo = (g) => !!(g && ((g.contornoReal?.puntos || []).length ||
+                                      (g.convexHull?.puntos   || []).length));
+
+  if (_tieneTrazo(geometriaGuardada)) {
+    geometryData = geometriaGuardada;
+    // geometria.json no siempre trae escala ni P/H: completarlos desde metricas.json
+    // sin pisar lo que ya venga guardado.
+    if (!geometryData.escala || !(geometryData.escala.factorConversion || geometryData.escala.factor)) {
+      const _mm = parseFloat(metricasFinal?.eje_mayor_real_longitud)    || 0;
+      const _px = parseFloat(metricasFinal?.eje_mayor_real_longitud_px) || 0;
+      const _f  = (_mm > 0 && _px > 0) ? _mm / _px : 1;
+      geometryData = { ...geometryData, escala: { factorConversion: _f, factor: _f, unidades: 'mm' } };
+    }
+    if (!Array.isArray(geometryData.perforaciones) || !geometryData.perforaciones.length) {
+      geometryData = { ...geometryData, perforaciones: (metricasDoc?.perforaciones || []) };
+    }
+    if (!Array.isArray(geometryData.horadaciones) || !geometryData.horadaciones.length) {
+      geometryData = { ...geometryData, horadaciones: (metricasDoc?.horadaciones || []) };
+    }
+    obj = { nombre: ref?.nombreObjeto || ref?.carpeta, id: ref?.carpeta,
+            tipo: ref?.modo || 'monofacial', cara: ref?.cara || null };
+  } else {
+    obj = construirObjetoDesdeDisco(ref, metricasFinal, metricasDoc);
+    if (!obj) return null;
+    geometryData = construirGeometryDataMorfologico(obj, obj.metricas);
   }
 
-  const obj = _cao.obj;
-  const m = obj.metricas || {};
+  const analysisData = {
+    nombreObjeto: String(obj.nombre || obj.id || 'Objeto'),
+    modo        : obj.tipo || 'monofacial',
+    cara        : obj.cara || null
+  };
 
-  // Los datos geométricos viven directamente en obj.metricas y obj.*
-  const contornoPuntos = m._contour_data?.points || [];
+  // exportGeometryToSVG lee de window.current*Data; preservamos y restauramos el
+  // estado del visor igual que hace exportarSVGMorfologicoActual.
+  const prevGeometry = window.currentGeometryData;
+  const prevAnalysis = window.currentAnalysisData;
+  window.currentGeometryData = geometryData;
+  window.currentAnalysisData = analysisData;
+  try {
+    return await exportGeometryToSVG({ returnString: true });
+  } finally {
+    window.currentGeometryData = prevGeometry;
+    window.currentAnalysisData = prevAnalysis;
+  }
+}
+
+/**
+ * Construye el `geometryData` que consume exportGeometryToSVG a partir de un objeto
+ * analizado y sus métricas. Pura: no toca DOM ni estado global (salvo la lectura de
+ * `window.currentScale` como último fallback del factor mm/px).
+ *
+ * Extraída de exportarSVGMorfologicoActual para que la exportación por lote
+ * (projectManager.enrichCollection) pueda generar SVG desde los datos en disco,
+ * sin objeto vivo en el canvas.
+ *
+ * @param {Object} obj - objeto analizado (contorno, hull, bbox, P/H)
+ * @param {Object} m   - obj.metricas (ejes, centroides, radios, escala)
+ * @returns {Object} geometryData
+ */
+function construirGeometryDataMorfologico(obj, m) {
+  obj = obj || {};
+  m   = m   || {};
+  // Estas dos vivían en el scope de exportarSVGMorfologicoActual; al extraer el
+  // literal hay que redeclararlas aquí (misma derivación que hacía el llamador).
+  const contornoPuntos   = m._contour_data?.points || [];
   const convexHullPuntos = obj.convexHull || [];
-
-  if (!contornoPuntos.length && !convexHullPuntos.length) {
-    toast.warning('Sin datos geométricos disponibles. Asegúrate de haber ejecutado el análisis morfológico completo.');
-    return;
-  }
-
-  // Construir geometryData compatible con exportGeometryToSVG desde propiedades de obj
   const geometryData = {
     contornoReal: {
       puntos: contornoPuntos,
@@ -2904,6 +3023,35 @@ async function exportarSVGMorfologicoActual() {
       return { factorConversion: _factor, factor: _factor, unidades: obj.unidad || 'mm' };
     })()
   };
+
+  return geometryData;
+}
+
+/**
+ * 📐 Exportar geometría del análisis morfológico ACTIVO como SVG vectorial
+ * Funciona desde el panel de análisis (monofacial/bifacial), incluyendo P/H
+ */
+async function exportarSVGMorfologicoActual() {
+  const _cao = window.currentAnalyzedObject;
+  if (!_cao || !_cao.obj) {
+    toast.error('No hay análisis morfológico activo para exportar como SVG');
+    return;
+  }
+
+  const obj = _cao.obj;
+  const m = obj.metricas || {};
+
+  // Los datos geométricos viven directamente en obj.metricas y obj.*
+  const contornoPuntos = m._contour_data?.points || [];
+  const convexHullPuntos = obj.convexHull || [];
+
+  if (!contornoPuntos.length && !convexHullPuntos.length) {
+    toast.warning('Sin datos geométricos disponibles. Asegúrate de haber ejecutado el análisis morfológico completo.');
+    return;
+  }
+
+  // Construir geometryData compatible con exportGeometryToSVG desde propiedades de obj
+  const geometryData = construirGeometryDataMorfologico(obj, m);
 
   // Construir analysisData para metadatos SVG.
   // String(): `obj.id` es NUMÉRICO en detección automática (`id: index + 1`), y los
@@ -4568,6 +4716,13 @@ function initCollectionExplorer() {
 // Exponer API mínima para otros módulos (projects-ui.js)
 window.openCollectionExplorer = openCollectionExplorer;
 window.abrirCarpetaAnalisis = abrirCarpetaAnalisis;
+
+// Frontera de contrato con projectManager.enrichCollection (exportación por lote).
+// Se expone explícitamente —y el consumidor la gatea con `typeof … === 'function'`—
+// por la lección de ADR-017 F1: cuando el productor deja de ser global, el gate del
+// consumidor queda falso y la exportación se omite EN SILENCIO.
+window.generarSVGMorfologicoParaLote  = generarSVGMorfologicoParaLote;
+window.construirGeometryDataMorfologico = construirGeometryDataMorfologico;
 
 // Inicializar al cargar
 if (document.readyState === 'loading') {
