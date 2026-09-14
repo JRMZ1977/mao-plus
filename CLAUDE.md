@@ -118,6 +118,52 @@ Sesgo sistemático multiplicativo **f/(d−f)**: 20 % con f=50/d=300 (el propio 
   contenedor con distintas dependencias opcionales. **Comparar deltas, no absolutos.**
 - **Pendiente:** verificación visual en Electron de los rótulos del comparador (`node --check`
   no ve layout) · ADR-018 para O-1 · estimador robusto (MCD / Ledoit-Wolf) para `n < 3p`.
+## 🎯 Sesión 2026-09-14 (b) — ADR-017 F6: plantilla ANILLO (corona circular)
+
+**La primera plantilla que no sale del banco sino del material**: dos fotos reales de La Draga
+—una cuenta discoidal perforada íntegra y un fragmento de cuenta anular roto por el orificio—.
+El segundo caso el círculo NO puede explicarlo: se queda con el margen exterior y manda el
+borde de la perforación al saco de la fractura, hundiendo el soporte bajo el umbral.
+
+- **Modelo:** dos circunferencias **concéntricas**, `R` y `r`. La concentricidad es deliberada
+  (es la forma ideal); dejar el 2º centro suelto le permitiría amoldarse a cualquier fractura.
+  Una perforación descentrada de verdad sale con más residuo y menos inliers — como debe verse.
+- **NO va por el repertorio ICP, y es la decisión de fondo:** el ICP sólo tiene una **semejanza**
+  (Umeyama: rotación, escala, traslación) y `r/R` es un parámetro de **FORMA**, no de escala.
+  Una plantilla anular fija sólo emparejaría piezas con esa razón exacta → habría que registrar
+  una por proporción. Por la vía analítica `r/R` se **estima del contorno**: 0,42 medido sobre
+  0,423 real, y bien también en 120/30 y 140/95.
+- **El 2º círculo se busca por la distancia radial al centro ya ajustado**: histograma de ancho
+  = tolerancia, y las cimas se juzgan por **CONTIGÜIDAD**, no por nº de puntos — mismo criterio
+  E1: el borde de una perforación es un arco contiguo; la fractura se reparte por toda la banda.
+- **Anillo vs círculo se decide por SOPORTE, no por residuo.** El anillo no ajusta mejor cada
+  punto: explica más puntos. Gana sólo si da cuenta de ≥15 pp más de contorno; si empata, se
+  queda la forma simple (Occam sobre el eje donde este modelo aporta).
+- **Medido:** 75 → **75,5** · 60 → **60,5** · 50 → **50,6** · 40 → **40,8** · 30 → **30,8** %.
+  Rechaza disco íntegro, sector de disco, medio disco y rectángulo.
+- **Umbral 0,60 del BANCO, no mío:** puse 0,55 por criterio y el banco mostró que aceptaba el
+  **11 %** de las formas bajo el 15 % de completitud, y que 0,60 lo lleva a cero **sin coste**
+  (misma cobertura 92 %, mismo MAE 0,96, mismo peor 6,3). Segundo umbral que el banco corrige.
+- **Obligó a tocar el lienzo:** un anillo son **dos curvas cerradas**; sin separarlas la capa de
+  F5 uniría el final de una con el principio de la otra y dibujaría un **radio inexistente**. De
+  ahí `plantilla_contorno_componente` y el recorrido por componentes (cada una envuelve dentro
+  de su propio rango). Gate ampliado a 25 comprobaciones, 5 de ellas del anillo.
+- ⚠ **Gotcha de muestreo que costó una hora:** mi primer generador de anillos usaba el **mismo
+  nº de puntos** en los dos arcos → el interior quedaba a 0,57 px de paso, más fino que el ruido
+  (1,2 px), su polilínea se inflaba al doble y el ajuste elegía el círculo **INTERIOR** creyéndolo
+  el exterior. Era fallo del fixture (`findContours` da paso uniforme), pero la lección general
+  es: **un contorno sobremuestreado por debajo del ruido falsea cualquier criterio de longitud
+  de arco** — y los de este módulo lo son.
+- **Verificado en Electron real** con fixture nuevo `sintetico_anillo_fragmento.png` (60 % sobre
+  fondo oscuro): medido **60,37 %**, soporte 0,854, 154/256 puntos respaldados, elegido `anillo`
+  sobre círculo y elipse, 0 errores. Confirma lo que ningún test de puntos podía: que
+  `contour.extract` **conserva el arco de la perforación** en un fragmento abierto (el
+  `MORPH_CLOSE` no sella la boca de la C).
+- **Verificado:** suite **431 passed / 4 skipped** (antes 416/4) · gate 25/25 · `node --check` ·
+  py3.9 · cache-bust `?v=20260914c`. `anillo` añadida al repertorio del botón (es analítica:
+  cuesta lo mismo que un círculo) y a `plantillas_disponibles()`, que hasta ahora **omitía las
+  analíticas** — un selector construido desde esa lista no ofrecía ni círculo ni elipse.
+
 ## 🎯 Sesión 2026-09-14 — ADR-017 F5: la plantilla, sobre el lienzo
 
 F3 la anotó como «lo primero de F4»; F4 acabó siendo la calibración, así que la capa visual

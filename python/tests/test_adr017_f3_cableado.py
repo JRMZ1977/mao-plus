@@ -361,6 +361,31 @@ def test_solo_lo_confirmado_llega_a_la_fila():
         )
 
 
+def test_el_anillo_esta_en_el_repertorio_del_boton():
+    """
+    Una plantilla que el backend sabe ajustar pero que el botón no pide es una
+    capacidad muerta — la lección de F3. `anillo` cubre cuentas perforadas,
+    arandelas y brazaletes rotos por el orificio, que es material corriente.
+    """
+    s = _txt(ORGANIZER)
+    bloque = s[s.index("PLANTILLAS_POR_DEFECTO"):s.index("function formaEstado")]
+    assert "'anillo'" in bloque, "el botón no pide la plantilla anular"
+
+
+def test_el_anillo_conserva_sus_dos_componentes_al_confirmar():
+    """Sin el índice de componente, la decisión confirmada se dibujaría uniendo
+    las dos circunferencias con un radio que no existe."""
+    s = _txt(ORGANIZER)
+    bloque = s[s.index("function confirmarPlantilla"):s.index("function descartarPlantilla")]
+    assert "contorno_componente: c.plantilla_contorno_componente" in bloque
+    assert "d.contorno_componente" in _txt(CORE), (
+        "la capa del lienzo no lee el componente de lo confirmado"
+    )
+    assert "c.plantilla_contorno_componente" in _txt(CORE), (
+        "la capa del lienzo no lee el componente del candidato"
+    )
+
+
 def test_las_llamadas_a_toast_respetan_la_firma():
     """
     `MaoOrganizer.toast(kind, msg)` — con los argumentos invertidos no lanza: hace

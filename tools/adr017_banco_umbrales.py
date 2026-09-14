@@ -91,6 +91,27 @@ def _sector_elipse(frac, ruido, a=120.0, b=60.0, th=0.4):
     return _ruido(_densificar(poly), ruido)
 
 
+def _sector_anillo(frac, ruido, R=130.0, r=55.0, paso=1.5):
+    """Sector de corona circular — la cuenta perforada rota por el orificio.
+
+    El muestreo es PROPORCIONAL a la longitud de cada arco. No es un detalle: con
+    el mismo número de puntos en los dos arcos, el interior queda con un paso
+    mucho más fino que la amplitud del ruido, su longitud de polilínea se infla
+    al doble y el ajuste robusto elige el círculo interior como si fuera el
+    margen exterior. Un contorno de `findContours` tiene paso uniforme.
+    """
+    ang = 2 * math.pi * frac / 100.0
+    ne = max(12, int(R * ang / paso))
+    ni = max(8, int(r * ang / paso))
+    ext = [[CENTRO[0] + R * math.cos(ang * i / ne),
+            CENTRO[1] + R * math.sin(ang * i / ne)] for i in range(ne + 1)]
+    if frac >= 100:
+        return _ruido(_densificar(ext[:-1], paso), ruido)
+    itn = [[CENTRO[0] + r * math.cos(ang - ang * i / ni),
+            CENTRO[1] + r * math.sin(ang - ang * i / ni)] for i in range(ni + 1)]
+    return _ruido(_densificar(ext + itn, paso), ruido)
+
+
 def _controles_negativos(ruido):
     """Formas SIN círculo ni elipse subyacente: aceptarlas sería un falso positivo."""
     ctrl = {}
@@ -118,13 +139,13 @@ def _controles_negativos(ruido):
 
 # ── Ajuste (una vez por forma) ──────────────────────────────────────────────
 
-def _match(pts):
+def _match(pts, templates=("circulo", "elipse")):
     """Umbrales PERMISIVOS: se quieren los números crudos de cada candidato."""
     loop = asyncio.new_event_loop()
     try:
         return loop.run_until_complete(
-            st.match(pts, templates=["circulo", "elipse"],
-                     min_arco_fraccion={"circulo": 0.0, "elipse": 0.0})
+            st.match(pts, templates=list(templates),
+                     min_arco_fraccion={t: 0.0 for t in templates})
         )
     finally:
         loop.close()
@@ -134,10 +155,13 @@ def construir_banco(rapido=False):
     ruidos = [1.2] if rapido else RUIDOS
     comps = [100, 75, 50, 25, 15, 10] if rapido else COMPLETITUDES
     filas = []
-    for fam, gen in (("circulo", _sector_circulo), ("elipse", _sector_elipse)):
+    familias = (("circulo", _sector_circulo, ("circulo", "elipse")),
+                ("elipse", _sector_elipse, ("circulo", "elipse")),
+                ("anillo", _sector_anillo, ("circulo", "elipse", "anillo")))
+    for fam, gen, tpls in familias:
         for frac in comps:
             for rz in ruidos:
-                r = _match(gen(frac, rz))
+                r = _match(gen(frac, rz), tpls)
                 for c in r.get("candidatos", []):
                     if "completitud" not in c:
                         continue
@@ -149,7 +173,7 @@ def construir_banco(rapido=False):
                     })
     for rz in ruidos:
         for et, pts in _controles_negativos(rz).items():
-            r = _match(pts)
+            r = _match(pts, ("circulo", "elipse", "anillo"))
             for c in r.get("candidatos", []):
                 if "completitud" not in c:
                     continue
@@ -164,11 +188,22 @@ def construir_banco(rapido=False):
 
 # ── Barrido post-hoc de umbrales ────────────────────────────────────────────
 
-def evaluar(filas, arco_c, arco_e, comp_min):
-    """Aplica un juego de umbrales al banco ya ajustado y mide su coste."""
+def evaluar(filas, arco_c, arco_e, comp_min, arco_a=None, familia=None):
+    """Aplica un juego de umbrales al banco ya ajustado y mide su coste.
+
+    `familia`: si se da, sólo se evalúan las formas de esa familia (más los
+    controles negativos, que deben rechazarse siempre). Sirve para calibrar el
+    anillo sin mezclarlo con círculo y elipse.
+    """
+    umbrales = {"circulo": arco_c, "elipse": arco_e,
+                "anillo": arco_c if arco_a is None else arco_a}
+
     def acepta(f):
-        umbral = arco_c if f["tipo"] == "circulo" else arco_e
-        return f["arco"] > umbral and f["completitud"] >= comp_min * 100
+        return (f["arco"] > umbrales.get(f["tipo"], arco_e)
+                and f["completitud"] >= comp_min * 100)
+
+    if familia:
+        filas = [f for f in filas if f["negativo"] or f["familia"] == familia]
 
     # Dentro de la envolvente: ¿se acepta la plantilla CORRECTA, y con qué error?
     dentro = [f for f in filas if not f["negativo"] and f["verdad"] >= ENVOLVENTE_MIN]
@@ -269,6 +304,23 @@ def main():
             print(f"    arco_c={p[0]:.2f} arco_e={p[1]:.2f} comp={p[2]:.2f} → "
                   f"cobertura {m['cobertura']*100:.0f}% · MAE {m['mae']:.2f} pp · "
                   f"peor {m['peor']:.1f} pp · falsos {m['falso_negativo']*100:.0f}%")
+
+    # ── Plantilla ANILLO ────────────────────────────────────────────────────
+    # Se calibra aparte y no como un cuarto eje de la rejilla: el anillo compite
+    # con el círculo por la misma pieza, no con la elipse, y mezclar sus formas
+    # con las demás familias diluiría justo lo que hay que medir.
+    print("\nBARRIDO DEL ANILLO (círculo y elipse fijos en sus valores calibrados)")
+    print(f"{'arco_a':>7} | {'cobertura':>10} {'MAE(pp)':>8} {'PEOR(pp)':>9} "
+          f"{'falso<15%':>10} {'falso neg':>10}")
+    print("-" * 62)
+    rejilla_a = []
+    for arco_a in (0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75):
+        m = evaluar(filas, actual[0], actual[1], actual[2], arco_a=arco_a, familia="anillo")
+        rejilla_a.append((arco_a, m))
+        marca = "  ← ACTUAL" if abs(arco_a - st._MIN_ARCO_FRACCION.get("anillo", 0)) < 1e-9 else ""
+        print(f"{arco_a:>7.2f} | {m['cobertura']*100:>9.0f}% {m['mae']:>8.2f} "
+              f"{m['peor']:>9.1f} {m['falso_degenerado']*100:>9.0f}% "
+              f"{m['falso_negativo']*100:>9.0f}%{marca}")
 
     print("\n⚠ Corpus SINTÉTICO. La calibración contra piezas reales con verdad-terreno")
     print("  de observador sigue pendiente — ver docs/VALIDACION-PLANTILLAS.md.")

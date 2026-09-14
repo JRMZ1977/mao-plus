@@ -1033,7 +1033,16 @@ contorno + 15 controles negativos):
    40-43 % medido). Es mecánico: con poco arco el mejor ajuste es una elipse *más pequeña* que la
    original, de modo que la fracción cubierta **de esa elipse** resulta mayor. Por debajo del 50 %
    preservado, la completitud de una elipse debe leerse como **cota superior**.
-3. **Lo verificado es autoconsistencia, no acuerdo con un observador.** El banco compara contra
+3. **La plantilla ANILLO** (corona circular, ADR-017 F6) cubre la cuenta perforada rota por el
+   orificio, que el círculo no puede explicar: se queda con el margen exterior y manda el borde de
+   la perforación al residuo de fractura. Son dos circunferencias **concéntricas** cuya razón
+   $r/R$ se **estima del contorno** —no se fija—, y por eso no puede ir por el ICP del repertorio:
+   una semejanza (Umeyama 1991) mueve escala, rotación y traslación, pero $r/R$ es un parámetro de
+   *forma*. La completitud es entonces la cobertura de la longitud de arco de **las dos**
+   circunferencias, ponderada por su propio perímetro:
+   $$\texttt{completitud}_{\text{anillo}}=\frac{c_{\text{ext}}\,R+c_{\text{int}}\,r}{R+r}$$
+   Medido sobre sectores de corona: 75 → 75,5 · 60 → 60,5 · 50 → 50,6 · 40 → 40,8 · 30 → 30,8 %.
+4. **Lo verificado es autoconsistencia, no acuerdo con un observador.** El banco compara contra
    formas generadas con completitud impuesta. La concordancia con el juicio de un arqueólogo sobre
    piezas reales —ICC de acuerdo absoluto, Bland-Altman, κ del tipo de plantilla— está
    instrumentada (`tools/adr017_calibracion_draga.py`) pero **aún no ejecutada**: hasta entonces,

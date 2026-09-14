@@ -510,6 +510,110 @@ def test_el_icp_tambien_publica_la_mascara():
     assert abs(visto - r["plantilla_completitud"]) <= 5.0
 
 
+# ── Plantilla ANILLO (corona circular) ──────────────────────────────────────
+#
+# La pide el material: una cuenta perforada rota por el orificio deja un contorno
+# con DOS arcos de radios distintos, y el círculo sólo puede explicar uno — el
+# otro cuenta como fractura y hunde el soporte por debajo del umbral.
+
+def _anillo(frac, R=130.0, r=55.0, ruido=1.2, paso=1.5):
+    """Sector de corona. Muestreo PROPORCIONAL a la longitud de cada arco.
+
+    No es cosmético: con el mismo número de puntos en los dos arcos, el interior
+    queda con un paso más fino que la amplitud del ruido, la longitud de su
+    polilínea se infla al doble y el ajuste robusto elige el círculo INTERIOR
+    creyéndolo el margen exterior. Un contorno real tiene paso uniforme.
+    """
+    ang = 2 * math.pi * frac
+    ne = max(12, int(R * ang / paso))
+    ni = max(8, int(r * ang / paso))
+    ext = [[CENTRO[0] + R * math.cos(ang * i / ne),
+            CENTRO[1] + R * math.sin(ang * i / ne)] for i in range(ne + 1)]
+    itn = [[CENTRO[0] + r * math.cos(ang - ang * i / ni),
+            CENTRO[1] + r * math.sin(ang - ang * i / ni)] for i in range(ni + 1)]
+    return _ruido(_densificar(ext + itn, paso), ruido)
+
+
+@pytest.mark.parametrize("frac", [0.75, 0.60, 0.50, 0.40, 0.30])
+def test_completitud_del_anillo(frac):
+    r = _correr(_anillo(frac), templates=["circulo", "elipse", "anillo"])
+    assert r["plantilla_tipo"] == "anillo", (
+        f"eligió '{r['plantilla_tipo']}': el círculo sólo explica el margen "
+        f"exterior y manda el borde de la perforación a la fractura"
+    )
+    assert abs(r["plantilla_completitud"] - frac * 100) <= 3.0, r["plantilla_completitud"]
+
+
+def test_el_anillo_recupera_la_razon_de_la_perforacion():
+    """`r/R` es un parámetro de FORMA y se estima del contorno, no se fija.
+
+    Es la razón por la que el anillo NO puede ir por el repertorio ICP: una
+    semejanza (Umeyama) mueve escala, rotación y traslación, pero no cambia r/R.
+    Una plantilla anular fija sólo emparejaría piezas con esa razón exacta.
+    """
+    for R, r_int in ((130.0, 55.0), (120.0, 30.0), (140.0, 95.0)):
+        res = _correr(_anillo(0.6, R=R, r=r_int), templates=["anillo"])
+        assert res["plantilla_tipo"] == "anillo", (R, r_int, res["candidatos"])
+        medido = res["plantilla_parametros"]["ratio_r_R"]
+        assert abs(medido - r_int / R) <= 0.05, (R, r_int, medido)
+
+
+@pytest.mark.parametrize("nombre,pts_factory", [
+    ("disco íntegro",  lambda: _ruido(_densificar(_arco(0, 2 * math.pi, 600)[:-1]))),
+    ("sector de disco", lambda: _sector(0.6)),
+    ("medio disco",    lambda: _ruido(_densificar(_arco(0, math.pi, 300)))),
+    ("rectángulo",     lambda: _ruido(_densificar([[200, 250], [400, 250],
+                                                   [400, 350], [200, 350]]))),
+])
+def test_sin_perforacion_no_hay_anillo(nombre, pts_factory):
+    """Sin borde de perforación preservado no hay anillo que reconocer.
+
+    Es el control que impide que cualquier fragmento con una muesca pase por
+    cuenta perforada.
+    """
+    r = _correr(pts_factory(), templates=["anillo"])
+    assert r["plantilla_tipo"] == "ninguna", (
+        f"{nombre}: aceptó anillo al {r['plantilla_completitud']} %"
+    )
+
+
+def test_el_anillo_gana_al_circulo_solo_si_explica_mas():
+    """Navaja de Occam sobre el eje donde el anillo aporta: el SOPORTE.
+
+    El anillo no ajusta mejor cada punto —ajusta MÁS puntos—. Si empatara en
+    contorno explicado, la forma simple debe quedarse.
+    """
+    r = _correr(_anillo(0.6), templates=["circulo", "anillo"])
+    por_tipo = {c["tipo"]: c for c in r["candidatos"]}
+    assert r["plantilla_tipo"] == "anillo"
+    assert por_tipo["anillo"]["arco_fraccion"] > por_tipo["circulo"]["arco_fraccion"] + 0.15
+
+
+def test_el_anillo_publica_sus_dos_componentes():
+    """Sin el índice de componente el lienzo uniría las dos circunferencias con
+    un radio inexistente (verificado en el gate `adr017_gate_overlay.mjs`)."""
+    r = _correr(_anillo(0.6), templates=["anillo"])
+    cont = r["plantilla_contorno"]
+    comp = r["plantilla_contorno_componente"]
+    pres = r["plantilla_contorno_presente"]
+    assert cont and comp and pres
+    assert len(cont) == len(comp) == len(pres)
+    assert set(comp) == {0, 1}, "deben publicarse exactamente dos componentes"
+    # La componente 0 es la exterior: sus puntos están más lejos del centro.
+    p = r["plantilla_parametros"]
+    d0 = [math.hypot(x - p["cx"], y - p["cy"]) for (x, y), k in zip(cont, comp) if k == 0]
+    d1 = [math.hypot(x - p["cx"], y - p["cy"]) for (x, y), k in zip(cont, comp) if k == 1]
+    assert min(d0) > max(d1), "las dos componentes se solapan en radio"
+
+
+def test_el_anillo_esta_en_el_repertorio_publicado():
+    """«Registrada en el repertorio» significa que un selector construido desde
+    `plantillas_disponibles()` la ofrece. Antes esa lista omitía las analíticas."""
+    d = st.plantillas_disponibles()
+    assert "anillo" in d and "circulo" in d and "elipse" in d
+    assert d == sorted(d)
+
+
 def test_los_umbrales_no_bajan_de_lo_calibrado():
     """Guard de no-regresión de la calibración F4.
 
@@ -520,4 +624,8 @@ def test_los_umbrales_no_bajan_de_lo_calibrado():
     """
     assert st._MIN_ARCO_FRACCION["circulo"] >= 0.40
     assert st._MIN_ARCO_FRACCION["elipse"] >= 0.50
+    # El anillo explica dos arcos: pedirle lo mismo que al círculo sería pedirle
+    # menos. Con 0,55 el banco aceptaba el 11 % de las formas por debajo del
+    # 15 % de completitud; 0,60 lo lleva a cero sin coste de cobertura.
+    assert st._MIN_ARCO_FRACCION["anillo"] >= 0.60
     assert st._MIN_COMPLETITUD >= 0.15

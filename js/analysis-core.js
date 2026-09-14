@@ -14840,15 +14840,30 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     if (!obj) return null;
     const d = obj.plantillaConfirmada;
     if (d && Array.isArray(d.contorno) && d.contorno.length > 2) {
-      return { pts: d.contorno, pres: d.contorno_presente, estado: 'confirmada' };
+      return { pts: d.contorno, pres: d.contorno_presente,
+               comp: d.contorno_componente, estado: 'confirmada' };
     }
     const c = obj.plantillaCandidata;
     if (c && !obj.plantillaDescartada && c.plantilla_tipo && c.plantilla_tipo !== 'ninguna'
         && Array.isArray(c.plantilla_contorno) && c.plantilla_contorno.length > 2) {
       return { pts: c.plantilla_contorno, pres: c.plantilla_contorno_presente,
-               estado: 'candidata' };
+               comp: c.plantilla_contorno_componente, estado: 'candidata' };
     }
     return null;
+  }
+
+  /** Rangos [ini, fin) de cada componente cerrada de la polilínea.
+      El anillo son DOS circunferencias: sin separarlas, el trazo uniría el
+      último punto de la exterior con el primero de la interior y dibujaría un
+      radio que no existe. Sin índice de componente → una sola, como siempre. */
+  function tramosPorComponente(comp, n) {
+    if (!Array.isArray(comp) || comp.length !== n) return [[0, n]];
+    const out = [];
+    let ini = 0;
+    for (let i = 1; i <= n; i++) {
+      if (i === n || comp[i] !== comp[ini]) { out.push([ini, i]); ini = i; }
+    }
+    return out;
   }
 
   function dibujarPlantillasIdeales() {
@@ -14873,25 +14888,32 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
       ctx.lineWidth = isManualSelectionMode ? ancho : ancho / zoom;
       const guion = isManualSelectionMode ? [7, 5] : [7 / zoom, 5 / zoom];
 
-      // Un tramo cuenta como MEDIDO sólo si sus dos extremos lo están: en la
-      // frontera se elige el trazo de hipótesis, que es el que no afirma de más.
-      const apoyado = (k) => (pres ? (pres[k] !== false && pres[(k + 1) % n] !== false) : true);
-      let j = 0;
-      while (j < n) {
-        const modo = apoyado(j);
-        let k = j;
-        while (k < n && apoyado(k) === modo) k++;      // tramo homogéneo [j, k)
-        ctx.setLineDash(modo ? [] : guion);
-        ctx.beginPath();
-        for (let s = j; s <= k; s++) {                 // k inclusive: cierra el tramo
-          const p = pts[s % n];
-          const c = isManualSelectionMode
-            ? UtilityHelpers.imageToCanvasCoords(getX(p), getY(p))
-            : { x: getX(p), y: getY(p) };
-          if (s === j) ctx.moveTo(c.x, c.y); else ctx.lineTo(c.x, c.y);
+      // Cada componente se recorre y se CIERRA sobre sí misma; el índice módulo
+      // va acotado a su propio rango, no a la polilínea entera.
+      for (const [ini, fin] of tramosPorComponente(plan.comp, n)) {
+        const m = fin - ini;
+        if (m < 2) continue;
+        const en = (k) => ini + ((k - ini) % m);       // envuelve DENTRO del tramo
+        // Un tramo cuenta como MEDIDO sólo si sus dos extremos lo están: en la
+        // frontera se elige el trazo de hipótesis, que es el que no afirma de más.
+        const apoyado = (k) => (pres ? (pres[k] !== false && pres[en(k + 1)] !== false) : true);
+        let j = ini;
+        while (j < fin) {
+          const modo = apoyado(j);
+          let k = j;
+          while (k < fin && apoyado(k) === modo) k++;  // tramo homogéneo [j, k)
+          ctx.setLineDash(modo ? [] : guion);
+          ctx.beginPath();
+          for (let s = j; s <= k; s++) {               // k inclusive: cierra el tramo
+            const p = pts[en(s)];
+            const c = isManualSelectionMode
+              ? UtilityHelpers.imageToCanvasCoords(getX(p), getY(p))
+              : { x: getX(p), y: getY(p) };
+            if (s === j) ctx.moveTo(c.x, c.y); else ctx.lineTo(c.x, c.y);
+          }
+          ctx.stroke();
+          j = k;
         }
-        ctx.stroke();
-        j = k;
       }
       ctx.restore();   // devuelve dash, alfa, grosor y color al estado previo
     }

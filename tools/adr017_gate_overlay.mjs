@@ -70,6 +70,7 @@ function correr(objetos, { zoom = 1, manual = false, visible = true } = {}) {
     'ctx', 'objects', 'zoom', 'isManualSelectionMode', 'UtilityHelpers',
     'mostrarPlantillaIdeal', 'PLANTILLA_COLOR',
     `${extraer('plantillaDibujable')}
+     ${extraer('tramosPorComponente')}
      ${extraer('dibujarPlantillasIdeales')}
      return dibujarPlantillasIdeales;`
   );
@@ -214,6 +215,47 @@ check('la casilla apagada no dibuja',
   const r = correr([objCandidata(circulo(32), [true, false])]);
   check('máscara incoherente no rompe el dibujo',
         r.trazos.length === 1 && r.trazos[0].dash.length === 0);
+}
+
+// 10. ANILLO: dos circunferencias, y NINGÚN trazo que las una.
+{
+  const ext = circulo(48, 120), int = circulo(24, 50);
+  const pts = ext.concat(int);
+  const comp = new Array(48).fill(0).concat(new Array(24).fill(1));
+  const obj = { plantillaCandidata: {
+    plantilla_tipo: 'anillo', plantilla_completitud: 60,
+    plantilla_contorno: pts, plantilla_contorno_presente: null,
+    plantilla_contorno_componente: comp } };
+  const r = correr([obj]);
+  check('el anillo dibuja dos componentes', r.trazos.length === 2, `(${r.trazos.length})`);
+  // Cada componente cierra sobre SÍ MISMA: 48+1 y 24+1 puntos.
+  const tam = r.trazos.map((t) => t.pts.length).sort((a, b) => a - b);
+  check('cada circunferencia cierra por separado',
+        tam[0] === 25 && tam[1] === 49, `(${JSON.stringify(tam)})`);
+  // El fallo que esto vigila: un radio falso del final de una al principio de
+  // la otra. Se detecta porque ningún trazo saltaría de radio 120 a radio 50.
+  const radios = r.trazos.map((t) => t.pts.map(([x, y]) => Math.hypot(x - 300, y - 300)));
+  const salto = radios.some((rr) => Math.max(...rr) - Math.min(...rr) > 5);
+  check('ninguna componente salta entre radios', !salto);
+}
+
+// 11. El anillo también distingue medido de reconstruido, por componente.
+{
+  const ext = circulo(48, 120), int = circulo(24, 50);
+  const pts = ext.concat(int);
+  const comp = new Array(48).fill(0).concat(new Array(24).fill(1));
+  const pres = mascara(48, [[10, 20]]).concat(mascara(24, [[4, 9]]));
+  const r = correr([{ plantillaCandidata: {
+    plantilla_tipo: 'anillo', plantilla_completitud: 60,
+    plantilla_contorno: pts, plantilla_contorno_presente: pres,
+    plantilla_contorno_componente: comp } }]);
+  const disc = r.trazos.filter((t) => t.dash.length > 0);
+  check('un hueco por circunferencia = dos tramos de hipótesis',
+        disc.length === 2, `(${disc.length})`);
+  const radios = disc.map((t) => Math.hypot(t.pts[0][0] - 300, t.pts[0][1] - 300));
+  check('hay hipótesis en las DOS circunferencias',
+        radios.some((x) => x > 100) && radios.some((x) => x < 70),
+        `(${radios.map((x) => x.toFixed(0))})`);
 }
 
 console.log(`\n${ok} comprobaciones OK` + (fallos.length ? `, ${fallos.length} FALLIDAS` : ''));

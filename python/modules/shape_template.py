@@ -99,7 +99,12 @@ _GAP_MIN_DEG       = 8.0     # hueco angular mínimo para contar como ausencia
 # por debajo del 15 % de completitud. Detalle en `docs/VALIDACION-PLANTILLAS.md`.
 # Son el valor POR DEFECTO, no una constante: `match(min_arco_fraccion=…)` los
 # sobrescribe, que es lo que permitirá recalibrarlos contra corpus real.
-_MIN_ARCO_FRACCION = {"circulo": 0.40, "elipse": 0.50}
+# El anillo explica DOS arcos, así que su soporte natural es mayor: pedirle lo
+# mismo que al círculo sería pedirle menos. El 0,60 sale del banco, no del
+# criterio: con 0,55 se aceptaba el 11 % de las formas por debajo del 15 % de
+# completitud, y subirlo a 0,60 lo lleva a cero SIN coste — misma cobertura
+# (92 %), mismo error medio (0,96 pp) y mismo error máximo (6,3 pp).
+_MIN_ARCO_FRACCION = {"circulo": 0.40, "elipse": 0.50, "anillo": 0.60}
 _MIN_COMPLETITUD   = 0.15    # por debajo, el ajuste degenera → rechazo (ADR-017 §4)
 _UMBRAL_COMPLETO   = 0.93    # cobertura por encima de la cual se declara completo
 _RANSAC_ITERS      = 600
@@ -115,6 +120,18 @@ _N_CONTORNO        = 128
 _MARGEN_ELIPSE     = 0.80
 _RATIO_EJES_CIRCULO = 0.95   # b/a por encima de esto ⇒ la elipse ES un círculo
 _RATIO_EJES_MIN     = 0.15   # b/a por debajo de esto ⇒ la elipse ES una recta
+# ── Plantilla ANILLO (corona circular: cuenta perforada, arandela, brazalete) ──
+# r/R es la razón entre la perforación y el margen exterior.
+_ANILLO_RATIO_MIN   = 0.15   # por debajo, el hueco es un alfiler: la pieza ES un disco
+_ANILLO_RATIO_MAX   = 0.85   # por encima, el aro es un alambre y los dos círculos
+                             # caen dentro de la tolerancia uno del otro
+_ANILLO_SOPORTE_INT = 0.10   # arco interior contiguo mínimo, en fracción del
+                             # perímetro del fragmento: sin borde de perforación
+                             # preservado no hay anillo que reconocer
+# El anillo explica MÁS contorno que el círculo por construcción (dos arcos en
+# vez de uno). Para preferirlo no basta con que empate: tiene que explicar
+# bastante más, o cualquier fragmento de disco con una muesca pasaría por anillo.
+_MARGEN_ANILLO      = 0.15
 
 
 # ── Utilidades geométricas ──────────────────────────────────────────────────
@@ -386,6 +403,23 @@ def _completitud(t_arco: np.ndarray, tipo: str, m: dict,
     return max(0.0, min(1.0, 1.0 - faltante / L)), huecos, ausentes
 
 
+def _contorno_anillo(m: dict, ausentes: tuple) -> tuple:
+    """
+    Polilínea del anillo: DOS circunferencias, y el índice de componente que las
+    separa. Sin ese índice el lienzo uniría el último punto del círculo exterior
+    con el primero del interior y dibujaría un radio que no existe.
+    """
+    a_ext, a_int = ausentes
+    p_ext, pres_ext = _contorno_con_presencia(
+        "circulo", {"cx": m["cx"], "cy": m["cy"], "r": m["R"]}, a_ext)
+    p_int, pres_int = _contorno_con_presencia(
+        "circulo", {"cx": m["cx"], "cy": m["cy"], "r": m["r"]}, a_int)
+    comp = np.concatenate([np.zeros(len(p_ext), dtype=int),
+                           np.ones(len(p_int), dtype=int)])
+    return (np.concatenate([p_ext, p_int]),
+            np.concatenate([pres_ext, pres_int]), comp)
+
+
 def _contorno_con_presencia(tipo: str, m: dict,
                             ausentes: list) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -498,6 +532,130 @@ def _ajustar(pts: np.ndarray, tipo: str, iters: int, seed: int) -> Optional[dict
     }
 
 
+# ── E2 · Plantilla ANILLO: dos circunferencias concéntricas ─────────────────
+
+def _ajustar_anillo(pts: np.ndarray, iters: int, seed: int) -> Optional[dict]:
+    """
+    Corona circular — el margen exterior de la pieza y el borde de la perforación.
+
+    Es la forma que pide el material: una cuenta anular rota por el orificio deja
+    un contorno con DOS arcos de radios distintos, y la plantilla círculo sólo
+    puede explicar uno de ellos. El otro cuenta como borde de fractura y hunde el
+    soporte por debajo del umbral.
+
+    Dos decisiones que conviene no deshacer sin releer esto:
+
+    · **Concéntricas.** La forma ideal de una cuenta anular lo es. Dejar el
+      segundo centro suelto le permitiría amoldarse a cualquier borde de
+      fractura; una perforación de verdad descentrada sale entonces con más
+      residuo y menos inliers, que es exactamente como debe verse.
+    · **Vía analítica, no repertorio ICP.** El ICP sólo dispone de una SEMEJANZA
+      (Umeyama 1991: rotación, escala y traslación). La razón `r/R` de un anillo
+      es un parámetro de FORMA, no de escala: una plantilla anular fija sólo
+      emparejaría piezas con esa razón exacta. Aquí `r/R` se estima del contorno.
+
+    El círculo exterior sale del ajuste robusto de siempre (E1 + E2 por
+    contigüidad). El interior se busca sobre la distancia radial al centro ya
+    ajustado, y se elige con el MISMO criterio de contigüidad: el borde de la
+    perforación es un arco contiguo, la fractura no.
+    """
+    fit_ext = _ajustar(pts, "circulo", iters, seed)
+    if fit_ext is None:
+        return None
+    m0 = fit_ext["modelo"]
+    cx, cy, R = m0["cx"], m0["cy"], m0["r"]
+
+    diag = _diagonal(pts)
+    tol = _TOL_REL_DIAG * diag
+    if R <= 0 or tol <= 0:
+        return None
+    largos = _largos_segmento(pts)
+    perim = float(largos.sum())
+    if perim <= 0:
+        return None
+
+    d = np.hypot(pts[:, 0] - cx, pts[:, 1] - cy)
+    banda = (d > _ANILLO_RATIO_MIN * R) & (d < R - 2.0 * tol)
+    if int(banda.sum()) < _MIN_PUNTOS:
+        return None          # no hay margen interior que buscar: es un disco
+
+    # Candidatos a radio interior por histograma de la distancia radial (ancho de
+    # bin = tolerancia). El borde de la perforación es un cúmulo estrecho; la
+    # fractura, que cruza el anillo, se reparte por toda la banda. Se evalúan las
+    # cimas más pobladas con el criterio de CONTIGÜIDAD, no por número de puntos:
+    # es lo que distingue un arco real de una nube dispersa de puntos de fractura.
+    lo, hi = float(d[banda].min()), float(d[banda].max())
+    nbins = max(4, int(math.ceil((hi - lo) / max(tol, 1e-6))))
+    cuentas, bordes = np.histogram(d[banda], bins=nbins, range=(lo, hi))
+    centros = 0.5 * (bordes[:-1] + bordes[1:])
+    orden = np.argsort(cuentas)[::-1][:5]        # las 5 cimas más pobladas
+
+    mejor_r, mejor_tramo = None, (0, 0, 0.0)
+    for i in orden:
+        if cuentas[i] == 0:
+            continue
+        r_cand = float(centros[i])
+        inl = np.abs(d - r_cand) < tol
+        tramo = _tramo_contiguo_mas_largo(inl, largos)
+        if tramo[2] > mejor_tramo[2]:
+            mejor_r, mejor_tramo = r_cand, tramo
+    if mejor_r is None or mejor_tramo[2] <= 0:
+        return None
+
+    # Refinamiento: el radio es la media de las distancias del propio arco.
+    n = len(pts)
+    idx_int = [t % n for t in range(mejor_tramo[0], mejor_tramo[1])]
+    if len(idx_int) < 3:
+        return None
+    r_int = float(np.mean(d[idx_int]))
+
+    ratio = r_int / R
+    if not (_ANILLO_RATIO_MIN <= ratio <= _ANILLO_RATIO_MAX):
+        return None
+    if (mejor_tramo[2] / perim) < _ANILLO_SOPORTE_INT:
+        return None
+
+    # Arco exterior: el que ya encontró el ajuste robusto.
+    inl_ext = np.abs(d - R) < tol
+    tramo_ext = _tramo_contiguo_mas_largo(inl_ext, largos)
+    idx_ext = [t % n for t in range(tramo_ext[0], tramo_ext[1])]
+    if len(idx_ext) < 3:
+        return None
+
+    modelo = {"cx": float(cx), "cy": float(cy), "R": float(R), "r": float(r_int),
+              "ratio_r_R": round(ratio, 4)}
+    m_ext = {"cx": cx, "cy": cy, "r": R}
+    m_int = {"cx": cx, "cy": cy, "r": r_int}
+
+    # Completitud: cobertura de la longitud de arco de LAS DOS circunferencias,
+    # ponderada por su propio perímetro (el exterior pesa más porque mide más).
+    c_ext, h_ext, a_ext = _completitud(_param(pts[idx_ext], "circulo", m_ext),
+                                       "circulo", m_ext, _GAP_MIN_DEG)
+    c_int, h_int, a_int = _completitud(_param(pts[idx_int], "circulo", m_int),
+                                       "circulo", m_int, _GAP_MIN_DEG)
+    comp = (c_ext * R + c_int * r_int) / (R + r_int)
+
+    res = np.concatenate([np.abs(d[idx_ext] - R), np.abs(d[idx_int] - r_int)])
+    huecos = ([{**h, "circulo": "externo"} for h in h_ext]
+              + [{**h, "circulo": "interno"} for h in h_int])
+
+    return {
+        "modelo": modelo,
+        "arco": np.concatenate([pts[idx_ext], pts[idx_int]]),
+        # Soporte = los DOS arcos sobre el perímetro del fragmento. Es la
+        # generalización natural del criterio de una sola circunferencia, y la
+        # razón por la que el anillo merece un umbral propio (explica más).
+        "arco_fraccion": (tramo_ext[2] + mejor_tramo[2]) / perim,
+        "residuo_rms": float(np.sqrt(np.mean(res ** 2))),
+        "tolerancia_px": tol,
+        "completitud": comp,
+        "huecos": huecos,
+        "ausentes": (a_ext, a_int),
+        "completitud_externa": c_ext,
+        "completitud_interna": c_int,
+    }
+
+
 # ── Confianza (lenguaje canónico LAAR · ADR-007) ────────────────────────────
 
 def _confianza(arco_fraccion: float, residuo_rms: float, diag: float) -> dict:
@@ -536,8 +694,10 @@ async def match(
     ----------
     contour_points     lista de [x, y] en píxeles (coordenadas absolutas)
     templates          nombres de plantilla; None = ("circulo", "elipse").
-                       Además de las analíticas, cualquier nombre del repertorio
-                       F2 (`plantillas_disponibles()`): triangulo, cuadrado,
+                       Analíticas: `circulo`, `elipse` y `anillo` (corona
+                       circular — cuenta perforada rota por el orificio).
+                       Además, cualquier nombre del repertorio F2
+                       (`plantillas_disponibles()`): triangulo, cuadrado,
                        rectangulo_2_1, pentagono, hexagono… y las registradas
                        desde coeficientes EFA con `registrar_plantilla_efa`.
     forzar_icp         encamina también círculo y elipse por el ICP del repertorio
@@ -589,6 +749,7 @@ async def match(
         "huecos": [],
         "plantilla_contorno": None,
         "plantilla_contorno_presente": None,
+        "plantilla_contorno_componente": None,
         "candidatos": [],
         "motivo_rechazo": None,
     }
@@ -601,7 +762,7 @@ async def match(
                 f"contorno insuficiente: {len(pts)} puntos (mínimo {_MIN_PUNTOS})"}
 
     tipos = list(templates) if templates else ["circulo", "elipse"]
-    analiticas = ("circulo", "elipse")
+    analiticas = ("circulo", "elipse", "anillo")
     validos = set(analiticas) | set(_REPERTORIO)
     desconocidos = [t for t in tipos if t not in validos]
     if desconocidos:
@@ -625,6 +786,18 @@ async def match(
                                    "motivo": "sin emparejamiento ICP válido"})
                 continue
             comp, huecos = fit["completitud"], fit["huecos"]
+        elif tipo == "anillo":
+            fit = _ajustar_anillo(pts, ransac_iters, seed)
+            if fit is None:
+                candidatos.append({"tipo": tipo, "aceptada": False,
+                                   "motivo": "sin dos circunferencias concéntricas "
+                                             "(¿la perforación no está preservada?)"})
+                continue
+            comp, huecos = fit["completitud"], fit["huecos"]
+            cont, pres, compo = _contorno_anillo(fit["modelo"], fit["ausentes"])
+            fit["contorno_plantilla"] = cont
+            fit["contorno_presente"] = pres
+            fit["contorno_componente"] = compo
         else:
             fit = _ajustar(pts, tipo, ransac_iters, seed)
             if fit is None:
@@ -696,6 +869,19 @@ async def match(
                        and el["residuo_rms"] < _MARGEN_ELIPSE * ci["residuo_rms"])
         descartados_por_anidamiento.add("elipse" if not gana_elipse else "circulo")
 
+    # Paso 1 bis — círculo vs ANILLO. Aquí el eje NO es el residuo sino el
+    # SOPORTE: el anillo no ajusta mejor cada punto, explica MÁS puntos (dos
+    # arcos en vez de uno). En un fragmento de cuenta anular el círculo se queda
+    # con el margen exterior y manda el borde de la perforación al saco de la
+    # fractura; el anillo da cuenta de los dos. Por eso gana sólo si explica
+    # bastante más contorno: si empata, la forma simple se queda (navaja de
+    # Occam), que es el mismo criterio con que la elipse tiene que ganarle al
+    # círculo, aplicado al eje donde este modelo aporta de verdad.
+    an = por_tipo.get("anillo")
+    if ci and an:
+        gana_anillo = an["arco_fraccion"] > ci["arco_fraccion"] + _MARGEN_ANILLO
+        descartados_por_anidamiento.add("anillo" if not gana_anillo else "circulo")
+
     # Paso 2 — el resto del repertorio no son modelos anidados entre sí, así que
     # compiten por bondad de ajuste directa (residuo RMS en píxeles).
     finalistas = [c for c in aceptados if c["tipo"] not in descartados_por_anidamiento]
@@ -737,6 +923,14 @@ async def match(
         "plantilla_contorno_presente": (
             [bool(v) for v in fit["contorno_presente"]]
             if "contorno_presente" in fit else None
+        ),
+        # Índice de COMPONENTE, también paralelo. Sólo lo emite el anillo, que
+        # son dos curvas cerradas: sin él el lienzo uniría el final de una con el
+        # principio de la otra y dibujaría un radio inexistente. Ausente = una
+        # sola componente, que es el caso de todas las demás plantillas.
+        "plantilla_contorno_componente": (
+            [int(v) for v in fit["contorno_componente"]]
+            if "contorno_componente" in fit else None
         ),
         "candidatos": [{k: v for k, v in c.items() if k != "_fit"} for c in candidatos],
         "motivo_rechazo": None,
@@ -865,8 +1059,14 @@ def registrar_plantilla_efa(nombre: str, coeficientes: list,
 
 
 def plantillas_disponibles() -> list:
-    """Nombres del repertorio, en orden estable."""
-    return sorted(_REPERTORIO)
+    """
+    Todas las plantillas que `match()` acepta, en orden estable.
+
+    Incluye las ANALÍTICAS (`circulo`, `elipse`, `anillo`) además del repertorio
+    ICP: antes devolvía sólo el repertorio, de modo que un selector construido a
+    partir de esta lista omitía justamente las tres que el botón usa por defecto.
+    """
+    return sorted(set(_REPERTORIO) | {"circulo", "elipse", "anillo"})
 
 
 # ── Transformada de similitud en forma cerrada (Umeyama 1991) ──────────────

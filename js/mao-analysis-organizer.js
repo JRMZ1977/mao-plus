@@ -280,9 +280,14 @@
      por acción del usuario y con el repertorio acotado — nunca en el bucle de
      análisis (nota de rendimiento de ADR-017 §6.3). */
 
-  /* Repertorio por defecto del botón. Acotado a propósito: las dos analíticas
-     (baratas y exactas) más las poligonales de uso arqueológico frecuente. */
-  var PLANTILLAS_POR_DEFECTO = ['circulo', 'elipse', 'triangulo', 'cuadrado', 'hexagono'];
+  /* Repertorio por defecto del botón. Acotado a propósito: las analíticas
+     (baratas y exactas) más las poligonales de uso arqueológico frecuente.
+     `anillo` (corona circular) entra porque cubre cuentas perforadas, arandelas
+     y brazaletes rotos por el orificio, que el círculo no puede explicar: se
+     queda con el margen exterior y manda el borde de la perforación al saco de
+     la fractura. Es analítica, así que cuesta lo mismo que un círculo. */
+  var PLANTILLAS_POR_DEFECTO = ['circulo', 'elipse', 'anillo',
+                                'triangulo', 'cuadrado', 'hexagono'];
 
   function formaEstado(obj) {
     if (!obj) return { key: 'sin-evaluar' };
@@ -393,6 +398,7 @@
       // dejaría lo confirmado dibujado con la forma de otra plantilla.
       contorno: c.plantilla_contorno || null,
       contorno_presente: c.plantilla_contorno_presente || null,
+      contorno_componente: c.plantilla_contorno_componente || null,
       confirmada_en: new Date().toISOString(),
     };
     obj.plantillaDescartada = false;

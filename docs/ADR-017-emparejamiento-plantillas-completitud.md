@@ -1,8 +1,8 @@
 # ADR-017 — Emparejamiento con plantillas de forma ideal e inferencia de completitud (fragmento vs. pieza completa)
 
-**Estado:** 🟡 **F0-F3 y F5 implementadas · F4 parcial (2026-09-12/14)** — umbrales recalibrados con
-evidencia, arnés de calibración listo y plantilla superpuesta en el lienzo; la corrida sobre el
-corpus real la ejecuta el observador
+**Estado:** 🟡 **F0-F3, F5 y F6 implementadas · F4 parcial (2026-09-12/14)** — umbrales recalibrados con
+evidencia, plantilla superpuesta en el lienzo y plantilla anular en el repertorio; la corrida
+sobre el corpus real la ejecuta el observador
 **Nota de versión F0:** `docs/NOTA-VERSION-ADR017-F0.md` (cambia valores exportados)
 **Validación:** `docs/VALIDACION-PLANTILLAS.md` (protocolo, banco de umbrales, sesgos conocidos)
 **Fecha:** 2026-09-12
@@ -269,7 +269,7 @@ salvo donde se indica, y propagadas por el contrato ADR-008:
 
 | clave | tipo | significado |
 |---|---|---|
-| `plantilla_tipo` | str | `circulo` \| `elipse` \| `rectangulo` \| `triangulo` \| `poligono_n` \| `ninguna` |
+| `plantilla_tipo` | str | `circulo` \| `elipse` \| **`anillo`** \| `triangulo` \| `cuadrado` \| `pentagono` \| `hexagono` \| … \| `ninguna` |
 | `plantilla_completitud` | float 0-100 | % de la forma ideal preservado (cobertura del modelo) |
 | `plantilla_arco_fraccion` | float 0-1 | fracción del perímetro del contorno que es margen original |
 | `plantilla_residuo_rms` | float mm | bondad de ajuste (residuo del margen original al modelo) |
@@ -285,6 +285,7 @@ para dibujar, no medidas que puedan acabar en una tabla.
 |---|---|---|
 | `plantilla_contorno` | `[[x, y], …]` \| null | polilínea de la plantilla ajustada, coords **absolutas** |
 | `plantilla_contorno_presente` | `[bool, …]` \| null | paralelo punto a punto: `true` donde el margen preservado respalda ese tramo, `false` donde la plantilla lo **reconstruye** |
+| `plantilla_contorno_componente` | `[int, …]` \| null | paralelo: índice de curva cerrada. Sólo lo emite `anillo`, que son **dos** circunferencias; ausente = una sola |
 
 La segunda es la que hace honesta la superposición del lienzo (§6.6): sin ella se dibujaría la forma
 ideal entera con el mismo trazo y el tramo inventado sería indistinguible del medido — exactamente el
@@ -319,10 +320,68 @@ forma ideal subyacente: el caso normal en lítica). Nunca `--ok` automático.
 | **F2** | ✅ **Hecha.** ICP recortado sobre repertorio + `efa.reconstruct()` publicada + `/api/shape-match/templates`. Ver §6.3 | `shape_template.py`, `efa.py`, `server.py` | ✅ paridad ≤ 0,3 pp en los 4 casos · ✅ 3 plantillas poligonales validadas · suite 357/4 | 🟢 aditivo |
 | **F3** | ✅ **Hecha.** Registro + bridge + chip de 4 estados + confirmar/descartar + persistencia + CSV. Ver §6.4 | `morphometric_registry.py`, `python-bridge.js`, `mao-deteccion-contract.js`, `mao-analysis-organizer.js`, `analysis-core.js`, `project-manager.js`, `tabla-metricas-completa.js`, `mao-tabs-laar.css`, `index.html` | ✅ 4 estados · ✅ persiste en el caché · ✅ CSV sólo lo confirmado · 15 tests de cableado · suite 372/4 | 🟢 |
 | **F5** | ✅ **Hecha.** Superposición de la plantilla en el lienzo, con el tramo reconstruido en discontinuo. Ver §6.6 | `shape_template.py`, `analysis-core.js`, `mao-analysis-organizer.js`, `mao-tabs-laar.css`, `index.html`, gate + 2 ficheros de test | ✅ la vía analítica publica su polilínea (antes sólo el ICP) · ✅ gate funcional 20/20 sobre el código real · ✅ **verificado en Electron real**: disco al 70 % medido 70,17 % · suite 416/4 | 🟢 aditivo |
+| **F6** | ✅ **Hecha.** Plantilla **anillo** (corona circular): dos circunferencias concéntricas con `r/R` estimado del contorno. Ver §6.7 | `shape_template.py`, `analysis-core.js`, `mao-analysis-organizer.js`, banco, gate, fixture, tests | ✅ 75/60/50/40/30 % medidos con ≤ 0,9 pp · ✅ rechaza disco, sector y rectángulo · ✅ umbral 0,60 calibrado con el banco · ✅ **verificado en Electron**: 60 % → 60,37 % · suite 431/4 | 🟢 aditivo |
 | **F4** | 🟡 **Parcial.** Banco de umbrales + recalibración + arnés de calibración real. Ver §6.5 | `shape_template.py`, `tools/adr017_banco_umbrales.py`, `tools/adr017_calibracion_draga.py`, `docs/VALIDACION-PLANTILLAS.md`, 2 ficheros de test | ✅ umbrales justificados con datos (87 formas + 15 controles) · ✅ arnés ICC/Bland-Altman/κ probado end-to-end · suite +22 tests (401/4 sobre `main`) · ⏳ **la corrida sobre La Draga la ejecuta el observador**: el corpus está en su equipo | 🟢 |
 
 **Secuencia recomendada:** F0 primero y por separado — es autónomo, corrige un defecto que ya
 contamina el reporte del artículo, y no depende de nada de lo demás.
+
+### 6.7 · F6: la plantilla ANILLO, que la pidió el material
+
+La primera plantilla que **no** sale del banco sintético sino de mirar dos fotografías reales de
+La Draga: una cuenta discoidal perforada íntegra y un fragmento de cuenta anular roto por el
+orificio. El segundo caso el círculo no puede explicarlo — se queda con el margen exterior y manda
+el borde de la perforación al saco de la fractura, hundiendo el soporte por debajo del umbral.
+
+**Modelo:** dos circunferencias **concéntricas**, `R` exterior y `r` interior. La concentricidad es
+deliberada: es la forma ideal de una cuenta anular, y dejar el segundo centro suelto permitiría que
+se amoldase a cualquier borde de fractura. Una perforación realmente descentrada sale entonces con
+más residuo y menos inliers, que es exactamente como debe verse.
+
+**Por qué NO va por el repertorio ICP.** Es la pregunta que había que contestar antes de escribir
+una línea. El ICP sólo dispone de una **semejanza** (Umeyama 1991: rotación, escala, traslación), y
+`r/R` es un parámetro de **forma**, no de escala: ninguna semejanza lo cambia. Una plantilla anular
+fija en el repertorio sólo emparejaría piezas con esa razón exacta, y habría que registrar una por
+cada proporción — un repertorio que crece sin fondo. Por la vía analítica `r/R` se **estima del
+propio contorno**: medido 0,42 sobre una verdad de 0,423, y recuperado igual de bien en 120/30 y
+140/95.
+
+**Cómo se busca el segundo círculo.** El exterior sale del ajuste robusto de siempre. El interior se
+busca sobre la **distancia radial al centro ya ajustado** —histograma de ancho igual a la tolerancia,
+y las cimas más pobladas se juzgan por **contigüidad**, no por número de puntos—. Es el mismo
+criterio E1 del ADR: el borde de una perforación es un arco contiguo; la fractura, que cruza el
+anillo, se reparte por toda la banda.
+
+**Elección frente al círculo:** aquí el eje no es el residuo sino el **soporte**. El anillo no ajusta
+mejor cada punto, explica más puntos. Gana sólo si da cuenta de ≥ 15 pp más del contorno; si empata,
+se queda la forma simple. Es la navaja de Occam aplicada al eje donde este modelo aporta de verdad.
+
+**Medido** (sectores de corona R=130 · r=55, ruido 1,2 px): 75 → **75,5** · 60 → **60,5** ·
+50 → **50,6** · 40 → **40,8** · 30 → **30,8** %. Y rechaza disco íntegro, sector de disco, medio
+disco y rectángulo: sin borde de perforación preservado no hay anillo que reconocer.
+
+**Umbral calibrado con el banco, no a ojo.** Puse 0,55 por criterio; el banco mostró que aceptaba el
+**11 %** de las formas por debajo del 15 % de completitud y que **0,60 lo lleva a cero sin coste
+alguno** — misma cobertura (92 %), mismo error medio (0,96 pp) y mismo error máximo (6,3 pp). El
+banco gana al criterio otra vez.
+
+**Verificado en Electron real**, con un fragmento anular al 60 % sobre fondo oscuro: medido
+**60,37 %**, soporte 0,854, 154 de 256 puntos respaldados (60,2 %), elegido `anillo` sobre círculo y
+elipse, cero errores de consola. Es el paso que no podían dar los tests de puntos: confirma que
+`contour.extract` **conserva el arco de la perforación** en un fragmento abierto (el `MORPH_CLOSE`
+no sella la boca de la C), sin lo cual la plantilla no tendría a qué agarrarse.
+
+**Lo que obligó a tocar el lienzo:** un anillo son **dos curvas cerradas**. Sin separarlas, la capa
+de F5 uniría el último punto de la exterior con el primero de la interior y dibujaría un radio
+inexistente. De ahí `plantilla_contorno_componente`, y el recorrido por componentes en el dibujo
+(cada una envuelve dentro de su propio rango).
+
+**Un hallazgo de método, del banco:** el primer generador de prueba muestreaba los dos arcos con el
+**mismo número de puntos**, de modo que el interior quedaba con un paso (0,57 px) más fino que la
+amplitud del ruido (1,2 px). Su polilínea se inflaba al doble y el ajuste robusto elegía el círculo
+**interior** creyéndolo el margen exterior. No era un fallo del método sino del fixture —un contorno
+de `findContours` tiene paso uniforme—, pero deja una advertencia con dientes: **un contorno
+sobremuestreado por debajo del ruido falsea cualquier criterio basado en longitud de arco.**
 
 ### 6.6 · F5: la plantilla, sobre el lienzo
 

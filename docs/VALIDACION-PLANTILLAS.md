@@ -164,11 +164,38 @@ Controles negativos aceptados: **0 de 15**.
    banco da **0 %** y la frase es cierta *sobre este banco* — no una garantía
    universal. La formulación honesta es: *no se aceptó ninguna forma por debajo del
    15 % en 87 formas sintéticas con tres niveles de ruido.*
-5. **Sólo hay dos familias en el banco.** El repertorio ICP (triángulo, cuadrado,
-   pentágono, hexágono, y lo que entre por `efa.reconstruct()`) usa otro umbral
-   (`_MIN_ARCO_ICP`) y **no está calibrado por este banco**. Su gate es la paridad
-   analítica ↔ ICP verificada en F2 (≤ 0,3 pp), que es una prueba de consistencia
-   entre vías, no de exactitud frente a verdad-terreno.
+5. **El repertorio ICP no está calibrado por este banco.** Triángulo, cuadrado,
+   pentágono, hexágono y lo que entre por `efa.reconstruct()` usan otro umbral
+   (`_MIN_ARCO_ICP`). Su gate es la paridad analítica ↔ ICP verificada en F2
+   (≤ 0,3 pp), que es una prueba de consistencia entre vías, no de exactitud
+   frente a verdad-terreno.
+
+### 2.6 La plantilla ANILLO (F6)
+
+Tercera familia del banco, añadida cuando el material la pidió: un fragmento de
+cuenta anular roto por el orificio. Sectores de corona R=130 · r=55, con los mismos
+niveles de completitud y de ruido que el resto:
+
+| verdad | 75 % | 60 % | 50 % | 40 % | 30 % |
+|---|---|---|---|---|---|
+| **medido** | 75,5 | 60,5 | 50,6 | 40,8 | 30,8 |
+
+Sobre su familia: cobertura **92 %**, MAE **0,96 pp**, error máximo **6,3 pp** — mejor
+que el círculo (85 % · 1,56 · 13,1), y con razón: dos arcos restringen el ajuste más
+que uno. Rechaza disco íntegro, sector de disco, medio disco y rectángulo.
+
+**Umbral 0,60, del banco y no del criterio.** El valor de partida, 0,55, era mío; el
+banco mostró que aceptaba el **11 %** de las formas por debajo del 15 % de completitud
+y que 0,60 lo lleva a **cero sin coste alguno** (misma cobertura, mismo MAE, mismo
+error máximo). Es el segundo umbral que el banco corrige después de haberlo puesto a ojo.
+
+> ⚠ **Advertencia de muestreo, encontrada aquí.** El primer generador de anillos usaba
+> el **mismo número de puntos** en los dos arcos, con lo que el interior quedaba a
+> 0,57 px de paso, más fino que la amplitud del ruido (1,2 px). Su polilínea se
+> inflaba al doble y el ajuste robusto elegía el círculo **interior** creyéndolo el
+> margen exterior. Era un fallo del fixture —`findContours` entrega paso uniforme—,
+> pero la lección vale en general: **un contorno sobremuestreado por debajo del ruido
+> falsea cualquier criterio basado en longitud de arco**, y los de este módulo lo son.
 
 ---
 
