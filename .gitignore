@@ -65,3 +65,6 @@ VERIFICACION_*.txt
 *.backup
 *.backup.*
 *.pt
+
+# Notas y scripts de sesión fuera del artefacto (ver artefactos/README.md)
+/artefactos/

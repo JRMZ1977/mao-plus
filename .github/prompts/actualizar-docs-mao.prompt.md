@@ -28,8 +28,8 @@ Tu misión es detectar los cambios relevantes en el código fuente de MAO PLUS y
 
 ## Archivos de documentación a actualizar
 
-- [GUIA_METRICAS_MAO.html](../../GUIA_METRICAS_MAO.html)
-- [FORMULAS_METRICAS_MAO.html](../../FORMULAS_METRICAS_MAO.html)
+- [GUIA_METRICAS_MAO.html](../../docs/guias/GUIA_METRICAS_MAO.html)
+- [FORMULAS_METRICAS_MAO.html](../../docs/guias/FORMULAS_METRICAS_MAO.html)
 
 ---
 

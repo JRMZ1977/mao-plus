@@ -41,7 +41,7 @@ npm start
 
 The application launches at `http://localhost:3000` (Electron) with backend at `http://localhost:8000` (FastAPI).
 
-> **Phase 2 note:** `js/analysis-core.js` no longer contains the analysis logic directly — it delegates to ES6 modules in `js/modules/`. See [MODULES.md](MODULES.md) for the full module reference.
+> **Phase 2 note:** `js/analysis-core.js` no longer contains the analysis logic directly — it delegates to ES6 modules in `js/modules/`. See [MODULES.md](docs/arquitectura/MODULES.md) for the full module reference.
 
 ### Lanzador de desarrollo (macOS · icono/Dock)
 
@@ -238,8 +238,8 @@ Phase 2 (completed 2026-06-07) refactored the frontend analysis code from a sing
 - **What changed:** `js/analysis-core.js` was split into `js/modules/` — 10 modules covering geometry, contour processing, metrics, classification, orchestration, visualization, and export.
 - **What stayed the same:** All public behavior, the Python backend, and the v1 canonical schema are unchanged.
 - **References:**
-  - [MODULES.md](MODULES.md) — per-module reference, dependency matrix, load order, and extension guidelines
-  - [ARCHITECTURE.md](ARCHITECTURE.md) — overall system architecture and Phase 2 metrics
+  - [MODULES.md](docs/arquitectura/MODULES.md) — per-module reference, dependency matrix, load order, and extension guidelines
+  - [ARCHITECTURE.md](docs/arquitectura/ARCHITECTURE.md) — overall system architecture and Phase 2 metrics
 
 ---
 
@@ -371,8 +371,8 @@ pytest tests/ -v
 ### v1.2.0 (2026-06-07)
 
 - ✅ Phase 2 complete: `analysis-core.js` split into 10 ES6 modules in `js/modules/`
-- ✅ Module reference published ([MODULES.md](MODULES.md))
-- ✅ Architecture documentation updated ([ARCHITECTURE.md](ARCHITECTURE.md))
+- ✅ Module reference published ([MODULES.md](docs/arquitectura/MODULES.md))
+- ✅ Architecture documentation updated ([ARCHITECTURE.md](docs/arquitectura/ARCHITECTURE.md))
 - ✅ Zero behavioral changes — all public APIs and schema v1 preserved
 
 ### v1.0 (2026-04-27)
