@@ -318,6 +318,19 @@
     return { txt: 'Forma: sin evaluar', cls: 'laar-chip laar-chip--wa' };
   }
 
+  /* Visibilidad de la superposición en el lienzo. Vive aquí porque la casilla se
+     reconstruye con la tarjeta en cada render: sin este estado, cada rebuild la
+     devolvería a «marcada» y desharía la elección del usuario. El lienzo
+     (`analysis-core.js`) tiene su propio flag y ambos se sincronizan por evento,
+     el mismo camino que `mao:batch-analyze:request`. */
+  var _overlayVisible = true;
+
+  function pintarLienzo() {
+    document.dispatchEvent(new CustomEvent('mao:plantilla-overlay:toggle', {
+      detail: { visible: _overlayVisible },
+    }));
+  }
+
   var _evaluando = false;
 
   /** Lanza el emparejamiento contra el backend y guarda el CANDIDATO. */
@@ -358,7 +371,7 @@
         // No se marca `plantillaEvaluada`: un fallo de red no es «se evaluó y no hay».
         MO.toast('error', 'No se pudo emparejar: ' + (e && e.message ? e.message : e));
       })
-      .then(function () { _evaluando = false; schedule(); });
+      .then(function () { _evaluando = false; pintarLienzo(); schedule(); });
   }
 
   function confirmarPlantilla() {
@@ -375,11 +388,17 @@
       confianza_nivel: c.plantilla_confianza_nivel,
       metodo: c.plantilla_metodo,
       parametros: c.plantilla_parametros,
+      // La decisión se lleva SU copia del contorno y de la máscara. Leerlos del
+      // candidato al dibujar sería frágil: una reevaluación con otro repertorio
+      // dejaría lo confirmado dibujado con la forma de otra plantilla.
+      contorno: c.plantilla_contorno || null,
+      contorno_presente: c.plantilla_contorno_presente || null,
       confirmada_en: new Date().toISOString(),
     };
     obj.plantillaDescartada = false;
     if (cao.metricas) sincronizarMetricasPlantilla(cao.metricas, obj);
     MO.toast('success', 'Completitud confirmada.');
+    pintarLienzo();
     schedule();
   }
 
@@ -391,6 +410,7 @@
     obj.plantillaConfirmada = null;
     if (cao.metricas) sincronizarMetricasPlantilla(cao.metricas, obj);
     MO.toast('info', 'Candidata descartada: la pieza queda sin forma ideal asignada.');
+    pintarLienzo();   // la forma descartada tiene que DESAPARECER del lienzo
     schedule();
   }
 
@@ -413,6 +433,28 @@
     metricas.plantilla_residuo_rms     = d.residuo_rms;
     metricas.plantilla_confianza       = d.confianza;
     metricas.plantilla_confianza_nivel = d.confianza_nivel;
+  }
+
+  /** Casilla de visibilidad + leyenda del convenio de trazo del lienzo.
+      La leyenda no es adorno: sin ella, el tramo discontinuo se lee como «otra
+      línea más» en vez de como «esto la plantilla lo está reconstruyendo». */
+  function controlSuperposicion() {
+    var wrap = el('div', 'adr2-forma-overlay');
+    var lab = el('label', 'adr2-ph-note');
+    var chk = document.createElement('input');
+    chk.type = 'checkbox';
+    chk.checked = _overlayVisible;
+    chk.addEventListener('change', function () {
+      _overlayVisible = chk.checked;
+      pintarLienzo();
+    });
+    lab.appendChild(chk);
+    lab.appendChild(document.createTextNode(' Superponer la plantilla en el lienzo'));
+    wrap.appendChild(lab);
+    wrap.appendChild(el('p', 'adr2-ph-note',
+      'Trazo continuo = el tramo que el fragmento respalda. Discontinuo = el que ' +
+      'la plantilla reconstruye, y que por tanto no es una medición.'));
+    return wrap;
   }
 
   /* ── §6 Estado de conservación: tarjeta de completitud ──────────────────── */
@@ -472,6 +514,7 @@
       var bNo = el('button', 'adr2-btn-ph', 'Descartar');
       bNo.type = 'button'; bNo.addEventListener('click', descartarPlantilla);
       card.appendChild(bNo);
+      if (d.plantilla_contorno) card.appendChild(controlSuperposicion());
 
     } else if (st.key === 'confirmada') {
       var dc = st.dato;
@@ -481,6 +524,7 @@
       var bRe = el('button', 'adr2-btn-ph', 'Revisar');
       bRe.type = 'button'; bRe.addEventListener('click', descartarPlantilla);
       card.appendChild(bRe);
+      if (dc.contorno) card.appendChild(controlSuperposicion());
 
     } else {   /* sin-plantilla */
       var motivo = (st.dato && st.dato.motivo_rechazo) || '';
@@ -690,6 +734,13 @@
     evaluar: function () { evaluarPlantilla(null); },
     confirmar: confirmarPlantilla,
     descartar: descartarPlantilla,
+    /* Superposición (ADR-010: verificable desde la consola de Electron, que es
+       el único sitio donde se puede comprobar que esto se DIBUJA). */
+    overlay: function (v) {
+      if (typeof v === 'boolean') _overlayVisible = v;
+      pintarLienzo();
+      return _overlayVisible;
+    },
   };
 
   MO.bootWhenReady(boot);

@@ -105,6 +105,11 @@ _UMBRAL_COMPLETO   = 0.93    # cobertura por encima de la cual se declara comple
 _RANSAC_ITERS      = 600
 _SEED              = 20260913
 _N_GRID_ARCO       = 2048    # muestras para la longitud de arco de la plantilla
+# Muestras de la polilínea que se publica para DIBUJAR la plantilla. No participa
+# en ningún cálculo —la completitud se mide sobre `_N_GRID_ARCO`—; sólo fija el
+# peso del JSON que viaja al lienzo. 128 puntos bastan para que un círculo de
+# 200 px de radio se vea liso (error de cuerda < 0,1 px).
+_N_CONTORNO        = 128
 # La elipse tiene 2 parámetros más que el círculo y SIEMPRE ajusta al menos igual
 # de bien; sólo se prefiere si mejora el residuo con margen.
 _MARGEN_ELIPSE     = 0.80
@@ -338,21 +343,28 @@ def _arco_acumulado(tipo: str, m: dict) -> tuple[np.ndarray, np.ndarray, float]:
 
 
 def _completitud(t_arco: np.ndarray, tipo: str, m: dict,
-                 gap_min_deg: float) -> tuple[float, list]:
+                 gap_min_deg: float) -> tuple[float, list, list]:
     """
     E3 — fracción de la longitud de arco de la plantilla cubierta por el margen
     preservado. Se mide por HUECOS (saltos de parámetro mayores que `gap_min`),
     no por binning, que es sensible a la densidad de puntos del contorno.
+
+    Devuelve también los intervalos ausentes SIN envolver `(t0, t1)` —con `t1`
+    posiblemente > 2π cuando el hueco cruza el origen—. `huecos` los publica ya
+    redondeados y envueltos para el contrato; reconstruir el envolvimiento desde
+    esos grados sería una fuente de error evitable, y el lienzo necesita saber
+    exactamente qué tramo NO está respaldado por el fragmento.
     """
     if len(t_arco) < 3:
-        return 0.0, []
+        return 0.0, [], []
     t_grid, S, L = _arco_acumulado(tipo, m)
     if L <= 0:
-        return 0.0, []
+        return 0.0, [], []
 
     t = np.sort(t_arco)
     gap_min = math.radians(gap_min_deg)
     huecos = []
+    ausentes = []
     faltante = 0.0
     for i in range(len(t)):
         t0 = t[i]
@@ -370,7 +382,33 @@ def _completitud(t_arco: np.ndarray, tipo: str, m: dict,
             "inicio_deg": round(math.degrees(t0), 2),
             "fin_deg":    round(math.degrees(t1 % (2 * math.pi)), 2),
         })
-    return max(0.0, min(1.0, 1.0 - faltante / L)), huecos
+        ausentes.append((float(t0), float(t1)))
+    return max(0.0, min(1.0, 1.0 - faltante / L)), huecos, ausentes
+
+
+def _contorno_con_presencia(tipo: str, m: dict,
+                            ausentes: list) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Polilínea de la plantilla ajustada (coords absolutas) + máscara punto a punto
+    de «este tramo lo respalda el fragmento».
+
+    La máscara es lo que hace honesta la superposición: sin ella, el lienzo
+    dibujaría la forma ideal entera con el mismo trazo y el tramo inventado sería
+    indistinguible del medido. Con ella, la parte ausente se dibuja discontinua
+    —el mismo convenio que los candidatos de P/H en ADR-009: línea discontinua =
+    hipótesis—. Un tramo sin hueco declarado (salto ≤ `gap_min_deg`) cuenta como
+    presente, exactamente igual que en el cómputo de la completitud: lo que se ve
+    es lo que se mide.
+    """
+    t = np.linspace(0.0, 2.0 * math.pi, _N_CONTORNO, endpoint=False)
+    pts = _puntos_plantilla(t, tipo, m)
+    presente = np.ones(_N_CONTORNO, dtype=bool)
+    for t0, t1 in ausentes:
+        dentro = (t >= t0) & (t <= t1)
+        if t1 > 2.0 * math.pi:                     # el hueco cruza el origen
+            dentro |= (t <= t1 - 2.0 * math.pi)
+        presente &= ~dentro
+    return pts, presente
 
 
 # ── E1 + E2 · Ajuste robusto con puntuación por tramo contiguo ──────────────
@@ -509,9 +547,10 @@ async def match(
     scale_px_mm        factor px→mm; si > 0 el residuo se reporta también en mm
     gap_min_deg        hueco angular mínimo que cuenta como ausencia (default 8°)
     min_arco_fraccion  dict {tipo: fracción} — soporte mínimo del perímetro sobre
-                       la plantilla para aceptarla (default: círculo 0.30, elipse
-                       0.45). Por debajo se RECHAZA en vez de inventar: es la
-                       envolvente operativa medida en ADR-017 §4.
+                       la plantilla para aceptarla (default: círculo 0.40, elipse
+                       0.50, calibrados en F4 sobre banco sintético; ver
+                       `docs/VALIDACION-PLANTILLAS.md`). Por debajo se RECHAZA en
+                       vez de inventar: es la envolvente operativa de ADR-017 §4.
 
     Retorno (contrato ADR-017 §5)
     -----------------------------
@@ -527,6 +566,8 @@ async def match(
       "plantilla_metodo": str,
       "es_fragmento_candidato": bool | None,         # CANDIDATO, no hecho (ADR-009)
       "huecos": [...],
+      "plantilla_contorno": [[x, y], ...] | None,    # polilínea a dibujar, ABSOLUTA
+      "plantilla_contorno_presente": [bool, ...],    # paralelo: True = lo respalda
       "candidatos": [ ... ],                         # todas las plantillas probadas
       "motivo_rechazo": str | None,
     }
@@ -547,6 +588,7 @@ async def match(
         "es_fragmento_candidato": None,
         "huecos": [],
         "plantilla_contorno": None,
+        "plantilla_contorno_presente": None,
         "candidatos": [],
         "motivo_rechazo": None,
     }
@@ -589,8 +631,16 @@ async def match(
                 candidatos.append({"tipo": tipo, "aceptada": False,
                                    "motivo": "sin ajuste válido"})
                 continue
-            comp, huecos = _completitud(_param(fit["arco"], tipo, fit["modelo"]),
-                                        tipo, fit["modelo"], gap_min_deg)
+            comp, huecos, ausentes = _completitud(
+                _param(fit["arco"], tipo, fit["modelo"]),
+                tipo, fit["modelo"], gap_min_deg)
+            # La vía analítica también publica su polilínea. Hasta F4 sólo la
+            # emitía el ICP, así que `plantilla_contorno` salía None justo para
+            # círculo y elipse —las dos plantillas por defecto del botón— y la
+            # superposición del lienzo no tenía nada que dibujar.
+            cont, pres = _contorno_con_presencia(tipo, fit["modelo"], ausentes)
+            fit["contorno_plantilla"] = cont
+            fit["contorno_presente"] = pres
         # `umbrales` parte SIEMPRE de _MIN_ARCO_FRACCION, que cubre las dos
         # plantillas analíticas → el defecto sólo lo toma el repertorio ICP.
         # (Antes había aquí un 0,30 suelto que quedaba desfasado al recalibrar.)
@@ -679,6 +729,14 @@ async def match(
             [[round(float(x), 2), round(float(y), 2)]
              for x, y in fit["contorno_plantilla"]]
             if "contorno_plantilla" in fit else None
+        ),
+        # Paralelo punto a punto al anterior: True donde el margen preservado
+        # respalda ese tramo, False donde la plantilla lo está RECONSTRUYENDO.
+        # Sin esta máscara el lienzo dibujaría lo medido y lo inferido con el
+        # mismo trazo, que es exactamente el vicio que ADR-017 F0 vino a retirar.
+        "plantilla_contorno_presente": (
+            [bool(v) for v in fit["contorno_presente"]]
+            if "contorno_presente" in fit else None
         ),
         "candidatos": [{k: v for k, v in c.items() if k != "_fit"} for c in candidatos],
         "motivo_rechazo": None,
@@ -980,7 +1038,7 @@ def _emparejar_icp(pts: np.ndarray, nombre: str, permitir_reflexion: bool,
         return None
     s_cub = np.sort(S[idx_img[conservados]])
     gap_min = gap_min_arco * L
-    faltante, huecos = 0.0, []
+    faltante, huecos, ausentes = 0.0, [], []
     for i in range(len(s_cub)):
         s0 = s_cub[i]
         s1 = s_cub[i + 1] if i < len(s_cub) - 1 else s_cub[0] + L
@@ -988,7 +1046,22 @@ def _emparejar_icp(pts: np.ndarray, nombre: str, permitir_reflexion: bool,
             faltante += (s1 - s0)
             huecos.append({"inicio_frac": round(s0 / L, 4),
                            "fin_frac": round((s1 % L) / L, 4)})
+            ausentes.append((float(s0), float(s1)))
     completitud = max(0.0, min(1.0, 1.0 - faltante / L))
+
+    # Polilínea a dibujar + máscara de «respaldado por el fragmento». Aquí el
+    # parámetro es longitud de arco, no el ángulo de la vía analítica: por eso la
+    # máscara se construye en cada rama con su propio convenio y no se reconstruye
+    # después a partir de los huecos ya redondeados.
+    paso = max(1, len(plantilla_img) // _N_CONTORNO)
+    idx_c = np.arange(0, len(plantilla_img), paso)
+    s_c = S[idx_c]
+    presente_c = np.ones(len(idx_c), dtype=bool)
+    for s0, s1 in ausentes:
+        dentro = (s_c >= s0) & (s_c <= s1)
+        if s1 > L:                                  # el hueco cruza el origen
+            dentro |= (s_c <= s1 - L)
+        presente_c &= ~dentro
 
     # Soporte: fracción del PERÍMETRO DEL FRAGMENTO explicada por la plantilla,
     # medida como tramo contiguo — mismo criterio E1 que la vía analítica.
@@ -1014,5 +1087,6 @@ def _emparejar_icp(pts: np.ndarray, nombre: str, permitir_reflexion: bool,
         "huecos": huecos,
         "xi": mejor["xi"],
         "psi": mejor["psi"],
-        "contorno_plantilla": plantilla_img[::max(1, len(plantilla_img) // 128)],
+        "contorno_plantilla": plantilla_img[idx_c],
+        "contorno_presente": presente_c,
     }

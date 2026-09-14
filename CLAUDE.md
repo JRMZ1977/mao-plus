@@ -118,6 +118,47 @@ Sesgo sistemático multiplicativo **f/(d−f)**: 20 % con f=50/d=300 (el propio 
   contenedor con distintas dependencias opcionales. **Comparar deltas, no absolutos.**
 - **Pendiente:** verificación visual en Electron de los rótulos del comparador (`node --check`
   no ve layout) · ADR-018 para O-1 · estimador robusto (MCD / Ledoit-Wolf) para `n < 3p`.
+## 🎯 Sesión 2026-09-14 — ADR-017 F5: la plantilla, sobre el lienzo
+
+F3 la anotó como «lo primero de F4»; F4 acabó siendo la calibración, así que la capa visual
+recibe número propio. Detalle en ADR-017 §6.6.
+
+- **El fallo que la bloqueaba, y que no se veía:** `plantilla_contorno` lo publicaba **sólo la
+  vía ICP**. Círculo y elipse —las dos que el botón usa por defecto— devolvían `None`, así que
+  la capa habría quedado **muda**: nada dibujado y ningún error en consola. F5 empieza
+  publicando la polilínea también desde la vía analítica (`_contorno_con_presencia`).
+- **No se dibuja el contorno ideal a secas**, sino partido en dos regímenes: **continuo** donde
+  el margen preservado lo respalda, **discontinuo** donde la plantilla lo reconstruye. Sin esa
+  distinción, el lienzo mostraría lo medido y lo inferido con el mismo trazo — el vicio que F0
+  vino a retirar, en píxeles en vez de en una columna del CSV. Convenio heredado de los
+  candidatos de P/H (ADR-009): **discontinuo = hipótesis**.
+- **Nueva clave paralela** `plantilla_contorno_presente: [bool,…]`, punto a punto con
+  `plantilla_contorno`. Se calcula en **Python**, en cada rama con su propio parámetro (ángulo
+  en la analítica, longitud de arco en el ICP) en vez de reconstruirla en JS desde los huecos
+  ya redondeados: duplicar geometría en dos lenguajes es como empezó el lío de los cuatro
+  estimadores de F0. **No entra al registro ADR-006**: es geometría para dibujar, no una medida.
+- **Frontera:** un tramo cuenta como medido sólo si **sus dos extremos** lo están → en la
+  frontera gana el trazo de hipótesis, que es el que no afirma de más.
+- **Capa aislada:** pasada propia tras el bucle de objetos de `redraw()`, no dentro de sus
+  ramas (`contornoReal` vs `has_real_contour`). Quitarla es borrar una línea. Color violeta
+  `#7c3aed`, sin reutilizar ninguna capa existente (verde = contorno real · naranja =
+  envolvente · azul = bbox · magenta = verificación de escala).
+- **Casilla + leyenda** en la tarjeta §6; organizer y lienzo se hablan por evento
+  (`mao:plantilla-overlay:toggle`), el mismo camino que `mao:batch-analyze:request`. Lo
+  confirmado guarda **su propia copia** del contorno: leerlo del candidato vivo haría que una
+  reevaluación con otro repertorio dibujara la decisión humana con otra plantilla.
+- **Gate funcional propio** (`tools/adr017_gate_overlay.mjs`, 20/20): extrae el código **real**
+  de `analysis-core.js` —no una copia— y lo corre contra un `ctx` de mentira que registra cada
+  llamada de dibujo. `node --check` no ve si el polígono cierra ni qué tramo sale discontinuo.
+- **Lo que el gate encontró:** dos expectativas **mías** mal calculadas, no del código — el
+  tramo discontinuo abarca 18 puntos y no 19, y la parte respaldada sale en **dos** trazos
+  porque el hueco no toca la costura del array. Anotado en el gate para que no se lea como bug.
+- **Verificado:** suite **+12 tests** (401 → **413 passed / 4 skipped**) · gate 20/20 ·
+  `node --check` en los 2 JS · sintaxis 3.9 · cache-bust `?v=20260914a` en los 3 archivos.
+- **Pendiente (sólo Electron):** que el violeta se distinga del verde y el naranja con una foto
+  real detrás, y que la discontinuidad se lea a los zooms de trabajo. Desde la consola:
+  `window.__maoForma.overlay(true|false)`.
+
 ## 🎯 Sesión 2026-09-13 (e) — ADR-017 F4: los umbrales dejan de ser criterio
 
 F1-F3 construyeron, conectaron y expusieron la completitud. F4 pregunta lo único que faltaba:

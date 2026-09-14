@@ -442,6 +442,74 @@ def test_el_modo_degenerado_no_publica_un_numero_disparatado():
         )
 
 
+def test_la_via_analitica_publica_su_contorno():
+    """
+    Regresión del fallo que bloqueaba la superposición en el lienzo: hasta F5,
+    `contorno_plantilla` lo emitía SÓLO el ICP. Círculo y elipse —las dos
+    plantillas por defecto del botón— salían con `plantilla_contorno: None`, así
+    que la capa del lienzo no habría tenido nada que dibujar y habría fallado en
+    silencio, sin error de consola.
+    """
+    r = _correr(_sector(0.75))
+    assert r["plantilla_tipo"] == "circulo"
+    cont = r["plantilla_contorno"]
+    pres = r["plantilla_contorno_presente"]
+    assert cont and len(cont) > 2, "la vía analítica no publica polilínea"
+    assert pres is not None and len(pres) == len(cont), (
+        "la máscara de presencia debe ir punto a punto con el contorno"
+    )
+    xs = [p[0] for p in cont]
+    assert min(xs) < CENTRO[0] < max(xs), "debe estar en coordenadas absolutas"
+
+
+def test_la_mascara_dice_lo_mismo_que_la_completitud():
+    """
+    El lienzo y el número tienen que contar la misma historia. Si la fracción de
+    puntos marcados como respaldados se despegara de `plantilla_completitud`, la
+    figura estaría desmintiendo al dato que acompaña.
+
+    No son idénticos por construcción: la máscara muestrea uniformemente en el
+    PARÁMETRO y la completitud se mide en LONGITUD DE ARCO (para una elipse no
+    son proporcionales). De ahí la tolerancia.
+    """
+    for frac, pts in ((1.00, _ruido(_densificar(_arco(0, 2 * math.pi, 600)[:-1]))),
+                      (0.75, _sector(0.75)),
+                      (0.50, _ruido(_densificar(_arco(0, math.pi, 300))))):
+        r = _correr(pts)
+        pres = r["plantilla_contorno_presente"]
+        visto = sum(1 for v in pres if v) / len(pres) * 100.0
+        assert abs(visto - r["plantilla_completitud"]) <= 5.0, (
+            f"forma al {frac*100:.0f} %: el dibujo marca {visto:.1f} % respaldado "
+            f"y el dato dice {r['plantilla_completitud']} %"
+        )
+
+
+def test_una_pieza_integra_no_dibuja_ningun_tramo_inventado():
+    """Si la plantilla está entera respaldada, NADA debe salir discontinuo."""
+    r = _correr(_ruido(_densificar(_arco(0, 2 * math.pi, 600)[:-1])))
+    assert all(r["plantilla_contorno_presente"]), (
+        "un círculo íntegro no tiene tramo que reconstruir"
+    )
+
+
+def test_sin_plantilla_no_hay_nada_que_dibujar():
+    """Rechazo ⇒ ni contorno ni máscara: el lienzo no puede inventar una forma."""
+    pts = _ruido(_densificar([[200, 250], [400, 250], [400, 350], [200, 350]]))
+    r = _correr(pts)
+    assert r["plantilla_tipo"] == "ninguna"
+    assert r["plantilla_contorno"] is None
+    assert r["plantilla_contorno_presente"] is None
+
+
+def test_el_icp_tambien_publica_la_mascara():
+    """La generalización de F2 no se queda sin la capa visual de F5."""
+    r = _correr(_sector(0.75), templates=["circulo"], forzar_icp=True)
+    cont, pres = r["plantilla_contorno"], r["plantilla_contorno_presente"]
+    assert cont and pres and len(cont) == len(pres)
+    visto = sum(1 for v in pres if v) / len(pres) * 100.0
+    assert abs(visto - r["plantilla_completitud"]) <= 5.0
+
+
 def test_los_umbrales_no_bajan_de_lo_calibrado():
     """Guard de no-regresión de la calibración F4.
 

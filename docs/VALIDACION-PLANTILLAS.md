@@ -296,6 +296,7 @@ exactamente lo que ADR-017 F0 tuvo que retirar.
 python tools/adr017_banco_umbrales.py          # nivel 1, ~3 min
 python -m pytest python/tests/test_shape_template.py \
                 python/tests/test_adr017_calibracion.py -q
+node tools/adr017_gate_overlay.mjs             # geometría de la superposición
 ```
 
 El banco imprime el barrido completo y dice si algún juego de umbrales domina al

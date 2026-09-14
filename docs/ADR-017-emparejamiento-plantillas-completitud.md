@@ -1,7 +1,8 @@
 # ADR-017 — Emparejamiento con plantillas de forma ideal e inferencia de completitud (fragmento vs. pieza completa)
 
-**Estado:** 🟡 **F0-F3 implementadas · F4 parcial (2026-09-12/13)** — umbrales recalibrados con
-evidencia y arnés de calibración listo; la corrida sobre el corpus real la ejecuta el observador
+**Estado:** 🟡 **F0-F3 y F5 implementadas · F4 parcial (2026-09-12/14)** — umbrales recalibrados con
+evidencia, arnés de calibración listo y plantilla superpuesta en el lienzo; la corrida sobre el
+corpus real la ejecuta el observador
 **Nota de versión F0:** `docs/NOTA-VERSION-ADR017-F0.md` (cambia valores exportados)
 **Validación:** `docs/VALIDACION-PLANTILLAS.md` (protocolo, banco de umbrales, sesgos conocidos)
 **Fecha:** 2026-09-12
@@ -277,6 +278,18 @@ salvo donde se indica, y propagadas por el contrato ADR-008:
 | `plantilla_metodo` | str | `ransac_circulo` \| `ransac_elipse` \| `icp_repertorio` |
 | `es_fragmento_candidato` | bool | **candidato**, nunca hecho consumado (ADR-009) |
 
+Dos claves más viajan en la respuesta del endpoint pero **no** al registro canónico: son geometría
+para dibujar, no medidas que puedan acabar en una tabla.
+
+| clave | tipo | significado |
+|---|---|---|
+| `plantilla_contorno` | `[[x, y], …]` \| null | polilínea de la plantilla ajustada, coords **absolutas** |
+| `plantilla_contorno_presente` | `[bool, …]` \| null | paralelo punto a punto: `true` donde el margen preservado respalda ese tramo, `false` donde la plantilla lo **reconstruye** |
+
+La segunda es la que hace honesta la superposición del lienzo (§6.6): sin ella se dibujaría la forma
+ideal entera con el mismo trazo y el tramo inventado sería indistinguible del medido — exactamente el
+vicio que F0 vino a retirar, sólo que en píxeles en vez de en una columna del CSV.
+
 **Retiradas / renombradas en F0** (ver riesgo en §6):
 
 | clave actual | destino |
@@ -305,10 +318,51 @@ forma ideal subyacente: el caso normal en lítica). Nunca `--ok` automático.
 | **F1** | ✅ **Hecha.** `python/modules/shape_template.py` + `/api/shape-match` + 19 tests. Ver §6.2 | nuevo módulo, `server.py`, `modules/__init__.py`, 2 ficheros de test | ✅ error ≤ 1 punto porcentual entre 25 % y 100 % · ✅ rechaza < 15 % · ✅ rechaza plantilla errónea · suite 343/4 | 🟢 aditivo |
 | **F2** | ✅ **Hecha.** ICP recortado sobre repertorio + `efa.reconstruct()` publicada + `/api/shape-match/templates`. Ver §6.3 | `shape_template.py`, `efa.py`, `server.py` | ✅ paridad ≤ 0,3 pp en los 4 casos · ✅ 3 plantillas poligonales validadas · suite 357/4 | 🟢 aditivo |
 | **F3** | ✅ **Hecha.** Registro + bridge + chip de 4 estados + confirmar/descartar + persistencia + CSV. Ver §6.4 | `morphometric_registry.py`, `python-bridge.js`, `mao-deteccion-contract.js`, `mao-analysis-organizer.js`, `analysis-core.js`, `project-manager.js`, `tabla-metricas-completa.js`, `mao-tabs-laar.css`, `index.html` | ✅ 4 estados · ✅ persiste en el caché · ✅ CSV sólo lo confirmado · 15 tests de cableado · suite 372/4 | 🟢 |
+| **F5** | ✅ **Hecha.** Superposición de la plantilla en el lienzo, con el tramo reconstruido en discontinuo. Ver §6.6 | `shape_template.py`, `analysis-core.js`, `mao-analysis-organizer.js`, `mao-tabs-laar.css`, `index.html`, gate + 2 ficheros de test | ✅ la vía analítica publica su polilínea (antes sólo el ICP) · ✅ gate funcional 20/20 sobre el código real · suite 413/4 · ⏳ verificación visual en Electron | 🟢 aditivo |
 | **F4** | 🟡 **Parcial.** Banco de umbrales + recalibración + arnés de calibración real. Ver §6.5 | `shape_template.py`, `tools/adr017_banco_umbrales.py`, `tools/adr017_calibracion_draga.py`, `docs/VALIDACION-PLANTILLAS.md`, 2 ficheros de test | ✅ umbrales justificados con datos (87 formas + 15 controles) · ✅ arnés ICC/Bland-Altman/κ probado end-to-end · suite +22 tests (401/4 sobre `main`) · ⏳ **la corrida sobre La Draga la ejecuta el observador**: el corpus está en su equipo | 🟢 |
 
 **Secuencia recomendada:** F0 primero y por separado — es autónomo, corrige un defecto que ya
 contamina el reporte del artículo, y no depende de nada de lo demás.
+
+### 6.6 · F5: la plantilla, sobre el lienzo
+
+F3 anotó esta superposición como «lo primero de F4». F4 acabó siendo la calibración de umbrales,
+que era más urgente, así que la capa visual recibe número propio en vez de quedar colgando de una
+fase ya cerrada.
+
+**El fallo que la bloqueaba, y que no se veía:** `plantilla_contorno` lo publicaba **sólo la vía
+ICP**. Círculo y elipse —las dos plantillas analíticas, que son justo las que el botón usa por
+defecto— devolvían `None`, así que la capa del lienzo no habría tenido nada que dibujar y habría
+fallado **en silencio**, sin error de consola. Es la misma clase de defecto que los tres de F3: código
+que nadie ejecuta hasta que un humano pulsa un botón. F5 empieza publicando esa polilínea también
+desde la vía analítica.
+
+**Lo que se dibuja, y por qué así.** No es el contorno ideal a secas: es el contorno **partido en dos
+regímenes**. Continuo donde el margen preservado respalda el trazo; discontinuo donde la plantilla lo
+está reconstruyendo. Un tramo cuenta como medido sólo si **sus dos extremos** lo están: en la frontera
+se elige el trazo de hipótesis, que es el que no afirma de más. El convenio de la línea discontinua se
+hereda de los candidatos de P/H (ADR-009): **discontinuo = hipótesis**. Y la máscara se calcula en
+Python, en cada rama con su propio parámetro —ángulo en la vía analítica, longitud de arco en el
+ICP—, en vez de reconstruirla en JS desde los huecos ya redondeados: duplicar esa geometría en dos
+lenguajes es como empezó el desaguisado de los cuatro estimadores de F0.
+
+**Gate propio, porque lo visual aquí no se puede verificar.** `tools/adr017_gate_overlay.mjs` extrae
+el código **real** de `analysis-core.js` —no una copia, que se desincronizaría— y lo ejecuta contra un
+lienzo de mentira que registra cada llamada de dibujo. 20 comprobaciones: que una candidata descartada
+no se dibuje, que lo confirmado gane al candidato vivo, que el polígono cierre, que un hueco produzca
+exactamente un tramo de hipótesis y que cubra su frontera, que el grosor compense el zoom, que el
+estado del lienzo se restaure. Un `node --check` no ve nada de eso.
+
+**Lo que el gate encontró:** dos expectativas **mías** mal calculadas, no del código — el tramo
+discontinuo abarca 18 puntos y no 19 (17 segmentos: los 16 ausentes más los dos de frontera), y la
+parte respaldada sale en **dos** trazos, no uno, porque el hueco no toca la costura del array y el
+recorrido empieza dentro de la zona respaldada. Los dos trazos se juntan en el punto 0 y se ven como
+una sola línea. Queda anotado en el gate para que nadie lo lea como un defecto.
+
+**Sigue pendiente la verificación visual en Electron**, que ningún contenedor de estas sesiones puede
+hacer: que el violeta se distinga del verde del contorno y del naranja de la envolvente con una foto
+real detrás, y que la discontinuidad se lea a los zooms de trabajo. Comprobable desde la consola con
+`window.__maoForma.overlay(true|false)` (ADR-010).
 
 ### 6.5 · F4: lo que el banco dijo de los umbrales (y de este ADR)
 
@@ -579,8 +633,9 @@ node tools/adr017_proto_plantilla.mjs                  # §4 — prototipo de vi
 python -m pytest python/tests/test_shape_template.py \
                  tests/test_shape_match_api.py \
                  python/tests/test_adr017_f3_cableado.py \
-                 python/tests/test_adr017_calibracion.py   # gates de F1-F4
+                 python/tests/test_adr017_calibracion.py   # gates de F1-F5
 python tools/adr017_banco_umbrales.py                  # §6.5 — banco de umbrales (~3 min)
+node tools/adr017_gate_overlay.mjs                     # §6.6 — geometría de la superposición
 ```
 
 El banco de F4 es reproducible en el mismo sentido que las sondas: su ruido es **determinista**

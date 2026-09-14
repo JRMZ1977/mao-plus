@@ -14816,6 +14816,96 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // ADR-017 — SUPERPOSICIÓN DE LA PLANTILLA DE FORMA IDEAL
+  // ══════════════════════════════════════════════════════════════════════════
+  // Dibuja sobre el lienzo la forma ideal ajustada al margen original. El tramo
+  // que el fragmento RESPALDA va continuo; el que la plantilla RECONSTRUYE, en
+  // discontinuo. Esa distinción es el punto: sin ella, el lienzo mostraría lo
+  // medido y lo inferido con el mismo trazo, que es justo el vicio que ADR-017 F0
+  // tuvo que retirar. Y es lo que convierte `plantilla_completitud` de un número
+  // en algo revisable: se ve dónde apoya la plantilla ANTES de confirmarla.
+  //
+  // Color propio, sin reutilizar ninguna capa existente del lienzo (verde =
+  // contorno real · naranja = envolvente convexa · azul = bbox · magenta =
+  // verificación de escala): un violeta que no se confunda con una medición.
+  const PLANTILLA_COLOR = '#7c3aed';
+  let mostrarPlantillaIdeal = true;
+
+  /** Qué plantilla toca dibujar para este objeto, si es que toca alguna.
+      Lo CONFIRMADO manda sobre el candidato, y un candidato descartado no se
+      dibuja: el lienzo refleja la decisión humana, no la última respuesta del
+      backend (ADR-009 / ADR-017 §7). */
+  function plantillaDibujable(obj) {
+    if (!obj) return null;
+    const d = obj.plantillaConfirmada;
+    if (d && Array.isArray(d.contorno) && d.contorno.length > 2) {
+      return { pts: d.contorno, pres: d.contorno_presente, estado: 'confirmada' };
+    }
+    const c = obj.plantillaCandidata;
+    if (c && !obj.plantillaDescartada && c.plantilla_tipo && c.plantilla_tipo !== 'ninguna'
+        && Array.isArray(c.plantilla_contorno) && c.plantilla_contorno.length > 2) {
+      return { pts: c.plantilla_contorno, pres: c.plantilla_contorno_presente,
+               estado: 'candidata' };
+    }
+    return null;
+  }
+
+  function dibujarPlantillasIdeales() {
+    if (!mostrarPlantillaIdeal || !Array.isArray(objects)) return;
+    const getX = (p) => (p.x !== undefined ? p.x : p[0]);
+    const getY = (p) => (p.y !== undefined ? p.y : p[1]);
+
+    for (let i = 0; i < objects.length; i++) {
+      const plan = plantillaDibujable(objects[i]);
+      if (!plan) continue;
+      const pts = plan.pts;
+      const n = pts.length;
+      // Sin máscara (respuesta cacheada de antes de que el backend la publicara)
+      // se dibuja todo continuo: preferible a inventar qué tramo es hipótesis.
+      const pres = (Array.isArray(plan.pres) && plan.pres.length === n) ? plan.pres : null;
+      const confirmada = plan.estado === 'confirmada';
+
+      ctx.save();
+      ctx.strokeStyle = PLANTILLA_COLOR;
+      ctx.globalAlpha = confirmada ? 1.0 : 0.72;
+      const ancho = confirmada ? 2.5 : 1.6;
+      ctx.lineWidth = isManualSelectionMode ? ancho : ancho / zoom;
+      const guion = isManualSelectionMode ? [7, 5] : [7 / zoom, 5 / zoom];
+
+      // Un tramo cuenta como MEDIDO sólo si sus dos extremos lo están: en la
+      // frontera se elige el trazo de hipótesis, que es el que no afirma de más.
+      const apoyado = (k) => (pres ? (pres[k] !== false && pres[(k + 1) % n] !== false) : true);
+      let j = 0;
+      while (j < n) {
+        const modo = apoyado(j);
+        let k = j;
+        while (k < n && apoyado(k) === modo) k++;      // tramo homogéneo [j, k)
+        ctx.setLineDash(modo ? [] : guion);
+        ctx.beginPath();
+        for (let s = j; s <= k; s++) {                 // k inclusive: cierra el tramo
+          const p = pts[s % n];
+          const c = isManualSelectionMode
+            ? UtilityHelpers.imageToCanvasCoords(getX(p), getY(p))
+            : { x: getX(p), y: getY(p) };
+          if (s === j) ctx.moveTo(c.x, c.y); else ctx.lineTo(c.x, c.y);
+        }
+        ctx.stroke();
+        j = k;
+      }
+      ctx.restore();   // devuelve dash, alfa, grosor y color al estado previo
+    }
+  }
+
+  // La casilla vive en la tarjeta §6 del organizer; el lienzo lo dibuja este
+  // archivo. Se comunican por evento, igual que `mao:batch-analyze:request`.
+  document.addEventListener('mao:plantilla-overlay:toggle', function (e) {
+    if (e && e.detail && typeof e.detail.visible === 'boolean') {
+      mostrarPlantillaIdeal = e.detail.visible;
+    }
+    redraw();
+  });
+
   function redraw(){
     ctx.setTransform(1,0,0,1,0,0);
     ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -15362,6 +15452,12 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
           }
           ctx.restore();
         }
+
+        // ADR-017 — la plantilla se superpone en PASADA PROPIA, después de las
+        // etiquetas, para que quede por encima y para no entrelazarse con el
+        // ramaje de `contornoReal` vs `has_real_contour` de arriba (retirarla es
+        // borrar esta línea).
+        dibujarPlantillasIdeales();
       } else {
         console.log('No se detectaron objetos en la imagen');
       }

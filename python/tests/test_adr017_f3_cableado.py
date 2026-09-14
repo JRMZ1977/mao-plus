@@ -207,6 +207,100 @@ def test_usa_los_campos_de_contorno_que_existen_de_verdad():
         assert inventado not in org, f"{inventado} no existe en el modelo de objeto"
 
 
+# ── F5 · Superposición en el lienzo ─────────────────────────────────────────
+#
+# Misma disciplina que arriba, y por la misma razón: nada de esto se ejecuta
+# hasta que alguien carga una imagen, analiza un objeto y pulsa un botón. Un
+# nombre de campo o de evento equivocado no da error: deja la capa muerta.
+
+CSS = ROOT / "css" / "mao-tabs-laar.css"
+
+
+def test_el_lienzo_llama_a_la_capa_de_plantilla():
+    """Sin la llamada dentro de `redraw`, la función existe y no la ejecuta nadie."""
+    s = _txt(CORE)
+    assert "function dibujarPlantillasIdeales" in s
+    cuerpo = s[s.index("function redraw(){"):]
+    assert "dibujarPlantillasIdeales();" in cuerpo, (
+        "`redraw` no invoca la superposición: la capa quedaría muerta"
+    )
+
+
+def test_la_capa_lee_los_campos_que_el_backend_publica():
+    """
+    Los nombres vienen del contrato de `shape_template.match()`. Escribirlos de
+    memoria fue el fallo nº 1 de F3.
+    """
+    s = _txt(CORE)
+    for campo in ("c.plantilla_contorno", "c.plantilla_contorno_presente",
+                  "d.contorno", "d.contorno_presente"):
+        assert campo in s, f"la capa del lienzo no lee {campo}"
+
+
+def test_lo_confirmado_guarda_su_propio_contorno():
+    """
+    Si lo confirmado dependiera del candidato vivo, una reevaluación con otro
+    repertorio dibujaría la decisión humana con la forma de OTRA plantilla.
+    """
+    s = _txt(ORGANIZER)
+    bloque = s[s.index("function confirmarPlantilla"):s.index("function descartarPlantilla")]
+    assert "contorno: c.plantilla_contorno" in bloque
+    assert "contorno_presente: c.plantilla_contorno_presente" in bloque
+
+
+def test_el_nombre_del_evento_coincide_en_los_dos_lados():
+    """
+    El organizer despacha y `analysis-core` escucha. Un nombre distinto en cada
+    archivo no lanza: la casilla simplemente no haría nada, sin rastro en consola.
+    """
+    evento = "mao:plantilla-overlay:toggle"
+    org, core = _txt(ORGANIZER), _txt(CORE)
+    assert f"CustomEvent('{evento}'" in org, "el organizer no despacha el evento"
+    assert f"addEventListener('{evento}'" in core, "el lienzo no escucha el evento"
+
+
+def test_descartar_y_confirmar_repintan():
+    """Una candidata descartada tiene que DESAPARECER del lienzo, no quedarse."""
+    s = _txt(ORGANIZER)
+    for fn, sig in (("function confirmarPlantilla", "function descartarPlantilla"),
+                    ("function descartarPlantilla", "/** Vuelca la decisión")):
+        bloque = s[s.index(fn):s.index(sig)]
+        assert "pintarLienzo()" in bloque, f"{fn} no repinta el lienzo"
+
+
+def test_el_violeta_es_el_mismo_en_css_y_en_js():
+    """
+    La leyenda de la tarjeta dibuja una muestra del color y el lienzo dibuja la
+    plantilla: si se despegan, la leyenda estaría señalando otra cosa.
+    """
+    js = re.search(r"PLANTILLA_COLOR\s*=\s*'(#[0-9a-fA-F]{6})'", _txt(CORE))
+    assert js, "no se encuentra PLANTILLA_COLOR en analysis-core.js"
+    assert js.group(1).lower() in _txt(CSS).lower(), (
+        f"el color {js.group(1)} del lienzo no aparece en la leyenda CSS"
+    )
+
+
+def test_la_superposicion_es_una_pasada_aparte():
+    """
+    Se dibuja DESPUÉS del bucle de objetos, no dentro de sus ramas. Es lo que
+    hace que quitarla sea borrar una línea y no desenredar el ramaje de
+    `contornoReal` vs `has_real_contour`.
+    """
+    s = _txt(CORE)
+    cuerpo = s[s.index("function redraw(){"):]
+    llamada = cuerpo.index("dibujarPlantillasIdeales();")
+    cierre = cuerpo.index("console.log('No se detectaron objetos en la imagen')")
+    assert llamada < cierre, "la llamada no está en el bloque de objetos de redraw"
+    assert cuerpo.count("dibujarPlantillasIdeales();") == 1
+    # La sangría distingue «tras el bucle» (8) de «dentro del bucle» (10): dentro
+    # se redibujaría la capa entera una vez por objeto, con coste cuadrático.
+    linea = next(l for l in cuerpo.splitlines() if "dibujarPlantillasIdeales();" in l)
+    assert len(linea) - len(linea.lstrip()) == 8, (
+        f"sangría {len(linea) - len(linea.lstrip())}: la llamada parece estar "
+        f"dentro del bucle de objetos, no después"
+    )
+
+
 def test_las_llamadas_a_toast_respetan_la_firma():
     """
     `MaoOrganizer.toast(kind, msg)` — con los argumentos invertidos no lanza: hace
