@@ -40,6 +40,8 @@
  * ==========================================================================
  */
 
+import * as MetricPresenter from './metric-presenter.js';  // fuente única de derivados/rótulos (ADR-016 Stage B)
+
 /**
  * Confianza global de la clasificación, normalizada a un porcentaje 0–100.
  *
@@ -171,6 +173,7 @@ export function generarTablaMetricasCompleta(obj, metricas) {
 
   html += generarSeccionEstadoConservacion(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionErrorOptico(metricas, estiloTabla, estiloTh, estiloTd);
+  html += generarSeccionIncertidumbrePropagada(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionEjesOrientacion(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionAnalisisRadial(metricas, estiloTabla, estiloTh, estiloTd);
   html += generarSeccionPropiedadesContorno(metricas, estiloTabla, estiloTh, estiloTd);
@@ -222,9 +225,10 @@ function generarSeccionDimensiones(obj, metricas, estiloTabla, estiloTh, estiloT
     // Ejes de inercia (tensor de área — complementarios a Feret)
     const ejeMayor = parseFloat(metricas.eje_mayor) || 0;
     const ejeMenor = parseFloat(metricas.eje_menor) || 0;
-    // BB del hull convexo (referencia geométrica orientada)
-    const anchoBB = parseFloat(metricas.width) || 0;
-    const altoBB  = parseFloat(metricas.height) || 0;
+    // BB del hull convexo — conversión px→mm vía fuente única (ADR-016 #1, Stage B).
+    const _bbMM = MetricPresenter.conversorBBaMm(metricas);
+    const anchoBB = _bbMM(metricas.width);
+    const altoBB  = _bbMM(metricas.height);
     const puntosContorno = metricas.contour_points || obj.contour_points?.length || 0;
 
     return `
@@ -331,9 +335,9 @@ function generarSeccionFragmentacion(metricas, estiloTabla, estiloTh, estiloTd) 
             <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de área perdida</td>
           </tr>
           <tr>
-            <td style="${estiloTd}; font-weight: 600;">Pérdida Perímetro (%)</td>
-            <td style="${estiloTd}; font-weight: 700; color: ${perdidaPerimetro > 20 ? '#dc3545' : perdidaPerimetro > 10 ? '#ffc107' : '#28a745'};">${perdidaPerimetro.toFixed(2)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de perímetro afectado</td>
+            <td style="${estiloTd}; font-weight: 600;">Variación Perímetro (%)</td>
+            <td style="${estiloTd}; font-weight: 700; color: ${Math.abs(perdidaPerimetro) > 20 ? '#dc3545' : Math.abs(perdidaPerimetro) > 10 ? '#ffc107' : '#28a745'};">${perdidaPerimetro.toFixed(2)}%</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Variación vs perímetro convexo (neg. = contorno sinuoso)</td>
           </tr>
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}; font-weight: 600;">Completitud Estimada</td>
@@ -441,7 +445,7 @@ function generarSeccionMetricasMorfologicas(metricas, estiloTabla, estiloTh, est
     const compacidad = parseFloat(metricas.compactness) || 0;
     const solidez = parseFloat(metricas.solidity) || 0;
     const elongacion = parseFloat(metricas.elongation) || 0;
-    const excentricidad = parseFloat(metricas.eccentricity) || 0;
+    const excentricidad = parseFloat(metricas.excentricidad) || 0;  // ADR-016 #2: clave canónica (backend emite 'excentricidad', no 'eccentricity')
     const rectangularidad = parseFloat(metricas.rectangularity) || 0;
     const aspectRatio = parseFloat(metricas.aspect_ratio) || 0;
     const radioMaximo = parseFloat(metricas.radio_maximo || metricas.max_radius) || 0;
@@ -1488,9 +1492,9 @@ function generarSeccionEstadoConservacion(metricas, estiloTabla, estiloTh, estil
             <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de área perdida por fragmentación</td>
           </tr>
           <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Pérdida de Perímetro (Fragmentación)</td>
-            <td style="${estiloTd}; font-weight: 600; color: ${perdidaPerimetro < 5 ? '#28a745' : perdidaPerimetro < 15 ? '#ffc107' : '#dc3545'};">${perdidaPerimetro.toFixed(2)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de perímetro afectado</td>
+            <td style="${estiloTd}; font-weight: 600;">Variación de Perímetro</td>
+            <td style="${estiloTd}; font-weight: 600; color: ${Math.abs(perdidaPerimetro) < 5 ? '#28a745' : Math.abs(perdidaPerimetro) < 15 ? '#ffc107' : '#dc3545'};">${perdidaPerimetro.toFixed(2)}%</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Variación vs perímetro convexo (neg. = contorno sinuoso)</td>
           </tr>
           <tr>
             <td style="${estiloTd}; font-weight: 600;">Área Fragmentada Estimada</td>
@@ -1616,6 +1620,90 @@ function generarSeccionErrorOptico(metricas, estiloTabla, estiloTh, estiloTd) {
     `;
 }
 
+/**
+ * IX-B. INCERTIDUMBRE PROPAGADA POR MÉTRICA
+ * Rangos [min, max] derivados del error óptico posicional.
+ * Solo se renderiza si hay campos de incertidumbre en las métricas.
+ */
+function generarSeccionIncertidumbrePropagada(metricas, estiloTabla, estiloTh, estiloTd) {
+  const areaAbs  = parseFloat(metricas.area_incertidumbre_abs);
+  const periAbs  = parseFloat(metricas.perimeter_incertidumbre_abs);
+  const ejMajAbs = parseFloat(metricas.eje_mayor_incertidumbre_abs);
+  const ejMinAbs = parseFloat(metricas.eje_menor_incertidumbre_abs);
+
+  // Si no hay ningún campo de incertidumbre, no renderizar la sección
+  if (isNaN(areaAbs) && isNaN(periAbs) && isNaN(ejMajAbs) && isNaN(ejMinAbs)) return '';
+
+  const _f  = (v, d) => isNaN(parseFloat(v)) ? '—' : parseFloat(v).toFixed(d != null ? d : 3);
+  const _rg = (min, val, max, unit) => {
+    const lo = parseFloat(min), hi = parseFloat(max), v = parseFloat(val);
+    if (isNaN(lo) || isNaN(hi)) return '—';
+    const ok = !isNaN(v);
+    return `<span style="color:#888;">${lo.toFixed(3)}</span> `
+         + (ok ? `<strong>${v.toFixed(3)}</strong>` : '—')
+         + ` <span style="color:#888;">${hi.toFixed(3)}</span> ${unit}`;
+  };
+
+  const enrAt   = metricas.enriched_at ? metricas.enriched_at.slice(0, 10) : null;
+  const maoVer  = metricas.mao_version || null;
+  const provTag = (enrAt || maoVer)
+    ? `<span style="font-size:10px;background:#1565c0;color:#fff;padding:1px 6px;border-radius:3px;margin-left:8px;">
+         enriquecido${enrAt ? ' · ' + enrAt : ''}${maoVer ? ' · v' + maoVer : ''}
+       </span>`
+    : '';
+
+  return `
+    <h3 style="color:#495057;margin:30px 0 15px 0;padding-bottom:8px;border-bottom:3px solid #1565c0;">
+      IX-B. INCERTIDUMBRE PROPAGADA POR MÉTRICA${provTag}
+    </h3>
+    <div style="padding:12px;background:#e3f2fd;border-left:4px solid #1565c0;border-radius:4px;margin-bottom:15px;">
+      <strong>📐 Rangos de confianza métrica a métrica</strong><br>
+      <span style="font-size:12px;color:#546e7a;">
+        Cada métrica lineal y de área se expresa como [mín · <strong>valor</strong> · máx] propagando
+        el error óptico posicional de la sección IX. Los rangos son orientativos (modelo k₁ estimado ±30%).
+      </span>
+    </div>
+    <table style="${estiloTabla}">
+      <thead>
+        <tr>
+          <th style="${estiloTh};width:28%;">Métrica</th>
+          <th style="${estiloTh};width:22%;">Valor central (mm / mm²)</th>
+          <th style="${estiloTh};width:30%;">Rango [mín · valor · máx]</th>
+          <th style="${estiloTh};width:20%;">± Incertidumbre</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background:#e3f2fd;">
+          <td style="${estiloTd};font-weight:700;color:#1565c0;">Área</td>
+          <td style="${estiloTd};">${_f(metricas.area, 3)} mm²</td>
+          <td style="${estiloTd};">${_rg(metricas.area_rango_min, metricas.area, metricas.area_rango_max, 'mm²')}</td>
+          <td style="${estiloTd};font-weight:600;color:#d32f2f;">±${_f(areaAbs, 4)} mm²</td>
+        </tr>
+        <tr>
+          <td style="${estiloTd};font-weight:700;color:#1565c0;">Perímetro</td>
+          <td style="${estiloTd};">${_f(metricas.perimeter, 3)} mm</td>
+          <td style="${estiloTd};">${_rg(metricas.perimeter_rango_min, metricas.perimeter, metricas.perimeter_rango_max, 'mm')}</td>
+          <td style="${estiloTd};font-weight:600;color:#d32f2f;">±${_f(periAbs, 4)} mm</td>
+        </tr>
+        ${!isNaN(ejMajAbs) ? `
+        <tr style="background:#e3f2fd;">
+          <td style="${estiloTd};font-weight:700;color:#1565c0;">Eje Mayor</td>
+          <td style="${estiloTd};">${_f(metricas.eje_mayor_real_longitud || metricas.eje_mayor, 3)} mm</td>
+          <td style="${estiloTd};">${_rg(metricas.eje_mayor_rango_min, metricas.eje_mayor_real_longitud || metricas.eje_mayor, metricas.eje_mayor_rango_max, 'mm')}</td>
+          <td style="${estiloTd};font-weight:600;color:#d32f2f;">±${_f(ejMajAbs, 4)} mm</td>
+        </tr>` : ''}
+        ${!isNaN(ejMinAbs) ? `
+        <tr>
+          <td style="${estiloTd};font-weight:700;color:#1565c0;">Eje Menor</td>
+          <td style="${estiloTd};">${_f(metricas.eje_menor_real_longitud || metricas.eje_menor, 3)} mm</td>
+          <td style="${estiloTd};">${_rg(metricas.eje_menor_rango_min, metricas.eje_menor_real_longitud || metricas.eje_menor, metricas.eje_menor_rango_max, 'mm')}</td>
+          <td style="${estiloTd};font-weight:600;color:#d32f2f;">±${_f(ejMinAbs, 4)} mm</td>
+        </tr>` : ''}
+      </tbody>
+    </table>
+  `;
+}
+
   /**
    * 5. EJES Y ORIENTACIÓN
    */
@@ -1626,7 +1714,9 @@ function generarSeccionEjesOrientacion(metricas, estiloTabla, estiloTh, estiloTd
     const orientacion = metricas.eje_principal_orientacion || 'N/A';
     const anisotropia = parseFloat(metricas.eje_principal_anisotropia) || 0;
     const formaDominante = metricas.eje_principal_forma_dominante || 'N/A';
-    
+    // ADR-016 #10: p1/p2 son coordenadas 3D — ocultar en objetos 2D donde siempre son null
+    const tieneEjesReales = !!(metricas.eje_mayor_real_p1 || metricas.eje_menor_real_p1);
+
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #fd7e14;">
         VI. ORIENTACIÓN Y POSICIÓN ESPACIAL
@@ -1670,20 +1760,21 @@ function generarSeccionEjesOrientacion(metricas, estiloTabla, estiloTh, estiloTd
             <td style="${estiloTd}">${formaDominante}</td>
             <td style="${estiloTd}; font-size: 12px;">Basado en relación de ejes</td>
           </tr>
+          ${tieneEjesReales ? `
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}">Ejes Reales (p1)</td>
             <td style="${estiloTd}; font-size: 11px;" colspan="2">
-              Mayor: [${metricas.eje_mayor_real_p1 ? `${metricas.eje_mayor_real_p1[0].toFixed(1)}, ${metricas.eje_mayor_real_p1[1].toFixed(1)}` : 'N/A'}] • 
+              Mayor: [${metricas.eje_mayor_real_p1 ? `${metricas.eje_mayor_real_p1[0].toFixed(1)}, ${metricas.eje_mayor_real_p1[1].toFixed(1)}` : 'N/A'}] •
               Menor: [${metricas.eje_menor_real_p1 ? `${metricas.eje_menor_real_p1[0].toFixed(1)}, ${metricas.eje_menor_real_p1[1].toFixed(1)}` : 'N/A'}]
             </td>
           </tr>
           <tr>
             <td style="${estiloTd}">Ejes Reales (p2)</td>
             <td style="${estiloTd}; font-size: 11px;" colspan="2">
-              Mayor: [${metricas.eje_mayor_real_p2 ? `${metricas.eje_mayor_real_p2[0].toFixed(1)}, ${metricas.eje_mayor_real_p2[1].toFixed(1)}` : 'N/A'}] • 
+              Mayor: [${metricas.eje_mayor_real_p2 ? `${metricas.eje_mayor_real_p2[0].toFixed(1)}, ${metricas.eje_mayor_real_p2[1].toFixed(1)}` : 'N/A'}] •
               Menor: [${metricas.eje_menor_real_p2 ? `${metricas.eje_menor_real_p2[0].toFixed(1)}, ${metricas.eje_menor_real_p2[1].toFixed(1)}` : 'N/A'}]
             </td>
-          </tr>
+          </tr>` : ''}
         </tbody>
       </table>
     `;
@@ -2009,12 +2100,14 @@ function generarSeccionConvexHull(metricas, estiloTabla, estiloTh, estiloTd) {
     const altoHull  = factorMM > 0 ? altoHullPx  * factorMM : altoHullPx;
     const unidadDim = factorMM > 0 ? 'mm' : 'px';
 
-    const circularidadHull = parseFloat(metricas.hull_circularity) || 0;
-    const aspectRatioHull  = parseFloat(metricas.hull_aspect_ratio) || 0;
+    // ADR-016 #4/#7: derivados del hull (circularidad, aspect, diferencias) vía fuente única.
+    const _hullD = MetricPresenter.hullDerivados(metricas);
+    const circularidadHull = _hullD.circularidad;
+    const aspectRatioHull  = _hullD.aspectRatio;
     const convexidad      = parseFloat(metricas.convexity) || parseFloat(metricas.convexidad) || 0;
     const claseConvexidad = metricas.convexity_class || metricas.convexidad_class || 'No clasificada';
-    const difArea         = parseFloat(metricas.hull_area_difference_percent) || 0;
-    const difPerimetro    = parseFloat(metricas.hull_perimeter_difference_percent) || 0;
+    const difArea         = _hullD.difAreaPct;
+    const difPerimetro    = _hullD.difPerimetroPct;
     const puntosHull      = parseInt(metricas.hull_points || metricas.convex_hull_points) || 0;
     
     return `
@@ -2097,6 +2190,9 @@ function generarSeccionSimetria(metricas, estiloTabla, estiloTh, estiloTd) {
     const simetriaBilateral = parseFloat(metricas.simetria_bilateral) || 0;
     const clasificacion = metricas.simetria_clasificacion || 'No clasificada';
     const distanciaAsimetria = parseFloat(metricas.simetria_distancia_asimetria) || 0;
+    // ADR-016 #11: contextualizar la distancia de asimetría vs el tamaño del objeto
+    const ejeMayorRef = parseFloat(metricas.eje_mayor_real_longitud || metricas.eje_mayor) || 0;
+    const distPct = ejeMayorRef > 0 ? (distanciaAsimetria / ejeMayorRef * 100) : null;
     
     // Color según nivel de simetría
     let colorSimetria = '#dc3545';
@@ -2136,8 +2232,8 @@ function generarSeccionSimetria(metricas, estiloTabla, estiloTh, estiloTd) {
           </tr>
           <tr>
             <td style="${estiloTd}">Distancia de Asimetría</td>
-            <td style="${estiloTd}">${distanciaAsimetria.toFixed(2)} mm</td>
-            <td style="${estiloTd}; font-size: 12px;">Desplazamiento del eje de simetría</td>
+            <td style="${estiloTd}">${distanciaAsimetria.toFixed(2)} mm${distPct !== null ? ` <span style="color:#6c757d;font-size:11px;">(${distPct.toFixed(1)}% del eje mayor)</span>` : ''}</td>
+            <td style="${estiloTd}; font-size: 12px;">Residuo Hausdorff promedio respecto al radio medio del contorno</td>
           </tr>
         </tbody>
       </table>
@@ -2175,9 +2271,10 @@ function generarSeccionMetricasAvanzadas(metricas, estiloTabla, estiloTh, estilo
     const feretMax = parseFloat(metricas.feret_max || metricas.max_feret_diameter) || 0;
     const feretMin = parseFloat(metricas.feret_min || metricas.min_feret_diameter) || 0;
     const feretRatio = parseFloat(metricas.feret_ratio) || (feretMin > 0 ? feretMax / feretMin : 0);
-    const clasificacionFeret = metricas.clasificacion_feret || 'No clasificado';
-    const feretMaxAngle = parseFloat(metricas.feret_max_angle) || 0;
-    const feretMinAngle = parseFloat(metricas.feret_min_angle) || 0;
+    const clasificacionFeret = metricas.feret_clasificacion || metricas.clasificacion_feret || 'No clasificado';  // ADR-016: clave canónica del backend
+    // ADR-016 #8: el backend emite feret_angulo_max/min; leer feret_max_angle daba 0.0° espurio.
+    const feretMaxAngle = parseFloat(metricas.feret_angulo_max ?? metricas.feret_max_angle) || 0;
+    const feretMinAngle = parseFloat(metricas.feret_angulo_min ?? metricas.feret_min_angle) || 0;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6610f2;">
@@ -2215,7 +2312,7 @@ function generarSeccionMetricasAvanzadas(metricas, estiloTabla, estiloTh, estilo
           </tr>
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}; font-weight: 600;">Regularidad Radial</td>
-            <td style="${estiloTd}; font-weight: 600; color: ${regularidadRadial >= 0.9 ? '#28a745' : regularidadRadial >= 0.7 ? '#ffc107' : '#dc3545'};">${(regularidadRadial * 100).toFixed(1)}%</td>
+            <td style="${estiloTd}; font-weight: 600; color: ${regularidadRadial >= 90 ? '#28a745' : regularidadRadial >= 70 ? '#ffc107' : '#dc3545'};">${regularidadRadial.toFixed(1)}</td><!-- ADR-016 #3: regularidad_radial ya está en escala 0-100; ×100 daba 7156% -->
             <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Uniformidad de la distribución radial</td>
           </tr>
           
@@ -2278,7 +2375,7 @@ function generarSeccionMetricasAvanzadas(metricas, estiloTabla, estiloTh, estilo
       </table>
       <div style="margin-top: 15px; padding: 12px; background: #e8eaf6; border-left: 4px solid #6610f2; border-radius: 4px;">
         <strong>Resumen Morfológico Avanzado:</strong><br>
-        • Radio máx/mín: ${ratioRadios.toFixed(2)} | Regularidad: ${(regularidadRadial * 100).toFixed(1)}%<br>
+        • Radio máx/mín: ${ratioRadios.toFixed(2)} | Regularidad: ${regularidadRadial.toFixed(1)}<br>
         • ⭐ Estrellamiento: ${clasificacionEstrellamiento} (${indiceEstrellamiento.toFixed(3)})<br>
         • Lobularidad: ${clasificacionLobularidad} (${indiceLobularidad.toFixed(3)})<br>
         • Feret: ${clasificacionFeret} | Max: ${feretMax.toFixed(2)} mm | Min: ${feretMin.toFixed(2)} mm | Ratio: ${feretRatio.toFixed(2)}

@@ -1700,3 +1700,9 @@ html.mao-debug .dev-only { display: revert !important; }
 .mao-main #canvas2dScaleLine {
   display            : none !important;
 }
+
+/* Spinner para barra de progreso de enriquecimiento */
+@keyframes mao-spin {
+  from { transform: rotate(0deg);   }
+  to   { transform: rotate(360deg); }
+}

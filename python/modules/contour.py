@@ -30,7 +30,7 @@ from fastapi import HTTPException
 
 from python.modules.detection import (
     _bytes_to_cv, _detectar_color_fondo, _build_binary_mask,
-    _zscan_color_analysis, _aplicar_clahe, _grabcut_mask,
+    _zscan_color_analysis, _aplicar_clahe,
     _confianza_objeto, detect_holes,
 )
 
@@ -91,10 +91,25 @@ def _refinar_contorno_gradiente(pts: np.ndarray, roi_img: np.ndarray,
               Si se provee, los snaps que caigan en fondo son descartados para
               evitar que gradientes de textura interna o de borde de fondo
               desplacen puntos fuera del objeto real.
+
+    ADR-013 (figura-fondo primaria): en artefactos muy texturizados el máximo
+    |∇I| dentro de ±rango suele ser TEXTURA INTERNA, no el borde real → el snap
+    «enganchaba» la textura y dentaba el contorno (rugosidad +25% en DRG16). Tres
+    salvaguardas localizan la silueta y NO la textura:
+      1. Rango corto y asimétrico (más hacia el fondo que hacia el objeto): la
+         textura vive hacia adentro; se limita cuánto puede entrar el snap.
+      2. Validación figura-fondo: un pico solo es borde si a EDGE_PROBE px más
+         hacia el fondo hay fondo (mask=0). Un pico con objeto a ambos lados es
+         textura interna → se ignora.
+      3. Gate de prominencia: el pico debe superar PROMINENCE× la mediana del
+         perfil; un perfil plano/ruidoso (textura sin borde claro) no dispara snap.
     """
-    SNAP_RANGE  = 6
-    MIN_GRAD    = 8
-    SMOOTH_ITER = 1
+    SNAP_OUT     = 3.0    # alcance hacia el fondo (exterior)
+    SNAP_IN      = 2.0    # alcance hacia el objeto (interior) — corto: la textura vive aquí
+    MIN_GRAD     = 8
+    SMOOTH_ITER  = 2      # antes 1: suavizado final más fuerte para residuos de textura
+    EDGE_PROBE   = 2.0    # px extra hacia el fondo para confirmar transición objeto→fondo
+    PROMINENCE   = 1.4    # el pico debe superar 1.4× la mediana del perfil; si no, textura
 
     h, w = roi_img.shape[:2]
     gray_u8 = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
@@ -139,6 +154,15 @@ def _refinar_contorno_gradiente(pts: np.ndarray, roi_img: np.ndarray,
     n = len(pts)
     snapped = pts.astype(np.float32).copy()
 
+    def _es_fondo(fx, fy):
+        """True si (fx,fy) cae en fondo (mask=0), fuera de la ROI, o no hay máscara."""
+        if mask_u8 is None:
+            return True
+        xi = int(round(fx)); yi = int(round(fy))
+        if not (0 <= xi < w and 0 <= yi < h):
+            return True
+        return mask_u8[yi, xi] == 0
+
     for i in range(n):
         prev = pts[(i - 1) % n]
         curr = pts[i]
@@ -155,30 +179,41 @@ def _refinar_contorno_gradiente(pts: np.ndarray, roi_img: np.ndarray,
         nx_n =  ty / t_len
         ny_n = -tx / t_len
 
-        # Muestreo a lo largo de la normal en pasos de 0.5 px
+        # Perfil de |∇I| a lo largo de la normal (interior corto → exterior).
+        prof = []
+        t_val = -SNAP_IN
+        while t_val <= SNAP_OUT:
+            gv = _grad_bilineal(curr[0] + t_val * nx_n, curr[1] + t_val * ny_n)
+            prof.append((t_val, gv))
+            t_val += 0.5
+        if not prof:
+            continue
+        median_g = sorted(g for _, g in prof)[len(prof) // 2]
+
+        # Mejor pico que SEA transición figura-fondo (no textura interna):
+        # a EDGE_PROBE px más hacia el fondo debe haber fondo.
         best_g = -1.0
         best_t = 0.0
-        t_val = -SNAP_RANGE
-        while t_val <= SNAP_RANGE:
-            gv = _grad_bilineal(curr[0] + t_val * nx_n, curr[1] + t_val * ny_n)
+        for t_s, gv in prof:
+            if gv < effective_min_grad:
+                continue
+            if not _es_fondo(curr[0] + (t_s + EDGE_PROBE) * nx_n,
+                             curr[1] + (t_s + EDGE_PROBE) * ny_n):
+                continue   # objeto aún hacia el fondo → textura interna, no silueta
             if gv > best_g:
                 best_g = gv
-                best_t = t_val
-            t_val += 0.5
+                best_t = t_s
 
-        if best_g >= effective_min_grad and abs(best_t) > 0.25:
+        # Gate de prominencia: el pico debe destacar sobre el perfil.
+        if (best_g >= effective_min_grad
+                and best_g >= PROMINENCE * max(median_g, 1.0)
+                and abs(best_t) > 0.25):
             new_x = round((float(curr[0]) + best_t * nx_n) * 10.0) / 10.0
             new_y = round((float(curr[1]) + best_t * ny_n) * 10.0) / 10.0
-            # Validar que el punto snapeado sigue dentro del objeto (no en fondo).
-            # Evita que gradientes de textura interna o de borde de fondo empujen
-            # puntos fuera del contorno real (causa de radio_max anómalo en Cara A).
-            if mask_u8 is not None:
-                mx_i = int(round(new_x)); my_i = int(round(new_y))
-                if 0 <= mx_i < w and 0 <= my_i < h and mask_u8[my_i, mx_i] > 0:
-                    snapped[i, 0] = new_x
-                    snapped[i, 1] = new_y
-                # Si el snap cae en fondo: mantiene posición original
-            else:
+            # Guard: el punto snapeado debe seguir dentro del objeto (no en fondo).
+            # Evita el radio_max anómalo (Cara A) al impedir snaps a borde de fondo.
+            mx_i = int(round(new_x)); my_i = int(round(new_y))
+            if mask_u8 is None or (0 <= mx_i < w and 0 <= my_i < h and mask_u8[my_i, mx_i] > 0):
                 snapped[i, 0] = new_x
                 snapped[i, 1] = new_y
 
@@ -372,7 +407,30 @@ async def extract(
         except Exception:
             zscan_roi = None
 
-    mask = _build_binary_mask(roi_for_mask, fondo, zscan_roi)    # objeto=1, fondo=0
+    # ── ADR-013 F2: umbral ROI-invariante para fondo blanco ──────────────────
+    # Para fondo blanco, el umbral `brillo_min - 15` de _build_binary_mask
+    # depende de img_full (ya estable), pero la zona de penumbra en el borde
+    # del objeto puede variar si GrabCut se activaba (no-determinista).
+    # Mejora: intentar Otsu sobre el gris del ROI → umbral adaptado al valle
+    # real del histograma de este encuadre. Si produce cobertura razonable,
+    # se usa como white_thresh_override (aislado en contour.extract, sin afectar
+    # detect()). Falla-con-gracia: si Otsu no produce cobertura válida, usa el
+    # umbral estándar (fondo["brillo_min"]-15).
+    white_thresh_override = None
+    if fondo["es_fondo_blanco"]:
+        try:
+            _gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            _otsu_t, _ = cv2.threshold(_gray_roi, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            # Píxeles < otsu_t → objeto (oscuro); >= otsu_t → fondo (blanco)
+            _otsu_obj_px = int((_gray_roi < _otsu_t).sum())
+            _otsu_coverage = _otsu_obj_px / max(1, _gray_roi.size)
+            # Aceptar Otsu si: cobertura razonable Y umbral indica valle real (≥80)
+            if 0.04 < _otsu_coverage < 0.65 and _otsu_t >= 80:
+                white_thresh_override = float(_otsu_t)
+        except Exception:
+            pass  # falla silenciosamente → usa white_thresh estándar
+
+    mask = _build_binary_mask(roi_for_mask, fondo, zscan_roi, white_thresh_override)    # objeto=1, fondo=0
     mask_u8 = (mask * 255).astype(np.uint8)
 
     # Snapshot de la máscara con los HUECOS PRESERVADOS (antes del MORPH_CLOSE del
@@ -386,33 +444,49 @@ async def extract(
     mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_CLOSE, kernel, iterations=iters)
     mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_OPEN,  kernel, iterations=iters)
 
-    # ── GrabCut fallback: cobertura anómala indica máscara invertida ─────────
-    # Cobertura > 92%: máscara probablemente invertida (objeto=fondo detectado).
-    # Cobertura < 4%:  máscara vacía (objeto no detectado).
-    # GrabCut usa la máscara inicial como hint (GC_INIT_WITH_MASK) para refinar.
-    _grabcut_usado = False
+    # ── ADR-013 F2: fallback determinista — reemplaza GrabCut ───────────────
+    # GrabCut era no-determinista (GMM con estado interno aleatorio) y violaba
+    # el invariante (a) de replicabilidad. Sustituido por dos fallbacks puros:
+    #   · >92% cobertura → probable máscara invertida → invertir (determinista)
+    #   · <4%  cobertura → máscara vacía → Otsu sobre gris (determinista)
+    # Si ninguno produce cobertura válida, se conserva la máscara original.
+    _fallback_usado = False
+    _fallback_metodo = None
     roi_px = bw * bh
     if roi_px > 0:
         coverage = float((mask_u8 > 0).sum()) / roi_px
-        if coverage > 0.92 or coverage < 0.04:
-            try:
-                gc_result = _grabcut_mask(roi, initial_mask_u8=mask_u8)
-                gc_u8 = (gc_result * 255).astype(np.uint8)
-                gc_coverage = float((gc_u8 > 0).sum()) / roi_px
-                if 0.04 < gc_coverage < 0.92:
-                    # GrabCut produjo cobertura razonable → limpiar y adoptar
-                    gc_u8 = cv2.morphologyEx(gc_u8, cv2.MORPH_CLOSE, kernel, iterations=iters)
-                    gc_u8 = cv2.morphologyEx(gc_u8, cv2.MORPH_OPEN,  kernel, iterations=iters)
-                    mask_u8 = gc_u8
-                    _grabcut_usado = True
-            except Exception:
-                pass  # fallback: continúa con la máscara original
+        if coverage > 0.92:
+            # Probable inversión (objeto claro detectado como fondo)
+            inv_u8 = 255 - mask_u8
+            inv_coverage = float((inv_u8 > 0).sum()) / roi_px
+            if 0.04 < inv_coverage < 0.92:
+                inv_u8 = cv2.morphologyEx(inv_u8, cv2.MORPH_CLOSE, kernel, iterations=iters)
+                inv_u8 = cv2.morphologyEx(inv_u8, cv2.MORPH_OPEN,  kernel, iterations=iters)
+                mask_u8 = inv_u8
+                _fallback_usado = True
+                _fallback_metodo = "inversion"
+        elif coverage < 0.04:
+            # Máscara vacía → Otsu sobre gris (THRESH_BINARY_INV: oscuro=objeto)
+            _gray_fb = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            _, otsu_fb = cv2.threshold(_gray_fb, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+            otsu_coverage = float((otsu_fb > 0).sum()) / roi_px
+            if 0.04 < otsu_coverage < 0.92:
+                otsu_fb = cv2.morphologyEx(otsu_fb, cv2.MORPH_CLOSE, kernel, iterations=iters)
+                otsu_fb = cv2.morphologyEx(otsu_fb, cv2.MORPH_OPEN,  kernel, iterations=iters)
+                mask_u8 = otsu_fb
+                _fallback_usado = True
+                _fallback_metodo = "otsu_gris"
 
+    _otsu_thresh_label = (
+        f"_otsu{int(white_thresh_override)}" if white_thresh_override is not None else ""
+    )
     metodo = (
-        "python_grabcut"               if _grabcut_usado
-        else "python_blancos_absolutos" if fondo["es_fondo_blanco"]
-        else "python_zscan_lc_clahe"   if (zscan_roi is not None and roi_for_mask is not roi)
-        else "python_zscan_competitivo" if zscan_roi is not None
+        "python_contour_inv"              if (_fallback_usado and _fallback_metodo == "inversion")
+        else "python_contour_otsu_gris"   if (_fallback_usado and _fallback_metodo == "otsu_gris")
+        else f"python_blancos_otsu{int(white_thresh_override)}" if (fondo["es_fondo_blanco"] and white_thresh_override is not None)
+        else "python_blancos_absolutos"   if fondo["es_fondo_blanco"]
+        else "python_zscan_lc_clahe"      if (zscan_roi is not None and roi_for_mask is not roi)
+        else "python_zscan_competitivo"   if zscan_roi is not None
         else "python_adaptativo"
     )
 
@@ -565,7 +639,7 @@ async def extract(
     # área neta; el usuario las confirma y tipa. Si GrabCut reemplazó la máscara
     # (cobertura anómala) la detección de huecos no es fiable → se omite.
     ph_candidates: list = []
-    if not _grabcut_usado:
+    if not _fallback_usado:
         try:
             ph_candidates = detect_holes(mask_raw_holes, offset_xy=(x, y), roi_bgr=roi)
         except Exception:

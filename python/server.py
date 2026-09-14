@@ -158,6 +158,7 @@ async def detect_objects(
     min_area: int           = Form(default=100),
     max_objects: int        = Form(default=50),
     separate_touching: bool = Form(default=False),
+    roi_mode: bool          = Form(default=False),
 ):
     """
     Detecta objetos en una imagen usando OpenCV.
@@ -171,6 +172,10 @@ async def detect_objects(
     separate_touching — distance-transform + watershed para dividir blobs que
                         fusionan varios artefactos en contacto (reemplaza la
                         antigua rama YOLO, sin dependencias externas).
+    roi_mode          — la imagen es un ROI recortado a mano (modo manual): se
+                        desactivan las heurísticas de imagen completa (recorte de
+                        borde, filtro de dominancia, reorden arqueológico) para
+                        respetar exactamente lo que el usuario encuadró. ADR-012.
 
     Estado: IMPLEMENTADO (✅) — módulo detection.detect() funcional.
     """
@@ -181,6 +186,7 @@ async def detect_objects(
         min_area=min_area,
         max_objects=max_objects,
         separate_touching=separate_touching,
+        roi_mode=roi_mode,
     )
     return result
 
@@ -217,8 +223,8 @@ async def mao_ia_detect(
     """
     from python.modules.mao_ia_analyzer import detect_with_mao_ia
     data = await _read_image(image)
-    if threshold_method not in ("otsu", "adaptive", "manual"):
-        raise HTTPException(status_code=422, detail=f"threshold_method inválido: '{threshold_method}'. Valores permitidos: otsu, adaptive, manual")
+    if threshold_method not in ("otsu", "adaptive", "manual", "auto"):
+        raise HTTPException(status_code=422, detail=f"threshold_method inválido: '{threshold_method}'. Valores permitidos: otsu, adaptive, manual, auto (ADR-012: 'auto' usa el núcleo OpenCV)")
     result = await detect_with_mao_ia(
         image_bytes=data,
         threshold_method=threshold_method,
@@ -1337,32 +1343,24 @@ async def analyze_color(
 
 @app.post(f"{API_PREFIX}/pca")
 async def pca_analysis(
-    objects_json: str = Form(...),   # JSON: [{id, metricas: {...}}, ...]
+    objects_json: str = Form(...),        # JSON: [{id, metricas: {...}}, ...]
     n_components: int = Form(default=2),
-    n_clusters:   int = Form(default=0),   # 0 = auto (by silhouette)
+    n_clusters:   int = Form(default=0),  # 0 = auto (by silhouette)
+    keys_json:    str = Form(default=""), # JSON: ["area", ...] — respetar selección del usuario
 ):
     """
     Análisis de Componentes Principales sobre colección de objetos.
-
-    Reemplaza:
-      - renderPCA()           comparator.js ~línea 69292 (JS manual)
-      - jacobiEigen()         comparator.js ~línea 69337 (propio!)
-      - kMeans()              comparator.js ~línea 69386 (propio!)
-      - silhouetteScore()     comparator.js ~línea 69441
-
-    Mejoras sobre implementación JS:
-      - sklearn.PCA: SVD numérico estable (vs. Jacobi iterativo)
-      - sklearn.KMeans: convergencia garantizada (Lloyd's algorithm)
-      - sklearn.metrics.silhouette_score: cálculo exacto
-
-    Estado: IMPLEMENTADO (✅) — módulo comparator.pca() funcional.
+    keys_json (opcional): si se proporciona, el PCA usa solo esas métricas
+    en lugar de auto-detectar todas las disponibles.
     """
     import json
     objects = json.loads(objects_json)
+    selected_keys = json.loads(keys_json) if keys_json else None
     result  = await modules.comparator.pca(
         objects=objects,
         n_components=n_components,
         n_clusters=n_clusters,
+        selected_keys=selected_keys,
     )
     return result
 
@@ -1401,15 +1399,16 @@ async def statistical_analysis(
 
 @app.post(f"{API_PREFIX}/scale")
 async def calculate_scale(
-    focal_mm:        Optional[float] = Form(default=None),
-    distancia_mm:    Optional[float] = Form(default=None),
-    sensor_w_mm:     Optional[float] = Form(default=None),
-    sensor_h_mm:     Optional[float] = Form(default=None),
-    img_w_px:        Optional[int]   = Form(default=None),
-    img_h_px:        Optional[int]   = Form(default=None),
-    obj_centroide_x: Optional[float] = Form(default=None),
-    obj_centroide_y: Optional[float] = Form(default=None),
-    image:           Optional[UploadFile] = File(default=None),
+    focal_mm:           Optional[float] = Form(default=None),
+    distancia_mm:       Optional[float] = Form(default=None),
+    sensor_w_mm:        Optional[float] = Form(default=None),
+    sensor_h_mm:        Optional[float] = Form(default=None),
+    img_w_px:           Optional[int]   = Form(default=None),
+    img_h_px:           Optional[int]   = Form(default=None),
+    obj_centroide_x:    Optional[float] = Form(default=None),
+    obj_centroide_y:    Optional[float] = Form(default=None),
+    perfil_calibracion: Optional[str]   = Form(default=None),
+    image:              Optional[UploadFile] = File(default=None),
 ):
     """
     Calcula escala px→mm y error óptico posicional (Sección IX).
@@ -1436,6 +1435,15 @@ async def calculate_scale(
     Estado: IMPLEMENTADO (IMPLEMENTED=True).
     """
     image_bytes = await _read_image(image) if image else None
+    # ADR-015 B1: parsear perfil de calibración si se proporcionó
+    perfil_json = None
+    if perfil_calibracion:
+        import json as _json
+        try:
+            perfil_json = _json.loads(perfil_calibracion)
+        except (_json.JSONDecodeError, TypeError):
+            perfil_json = None
+
     return modules.scale.calculate(
         focal_mm=focal_mm,
         distancia_mm=distancia_mm,
@@ -1446,6 +1454,7 @@ async def calculate_scale(
         obj_centroide_x=obj_centroide_x,
         obj_centroide_y=obj_centroide_y,
         image_bytes=image_bytes,
+        perfil_calibracion=perfil_json,
     )
 
 
@@ -2085,7 +2094,117 @@ async def efa_compare(
 
 
 # ============================================================================
+# DATASET EXPORT — ADR-014
+# ============================================================================
+
+class DatasetExportRequest(BaseModel):
+    image: str                        # base64 PNG/JPG
+    objects: list[dict]               # lista de objetos analizados
+    scale_px_mm: float = 0.0
+    dataset_name: str = "mao_dataset"
+    min_confidence: float = 0.5
+    extra_categories: list[str] = []
+
+
+@app.post(f"{API_PREFIX}/dataset/export")
+async def dataset_export(req: DatasetExportRequest):
+    """
+    Genera un ZIP (base64) con PNGs recortados + annotations.json COCO + metadata.json.
+
+    El campo `mao_attributes` de cada anotación contiene las métricas morfométricas,
+    la confianza de detección y la tipología arqueológica (si fue asignada).
+
+    Estado: IMPLEMENTADO (ADR-014).
+    """
+    import json as _json
+    from python.modules.dataset_exporter import build_coco_dataset
+
+    try:
+        img_bytes = base64.b64decode(req.image)
+        arr = np.frombuffer(img_bytes, np.uint8)
+        image_np = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if image_np is None:
+            raise HTTPException(status_code=400, detail="No se pudo decodificar la imagen")
+
+        zip_bytes = build_coco_dataset(
+            objects_list=req.objects,
+            image_np=image_np,
+            dataset_name=req.dataset_name,
+            min_confidence=req.min_confidence,
+            scale_px_mm=req.scale_px_mm,
+            extra_categories=req.extra_categories or None,
+        )
+
+        return {
+            "status": "ok",
+            "zip_b64": base64.b64encode(zip_bytes).decode("ascii"),
+            "exported_objects": len([o for o in req.objects
+                                     if float(o.get("detection_confidence", 1.0)) >= req.min_confidence]),
+            "skipped_by_confidence": len([o for o in req.objects
+                                          if float(o.get("detection_confidence", 1.0)) < req.min_confidence]),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception("dataset_export error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # DEBUG LOG ENDPOINT (monitoreo en tiempo real)
+# ============================================================================
+# ADR-015 B1: Calibración de lente
+# ============================================================================
+
+@app.post(f"{API_PREFIX}/calibracion-lente/importar")
+async def importar_calibracion_lente(request: Request):
+    """
+    Importa y persiste un perfil de calibración de lente exportado por calibracion_lente.html.
+
+    Body JSON: el objeto completo exportado por calibracion_lente.html (mao_calibracion: true).
+
+    Retorna: {"ok": true, "path": "...", "modelo": "...", "focal_mm": ..., "metodo": ...}
+    """
+    from python.modules.optical_calibration import save_profile, _validate_json
+    import json as _json
+    body = await request.json()
+    try:
+        _validate_json(body)
+        path = save_profile(body)
+        return {
+            "ok": True,
+            "path": path,
+            "modelo": body["camara"].get("modelo"),
+            "focal_mm": body["camara"].get("focal_mm"),
+            "metodo": body["calibracion"].get("metodo"),
+            "calidad": body["calibracion"].get("calidad"),
+            "incertidumbre_pct": body["calibracion"].get("incertidumbre_k1_pct"),
+        }
+    except (ValueError, KeyError) as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get(f"{API_PREFIX}/calibracion-lente/perfiles")
+async def listar_perfiles_calibracion():
+    """Lista los perfiles de calibración de lente guardados."""
+    from python.modules.optical_calibration import list_profiles
+    return {"perfiles": list_profiles()}
+
+
+@app.get(f"{API_PREFIX}/calibracion-lente/perfil")
+async def obtener_perfil_calibracion(modelo: str, focal_mm: float):
+    """Devuelve el perfil de calibración para una cámara+focal específica."""
+    from python.modules.optical_calibration import load_profile
+    perfil = load_profile(modelo, focal_mm)
+    if perfil is None:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay perfil de calibración para {modelo} @ {focal_mm}mm"
+        )
+    return perfil
+
 # ============================================================================
 
 _DEBUG_LOG_PATH = "/tmp/mao_monitor.log"

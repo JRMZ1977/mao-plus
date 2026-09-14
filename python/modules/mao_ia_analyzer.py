@@ -363,21 +363,55 @@ async def detect_with_mao_ia(
 
     h, w = img_bgr.shape[:2]
 
-    # ── Preprocesamiento ──────────────────────────────────────────────────────
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    # ── Segmentación ──────────────────────────────────────────────────────────
+    # ADR-012 F3: 'auto' usa el NÚCLEO canónico (detection.detect → Z-scan/CLAHE/
+    # GrabCut/watershed/confianza) = misma fidelidad que el modo automático; la IA
+    # conserva su enriquecimiento por objeto. Los modos manuales (otsu/adaptive/
+    # manual) preservan el control de params del usuario y además ganan separación
+    # de objetos pegados (watershed del núcleo; no-op si hay un solo centro).
+    from python.modules import detection as _detection  # noqa: PLC0415
 
-    if use_clahe:
-        gray = _clahe_gray(gray, clip_limit=clahe_clip, tile=clahe_tile)
+    if threshold_method == "auto":
+        _det = await _detection.detect(
+            image_bytes=image_bytes, min_area=min_area,
+            max_objects=max_objects, separate_touching=True,
+            include_contours=True,
+        )
+        contours = []
+        for _o in (_det.get("objects", []) if _det else []):
+            _pts = _o.get("contour_points")
+            if _pts and len(_pts) >= 3:
+                contours.append(
+                    np_inner.array(_pts, dtype=np_inner.int32).reshape(-1, 1, 2))
+    else:
+        # ── Preprocesamiento (umbral manual controlado por el usuario) ──────────
+        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        if use_clahe:
+            gray = _clahe_gray(gray, clip_limit=clahe_clip, tile=clahe_tile)
+        if blur_kernel > 1:
+            kk = blur_kernel if blur_kernel % 2 == 1 else blur_kernel + 1
+            gray = cv2.GaussianBlur(gray, (kk, kk), 0)
+        binary = _binary_mask(gray, threshold_method, threshold_value, invert)
 
-    if blur_kernel > 1:
-        kk = blur_kernel if blur_kernel % 2 == 1 else blur_kernel + 1
-        gray = cv2.GaussianBlur(gray, (kk, kk), 0)
-
-    binary = _binary_mask(gray, threshold_method, threshold_value, invert)
-
-    # ── Detección de contornos ────────────────────────────────────────────────
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contours = [c for c in contours if cv2.contourArea(c) >= min_area]
+        # Upgrade ADR-012 F3: separar objetos pegados con el watershed del núcleo
+        # (solo divide si la transformada de distancia revela varios centros).
+        try:
+            _ws = _detection._separate_touching_watershed(binary, img_bgr, int(min_area))
+        except Exception:
+            _ws = None
+        if _ws is not None:
+            contours = []
+            for _lbl in range(1, int(_ws.max()) + 1):
+                _comp = (_ws == _lbl).astype(np_inner.uint8) * 255
+                _cc, _ = cv2.findContours(
+                    _comp, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                if _cc:
+                    contours.append(max(_cc, key=cv2.contourArea))
+        else:
+            contours, _ = cv2.findContours(
+                binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours = [c for c in contours if cv2.contourArea(c) >= min_area]
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:max_objects]
 
     if not contours:
         return {
@@ -396,9 +430,6 @@ async def detect_with_mao_ia(
                 "clahe_tile": clahe_tile,
             },
         }
-
-    # ── Ordenar por área (mayor primero) y limitar ────────────────────────────
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)[:max_objects]
 
     # ── Import perezoso para evitar dependencia circular ─────────────────────
     # metrics.py importa convexity_defects_from_contour() de este mismo módulo,

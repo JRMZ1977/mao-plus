@@ -307,8 +307,16 @@
   sliderClip.addEventListener('input',   () => { dispClip.textContent   = sliderClip.value;   });
   sliderTile.addEventListener('input',   () => { dispTile.textContent   = sliderTile.value;   });
   selThreshold.addEventListener('change', () => {
+    const isAuto = selThreshold.value === 'auto';
     manualRow.style.display = selThreshold.value === 'manual' ? 'block' : 'none';
+    // ADR-012 F3: en modo 'auto' (núcleo OpenCV) la estrategia de umbral/preproceso
+    // la decide el núcleo → los controles de umbral/blur/invert/CLAHE no aplican
+    // (min_area y max_objects sí). Se desactivan para no confundir.
+    [sliderThresh, sliderBlur, chkInvert, chkClahe, sliderClip, sliderTile]
+      .forEach(el => { if (el) el.disabled = isAuto; });
   });
+  // Estado inicial coherente con el default 'auto'.
+  selThreshold.dispatchEvent(new Event('change'));
   chkClahe.addEventListener('change', () => {
     claheControls.style.display = chkClahe.checked ? 'block' : 'none';
   });
@@ -1903,8 +1911,8 @@
     // En bifacial, incluir la cara en el ID para que Cara A y Cara B
     // no colisionen en el array `objects` ni en la deduplicación de tarjetas.
     const caraSufx   = modo === 'bifacial' ? ('_Cara' + selectedFace) : '';
-    const objId      = (nombreSafe ? nombreSafe + '_IA_' + numPad : 'IAobj_' + numPad) + caraSufx;
-    const objLabel   = (nombreBase ? nombreBase + ' — obj. IA #' + id : (maoObj.label || 'Obj. IA #' + id))
+    const objId      = (nombreSafe ? nombreSafe + '_' + numPad : 'obj_' + numPad) + caraSufx;
+    const objLabel   = (nombreBase ? nombreBase + ' — obj. #' + id : (maoObj.label || 'Obj. #' + id))
                        + (modo === 'bifacial' ? ' (Cara ' + selectedFace + ')' : '');
 
     // ── bbox ─────────────────────────────────────────────────────────────────

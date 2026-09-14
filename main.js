@@ -694,12 +694,14 @@ ipcMain.handle('show-save-dialog', async (event, { filename, format = 'csv' }) =
                : format === 'svg' ? '.svg'
                : format === 'png' ? '.png'
                : format === 'html' ? '.html'
+               : format === 'zip' ? '.zip'
                : '.csv';
 
     const filters = format === 'pdf'  ? [{ name: 'PDF Files',     extensions: ['pdf'] }]
                   : format === 'svg'  ? [{ name: 'SVG Vectorial', extensions: ['svg'] }]
                   : format === 'png'  ? [{ name: 'PNG Images',     extensions: ['png'] }]
                   : format === 'html' ? [{ name: 'HTML Files',     extensions: ['html'] }]
+                  : format === 'zip'  ? [{ name: 'ZIP Archive',    extensions: ['zip'] }]
                   :                    [{ name: 'CSV Files',       extensions: ['csv'] }];
 
     let nombreFinal = filename;
@@ -906,6 +908,20 @@ ipcMain.handle('fs-list-directory', async (_, { dirPath }) => {
     };
   } catch (error) {
     return { success: false, error: error.message };
+  }
+});
+
+// Devuelve una imagen de ruta absoluta como data URL base64 (para miniaturas fuera de APP_DIR).
+ipcMain.handle('fs-thumbnail-data-url', async (_, { filePath }) => {
+  try {
+    const data = await fsP.readFile(filePath);
+    const ext  = path.extname(filePath).toLowerCase();
+    const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
+               : ext === '.png' ? 'image/png'
+               : ext === '.webp' ? 'image/webp' : 'image/png';
+    return `data:${mime};base64,${data.toString('base64')}`;
+  } catch {
+    return null;
   }
 });
 
@@ -1174,4 +1190,48 @@ ipcMain.handle("get-renderer-errors", () => rendererErrors);
 ipcMain.handle("clear-renderer-errors", () => {
   rendererErrors.length = 0;
   return { cleared: true };
+});
+
+// ── Abrir carpeta en Finder/Explorer ────────────────────────────────────────
+ipcMain.handle('shell-open-path', async (_, { folderPath }) => {
+  try {
+    await shell.openPath(folderPath);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+
+
+// ── Generación de PDF desde HTML para batch de colección ────────────────────
+ipcMain.handle('generate-pdf-from-html', async (_, { htmlContent, outputPath }) => {
+  let win = null;
+  const tmpHtml = path.join(os.tmpdir(), `mao_report_${Date.now()}.html`);
+  try {
+    // Escribir HTML a archivo temporal (evita límite ~2MB de data: URLs en Chromium)
+    await fsP.writeFile(tmpHtml, htmlContent, 'utf8');
+
+    win = new BrowserWindow({
+      width: 900, height: 1200,
+      show: false,
+      webPreferences: { javascript: true, images: true },
+    });
+    await win.loadFile(tmpHtml);
+    // Esperar render completo (imágenes base64 ya embebidas, sin carga de red)
+    await new Promise(res => setTimeout(res, 600));
+    const pdfBuffer = await win.webContents.printToPDF({
+      marginsType: 1,
+      pageSize: 'A4',
+      printBackground: true,
+      landscape: false,
+    });
+    await fsP.writeFile(outputPath, pdfBuffer);
+    return { success: true, outputPath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  } finally {
+    if (win && !win.isDestroyed()) win.close();
+    fsP.unlink(tmpHtml).catch(() => {});
+  }
 });

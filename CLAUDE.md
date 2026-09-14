@@ -4,6 +4,157 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-09-12 — ADR-015 F1 (A1+A2+C3) ✅
+
+**ADR-015 Fase 1 completa**: estadísticas de validación metrológica para el paper PROTEC.
+
+**A1 — Exactitud (Bland-Altman):** `python/modules/validation_stats.py` implementa Bland-Altman
+completo (sesgo, LoA, MAE%, max error, within_LoA%). Tests: `python/tests/test_validation_accuracy.py`
+(14 tests). Protocolo: objetos sintéticos con verdad geométrica conocida (círculos y elipses).
+Resultado: MAE < 1% en área y perímetro, sesgo < 0.5%, todos los objetos dentro de los LoA.
+**Gate A1 ✅**: MAE% < 5% en todas las métricas.
+
+**A2 — Reproducibilidad (ICC):** `validation_stats.py` implementa ICC(2,1) two-way mixed
+(Shrout & Fleiss tipo 2). Tests: `python/tests/test_reproducibility.py` (9 tests). Protocolo:
+6 objetos × 5 repeticiones con ruido ±0.3 px (simula digitalización por observador distinto).
+**Gate A2 ✅**: ICC ≥ 0.90 en área ("excelente"); varianza entre objetos >> varianza del método.
+
+**C3 — Estandarización (CV + bootstrap):** `python/modules/standardization.py` implementa
+`coefficient_of_variation`, `bootstrap_ci` (semilla fija → reproducible), `standardization_report`,
+`contrast_groups`, y `estandarizacion_report` (reporte completo para paper con IC por grupo y
+contrastes por pares). Tests: `python/tests/test_standardization.py` (20 tests). Incluye simulación
+del escenario La Draga: cuentas discoidales CV≈6% (alta estandarización) vs. fragmentos CV>25%.
+**Gate C3 ✅**: CV + IC bootstrap correctos; contraste alta/baja estandarización detectado.
+
+**Suite:** 392 passed / 4 skipped (7 pre-existentes `test_comparator.py` por sklearn no instalado).
+**Documentación:** `docs/VALIDACION-EXACTITUD.md` — protocolo + resultados + próximos pasos.
+**Tablero:** `docs/PLAN-MEJORAS-MAO.md` — A1/A2/C3 marcados ✅.
+**Pending F2:** B1 (calibración óptica Zhang), B2 (relieve), B3 (propagación escala), D1 (Klingenberg), D3 (armónicos).
+
+## 🎯 Sesión 2026-06-24 — ADR-012 detección monolítica (Fases 1-3 ✅) + fix modo componente
+
+**ADR-012 «detección monolítica»** (`docs/ADR-012-deteccion-monolitica.md`, commit `eaf01d3`): núcleo de
+segmentación **único y canónico = OpenCV `detection.detect()`** (Z-scan+CLAHE+GrabCut+watershed+
+confianza); los modos son priors complementarios, no reimplementaciones redundantes. Motor JS
+`detectarObjetosHibrido` = **fallback** solo si Python no está.
+
+**Cierre:** los 4 modos (automático, manual de área, IA, manual por componente) comparten el núcleo;
+SAM = prior neuronal. **Fase 2 (automático) ya estaba hecha** desde ADR-007/008 (`ejecutarDeteccionAutomatica`
+→ `PythonBridge.detection.detect`); mi tabla inicial del ADR la describía mal. **Fase 3 (IA)**: nueva opción
+**«Auto (núcleo OpenCV)» por defecto** en el modal (`threshold_method="auto"` → `detect(separate_touching,
+include_contours)` + enriquecimiento IA); modos manuales del modal ganan watershed; `detect()` gana flag
+aditivo `include_contours`. Cache `mao-ia.js?v=20260624a`. Verif: suite 288/2 + HTTP `/api/mao-ia auto` (200,
+conf alta) + 422 inválido.
+- **M1**: `detectarObjetosManualRapida` → `async`; enruta el ROI a `PythonBridge.detection.detect(...,
+  {separateTouching:true})`, mapea bbox con offset y **hereda confianza** (el manual ya no nace sin
+  confianza). Fallback al cuerpo JS intacto (early-return + fall-through). `detectarObjetosEnArea` y
+  `ejecutarDeteccionEnAreaManual` ahora async/await. Cache `analysis-core.js?v=20260624g`.
+- **M2**: el watershed del núcleo individualiza los pegados → el clic-componente JS queda como
+  fallback solo-JS (la etapa de contorno ya era canónica vía `/api/contour`).
+- **Fix de bug**: `manejarSeleccionComponente`/`procesarContornoSeleccionado` estaban anidadas por
+  error dentro de `aplicarAnalisisMorfometricoAreaManualMejorado` → `ReferenceError` al clicar.
+  Des-anidadas a nivel IIFE (cuerpos byte-idénticos).
+- **Verificado**: `node -c` OK · suite 288/2 (frontend-only) · `detect()` sobre ROI de fixture →
+  bbox local + conf 0.986/alta (python_zscan_competitive). **Pendiente**: runtime Electron (selección
+  manual con 2+ pegados → ruta backend+watershed+chips; y fallback con backend muerto). **Caveat
+  RESUELTO (2026-06-25)**: flag `roi_mode` implementado. `detect(roi_mode=True)` desactiva las 3
+  heurísticas de imagen completa que contradecían el encuadre manual: (1) recorte de la franja de
+  borde — el objeto suele tocar el borde del ROI; (2) filtro de dominancia ≥20% del mayor — no
+  descartar lascas/fragmentos que el usuario encuadró; (3) reorden por relevancia arqueológica
+  (esquina/borde = carta de color/escala) — dentro del ROI ya no hay referencias. Cableado:
+  `detectarObjetosManualRapida` → `PythonBridge.detection.detect(..., {roiMode:true})` → `/api/detect`
+  Form `roi_mode` → `detection.detect`. Tests: `TestModoROI` (4) en `tests/test_detection.py`. Suite 292/2.
+- **Fase 3 (IA)**: `detection.detect()` gana flag aditivo `include_contours`; `detect_with_mao_ia` añade
+  rama `threshold_method=="auto"` (→ núcleo + enriquecimiento IA); modos manuales del modal ganan
+  watershed; `/api/mao-ia` valida `"auto"`. **ADR-012 completo** (4 modos en el núcleo, JS=fallback).
+  **Pendiente único**: verif. visual del modal IA en Electron (flakiness app:// en frío bloqueó la headless).
+  **Nota ADR-013 F2**: GrabCut sigue activo en `detection.detect()` y `sam_segmenter`; en `contour.extract`
+  fue reemplazado por fallback determinista (2026-09-12) para garantizar el invariante de replicabilidad.
+
+## 🎯 Sesión 2026-09-12 — ADR-013 F2 replicabilidad del contorno ✅
+
+**ADR-013 F2 completo** (`cf26806`). Implementa el invariante de replicabilidad de `contour.extract`:
+
+- **(a) Determinismo** — mismo input → contorno byte-idéntico en N corridas. Causa raíz: GrabCut
+  (GMM con estado aleatorio) estaba como fallback en `contour.extract` y producía hashes distintos
+  en cada corrida. **Eliminado**; reemplazado por dos fallbacks puramente deterministas:
+  - Cobertura >92%: probable máscara invertida → invertir (objeto claro mal clasificado como fondo).
+  - Cobertura <4%: máscara vacía → Otsu sobre gris con `THRESH_BINARY_INV`.
+  - `metodoDeteccion` refleja el camino: `"python_contour_inv"`, `"python_contour_otsu_gris"`.
+
+- **(b) Invariancia al ROI** — mismo objeto con encuadres ±margen → área ≤ 2%. Mejora: antes de
+  llamar a `_build_binary_mask`, `contour.extract` calcula un `white_thresh_override` via Otsu sobre
+  el gris del ROI (solo fondo blanco). Si el Otsu produce cobertura razonable (4%–65%, umbral ≥ 80),
+  se pasa como `white_thresh_override`; si no (objeto muy claro = caso sintético del intento 1 revertido),
+  cae silenciosamente al umbral estándar `brillo_min - 15`.
+
+- **(c) No-regresión** — `_build_binary_mask` gana parámetro `white_thresh_override=None` (aditivo).
+  Los callers existentes `detect()` y `sam_segmenter` no se ven afectados.
+
+**Blast radius controlado**: GrabCut sigue activo en `detection.py:832` y `sam_segmenter.py:252`;
+el cambio es exclusivo de `contour.extract`. Guard de `ph_candidates`: `_grabcut_usado` → `_fallback_usado`.
+
+**Tests gate** (`python/tests/test_adr013_f2_replicabilidad.py`, 11 tests): Determinismo (3) ·
+Invariancia ROI (2) · No-regresión `_build_binary_mask` (4) · Fallback determinista (2).
+**Suite: 340 passed / 4 skipped** — sin regresiones.
+
+**Pendiente único**: verificación visual en Electron con imagen real (mismo límite heredado de F1).
+
+## 🎯 Sesión 2026-09-12 — ADR-016 F3 (#9–#11) cosmético ✅ — ADR-016 CERRADO
+
+**ADR-016 completamente cerrado** (`5658db2` #9 · `93aa6bb` #10 · `4d949ec` #11).
+Todos los hallazgos F3 (cosmético) implementados en `tabla-metricas-completa.js`:
+
+**(#9) Variación Perímetro — renombrado de «Pérdida Perímetro»:**
+La métrica `perdida_perimetro_fragmentacion_percent = (hull_perim − perim_real) / hull_perim × 100`
+puede ser negativa (contorno sinuoso, perímetro real > hull). El rótulo «Pérdida» era incorrecto
+en ambos signos. Cambios en las dos ocurrencias (secciones VIII y VIII-b):
+- Rótulo: `Pérdida Perímetro (%)` → `Variación Perímetro (%)`
+- Lógica de color: `> 20 / > 10` → `Math.abs(v) > 20 / > 10` (negativos grandes también alertan)
+- Descripción: «Variación vs perímetro convexo (neg. = contorno sinuoso)»
+
+**(#10) Ejes Reales (p1/p2) — ocultos en objetos 2D:**
+`eje_mayor_real_p1/p2` y `eje_menor_real_p1/p2` son coordenadas 3D de los extremos de los
+ejes inerciales; en modo 2D siempre son `null` → mostraban `[N/A]`. Guard añadido:
+`tieneEjesReales = !!(metricas.eje_mayor_real_p1 || metricas.eje_menor_real_p1)` — las dos
+filas se omiten en 2D, siguen visibles en 3D.
+
+**(#11) Distancia de Asimetría — contextualización vs tamaño del objeto:**
+El valor absoluto en mm no era interpretable sin la escala del objeto, generando tensión
+entre «10.07 mm» y «excelente simetría». Fix: añade `distPct = distanciaAsimetria / ejeMayor × 100`
+y muestra «X.XX mm (Y.Y% del eje mayor)». Descripción corregida a «Residuo Hausdorff promedio
+respecto al radio medio del contorno» (fiel a la fórmula de `_simetria_bilateral`).
+
+**Cache-bust final:** `analysis-core.js?v=20260912e` · `node -c` OK · 5/5 `test_coherencia_entrega`.
+
+## 🎯 Sesión 2026-09-12 — ADR-016 #5 cabecera detección/confianza en PDF ✅
+
+**ADR-016 #5 cerrado** (`74a0e3c`). La cabecera del reporte PDF mostraba
+«Método detección N/A · Confianza detección — (N/A)» en objetos IA/SAM. Dos bugs independientes:
+
+**(a) Clave errónea `confidence_level`:**
+El análisis morfométrico escribe `metrics.detection_confidence_level` (línea 10202 de
+`analysis-core.js`), pero la cabecera de `generarHTMLReporteParaBatch` (línea 20373) leía
+`m.confidence_level` — un alias divergente que nunca existe en `metricasFinal`. Mismo bug
+en la columna CSV de colección (`project-manager.js:2837`). Fix: cadena de fallback
+`m.detection_confidence_level || m.confidence_level` en ambos puntos.
+
+**(b) `detection_method` sin cadena de fallback:**
+Objetos IA guardados antes del contrato ADR-007/008 tienen la clave como `detectionMethod`
+o `detection_mode` en su `metricas.json`, no como `detection_method`. Fix: cadena
+`m.detection_method || m.detectionMethod || m.detection_mode` en cabecera y CSV.
+
+**Archivos:** `js/analysis-core.js` (líneas 20372-20373) · `js/project-manager.js` (líneas 2835-2837).
+**Cache-bust:** `analysis-core.js?v=20260912b` · `project-manager.js?v=20260912a`.
+**Suite:** 340 passed / 4 skipped. `node -c` OK.
+**Pendiente:** verificar en Electron con PDF real de objeto IA (requiere `npm start`).
+
+**Estado ADR-016 completo tras esta sesión:**
+✅ #1 (BB px→mm) · #2 (excentricidad) · #3 (regularidad ×100) · #4 (hull 0.0000) ·
+✅ #5 (detección/confianza N/A) · #6 (rótulo rugosidad — resuelto semánticamente) ·
+✅ #7 (dif. área) · #8 (ángulos Feret) · #feret_clasificacion ·
+⬜ #9–#11 (cosmético, F3 — pendientes).
+
 ## 🎯 Estado de la sesión 2026-06-14 (lote de cierre)
 
 Commits del lote: `526cf42` (ADR-010 E2E hook) · `be20a0e` (webSecurity + cv2 warmup + Resultados organizer + deuda técnica) · `63694bf` (ADR-006).
@@ -82,7 +233,7 @@ La interfaz pasó del modelo **sidebar-scroll** al de **pestañas de flujo LAAR*
 ## Critical Constraint: Tier 1 API
 Ten `window.*` functions must remain globally accessible at all times.
 They are called directly by `mao-ia.js` and `collection.js` (unchanged legacy callers).
-Never remove, rename, or scope-gate these functions. See ARCHITECTURE.md for the full list.
+Never remove, rename, or scope-gate these functions. See docs/arquitectura/ARCHITECTURE.md for the full list.
 
 ## Module Dependency Order (load/import sequence)
 

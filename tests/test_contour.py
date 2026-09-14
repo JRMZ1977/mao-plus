@@ -157,3 +157,65 @@ class TestContourConfidence:
         # El fixture es un objeto de alto contraste → la confianza debe calcularse.
         assert score is not None
         assert body["confidence_level"] is not None
+
+
+def _rugosidad(points):
+    """perímetro del contorno / perímetro de su convex hull. ~1.0 = liso, ≫1 = dentado."""
+    import cv2
+    import numpy as np
+    pts = np.asarray(points, dtype=np.float32).reshape(-1, 1, 2)
+    peri = cv2.arcLength(pts, True)
+    hull = cv2.convexHull(pts)
+    hperi = cv2.arcLength(hull, True)
+    return peri / hperi if hperi > 0 else 0.0
+
+
+def _png_disco_texturizado(R=90, cx=150, cy=150, w=300, h=300):
+    """Disco oscuro sobre fondo blanco con TEXTURA interna (motas claras).
+
+    Reproduce el caso DRG16: las motas crean gradientes |∇I| internos fuertes.
+    El gradient-snap ingenuo los «engancha» y denta el contorno (rugosidad alta);
+    el snap consciente de figura-fondo (ADR-013) los ignora → contorno liso.
+    """
+    import cv2
+    import numpy as np
+    img = np.full((h, w, 3), 245, dtype=np.uint8)
+    cv2.circle(img, (cx, cy), R, (40, 40, 40), -1)
+    rng = np.random.default_rng(42)
+    disco = np.zeros((h, w), np.uint8)
+    cv2.circle(disco, (cx, cy), R - 4, 255, -1)   # textura solo en el interior
+    ys, xs = np.nonzero(disco)
+    sel = rng.choice(len(xs), size=int(len(xs) * 0.06), replace=False)
+    for k in sel:
+        img[ys[k], xs[k]] = (200, 200, 200)        # mota clara interna
+    ok, buf = cv2.imencode(".png", img)
+    return buf.tobytes(), (cx - R - 10, cy - R - 10, 2 * (R + 10), 2 * (R + 10))
+
+
+class TestContourTextura:
+    """ADR-013: el contorno sigue el borde figura-fondo, no la textura interna."""
+
+    def test_disco_texturizado_contorno_liso(self, client):
+        """Disco con motas internas → contorno cercano al círculo (rugosidad baja)."""
+        png, bbox = _png_disco_texturizado()
+        body = _post_contour(client, png,
+                             bbox_x=bbox[0], bbox_y=bbox[1],
+                             bbox_w=bbox[2], bbox_h=bbox[3]).json()
+        assert body.get("points"), "sin contorno"
+        rug = _rugosidad(body["points"])
+        # Un círculo liso da ~1.0–1.05; el snap ingenuo enganchando textura subía >1.3.
+        assert rug < 1.20, f"contorno dentado por textura: rugosidad={rug:.3f}"
+
+    def test_disco_texturizado_area_no_colapsa(self, client):
+        """El contorno no se mete hacia adentro: conserva ≥85% del área del disco."""
+        import math
+        R = 90
+        png, bbox = _png_disco_texturizado(R=R)
+        body = _post_contour(client, png,
+                             bbox_x=bbox[0], bbox_y=bbox[1],
+                             bbox_w=bbox[2], bbox_h=bbox[3]).json()
+        area = body["metrics"]["area_real"]
+        area_circulo = math.pi * R * R
+        assert area >= 0.85 * area_circulo, (
+            f"contorno recortado hacia adentro: área={area:.0f} vs círculo={area_circulo:.0f}"
+        )

@@ -20,8 +20,10 @@
  *   - calcularCompletitudFragmento()
  *   - calcularIndicesForma3D()
  * 
- * DEPENDENCIES: None - self-contained
+ * DEPENDENCIES: metric-presenter.js (fuente única de rótulos de clasificación — ADR-016)
  */
+
+import { clasificarRugosidad, clasificarCurvatura } from './metric-presenter.js';
 
 // ============================================================================
 // MÉTRICA 0: EXCENTRICIDAD (y eje principal)
@@ -262,18 +264,7 @@ export function calcularCurvaturaLocal(contourPoints) {
   const umbralEsquina = curvaturaMedia + 3 * desviacionCurvatura;
   const puntosEsquina = curvaturas.filter(k => k > umbralEsquina).length;
   
-  let clasificacion = '';
-  if (desviacionCurvatura < 0.005) {
-    clasificacion = 'Muy suave (circular/elíptico)';
-  } else if (desviacionCurvatura < 0.02) {
-    clasificacion = 'Suave (bordes redondeados)';
-  } else if (desviacionCurvatura < 0.05) {
-    clasificacion = 'Moderado (algunas inflexiones)';
-  } else if (desviacionCurvatura < 0.10) {
-    clasificacion = 'Irregular (múltiples inflexiones)';
-  } else {
-    clasificacion = 'Muy irregular (esquinas pronunciadas)';
-  }
+  const clasificacion = clasificarCurvatura(desviacionCurvatura);  // fuente única (metric-presenter.js)
   
   return {
     curvatura_media: curvaturaMedia,
@@ -333,18 +324,7 @@ export function calcularRugosidadContorno(contourPoints) {
   
   const rugosidad = mediaLongitud > 0 ? desviacion / mediaLongitud : 0;
   
-  let clasificacion = '';
-  if (rugosidad < 0.05) {
-    clasificacion = 'Muy suave (pulido/regular)';
-  } else if (rugosidad < 0.15) {
-    clasificacion = 'Suave (ligera irregularidad)';
-  } else if (rugosidad < 0.30) {
-    clasificacion = 'Moderado (irregular)';
-  } else if (rugosidad < 0.50) {
-    clasificacion = 'Rugoso (muy irregular)';
-  } else {
-    clasificacion = 'Muy rugoso (fracturado/erosionado)';
-  }
+  const clasificacion = clasificarRugosidad(rugosidad);  // fuente única (metric-presenter.js)
   
   return {
     rugosidad: rugosidad,

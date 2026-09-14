@@ -641,24 +641,32 @@ export function metaClasificarForma(metrics, obj = null) {
   else if (convexidad < 0.92) clasificacion_convexidad = "Poco Irregular";
 
   const evidenciasBase = {
+    // PESOS — jerarquía por PODER DISCRIMINANTE MEDIDO, no por antigüedad.
+    // La clasificación del backend distingue 22 clases combinando recuento estable
+    // de lados, rectángulo mínimo (invariante a rotación), concavidades y ajuste
+    // elíptico; la radial-angular solo distingue 4 familias (circular/elipsoidal/
+    // poligonal/irregular) sobre el convex hull. Con los pesos anteriores
+    // (radial 3.0 vs tradicional 1.5) la evidencia GRUESA ganaba siempre: sobre el
+    // banco de formas de verdad conocida, el backend acertaba 15/17 y la salida
+    // final 2/17 — un rectángulo se publicaba como «Forma Elipsoidal».
     tradicional: {
       clasificacion: metrics.forma_detectada || "Indeterminada",
       confianza: calcularConfianzaTradicional(metrics),
-      peso: 1.5,
-      descripcion: "Clasificación basada en circularidad y aspect ratio"
+      peso: 3.5,
+      descripcion: "Clasificación morfométrica completa del backend (22 clases)"
     },
 
     radial_angular: {
       clasificacion: formaIdealizada?.nombre || "Indeterminada",
       confianza: radialAngular?.confianzaGeometria || 0.85,
-      peso: 3.0,
-      descripcion: "Análisis radial-angular con Convex Hull (ROBUSTO)"
+      peso: 1.0,
+      descripcion: "Análisis radial-angular con Convex Hull (familia gruesa)"
     },
 
     angulos_vertices: {
       clasificacion: metrics.geometria_vertices || "No calculado",
       confianza: calcularConfianzaAngulos(metrics),
-      peso: 2.5,
+      peso: 1.5,
       descripcion: "Distribución de ángulos en vértices"
     },
 
@@ -744,10 +752,13 @@ export function metaClasificarForma(metrics, obj = null) {
   const votos_ganador = votosOrdenados[0][1];
   const segundo_lugar = votosOrdenados.length > 1 ? votosOrdenados[1] : null;
 
+  // Desempate: ante votos casi iguales gana la evidencia MÁS FINA (la del backend),
+  // no la radial. Antes se le entregaba el empate a la radial, que solo distingue
+  // cuatro familias — con lo que un trapecio empatado salía «Poligonal».
   if (segundo_lugar && Math.abs(votos_ganador - segundo_lugar[1]) < 0.3) {
-    const radial_categoria = mapearACategoria(evidencias.radial_angular.clasificacion);
-    if (radial_categoria !== categoria_ganadora) {
-      categoria_ganadora = radial_categoria;
+    const tradicional_categoria = mapearACategoria(evidencias.tradicional.clasificacion);
+    if (tradicional_categoria !== categoria_ganadora && votos[tradicional_categoria] > 0) {
+      categoria_ganadora = tradicional_categoria;
     }
   }
 
@@ -762,7 +773,11 @@ export function metaClasificarForma(metrics, obj = null) {
     if (match) {
       completitud = parseInt(match[1]);
     }
-    clasificacion_final = nombreRadial;
+    // Se conserva la SEÑAL de fragmento, pero el nombre de la familia lo pone la
+    // categoría ganadora: antes el rótulo entero venía de la radial, así que un
+    // fragmento de pieza rectangular se publicaba como «Fragmento Circular».
+    const _base = convertirCategoriaANombre(categoria_ganadora, metrics);
+    clasificacion_final = `Fragmento ${_base.replace(/^Forma\s+/i, '')} (${completitud}% completo)`;
   } else {
     clasificacion_final = convertirCategoriaANombre(categoria_ganadora, metrics);
   }

@@ -11,6 +11,9 @@ import * as UtilityHelpers from './modules/utility-helpers.js?v=20260614e';
 import * as MetricsOrchestrator from './modules/metrics-orchestrator.js';
 import * as VisualizationExport from './modules/visualization-export.js';
 import * as BifacialAnalysis from './modules/bifacial-analysis.js';
+import * as MetricPresenter from './modules/metric-presenter.js';  // fuente única de rótulos (ADR-016)
+// Exponer en window para superficies que NO son ES modules (p. ej. project-manager.js, script clásico)
+if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
 
 (() => {
   // ── Producción: console.log silenciado; warn/error siempre activos ────────
@@ -62,8 +65,6 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   const zoomInput = document.getElementById('zoomInput');
   // const downloadImageBtn = document.getElementById('downloadImage'); // ❌ Botón eliminado
   const individualizarBtn = document.getElementById('individualizarBtn');
-  const individualizarBifacialBtn2 = document.getElementById('individualizarBifacialBtn2');
-  const statusIndividualizarBifacial = document.getElementById('statusIndividualizarBifacial');
   const showTableBtn = document.getElementById('showTableBtn');
   const individualObjectsContainer = document.getElementById('individualObjectsContainer');
   const individualObjectsGrid = document.getElementById('individualObjectsGrid');
@@ -105,7 +106,13 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   const debugMaskContainer = document.getElementById('debugMaskContainer');
   const closeDebugMaskBtn = document.getElementById('closeDebugMaskBtn');
 
-  // 🔧 Cambiar de const a let para permitir reasignación en modo bifacial
+  // 🔧 Cambiar de const a let para permitir reasignación en modo bifacial.
+  // ⚠️ NO convertir en `window.canvas = …`: `bridgeIIFEStateToModules()` (más abajo)
+  // publica `window.canvas` como GETTER VIVO respaldado por esta variable local. Si se
+  // elimina el binding local, el getter `() => canvas` se auto-invoca → recursión
+  // infinita al primer acceso. La fuente única de verdad aquí es la LOCAL, y el puente
+  // la expone en solo-lectura: para reasignar (modo bifacial) hay que escribir la local
+  // con `canvas = …` (bare), nunca `window.canvas = …` (accessor sin setter → TypeError).
   let canvas = document.getElementById('canvas');
   let ctx = canvas.getContext('2d');
 
@@ -134,15 +141,20 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   let anchoImagen = 0;  // Dimensiones de imagen para verificación de escala
   let altoImagen = 0;   // Dimensiones de imagen para verificación de escala
   let objects = []; // Array para almacenar objetos detectados
-  let currentAnalyzedObject = null; // Objeto actualmente en análisis morfológico
-  window.currentAnalyzedObject = null; // Expuesto globalmente para exportarSVGMorfologicoActual
+  // ⚑ FUENTE ÚNICA DE VERDAD: currentAnalyzedObject NO se declara como var local del
+  // IIFE. Al no existir binding local, toda referencia `currentAnalyzedObject` dentro
+  // de este archivo resuelve a la propiedad global `window.currentAnalyzedObject`, el
+  // MISMO almacenamiento que leen/escriben visualization-export.js (ESM) y collection.js
+  // (script clásico). Esto elimina de raíz el drift local↔window que rompía las
+  // exportaciones (ver AUDITORIA_COHERENCIA_20260731.md §3.1). La propiedad se inicializa
+  // aquí, antes de que se invoque cualquier función que la consuma.
+  window.currentAnalyzedObject = null; // Objeto actualmente en análisis morfológico
   // Getters para mao-ia.js (que no puede acceder a las vars locales del IIFE)
   window._maoGetImage      = () => image;
   window._maoGetImageCaraA = () => imageCaraA;
   window._maoGetImageCaraB = () => imageCaraB;
   window._maoGetModo       = () => modoAnalisis;
   window._maoGetScale      = () => scale;
-  window._maoAbrirMetricas = (obj, m) => abrirModalTablaMetricas(obj, m);
   let morphologicalCtx = null; // Contexto del canvas morfológico
   let idealizedShapeCtx = null; // Contexto del canvas de forma idealizada
   let lastDetectionStats = { filtered: 0, detected: 0 }; // Estadísticas de la última detección
@@ -329,6 +341,10 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       analisisMorfologicos:           () => analisisMorfologicos,
       // Canvas y contenedores DOM
       canvas:                         () => canvas,
+      // ctx acompaña a canvas: ambos se reasignan juntos en modo bifacial. Se publica
+      // como getter vivo (no como `window.ctx = …`) para que los consumidores externos
+      // lean siempre el contexto actual. Ver AUDITORIA_COHERENCIA_20260731.md §3.1.
+      ctx:                            () => ctx,
       morphologicalCanvas:            () => morphologicalCanvas,
       morphologicalAnalysisContainer: () => morphologicalAnalysisContainer,
       morphologicalMetrics:           () => morphologicalMetrics,
@@ -383,6 +399,25 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     minArea: 100,        // Área mínima en píxeles para considerar un objeto válido
     autoRedetect: false   // Re-detección automática DESHABILITADA - detección manual solamente
   };
+
+  /**
+   * Sanea un identificador de objeto para usarlo como nombre de archivo.
+   *
+   * ⚠️ `obj.id` NO tiene un tipo estable: la detección automática asigna un NÚMERO
+   * (`id: index + 1`) y la manual una CADENA (`manual_1`). Llamar `.replace()` sobre
+   * él fallaba con «obj.id?.replace is not a function» y abortaba la exportación —
+   * el optional chaining (`obj.id?.replace`) protege de null/undefined pero NO de un
+   * número. No se normaliza `obj.id` en origen porque hay ~33 comparaciones estrictas
+   * (`o.id === n`) que romperían al cambiarle el tipo; se coacciona aquí, al construir
+   * el nombre. Ver AUDITORIA_COHERENCIA_20260731.md §3.1-bis.
+   *
+   * @param {*} valor      Identificador (numérico o cadena).
+   * @param {string} fallback Nombre a usar si el identificador queda vacío.
+   */
+  function _idParaArchivo(valor, fallback = '') {
+    const saneado = String(valor ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    return saneado || fallback;
+  }
 
   // Configuración del algoritmo híbrido
   let hybridConfig = {
@@ -452,12 +487,18 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   let edgeCtx = null; // Contexto del canvas de análisis de bordes
   let currentEdgeAnalyzedObject = null; // Objeto actualmente en análisis de bordes
 
-  // Variables para trazado de perforaciones/horadaciones con canvas ampliado
-  let perforationCanvas = null; // Canvas ampliado para trazado preciso
-  let perforationCanvasCtx = null; // Contexto del canvas ampliado
-  let perforationZoomLevel = 2; // Factor de zoom (1x, 2x, 3x, 4x, 5x)
-  let perforationCanvasOffsetX = 0; // Offset X del objeto en el canvas ampliado
-  let perforationCanvasOffsetY = 0; // Offset Y del objeto en el canvas ampliado
+  // Variables para trazado de perforaciones/horadaciones con canvas ampliado.
+  // ⚑ FUENTE ÚNICA DE VERDAD (ver AUDITORIA_COHERENCIA_20260731.md §3.1): las cuatro
+  // que consume utility-helpers.js (ESM) NO se declaran como var local del IIFE — sus
+  // referencias bare resuelven a la propiedad global, el mismo almacenamiento que lee
+  // y escribe ese módulo (p. ej. `window.perforationZoomLevel = zoomLevel`, y las
+  // conversiones de coordenadas que leen bare perforationCanvasOffsetX/Y). Antes el
+  // zoom aplicado desde utility-helpers no llegaba a la copia local de este archivo.
+  window.perforationCanvas = null; // Canvas ampliado para trazado preciso
+  let perforationCanvasCtx = null; // Contexto del canvas ampliado (uso interno, sin consumidor externo)
+  window.perforationZoomLevel = 2; // Factor de zoom (1x, 2x, 3x, 4x, 5x)
+  window.perforationCanvasOffsetX = 0; // Offset X del objeto en el canvas ampliado
+  window.perforationCanvasOffsetY = 0; // Offset Y del objeto en el canvas ampliado
 
   // === VARIABLES PARA SELECCIÓN MANUAL ===
   let isManualSelectionMode = false; // Modo de selección manual activo
@@ -1220,7 +1261,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     });
   }
 
-  function ejecutarDeteccionEnAreaManual() {
+  async function ejecutarDeteccionEnAreaManual() {
     if (!manualSelectedArea || !image) {
       console.error('❌ No hay área seleccionada o imagen cargada');
       UtilityHelpers.setStatus('Error: No hay área seleccionada o imagen cargada', true);
@@ -1239,7 +1280,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     
     // Ejecutar detección inmediatamente sin pasos intermedios
     const startTime = performance.now();
-    const objetosDetectados = detectarObjetosEnArea(manualSelectedArea);
+    const objetosDetectados = await detectarObjetosEnArea(manualSelectedArea);
     const tiempo = (performance.now() - startTime).toFixed(1);
     
     // Actualizar estado inmediatamente
@@ -1667,7 +1708,61 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     console.log('🔬 Iniciando análisis morfométrico mejorado para área manual');
     
     // Mostrar progreso
-  
+    manualSelectionInstructions.textContent += '\n Analizando morfología de objetos...';
+    
+    let procesados = 0;
+    let conContorno = 0;
+    let sinContorno = 0;
+    
+    const startTime = performance.now();
+    
+    for (const obj of objects) {
+      try {
+        const metricas = MetricsOrchestrator.calcularMetricasMorfologicas(obj, scale);
+        if (metricas) {
+          obj.metrics = metricas;
+          procesados++;
+          
+          // Contar tipos de análisis
+          if (metricas.analysis_method === "Bounding Box (Fallback)") {
+            sinContorno++;
+          } else {
+            conContorno++;
+          }
+        }
+      } catch (error) {
+        console.warn(`⚠️ Error calculando métricas para objeto ${obj.id}:`, error);
+      }
+    }
+    
+    const endTime = performance.now();
+    const processingTime = ((endTime - startTime) / 1000).toFixed(2);
+    
+    const estadisticasAnalisis = {
+      procesados: procesados,
+      conContorno: conContorno,
+      sinContorno: sinContorno,
+      tiempoProcesamiento: processingTime
+    };
+    
+    console.log(`✅ Análisis morfométrico completado:`, estadisticasAnalisis);
+    
+    // Actualizar interfaz con resultados del análisis
+    const mensajeFinal = `Análisis morfométrico completado:
+    • ${procesados}/${objects.length} objetos analizados
+    • ${conContorno} con contorno real, ${sinContorno} con bounding box
+    • Tiempo de procesamiento: ${processingTime}s
+    • Escala aplicada: ${scale ? (scale * 1000).toFixed(2) + ' μm/píxel' : 'No disponible'}`;
+    
+    manualSelectionInstructions.textContent = mensajeFinal;
+    
+    // Actualizar displays finales
+    UtilityHelpers.updateDisplays();
+    UtilityHelpers.redrawCanvas();
+    
+    UtilityHelpers.setStatus(`Análisis morfométrico completado: ${procesados} objetos procesados`, false);
+  }
+
   // ============================================================================
   // FUNCIÓN DE SELECCIÓN DE COMPONENTE POR CLIC
   // ============================================================================
@@ -1845,60 +1940,6 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       componentInfo: componentInfo,
       metodoDeteccion: 'manual_component_selection'
     };
-  }
-    manualSelectionInstructions.textContent += '\n Analizando morfología de objetos...';
-    
-    let procesados = 0;
-    let conContorno = 0;
-    let sinContorno = 0;
-    
-    const startTime = performance.now();
-    
-    for (const obj of objects) {
-      try {
-        const metricas = MetricsOrchestrator.calcularMetricasMorfologicas(obj, scale);
-        if (metricas) {
-          obj.metrics = metricas;
-          procesados++;
-          
-          // Contar tipos de análisis
-          if (metricas.analysis_method === "Bounding Box (Fallback)") {
-            sinContorno++;
-          } else {
-            conContorno++;
-          }
-        }
-      } catch (error) {
-        console.warn(`⚠️ Error calculando métricas para objeto ${obj.id}:`, error);
-      }
-    }
-    
-    const endTime = performance.now();
-    const processingTime = ((endTime - startTime) / 1000).toFixed(2);
-    
-    const estadisticasAnalisis = {
-      procesados: procesados,
-      conContorno: conContorno,
-      sinContorno: sinContorno,
-      tiempoProcesamiento: processingTime
-    };
-    
-    console.log(`✅ Análisis morfométrico completado:`, estadisticasAnalisis);
-    
-    // Actualizar interfaz con resultados del análisis
-    const mensajeFinal = `Análisis morfométrico completado:
-    • ${procesados}/${objects.length} objetos analizados
-    • ${conContorno} con contorno real, ${sinContorno} con bounding box
-    • Tiempo de procesamiento: ${processingTime}s
-    • Escala aplicada: ${scale ? (scale * 1000).toFixed(2) + ' μm/píxel' : 'No disponible'}`;
-    
-    manualSelectionInstructions.textContent = mensajeFinal;
-    
-    // Actualizar displays finales
-    UtilityHelpers.updateDisplays();
-    UtilityHelpers.redrawCanvas();
-    
-    UtilityHelpers.setStatus(`Análisis morfométrico completado: ${procesados} objetos procesados`, false);
   }
 
   function aplicarAnalisisMorfometricoAreaManual() {
@@ -6109,19 +6150,8 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     const umbralEsquina = curvaturaMedia + 3 * desviacionCurvatura;
     const puntosEsquina = curvaturas.filter(k => k > umbralEsquina).length;
     
-    // Clasificación de suavidad
-    let clasificacion = '';
-    if (desviacionCurvatura < 0.005) {
-      clasificacion = 'Muy suave (circular/elíptico)';
-    } else if (desviacionCurvatura < 0.02) {
-      clasificacion = 'Suave (bordes redondeados)';
-    } else if (desviacionCurvatura < 0.05) {
-      clasificacion = 'Moderado (algunas inflexiones)';
-    } else if (desviacionCurvatura < 0.10) {
-      clasificacion = 'Irregular (múltiples inflexiones)';
-    } else {
-      clasificacion = 'Muy irregular (esquinas pronunciadas)';
-    }
+    // Clasificación de suavidad — fuente única (metric-presenter.js)
+    const clasificacion = MetricPresenter.clasificarCurvatura(desviacionCurvatura);
     
     return {
       curvatura_media: curvaturaMedia,
@@ -6185,19 +6215,8 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     // Rugosidad = desviación / media (coeficiente de variación)
     const rugosidad = mediaLongitud > 0 ? desviacion / mediaLongitud : 0;
     
-    // Clasificación
-    let clasificacion = '';
-    if (rugosidad < 0.05) {
-      clasificacion = 'Muy suave (pulido/regular)';
-    } else if (rugosidad < 0.15) {
-      clasificacion = 'Suave (ligera irregularidad)';
-    } else if (rugosidad < 0.30) {
-      clasificacion = 'Moderado (irregular)';
-    } else if (rugosidad < 0.50) {
-      clasificacion = 'Rugoso (muy irregular)';
-    } else {
-      clasificacion = 'Muy rugoso (fracturado/erosionado)';
-    }
+    // Clasificación — fuente única (metric-presenter.js)
+    const clasificacion = MetricPresenter.clasificarRugosidad(rugosidad);
     
     return {
       rugosidad: rugosidad,
@@ -10692,7 +10711,10 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         })();
 
     if (_puntosAngulos) {
-      const angulosData = ShapeClassification.calcularAngulosVertices(_puntosAngulos);
+      // La canónica vive en morphometric-metrics.js (shape-classification NO la exporta →
+      // TypeError que solo se veía al correr de verdad el cálculo JS, camino muerto hasta
+      // que se registró la implementación real en MetricsOrchestrator).
+      const angulosData = MorphometricMetrics.calcularAngulosVertices(_puntosAngulos);
       
       metrics.angulo_medio_vertices = UtilityHelpers.safeToFixed(angulosData.angulo_medio, 1);
       metrics.angulo_predominante = UtilityHelpers.safeToFixed(angulosData.angulo_predominante, 1);
@@ -12187,6 +12209,17 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         console.info(`[MONITOR_ANALISIS] ${JSON.stringify(payload)}`);
       };
 
+      // Sección IX (error óptico + incertidumbre) ANTES de cachear. El renderer ya la
+      // aplicaba (visualization-export.js), pero corre después y sobre otra referencia →
+      // la instantánea de `analisisCached` nacía sin campos ópticos, y con ella el análisis
+      // en lote (silencioso, que nunca renderiza) y todo lo que se exporta desde caché.
+      // El guard del renderer (`!metricas.confianza_optica`) hace que esto no se duplique.
+      if (metricas && !metricas.confianza_optica) {
+        const _eoCx = (metricas.centroide_x != null) ? metricas.centroide_x : ((obj.minX || 0) + (obj.width  || 0) / 2);
+        const _eoCy = (metricas.centroide_y != null) ? metricas.centroide_y : ((obj.minY || 0) + (obj.height || 0) / 2);
+        aplicarErrorOpticoPosicional(metricas, { x: _eoCx, y: _eoCy });
+      }
+
       // Guardar siempre en caché — incluso en modo silencioso (auto-análisis background)
       guardarAnalisisEnCache(obj, metricas);
       emitirMonitorAnalisis(obj, metricas);
@@ -12195,7 +12228,11 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         console.log(`✅ Métricas calculadas para objeto ${obj.id}:`, metricas);
         
         // Mostrar el análisis morfológico solo si no está en modo silencioso
+        if (obj && (obj.id || obj.nombreObjeto || obj.numeroObjeto)) {
+          window.currentAnalysisId = obj.id || obj.nombreObjeto || `Objeto ${obj.numeroObjeto || '?'}`;
+        }
         VisualizationExport.mostrarAnalisisMorfologico(obj, metricas);
+        document.dispatchEvent(new CustomEvent('mao:analysis:done'));
         
         // COMPARACIÓN ESPECÍFICA: CONTORNO REAL vs CAJA CONTENEDORA
         compararGeometriaReal(obj, metricas);
@@ -12716,12 +12753,16 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     'NIKON D610': { width: 35.9, height: 24.0 },
     'NIKON D600': { width: 35.9, height: 24.0 },
     'NIKON Z5': { width: 35.9, height: 23.9 },
+    'NIKON Z5II': { width: 35.9, height: 23.9 },
     'NIKON Z6': { width: 35.9, height: 23.9 },
     'NIKON Z6II': { width: 35.9, height: 23.9 },
+    'NIKON Z6III': { width: 35.9, height: 23.9 },
     'NIKON Z7': { width: 35.9, height: 23.9 },
     'NIKON Z7II': { width: 35.9, height: 23.9 },
     'NIKON Z9': { width: 35.9, height: 23.9 },
     'NIKON Z8': { width: 35.9, height: 23.9 },
+    'NIKON ZF': { width: 35.9, height: 23.9 },
+    'NIKON D500': { width: 23.5, height: 15.7 },
     'NIKON Z30': { width: 23.5, height: 15.7 },
     'NIKON Z50': { width: 23.5, height: 15.7 },
     'NIKON ZFC': { width: 23.5, height: 15.7 },
@@ -12745,13 +12786,20 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     'CANON EOS 6D': { width: 35.8, height: 23.9 },
     'CANON EOS R': { width: 36.0, height: 24.0 },
     'CANON EOS R5': { width: 36.0, height: 24.0 },
+    'CANON EOS R5 MARK II': { width: 36.0, height: 24.0 },
     'CANON EOS R6': { width: 35.9, height: 23.9 },
     'CANON EOS R6 MARK II': { width: 35.9, height: 23.9 },
+    'CANON EOS R3': { width: 36.0, height: 24.0 },
     'CANON EOS R7': { width: 22.3, height: 14.8 },
     'CANON EOS R8': { width: 35.9, height: 23.9 },
     'CANON EOS R10': { width: 22.3, height: 14.8 },
+    'CANON EOS R50': { width: 22.3, height: 14.9 },
     'CANON EOS RP': { width: 35.9, height: 24.0 },
+    'CANON EOS 250D': { width: 22.3, height: 14.9 },
+    'CANON EOS 850D': { width: 22.3, height: 14.9 },
+    'CANON EOS M50 MARK II': { width: 22.3, height: 14.9 },
     'CANON EOS M50': { width: 22.3, height: 14.9 },
+    'CANON EOS M6 MARK II': { width: 22.3, height: 14.9 },
     'CANON EOS M6': { width: 22.3, height: 14.9 },
     'CANON EOS M100': { width: 22.3, height: 14.9 },
     
@@ -12769,6 +12817,11 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     'SONY ILCE-7RM5': { width: 35.9, height: 24.0 },
     'SONY ILCE-7C': { width: 35.8, height: 23.9 },
     'SONY ILCE-7CR': { width: 35.9, height: 24.0 },
+    'SONY ILCE-7CM2': { width: 35.9, height: 24.0 },
+    'SONY ILCE-7SM3': { width: 35.6, height: 23.8 },
+    'SONY ILCE-1': { width: 35.9, height: 24.0 },
+    'SONY ZV-E10': { width: 23.5, height: 15.6 },
+    'SONY ZV-E10M2': { width: 23.5, height: 15.6 },
     'SONY ILCE-6000': { width: 23.5, height: 15.6 },
     'SONY ILCE-6100': { width: 23.5, height: 15.6 },
     'SONY ILCE-6300': { width: 23.5, height: 15.6 },
@@ -12800,6 +12853,10 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     'FUJIFILM X-H1': { width: 23.6, height: 15.6 },
     'FUJIFILM X-H2': { width: 23.5, height: 15.7 },
     'FUJIFILM X-H2S': { width: 23.5, height: 15.7 },
+    'FUJIFILM X100V': { width: 23.5, height: 15.6 },
+    'FUJIFILM X100VI': { width: 23.5, height: 15.6 },
+    'FUJIFILM X-T3': { width: 23.5, height: 15.6 },
+    'FUJIFILM GFX 50S II': { width: 43.8, height: 32.9 },
     'FUJIFILM GFX 50S': { width: 43.8, height: 32.9 },
     'FUJIFILM GFX 50R': { width: 43.8, height: 32.9 },
     'FUJIFILM GFX 100': { width: 43.8, height: 32.9 },
@@ -12811,7 +12868,9 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     'PANASONIC DC-GH5S': { width: 17.3, height: 13.0 },
     'PANASONIC DC-GH6': { width: 17.3, height: 13.0 },
     'PANASONIC DC-G9': { width: 17.3, height: 13.0 },
+    'PANASONIC DC-G9M2': { width: 17.3, height: 13.0 },
     'PANASONIC DC-G95': { width: 17.3, height: 13.0 },
+    'PANASONIC DC-GH5M2': { width: 17.3, height: 13.0 },
     'PANASONIC DC-G100': { width: 17.3, height: 13.0 },
     'PANASONIC DC-S1': { width: 35.6, height: 23.8 },
     'PANASONIC DC-S1R': { width: 35.6, height: 23.8 },
@@ -12824,15 +12883,22 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     'OLYMPUS E-M1 MARK II': { width: 17.4, height: 13.0 },
     'OLYMPUS E-M1 MARK III': { width: 17.4, height: 13.0 },
     'OLYMPUS E-M5 MARK III': { width: 17.3, height: 13.0 },
+    'OLYMPUS E-M5 MARK II': { width: 17.3, height: 13.0 },
     'OLYMPUS E-M10 MARK IV': { width: 17.3, height: 13.0 },
+    'OLYMPUS E-M10 MARK III': { width: 17.3, height: 13.0 },
+    'OLYMPUS E-M1X': { width: 17.4, height: 13.0 },
     'OM SYSTEM OM-1': { width: 17.4, height: 13.0 },
+    'OM SYSTEM OM-1 MARK II': { width: 17.4, height: 13.0 },
     'OM SYSTEM OM-5': { width: 17.3, height: 13.0 },
     
     // === PENTAX ===
     'PENTAX K-3 III': { width: 23.5, height: 15.6 },
+    'PENTAX K-3 MARK III': { width: 23.3, height: 15.5 },
     'PENTAX K-1': { width: 35.9, height: 24.0 },
     'PENTAX K-1 MARK II': { width: 35.9, height: 24.0 },
     'PENTAX KP': { width: 23.5, height: 15.6 },
+    'RICOH GR III': { width: 23.5, height: 15.6 },
+    'RICOH GR IIIX': { width: 23.5, height: 15.6 },
     
     // === LEICA ===
     'LEICA Q2': { width: 35.9, height: 24.0 },
@@ -13095,6 +13161,17 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   window.estimarErrorOptico        = MetricsOrchestrator.estimarErrorOptico;
   window.aplicarIncertidumbreOptica = MetricsOrchestrator.aplicarIncertidumbreOptica;
 
+  // El módulo publica `calcularMetricasMorfologicas` pero NO puede implementarla: la real
+  // vive aquí (~L10006) y necesita el scope del IIFE (image/objects/extraerContornoReal/
+  // startProgress…). Hasta ahora el módulo devolvía null con un warn de PLACEHOLDER, lo que
+  // dejaba MUERTO el fallback JS de analizarObjetoMorfologicamente (~L12166: si Python falla,
+  // el análisis abortaba) y el enriquecimiento de _forma_idealizada (~L12063). Registrando la
+  // local, ambos caminos vuelven a funcionar sin duplicar el cuerpo de la función.
+  MetricsOrchestrator.registrarImplMetricasMorfologicas(calcularMetricasMorfologicas);
+  // Exponer generarCSVMetricas para que collection.js pueda regenerar el CSV
+  // cuando un análisis fue enriquecido retroactivamente (metricas.csv de disco es obsoleto)
+  window.generarCSVMetricasDesdeObjeto = (obj, metricas) => generarCSVMetricas(obj, metricas);
+
   /**
    * Error óptico posicional AUTÓNOMO y AGNÓSTICO del modo de detección.
    * Depende SOLO de: (a) las características ópticas de la imagen adquirida
@@ -13347,24 +13424,156 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     
     // Base de datos expandida usando info de archivos RAW
     const sensoresRAW = {
-      // Nikon
-      'nikon d850': { width: 35.9, height: 23.9 },
-      'nikon d780': { width: 35.9, height: 23.9 }, 
-      'nikon z9': { width: 35.9, height: 23.9 },
-      'nikon z7': { width: 35.9, height: 23.9 },
-      'nikon d750': { width: 35.9, height: 24.0 },
-      
-      // Canon
-      'canon eos r5': { width: 36.0, height: 24.0 },
-      'canon eos r6': { width: 35.9, height: 23.9 },
+      // ── NIKON Full-Frame ──────────────────────────────────────────────────
+      'nikon d850':  { width: 35.9, height: 23.9 },
+      'nikon d810':  { width: 35.9, height: 24.0 },
+      'nikon d810a': { width: 35.9, height: 24.0 },
+      'nikon d800':  { width: 35.9, height: 24.0 },
+      'nikon d800e': { width: 35.9, height: 24.0 },
+      'nikon d780':  { width: 35.9, height: 23.9 },
+      'nikon d750':  { width: 35.9, height: 24.0 },
+      'nikon d700':  { width: 36.0, height: 23.9 },
+      'nikon d610':  { width: 35.9, height: 24.0 },
+      'nikon d600':  { width: 35.9, height: 24.0 },
+      'nikon z9':    { width: 35.9, height: 23.9 },
+      'nikon z8':    { width: 35.9, height: 23.9 },
+      'nikon z7':    { width: 35.9, height: 23.9 },
+      'nikon z7ii':  { width: 35.9, height: 23.9 },
+      'nikon z7 ii': { width: 35.9, height: 23.9 },
+      'nikon z6':    { width: 35.9, height: 23.9 },
+      'nikon z6ii':  { width: 35.9, height: 23.9 },
+      'nikon z6 ii': { width: 35.9, height: 23.9 },
+      'nikon z6iii': { width: 35.9, height: 23.9 },
+      'nikon z6 iii':{ width: 35.9, height: 23.9 },
+      'nikon z5':    { width: 35.9, height: 23.9 },
+      'nikon z5ii':  { width: 35.9, height: 23.9 },
+      'nikon z5 ii': { width: 35.9, height: 23.9 },
+      'nikon zf':    { width: 35.9, height: 23.9 },
+      // Nikon APS-C
+      'nikon d500':  { width: 23.5, height: 15.7 },
+      'nikon d7500': { width: 23.5, height: 15.7 },
+      'nikon d7200': { width: 23.5, height: 15.6 },
+      'nikon d7100': { width: 23.5, height: 15.6 },
+      'nikon d5600': { width: 23.5, height: 15.6 },
+      'nikon d5500': { width: 23.5, height: 15.6 },
+      'nikon d3500': { width: 23.5, height: 15.6 },
+      'nikon d3400': { width: 23.5, height: 15.6 },
+      'nikon z50':   { width: 23.5, height: 15.7 },
+      'nikon zfc':   { width: 23.5, height: 15.7 },
+      'nikon z30':   { width: 23.5, height: 15.7 },
+
+      // ── CANON Full-Frame ──────────────────────────────────────────────────
+      'canon eos r5':         { width: 36.0, height: 24.0 },
+      'canon eos r5 mark ii': { width: 36.0, height: 24.0 },
+      'eos r5':               { width: 36.0, height: 24.0 },
+      'canon eos r6':         { width: 35.9, height: 23.9 },
+      'canon eos r6 mark ii': { width: 35.9, height: 23.9 },
+      'eos r6':               { width: 35.9, height: 23.9 },
+      'canon eos r':          { width: 36.0, height: 24.0 },
+      'eos r':                { width: 36.0, height: 24.0 },
+      'canon eos rp':         { width: 35.9, height: 24.0 },
+      'eos rp':               { width: 35.9, height: 24.0 },
+      'canon eos r8':         { width: 35.9, height: 23.9 },
+      'eos r8':               { width: 35.9, height: 23.9 },
+      'canon eos r3':         { width: 36.0, height: 24.0 },
+      'eos r3':               { width: 36.0, height: 24.0 },
       'canon eos 5d mark iv': { width: 36.0, height: 24.0 },
-      'canon eos 90d': { width: 22.3, height: 14.8 },
-      
-      // Sony  
-      'sony ilce-7rm5': { width: 35.7, height: 23.8 },
-      'sony ilce-7rm4': { width: 35.7, height: 23.8 },
-      'sony ilce-7m4': { width: 35.6, height: 23.8 },
-      'sony ilce-a7riv': { width: 35.7, height: 23.8 }
+      'canon eos 5d mark iii':{ width: 36.0, height: 24.0 },
+      'canon eos 5ds':        { width: 36.0, height: 24.0 },
+      'canon eos 6d mark ii': { width: 35.9, height: 24.0 },
+      'canon eos 6d':         { width: 35.8, height: 23.9 },
+      // Canon APS-C
+      'canon eos r7':         { width: 22.3, height: 14.8 },
+      'eos r7':               { width: 22.3, height: 14.8 },
+      'canon eos r10':        { width: 22.3, height: 14.9 },
+      'eos r10':              { width: 22.3, height: 14.9 },
+      'canon eos r50':        { width: 22.3, height: 14.9 },
+      'eos r50':              { width: 22.3, height: 14.9 },
+      'canon eos 90d':        { width: 22.3, height: 14.8 },
+      'canon eos 80d':        { width: 22.5, height: 15.0 },
+      'canon eos 77d':        { width: 22.3, height: 14.9 },
+      'canon eos 250d':       { width: 22.3, height: 14.9 },
+      'canon eos 200d':       { width: 22.3, height: 14.9 },
+      'canon eos 850d':       { width: 22.3, height: 14.9 },
+      'canon eos m50 mark ii':{ width: 22.3, height: 14.9 },
+      'canon eos m50':        { width: 22.3, height: 14.9 },
+      'canon eos m6 mark ii': { width: 22.3, height: 14.9 },
+
+      // ── SONY Full-Frame (nombres EXIF ILCE-*) ────────────────────────────
+      'sony ilce-1':     { width: 35.9, height: 24.0 },
+      'sony ilce-7sm3':  { width: 35.6, height: 23.8 },
+      'sony ilce-7rm5':  { width: 35.7, height: 23.8 },
+      'sony ilce-7rm4':  { width: 35.7, height: 23.8 },
+      'sony ilce-7rm4a': { width: 35.7, height: 23.8 },
+      'sony ilce-7rm3':  { width: 35.9, height: 24.0 },
+      'sony ilce-7rm3a': { width: 35.9, height: 24.0 },
+      'sony ilce-7m4':   { width: 35.6, height: 23.8 },
+      'sony ilce-7m3':   { width: 35.6, height: 23.8 },
+      'sony ilce-7c':    { width: 35.6, height: 23.8 },
+      'sony ilce-7cr':   { width: 35.7, height: 23.8 },
+      'sony ilce-a7riv': { width: 35.7, height: 23.8 },
+      // Aliases nombre largo (algunos firmwares)
+      'sony a7r v':      { width: 35.7, height: 23.8 },
+      'sony a7r iv':     { width: 35.7, height: 23.8 },
+      'sony a7 iv':      { width: 35.6, height: 23.8 },
+      'sony a7 iii':     { width: 35.6, height: 23.8 },
+      'sony a7c':        { width: 35.6, height: 23.8 },
+      'sony a7c ii':     { width: 35.9, height: 24.0 },
+      // Sony APS-C (ILCE-6*)
+      'sony ilce-6700':  { width: 23.3, height: 15.6 },
+      'sony ilce-6600':  { width: 23.5, height: 15.6 },
+      'sony ilce-6500':  { width: 23.5, height: 15.6 },
+      'sony ilce-6400':  { width: 23.5, height: 15.6 },
+      'sony ilce-6300':  { width: 23.5, height: 15.6 },
+      'sony ilce-6100':  { width: 23.5, height: 15.6 },
+      'sony ilce-zv-e10':{ width: 23.5, height: 15.6 },
+      'sony zv-e10':     { width: 23.5, height: 15.6 },
+
+      // ── FUJIFILM APS-C (X-Trans / Bayer) ─────────────────────────────────
+      'fujifilm x-t5':    { width: 23.5, height: 15.6 },
+      'fujifilm x-t4':    { width: 23.5, height: 15.6 },
+      'fujifilm x-t3':    { width: 23.5, height: 15.6 },
+      'fujifilm x-t30 ii':{ width: 23.5, height: 15.6 },
+      'fujifilm x-t30':   { width: 23.5, height: 15.6 },
+      'fujifilm x-s20':   { width: 23.5, height: 15.6 },
+      'fujifilm x-s10':   { width: 23.5, height: 15.6 },
+      'fujifilm x-h2s':   { width: 23.5, height: 15.6 },
+      'fujifilm x-h2':    { width: 23.5, height: 15.6 },
+      'fujifilm x100v':   { width: 23.5, height: 15.6 },
+      'fujifilm x100vi':  { width: 23.5, height: 15.6 },
+      'fujifilm gfx 100s':{ width: 43.8, height: 32.9 },  // Medium format
+      'fujifilm gfx 50s ii':{ width: 43.8, height: 32.9 },
+
+      // ── OLYMPUS / OM SYSTEM Micro 4/3 ────────────────────────────────────
+      'olympus e-m1 mark iii':  { width: 17.4, height: 13.0 },
+      'olympus e-m1 mark ii':   { width: 17.4, height: 13.0 },
+      'olympus e-m1x':          { width: 17.4, height: 13.0 },
+      'olympus e-m5 mark iii':  { width: 17.4, height: 13.0 },
+      'olympus e-m5 mark ii':   { width: 17.3, height: 13.0 },
+      'olympus e-m10 mark iv':  { width: 17.4, height: 13.0 },
+      'om system om-1':         { width: 17.4, height: 13.0 },
+      'om system om-5':         { width: 17.4, height: 13.0 },
+      'om-1':                   { width: 17.4, height: 13.0 },
+      'om-5':                   { width: 17.4, height: 13.0 },
+
+      // ── PANASONIC Micro 4/3 ───────────────────────────────────────────────
+      'panasonic dc-g9':   { width: 17.3, height: 13.0 },
+      'panasonic dc-g9m2': { width: 17.3, height: 13.0 },
+      'panasonic dc-gh6':  { width: 17.3, height: 13.0 },
+      'panasonic dc-gh5m2':{ width: 17.3, height: 13.0 },
+      'panasonic dc-gh5':  { width: 17.3, height: 13.0 },
+      'panasonic dc-g100': { width: 17.3, height: 13.0 },
+      'panasonic dc-s5':   { width: 35.6, height: 23.8 },  // Full-frame L-mount
+      'panasonic dc-s5ii': { width: 35.6, height: 23.8 },
+      'panasonic dc-s1r':  { width: 36.0, height: 24.0 },
+      'panasonic dc-s1':   { width: 35.6, height: 23.8 },
+
+      // ── RICOH / PENTAX ────────────────────────────────────────────────────
+      'pentax k-3 mark iii': { width: 23.3, height: 15.5 },
+      'pentax k-1 mark ii':  { width: 35.9, height: 24.0 },
+      'pentax k-1':          { width: 35.9, height: 24.0 },
+      'ricoh gr iiix':       { width: 23.5, height: 15.6 },
+      'ricoh gr iii':        { width: 23.5, height: 15.6 },
     };
     
     const sensorInfo = sensoresRAW[modeloCompleto];
@@ -14521,21 +14730,6 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     individualizarObjetos(); // La función ya soporta bifacial automáticamente
   });
 
-  // Event listener para nuevo botón de individualización bifacial (bajo canvas A/B)
-  individualizarBifacialBtn2.addEventListener('click', () => {
-    if (modoAnalisis !== 'bifacial') {
-      UtilityHelpers.setStatus('Error: Este botón solo está disponible en modo bifacial.', true);
-      return;
-    }
-    
-    if (objects.length === 0) {
-      UtilityHelpers.setStatus('Error: No se han detectado objetos. Use detección manual en ambos canvas.', true);
-      return;
-    }
-    
-    console.log('🔬 Individualizando objetos bifaciales desde nuevo botón...');
-    individualizarObjetos(); // La función ya soporta bifacial automáticamente
-  });
 
   /**
    * Si al guardar ESTA cara se completó el par bifacial (ambas caras CON métricas),
@@ -14555,8 +14749,8 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       if (typeof actualizarSeccionComparacionesBifaciales === 'function') {
         actualizarSeccionComparacionesBifaciales();
       }
-      if (typeof window.generarComparacionBifacialSimple === 'function') {
-        window.generarComparacionBifacialSimple(par.caraA, par.caraB, obj.numeroObjeto);
+      if (typeof generarComparacionBifacialSimple === 'function') {
+        generarComparacionBifacialSimple(par.caraA, par.caraB, obj.numeroObjeto);
       }
       const tc = document.getElementById('bifacialComparisonTableContainer');
       if (tc) tc.style.display = 'block';
@@ -16247,15 +16441,18 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   }
 
   // DETECCIÓN MANUAL SIMPLIFICADA Y RÁPIDA
-  function detectarObjetosEnArea(areaSeleccionada) {
+  async function detectarObjetosEnArea(areaSeleccionada) {
     console.log('⚡ Usando detección manual simplificada y rápida');
-    return detectarObjetosManualRapida(areaSeleccionada);
+    return await detectarObjetosManualRapida(areaSeleccionada);
   }
   
   /**
-   * Detección manual rápida y eficiente - elimina redundancias
+   * Detección manual de área — ADR-012 (detección monolítica, Fase 1).
+   * Núcleo canónico = OpenCV `/api/detect` (Z-scan + GrabCut + watershed + confianza),
+   * misma fidelidad que auto-backend/IA. Si Python no está disponible,
+   * PythonBridge.detection.detect() devuelve null → cae al motor JS de abajo (fallback).
    */
-  function detectarObjetosManualRapida(areaSeleccionada) {
+  async function detectarObjetosManualRapida(areaSeleccionada) {
     if (!image || !areaSeleccionada) {
       console.error('❌ No hay imagen o área para detectar');
       return [];
@@ -16286,7 +16483,88 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     // Extraer región seleccionada
     ctx.drawImage(image, area.x, area.y, area.width, area.height, 0, 0, area.width, area.height);
     const imageData = ctx.getImageData(0, 0, area.width, area.height);
-    
+
+    // ── ADR-012 + fix segmentación manual: detectar el fondo con CONTEXTO ────────
+    // El ROI es el prior espacial del modo manual; el núcleo separa pegados
+    // (watershed) y emite confianza, igual que auto/IA. PERO si el usuario dibuja
+    // el ROI ajustado al objeto, los bordes del recorte son el propio objeto →
+    // _detectar_color_fondo falla (brillo_min<230 → método erróneo → máscara mala),
+    // mientras IA acierta porque corre sobre la imagen completa (bordes=fondo real).
+    // Solución: ampliar el recorte con un MARGEN de fondo, detectar, y conservar los
+    // objetos que solapan el ROI del usuario (descarta vecinos que capte el margen).
+    // Si Python no está, PythonBridge.detection.detect() → null → motor JS abajo.
+    try {
+      if (window.PythonBridge && PythonBridge.isModuleActive('detection')) {
+        // Margen de fondo: 20% del lado menor del ROI, mínimo 25 px (clamp a imagen).
+        const pad = Math.max(25, Math.round(0.20 * Math.min(area.width, area.height)));
+        const px0 = Math.max(0, area.x - pad);
+        const py0 = Math.max(0, area.y - pad);
+        const pw  = Math.min(imageWidth,  area.x + area.width  + pad) - px0;
+        const ph  = Math.min(imageHeight, area.y + area.height + pad) - py0;
+
+        const padCanvas = document.createElement('canvas');
+        padCanvas.width = pw; padCanvas.height = ph;
+        padCanvas.getContext('2d').drawImage(image, px0, py0, pw, ph, 0, 0, pw, ph);
+        const roiDataURL = padCanvas.toDataURL('image/png');
+
+        const minAreaRoi = Math.max(50, Math.floor(area.width * area.height * 0.005));
+        const py = await PythonBridge.detection.detect(roiDataURL, {
+          minArea: minAreaRoi,
+          maxObjects: 50,
+          separateTouching: true,  // ROI acotado por el usuario → separar artefactos pegados
+          roiMode: true            // respetar el encuadre (sin recorte de borde, dominancia ni reorden)
+        });
+        if (py && Array.isArray(py.objects)) {
+          // Coords absolutas con el offset del recorte AMPLIADO (px0/py0).
+          const mapeados = py.objects.map((o) => {
+            const bb = o.bbox || {};
+            const bx = (bb.x || 0) + px0;
+            const by = (bb.y || 0) + py0;
+            const bw = bb.w || o.width || 1;
+            const bh = bb.h || o.height || 1;
+            const areaPx = o.area != null ? o.area
+                         : (o.area_px != null ? o.area_px : bw * bh);
+            return {
+              minX: bx,
+              maxX: bx + bw - 1,
+              minY: by,
+              maxY: by + bh - 1,
+              pixelCount: areaPx,
+              area: areaPx,
+              width: bw,
+              height: bh,
+              pixels: [],
+              tight_width: o.tight_width || bw,
+              tight_height: o.tight_height || bh,
+              aspect_ratio: (bw / bh).toFixed(3),
+              area_pixels: areaPx,
+              // ADR-008/012: confianza por objeto desde el núcleo (el manual ya no nace sin confianza)
+              detection_confidence: o.detection_confidence != null ? o.detection_confidence : null,
+              confidence_level: o.confidence_level || null,
+              detectionMethod: 'manual_area',
+              detectionArea: area,
+              has_real_contour: false,
+              contour_pending: true
+            };
+          });
+          // Conservar los objetos que SOLAPAN el ROI dibujado por el usuario (el
+          // margen de fondo pudo captar vecinos). Si ninguno solapa, devolver todos.
+          const rx1 = area.x + area.width, ry1 = area.y + area.height;
+          const enRoi = mapeados.filter(o =>
+            o.minX < rx1 && o.maxX > area.x && o.minY < ry1 && o.maxY > area.y);
+          const objetosNucleo = enRoi.length ? enRoi : mapeados;
+          objetosNucleo.forEach((o, i) => { o.id = `manual_${i + 1}`; o.label = i + 1; });
+          const tNucleo = (performance.now() - startTime).toFixed(1);
+          console.log(`⚡ [Núcleo OpenCV] Detección manual: ${objetosNucleo.length} objetos en ${tNucleo}ms (margen fondo +${pad}px + filtro ROI + confianza)`);
+          return objetosNucleo;
+        }
+        console.warn('[ADR-012] /api/detect con forma inesperada → fallback motor JS');
+      }
+    } catch (e) {
+      console.warn('[ADR-012] núcleo OpenCV no disponible para detección manual → fallback motor JS:', e && e.message);
+    }
+
+
     // ⚡ OPTIMIZACIÓN INTELIGENTE: Detectar automáticamente el color de fondo del área seleccionada
     const fondoDetectado = detectarColorFondoAutomatico(imageData, {
       borderWidth: Math.min(10, Math.floor(Math.min(area.width, area.height) * 0.05)), // 5% del área o 10px
@@ -19715,7 +19993,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     }
     
     // Generar nombre de archivo
-    const _idDet = window.currentAnalyzedObject?.obj?.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || 'deteccion';
+    const _idDet = _idParaArchivo(window.currentAnalyzedObject?.obj?.id, 'deteccion');
     const fileName = `${_idDet}_deteccion.png`;
     
       // Configurar para descarga
@@ -19899,6 +20177,216 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * @returns {string} - HTML de la tabla
    */
   window.generarTablaMetricasCompleta = VisualizationExport.generarTablaMetricasCompleta;
+
+  // ── Generador de HTML de reporte para batch PDF ─────────────────────────────
+  // Coherente con generarReportePDFIntegral: mismas secciones, mismo orden.
+  const generarHTMLReporteParaBatch = async function(ref, metricasFinal, metricasDoc, pngs) {
+    const m     = metricasFinal || {};
+    const doc   = metricasDoc  || {};
+    const perfs = doc.perforaciones || [];
+    const horas = doc.horadaciones  || [];
+    const morfBase64  = pngs?.morf  || null;
+    const esquBase64  = pngs?.esqu  || null;
+    const idealBase64 = pngs?.ideal || null;
+
+    // ── Bloque visual: 3 PNG de análisis en fila, mismo tamaño, escala y leyenda fuera ──
+    const CANVAS_PX = 240;   // ancho/alto fijo de cada canvas (3 × 240 = 720px ≈ A4)
+
+    // Helper: genera el <img> de un PNG base64 con caption
+    const _panel = (b64, caption) => {
+      if (!b64) return '';
+      return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+        <p style="font-size:9px;color:#64748b;margin:0;font-weight:600;text-align:center;">${caption}</p>
+        <img src="${b64}"
+          style="width:${CANVAS_PX}px;height:${CANVAS_PX}px;object-fit:contain;
+                 border:1px solid #cbd5e1;border-radius:4px;background:#f1f5f9;display:block;"
+          alt="${caption}"/>
+      </div>`;
+    };
+
+    // Referencia de escala real (texto, no barra sobre el PNG)
+    const _ejaMm  = parseFloat(m.eje_mayor), _ejMinMm = parseFloat(m.eje_menor);
+    const escalaRef = (!isNaN(_ejaMm) && _ejaMm > 0)
+      ? `<p style="font-size:9px;color:#374151;margin:4px 0 0;font-style:italic;">
+           Escala de referencia: eje mayor ${_ejaMm.toFixed(1)} mm
+           ${!isNaN(_ejMinMm) && _ejMinMm > 0 ? `· eje menor ${_ejMinMm.toFixed(1)} mm` : ''}
+         </p>`
+      : '';
+
+    // Leyenda gráfica (fuera de los canvases)
+    const leyendaHtml = morfBase64 ? `
+      <table style="border-collapse:collapse;font-size:10px;margin-top:4px;color:#374151;">
+        <tr>
+          ${[
+            ['#3b82f6','2','','Contorno'],
+            ['#dc2626','1.5','','Eje mayor'],
+            ['#16a34a','1.2','4,3','Eje menor'],
+            ['#f97316','1','2,3','Radio máx/mín'],
+            ['#94a3b8','1','5,3','Convex hull'],
+          ].map(([c,w,d,l]) => `<td style="padding:2px 8px 2px 0;white-space:nowrap;">
+            <svg width="24" height="10" xmlns="http://www.w3.org/2000/svg">
+              <line x1="0" y1="5" x2="24" y2="5" stroke="${c}" stroke-width="${w}"
+                ${d?`stroke-dasharray="${d}"`:''}/>
+            </svg> ${l}</td>`).join('')}
+          <td style="padding:2px 0;white-space:nowrap;">
+            <svg width="12" height="12" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="6" cy="6" r="3" fill="#ef4444" stroke="white" stroke-width="0.8"/>
+            </svg> Centroide</td>
+        </tr>
+      </table>` : '';
+
+    const panelsHtml = [
+      _panel(morfBase64,  'Análisis morfológico'),
+      _panel(esquBase64,  'Esquema morfométrico'),
+      _panel(idealBase64, 'Forma idealizada'),
+    ].filter(Boolean).join('');
+
+    const visualBlock = panelsHtml ? `
+      <div style="margin:12px 0 4px;">
+        <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:nowrap;">
+          ${panelsHtml}
+        </div>
+        ${escalaRef}
+        ${leyendaHtml}
+      </div>` : '';
+
+    // ── Estilos inline (coherentes con @media print del reporte integral) ──────
+    const eT  = 'width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11px;';
+    const eTh = 'background:#1e3a5f;color:#fff;padding:5px 8px;text-align:left;font-weight:600;';
+    const eTd = 'padding:4px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top;';
+
+    const objProxy = { metricas: m, perforaciones: perfs, horadaciones: horas,
+      id: ref.carpeta, numeroObjeto: ref.nombreObjeto, cara: ref.cara };
+
+    // ── Secciones — orden secuencial por índice romano ──────────────────────────
+    const secs = [
+      // I   — Clasificación morfológica
+      generarSeccionMetricasMorfologicas(m, eT, eTh, eTd),
+      // II  — Dimensiones métricas
+      generarSeccionDimensiones(objProxy, m, eT, eTh, eTd),
+      // III — Proporciones y forma global
+      generarSeccionIndicesForma(m, eT, eTh, eTd),
+      // IV  — Regularidad del contorno (análisis radial)
+      generarSeccionAnalisisRadial(m, eT, eTh, eTd),
+      // IV-b — Envolvente convexa
+      generarSeccionConvexHull(m, eT, eTh, eTd),
+      // V   — Rugosidad y complejidad del borde
+      generarSeccionPropiedadesContorno(m, eT, eTh, eTd),
+      // V-b — Curvatura
+      generarSeccionCurvatura(m, eT, eTh, eTd),
+      // VI  — Orientación y posición espacial
+      generarSeccionEjesOrientacion(m, eT, eTh, eTd),
+      // VIII-a — Fragmentación
+      generarSeccionFragmentacion(m, eT, eTh, eTd),
+      // VIII-b — Defectos y conservación
+      generarSeccionEstadoConservacion(m, eT, eTh, eTd),
+      // IX  — Error óptico posicional
+      generarSeccionErrorOptico(m, eT, eTh, eTd),
+      // IX-B — Incertidumbre propagada (sigue a IX)
+      (() => {
+        if (!m._incertidumbre_optica_aplicada) return '';
+        const _campos = [
+          ['area','mm²'], ['area_fragmentada','mm²'],
+          ['perimeter','mm'], ['width','mm'], ['height','mm'],
+          ['eje_mayor','mm'], ['eje_menor','mm'],
+          ['feret_max','mm'], ['feret_min','mm'],
+        ];
+        const _filas = _campos.map(([k, u]) => {
+          const v = parseFloat(m[k]), abs = parseFloat(m[`${k}_incertidumbre_abs`]);
+          const mn = parseFloat(m[`${k}_rango_min`]), mx = parseFloat(m[`${k}_rango_max`]);
+          if (isNaN(v) || isNaN(abs)) return '';
+          return `<tr>
+            <td style="${eTd}">${k}</td>
+            <td style="${eTd};text-align:right;">${v.toFixed(4)} ${u}</td>
+            <td style="${eTd};text-align:right;">±${abs.toFixed(4)} ${u}</td>
+            <td style="${eTd};text-align:right;">[${mn.toFixed(4)} — ${mx.toFixed(4)}]</td>
+          </tr>`;
+        }).filter(Boolean).join('');
+        if (!_filas) return '';
+        return `
+          <h3 style="color:#1e3a5f;border-bottom:2px solid #1e3a5f;padding-bottom:4px;margin-top:16px;">
+            IX-B — Incertidumbre propagada por error óptico</h3>
+          <table style="${eT}"><thead><tr>
+            <th style="${eTh}">Métrica</th><th style="${eTh}">Valor</th>
+            <th style="${eTh}">Incertidumbre abs.</th><th style="${eTh}">Rango posible</th>
+          </tr></thead><tbody>${_filas}</tbody></table>`;
+      })(),
+      // X   — Perforaciones (siempre presente; muestra placeholder si no hay)
+      generarSeccionPerforaciones(objProxy, m, eT, eTh, eTd),
+      // X-b — Horadaciones (siempre presente; muestra placeholder si no hay)
+      generarSeccionHoradaciones(objProxy, m, eT, eTh, eTd),
+      // XI-a — Orientación y ejes principales
+      generarSeccionOrientacion(m, eT, eTh, eTd),
+      // XI-b — Simetría y morfología avanzada
+      generarSeccionSimetria(m, eT, eTh, eTd),
+      // XII-a — Características geométricas avanzadas
+      generarSeccionMetricasAvanzadas(m, eT, eTh, eTd),
+    ].join('');
+
+    // ── EFA resumen ────────────────────────────────────────────────────────────
+    const efa = m._efa_data || {};
+    const efaPs = Array.isArray(efa.power_spectrum) ? efa.power_spectrum : [];
+    const efaHtml = efa.n_harmonics ? `
+      <h3 style="color:#1e3a5f;border-bottom:2px solid #1e3a5f;padding-bottom:4px;margin-top:16px;">
+        EFA — Análisis Elíptico de Fourier (Kuhl &amp; Giardina 1982)</h3>
+      <table style="${eT}"><thead><tr>
+        <th style="${eTh}">Parámetro</th><th style="${eTh}">Valor</th>
+      </tr></thead><tbody>
+        <tr><td style="${eTd}">Armónicos calculados</td><td style="${eTd}">${efa.n_harmonics}</td></tr>
+        <tr><td style="${eTd}">Armónicos para 95% varianza</td><td style="${eTd}">h${efa.harmonics_for_95pct ?? 'N/A'}</td></tr>
+        <tr><td style="${eTd}">Armónicos para 99% varianza</td><td style="${eTd}">h${efa.harmonics_for_99pct ?? 'N/A'}</td></tr>
+        <tr><td style="${eTd}">Puntos de entrada</td><td style="${eTd}">${efa.n_points_input ?? 'N/A'}</td></tr>
+        ${efaPs.length > 0 ? `<tr><td style="${eTd}">Varianza H1 (dominante)</td><td style="${eTd}">${Number(efaPs[0]).toFixed(4)}</td></tr>` : ''}
+        ${efaPs.length > 1 ? `<tr><td style="${eTd}">Varianza H2</td><td style="${eTd}">${Number(efaPs[1]).toFixed(4)}</td></tr>` : ''}
+        ${efaPs.length > 2 ? `<tr><td style="${eTd}">Varianza H3</td><td style="${eTd}">${Number(efaPs[2]).toFixed(4)}</td></tr>` : ''}
+      </tbody></table>
+      <p style="font-size:9px;color:#64748b;margin-top:-8px;">
+        Coeficientes completos en <code>${ref.carpeta}_efa_contorno.csv</code></p>` : '';
+
+    const fecha = new Date().toLocaleDateString('es-ES',
+      { year:'numeric', month:'long', day:'numeric' });
+
+    return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+    <title>Reporte MAO — ${ref.nombreObjeto || ref.carpeta}</title>
+    <style>
+      body { font-family:'Segoe UI',Arial,sans-serif; font-size:11px; color:#111; margin:20px; }
+      h2   { color:#1e3a5f; font-size:16px; margin-bottom:2px; }
+      h3   { color:#1e3a5f; font-size:12px; margin:14px 0 4px; border-bottom:2px solid #1e3a5f; padding-bottom:3px; }
+      @media print { body { margin:8mm; } h3 { page-break-after:avoid; } table { page-break-inside:avoid; } }
+    </style></head><body>
+
+    <h2>Reporte Morfométrico MAO Plus</h2>
+    <p style="color:#64748b;font-size:10px;margin-top:2px;">
+      Generado: ${fecha} &nbsp;·&nbsp; MAO ${m.mao_version || '1.2'}
+      &nbsp;·&nbsp; Enriquecido: ${m.enriched_at ? m.enriched_at.slice(0,10) : 'N/A'}
+    </p>
+    <hr style="border:none;border-top:1px solid #e2e8f0;margin:8px 0 12px;"/>
+
+    <h3>Identificación</h3>
+    <table style="${eT}"><tbody>
+      <tr><td style="${eTd};width:38%;"><b>ID / Carpeta</b></td><td style="${eTd}">${ref.carpeta}</td></tr>
+      <tr><td style="${eTd}"><b>Nombre objeto</b></td><td style="${eTd}">${ref.nombreObjeto || '—'}</td></tr>
+      <tr><td style="${eTd}"><b>Cara</b></td><td style="${eTd}">${ref.cara || 'Monofacial'}</td></tr>
+      <tr><td style="${eTd}"><b>Fecha análisis</b></td><td style="${eTd}">${ref.timestamp ? ref.timestamp.slice(0,10) : 'N/A'}</td></tr>
+      <tr><td style="${eTd}"><b>Forma detectada</b></td><td style="${eTd}">${m.forma_detectada || 'N/A'}</td></tr>
+      <tr><td style="${eTd}"><b>Método detección</b></td><td style="${eTd}">${
+        // ADR-016 #5: cadena de claves — analysis-core escribe detection_method;
+        // objetos IA antiguos pueden tener detectionMethod o detection_mode.
+        m.detection_method || m.detectionMethod || m.detection_mode || 'N/A'
+      }</td></tr>
+      <tr><td style="${eTd}"><b>Confianza detección</b></td><td style="${eTd}">${
+        // ADR-016 #5: clave correcta es detection_confidence_level (no confidence_level).
+        // confidence_level era un alias divergente que siempre resolvía null en metricasFinal.
+        (m.detection_confidence_level || m.confidence_level || '—')
+      } (${m.detection_confidence != null ? Number(m.detection_confidence).toFixed(3) : 'N/A'})</td></tr>
+    </tbody></table>
+
+    ${visualBlock}
+
+    ${secs}
+    ${efaHtml}
+    </body></html>`;
+  };
 
   // Nota: La definición de función ha sido movida a visualization-export.js
   // Para mantener compatibilidad con el closure, se expone como referencia al módulo.
@@ -20149,7 +20637,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #fd7e14;">
-        3. MÉTRICAS MORFOLÓGICAS PRINCIPALES
+        I. MÉTRICAS MORFOLÓGICAS PRINCIPALES
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -20232,7 +20720,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6610f2;">
-        4. ORIENTACIÓN Y EJES PRINCIPALES
+        XI-a. ORIENTACIÓN Y EJES PRINCIPALES
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -20268,73 +20756,24 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     `;
   }
 
-  function generarSeccionSimetria(metricas, estiloTabla, estiloTh, estiloTd) {
-    // Convertir a número para evitar errores de toFixed()
-    const simetriaBilateral = parseFloat(metricas.simetria_bilateral) || 0;
-    const distanciaAsimetria = parseFloat(metricas.simetria_distancia_asimetria) || 0;
-    const indiceEstrellamiento = parseFloat(metricas.indice_estrellamiento) || 0;
-    
-    return `
-      <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #e83e8c;">
-        5. SIMETRÍA Y MORFOLOGÍA AVANZADA
-      </h3>
-      <table style="${estiloTabla}">
-        <thead>
-          <tr>
-            <th style="${estiloTh}; width: 40%;">Métrica</th>
-            <th style="${estiloTh}; width: 30%;">Valor</th>
-            <th style="${estiloTh}; width: 30%;">Descripción</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Simetría Bilateral</td>
-            <td style="${estiloTd}; font-weight: 600;">${(simetriaBilateral * 100).toFixed(1)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Grado de simetría respecto al eje mayor</td>
-          </tr>
-          <tr>
-            <td style="${estiloTd}; font-weight: 600;">Clasificación de Simetría</td>
-            <td style="${estiloTd}">${metricas.simetria_clasificacion || 'N/A'}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Categoría de simetría</td>
-          </tr>
-          <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Distancia de Asimetría</td>
-            <td style="${estiloTd}">${distanciaAsimetria.toFixed(2)} mm</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Desplazamiento de simetría</td>
-          </tr>
-          <tr>
-            <td style="${estiloTd}; font-weight: 600;">Índice de Estrellamiento</td>
-            <td style="${estiloTd}">${indiceEstrellamiento.toFixed(3)}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Presencia de protuberancias</td>
-          </tr>
-          <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Clasificación de Estrellamiento</td>
-            <td style="${estiloTd}">${metricas.estrellamiento_clasificacion || 'N/A'}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Tipo de estrellamiento</td>
-          </tr>
-        </tbody>
-      </table>
-    `;
-  }
-
   /**
-   * 20. PERFORACIONES (detalle completo de cada perforación)
+   * X. PERFORACIONES (detalle completo de cada perforación)
    */
   function generarSeccionPerforaciones(obj, metricas, estiloTabla, estiloTh, estiloTd) {
     if (!obj.perforaciones || obj.perforaciones.length === 0) {
       return `
         <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #0066cc;">
-          20. PERFORACIONES (Orificios Pasantes)
+          X. PERFORACIONES (Orificios Pasantes)
         </h3>
-        <div style="padding: 20px; background: #f0f2f5; border-left: 4px solid #0066cc; border-radius: 4px; text-align: center;">
-          <strong>No se detectaron perforaciones en este objeto</strong>
+        <div style="padding:10px 14px;background:#f0f4fa;border-left:3px solid #0066cc;border-radius:3px;font-size:10px;color:#374151;">
+          <strong>Sin datos —</strong> No se registraron perforaciones (orificios pasantes) en este objeto. El análisis morfométrico no incluye esta categoría.
         </div>
       `;
     }
     
     let html = `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #0066cc;">
-        20. PERFORACIONES (Orificios Pasantes) - ${obj.perforaciones.length} detectada(s)
+        X. PERFORACIONES (Orificios Pasantes) - ${obj.perforaciones.length} detectada(s)
       </h3>
     `;
     
@@ -20599,23 +21038,23 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   }
 
   /**
-   * 21. HORADACIONES (detalle completo de cada horadación)
+   * X-b. HORADACIONES (detalle completo de cada horadación)
    */
   function generarSeccionHoradaciones(obj, metricas, estiloTabla, estiloTh, estiloTd) {
     if (!obj.horadaciones || obj.horadaciones.length === 0) {
       return `
         <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #28a745;">
-          21. HORADACIONES (Concavidades Ciegas)
+          X-b. HORADACIONES (Concavidades Ciegas)
         </h3>
-        <div style="padding: 20px; background: #d4edda; border-left: 4px solid #28a745; border-radius: 4px; text-align: center;">
-          <strong>No se detectaron horadaciones en este objeto</strong>
+        <div style="padding:10px 14px;background:#f0faf3;border-left:3px solid #28a745;border-radius:3px;font-size:10px;color:#374151;">
+          <strong>Sin datos —</strong> No se registraron horadaciones (concavidades ciegas) en este objeto. El análisis morfométrico no incluye esta categoría.
         </div>
       `;
     }
     
     let html = `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #28a745;">
-        21. HORADACIONES (Concavidades Ciegas) - ${obj.horadaciones.length} detectada(s)
+        X-b. HORADACIONES (Concavidades Ciegas) - ${obj.horadaciones.length} detectada(s)
       </h3>
     `;
     
@@ -21864,7 +22303,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #6c757d;">
-        VI-b. Simetría Bilateral
+        XI-b. SIMETRÍA Y MORFOLOGÍA AVANZADA
       </h3>
       <table style="${estiloTabla}">
         <thead>
@@ -23639,7 +24078,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       validaciones.errores.forEach((e, i) => console.error(`   ${i+1}. ${e}`));
     }
     
-    window.ultimaValidacionCoherencia = validaciones;
+    if (window._MAO_DEBUG) window.ultimaValidacionCoherencia = validaciones;
     return validaciones;
   }
   
@@ -25470,7 +25909,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 `;
       
       // 4. Generar y descargar según el formato solicitado
-      const filename = `${obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `obj_${obj.numeroObjeto}`}_reporte`;
+      const filename = `${_idParaArchivo(obj.id, `obj_${obj.numeroObjeto}`)}_reporte`;
       
       if (formato === 'pdf') {
         // ========================================================================
@@ -25503,926 +25942,9 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     }
   } // FIN función generarReporteMorfologico
   
-  // ============================================================================
-  // 🆕 FUNCIÓN PARA GENERAR REPORTE PDF INTEGRAL CON TODAS LAS MÉTRICAS
-  // ============================================================================
-  // NOTA (ADR-011): `generarReportePDFIntegral` NO existe — su definición local está
-  // comentada abajo y nunca se movió al módulo. El PDF integral lo arma por completo
-  // generarPDFDesdeHTML (rama opciones.integral) desde datos REALES (jsPDF). No se
-  // asigna a window: la referencia a un identificador inexistente rompía el init
-  // (ReferenceError → se perdían window.__maoE2E y el resto del arranque).
+  // generarReportePDFIntegral: eliminada (código muerto, ADR-011).
+  // El PDF integral lo arma generarPDFDesdeHTML(opciones.integral) desde visualization-export.js.
 
-  // Nota: La definición completa de esta función ha sido movida a visualization-export.js
-  // La versión anterior inline estaba aquí y ha sido reemplazada por una referencia al módulo.
-  /*
-  ---- CÓDIGO REMOVIDO: Se encontraba aquí en líneas 28372-29269
-  function generarReportePDFIntegral(obj) {
-    try {
-      // Obtener datos y validar
-      const tipoObjeto = obj.tipo || 'Desconocido';
-      const numeroObjeto = obj.numeroObjeto || 'N/A';
-      const cara = obj.cara || 'N/A';
-      const metricas = obj.metricas || {};
-      const perforaciones = obj.perforaciones || [];
-      const horadaciones = obj.horadaciones || [];
-      
-      // Mapa de alias de métricas (inglés/español y variantes calculadas)
-      const aliasMetricas = {
-        perimetro: ['perimetro', 'perimeter', 'perimeter_px', 'perimeterReal', 'perimetroReal'],
-        area: ['area', 'area_px', 'areaReal', 'area_real', 'hull_area_px'],
-        largo: ['largo', 'height', 'max_height', 'eje_mayor_real_longitud', 'eje_mayor'],
-        ancho: ['ancho', 'width', 'tight_width', 'bounding_width', 'max_width'],
-        espesor: ['espesor', 'thickness', 'espesorMaximo'],
-        aspecto: ['aspecto', 'aspect_ratio', 'aspect_ratio_tight', 'relacion_aspecto'],
-        compacidad: ['compacidad', 'compactness', 'shape_factor', 'shape_factor_real'],
-        largoMaximo: ['largoMaximo', 'max_height', 'eje_mayor_real_longitud'],
-        anchoMaximo: ['anchoMaximo', 'max_width', 'tight_width', 'bounding_width'],
-        espesorMaximo: ['espesorMaximo', 'thickness', 'espesor'],
-        largoMinimo: ['largoMinimo', 'min_height', 'min_length'],
-        anchoMinimo: ['anchoMinimo', 'min_width'],
-        espesorMinimo: ['espesorMinimo', 'thickness_min'],
-        diagonalPrincipal: ['diagonalPrincipal', 'diagonal_principal'],
-        diagonalSecundaria: ['diagonalSecundaria', 'diagonal_secundaria'],
-        circularidad: ['circularidad', 'circularity'],
-        solidez: ['solidez', 'solidity', 'solidity_class'],
-        elongacion: ['elongacion', 'elongation'],
-        convexidad: ['convexidad', 'convexity'],
-        angularidad: ['angularidad', 'rugosidad_contorno', 'contour_complexity_index'],
-        redondez: ['redondez', 'roundness'],
-        simetria: ['simetria', 'simetria_bilateral', 'symmetry_score'],
-        regularidad: ['regularidad', 'regularidad_radial', 'radial_regularity'],
-        rugosidad: ['rugosidad', 'rugosidad_contorno'],
-        brilloSuperficial: ['brilloSuperficial', 'reflectancia'],
-        textura: ['textura', 'homogeneidad_textura'],
-        porosidad: ['porosidad', 'porosidad_total', 'porosity', 'porosidadTotal'],
-        humedad: ['humedad'],
-        temperatura: ['temperatura'],
-        conductividadTermica: ['conductividadTermica'],
-        reflectancia: ['reflectancia'],
-        bordeAfilado: ['bordeAfilado'],
-        bordeRomo: ['bordeRomo'],
-        bordeOndeado: ['bordeOndeado'],
-        bordeIrregular: ['bordeIrregular'],
-        alturaBorde: ['alturaBorde'],
-        anguloBorde: ['anguloBorde', 'angulo_borde', 'eje_principal_angulo'],
-        continuidad: ['continuidad'],
-        simetriaEdge: ['simetriaEdge', 'simetria_bilateral'],
-        numeroAristas: ['numeroAristas'],
-        longitudAristas: ['longitudAristas'],
-        angularidadAristas: ['angularidadAristas'],
-        nitidezAristas: ['nitidezAristas'],
-        uniformidadAristas: ['uniformidadAristas'],
-        curvaturaBajo: ['curvaturaBajo', 'curvatura_baja'],
-        curvaturaMedia: ['curvaturaMedia', 'curvatura_media'],
-        curvaturaAlta: ['curvaturaAlta', 'curvatura_alta'],
-        presionFlake: ['presionFlake'],
-        direccionGolpe: ['direccionGolpe'],
-        anguloPercusion: ['anguloPercusion'],
-        ondulacionCortante: ['ondulacionCortante'],
-        bultasEstrías: ['bultasEstrías', 'bultasEstrias'],
-        cicatrices: ['cicatrices'],
-        alturaRetoque: ['alturaRetoque'],
-        uniformidadRetoque: ['uniformidadRetoque'],
-        simetriaBilateral: ['simetriaBilateral', 'simetria_bilateral'],
-        simetricaFrontal: ['simetricaFrontal'],
-        equilibrioMasas: ['equilibrioMasas'],
-        distribucionPeso: ['distribucionPeso'],
-        proporcionAureo: ['proporcionAureo', 'proporcion_aurea'],
-        armoniaForma: ['armoniaForma'],
-        proporcionalidad: ['proporcionalidad'],
-        balanceVisual: ['balanceVisual'],
-        volumen: ['volumen', 'volume'],
-        densidadAparente: ['densidadAparente'],
-        densidadReal: ['densidadReal'],
-        porosidadTotal: ['porosidadTotal', 'porosidad_total', 'porosity'],
-        porosidadInterconectada: ['porosidadInterconectada'],
-        volumenespecifico: ['volumenespecifico'],
-        factor3D: ['factor3D'],
-        esfericidad: ['esfericidad', 'sphericity'],
-        colorR: ['colorR'],
-        colorG: ['colorG'],
-        colorB: ['colorB'],
-        colorH: ['colorH'],
-        colorS: ['colorS'],
-        colorV: ['colorV'],
-        contrasteCromatico: ['contrasteCromatico'],
-        homogeneidadColor: ['homogeneidadColor'],
-        anguloMaximo: ['anguloMaximo', 'angulo_maximo'],
-        anguloMinimo: ['anguloMinimo', 'angulo_minimo'],
-        anguloPromedio: ['anguloPromedio', 'angulo_promedio'],
-        radioCurvatura: ['radioCurvatura', 'radio_curvatura', 'radio_maximo', 'max_radius'],
-        curvaturaBiaxial: ['curvaturaBiaxial'],
-        torsion: ['torsion'],
-        alabeo: ['alabeo'],
-        ondulacionTotal: ['ondulacionTotal'],
-        indiceLames: ['indiceLames'],
-        indiceAblacion: ['indiceAblacion'],
-        indicePrecision: ['indicePrecision'],
-        indiceUtilidad: ['indiceUtilidad'],
-        indiceLascas: ['indiceLascas'],
-        indiceIntegridad: ['indiceIntegridad', 'completitud_estimada'],
-        indiceCalibracion: ['indiceCalibracion'],
-        indiceEficiencia: ['indiceEficiencia'],
-        entropia: ['entropia'],
-        complejidadMorfologica: ['complejidadMorfologica', 'contour_complexity_index'],
-        variabilidadMarfologica: ['variabilidadMarfologica'],
-        heterogeneidad: ['heterogeneidad'],
-        fractalizacion: ['fractalizacion'],
-        modularidad: ['modularidad'],
-        escalabilidad: ['escalabilidad'],
-        matriz: ['matriz']
-      };
-
-      const obtenerValor = (metricas, key) => {
-        const lista = aliasMetricas[key] || [key];
-        for (const k of lista) {
-          if (metricas && Object.prototype.hasOwnProperty.call(metricas, k) && metricas[k] !== undefined && metricas[k] !== null) {
-            return metricas[k];
-          }
-        }
-        return null;
-      };
-
-      // Función auxiliar para formatear números con alias
-      const fmt = (val, dec = 2) => {
-        if (val === null || val === undefined || val === '') return 'N/A';
-        if (typeof val === 'number') return Number(val).toFixed(dec);
-        const num = Number(val);
-        if (!Number.isNaN(num)) return num.toFixed(dec);
-        return String(val);
-      };
-      
-      // Función para crear tabla de métricas
-      const crearTablaMetricas = (titulo, metricas, categorias) => {
-        let html = `
-        <div class="seccion-metricas">
-          <h3 style="color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 8px;">
-            ${titulo}
-          </h3>
-          <table class="tabla-metricas">
-            <thead>
-              <tr>
-                <th>Métrica</th>
-                <th>Valor</th>
-              </tr>
-            </thead>
-            <tbody>
-        `;
-        
-        for (const [key, label] of Object.entries(categorias)) {
-          const valor = obtenerValor(metricas, key);
-          html += `
-              <tr>
-                <td>${label}</td>
-                <td>${fmt(valor)}</td>
-              </tr>
-          `;
-        }
-        
-        html += `
-            </tbody>
-          </table>
-        </div>
-        `;
-        return html;
-      };
-      
-      // HTML principal
-      let htmlContent = `
-      <!DOCTYPE html>
-      <html lang="es">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Reporte PDF Integral - MAO Plus</title>
-        <style>
-          * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-          }
-          body {
-            font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
-            color: #1a202c;
-            background-color: #fff;
-            padding: 0;
-          }
-          .contenedor {
-            max-width: 1000px;
-            margin: 0 auto;
-            background: white;
-            padding: 40px;
-          }
-          .cover-block {
-            margin: -40px -40px 36px -40px;
-            padding: 52px 52px 44px;
-            background: #fff;
-            border-top: 5px solid #1a202c;
-            border-bottom: 1px solid #e2e8f0;
-          }
-          .cover-brand {
-            display: flex; align-items: center; gap: 18px;
-            margin-bottom: 36px; padding-bottom: 28px;
-            border-bottom: 1px solid #e2e8f0;
-          }
-          .cover-logo {
-            width: 72px; height: 72px; object-fit: contain;
-            border-radius: 16px;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.05);
-            flex-shrink: 0;
-          }
-          .cover-wordmark { font-size: 23px; font-weight: 800; color: #1a202c; line-height: 1.1; letter-spacing: -0.3px; }
-          .cover-wordmark span { color: #2b6cb0; }
-          .cover-tagline { font-size: 10px; color: #718096; letter-spacing: 0.3px; margin-top: 4px; }
-          .cover-super { font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: #718096; margin-bottom: 14px; }
-          .cover-title { font-size: 34px; font-weight: 800; line-height: 1.1; margin-bottom: 10px; color: #1a202c; letter-spacing: -0.5px; }
-          .cover-subtitle-text { font-size: 13px; color: #4a5568; margin-bottom: 24px; }
-          .cover-badge { display: inline-block; background: #f7fafc; border: 1px solid #cbd5e0; border-radius: 4px; padding: 4px 12px; font-size: 10px; letter-spacing: 0.8px; color: #4a5568; margin-bottom: 28px; text-transform: uppercase; }
-          .cover-meta { display: flex; gap: 32px; flex-wrap: wrap; padding-top: 18px; border-top: 1px solid #e2e8f0; }
-          .cover-meta-item .meta-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; color: #718096; }
-          .cover-meta-item .meta-value { font-size: 13px; color: #1a202c; font-weight: 700; }
-          .info-basica {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0;
-            margin-bottom: 30px;
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            overflow: hidden;
-          }
-          .info-bloque {
-            padding: 10px;
-          }
-          .info-etiqueta {
-            font-weight: bold;
-            color: #2c3e50;
-            font-size: 12px;
-            text-transform: uppercase;
-            margin-bottom: 5px;
-          }
-          .info-valor {
-            font-size: 16px;
-            color: #34495e;
-          }
-          .seccion-metricas {
-            margin-bottom: 30px;
-            page-break-inside: avoid;
-          }
-          .seccion-metricas h3 {
-            color: #2c3e50;
-            font-size: 16px;
-            border-bottom: 3px solid #3498db;
-            padding-bottom: 8px;
-            margin-bottom: 12px;
-          }
-          .tabla-metricas {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
-          }
-          .tabla-metricas thead {
-            background: #34495e;
-            color: white;
-          }
-          .tabla-metricas th {
-            padding: 12px;
-            text-align: left;
-            font-weight: 600;
-            font-size: 12px;
-          }
-          .tabla-metricas td {
-            padding: 10px 12px;
-            border-bottom: 1px solid #ecf0f1;
-            font-size: 12px;
-          }
-          .tabla-metricas tbody tr:nth-child(odd) {
-            background: #fafafa;
-          }
-          .tabla-metricas tbody tr:hover {
-            background: #f0f8ff;
-          }
-          .analisis-ph {
-            background: #fff3cd;
-            border-left: 5px solid #ffc107;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 4px;
-          }
-          .analisis-ph h4 {
-            color: #856404;
-            margin-bottom: 10px;
-          }
-          .tabla-ph {
-            width: 100%;
-            border-collapse: collapse;
-            background: white;
-            margin-top: 10px;
-          }
-          .tabla-ph th, .tabla-ph td {
-            padding: 8px 10px;
-            border: 1px solid #dee2e6;
-            text-align: center;
-            font-size: 11px;
-          }
-          .tabla-ph th {
-            background: #ffc107;
-            font-weight: 600;
-            color: #333;
-          }
-          .tabla-ph tbody tr:nth-child(odd) {
-            background: #fafafa;
-          }
-          .seccion-comparativa {
-            background: #d4edda;
-            border-left: 5px solid #28a745;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 4px;
-          }
-          .seccion-comparativa h4 {
-            color: #155724;
-            margin-bottom: 10px;
-          }
-          .grid-comparativo {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 15px;
-            margin-top: 10px;
-          }
-          .caja-comparativa {
-            background: white;
-            padding: 12px;
-            border-radius: 4px;
-            text-align: center;
-          }
-          .caja-label {
-            font-size: 11px;
-            font-weight: 600;
-            color: #155724;
-            text-transform: uppercase;
-            margin-bottom: 5px;
-          }
-          .caja-valor {
-            font-size: 18px;
-            font-weight: bold;
-            color: #28a745;
-          }
-          .pie-pagina {
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 2px solid #ecf0f1;
-            text-align: center;
-            color: #95a5a6;
-            font-size: 10px;
-          }
-          @media print {
-            body {
-              padding: 0;
-              background: none;
-            }
-            .contenedor {
-              padding: 30px;
-              box-shadow: none;
-              border-radius: 0;
-              max-width: 100%;
-            }
-            .seccion-metricas {
-              page-break-inside: avoid;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="contenedor">
-          <div class="cover-block">
-            <div class="cover-brand">
-              <img src="icon.png" alt="MAO Plus" class="cover-logo">
-              <div>
-                <div class="cover-wordmark">MAO <span>Plus</span></div>
-                <div class="cover-tagline">Morphological Analysis &amp; Objects</div>
-              </div>
-            </div>
-            <div class="cover-super">Reporte de análisis</div>
-            <div class="cover-title">Informe Morfológico Integral</div>
-            <div class="cover-subtitle-text">Análisis morfométrico completo de objeto arqueológico — MAO Plus v1.2.0</div>
-            <div class="cover-badge">Objeto N.° ${numeroObjeto} &middot; Cara: ${cara !== 'N/A' ? cara : 'Monofacial'} &middot; ${tipoObjeto}</div>
-            <div class="cover-meta">
-              <div class="cover-meta-item">
-                <div class="meta-label">Versión</div>
-                <div class="meta-value">MAO Plus v1.2.0</div>
-              </div>
-              <div class="cover-meta-item">
-                <div class="meta-label">Fecha</div>
-                <div class="meta-value">${new Date().toLocaleDateString('es-ES')}</div>
-              </div>
-              <div class="cover-meta-item">
-                <div class="meta-label">ID Objeto</div>
-                <div class="meta-value">${obj.id || 'N/A'}</div>
-              </div>
-              <div class="cover-meta-item">
-                <div class="meta-label">Tipo</div>
-                <div class="meta-value">${tipoObjeto}</div>
-              </div>
-            </div>
-          </div>
-      `;
-      
-      // SECCIÓN 1: METRICAS GENERALES
-      htmlContent += crearTablaMetricas('1. Métricas Generales', metricas, {
-        'perimetro': 'Perímetro (mm)',
-        'area': 'Área (mm²)',
-        'largo': 'Largo (mm)',
-        'ancho': 'Ancho (mm)',
-        'espesor': 'Espesor (mm)',
-        'peso': 'Peso (g)',
-        'aspecto': 'Relación Aspecto (L/A)',
-        'compacidad': 'Compacidad'
-      });
-      
-      // SECCIÓN 2: METRICAS LINEALES
-      htmlContent += crearTablaMetricas('2. Medidas Lineales Detalladas', metricas, {
-        'largoMaximo': 'Largo Máximo (mm)',
-        'anchoMaximo': 'Ancho Máximo (mm)',
-        'espesorMaximo': 'Espesor Máximo (mm)',
-        'largoMinimo': 'Largo Mínimo (mm)',
-        'anchoMinimo': 'Ancho Mínimo (mm)',
-        'espesorMinimo': 'Espesor Mínimo (mm)',
-        'diagonalPrincipal': 'Diagonal Principal (mm)',
-        'diagonalSecundaria': 'Diagonal Secundaria (mm)'
-      });
-      
-      // SECCIÓN 3: ANALISIS GEOMETRICO
-      htmlContent += crearTablaMetricas('3. Análisis Geométrico', metricas, {
-        'circularidad': 'Circularidad',
-        'solidez': 'Solidez',
-        'elongacion': 'Elongación',
-        'convexidad': 'Convexidad',
-        'angularidad': 'Angularidad',
-        'redondez': 'Redondez',
-        'simetria': 'Simetría',
-        'regularidad': 'Regularidad'
-      });
-      
-      // SECCIÓN 4: METRICAS DE SUPERFICIE
-      htmlContent += crearTablaMetricas('4. Características de Superficie', metricas, {
-        'rugosidad': 'Rugosidad (μm)',
-        'brilloSuperficial': 'Brillo Superficial (%)',
-        'textura': 'Textura (micras)',
-        'porosidad': 'Porosidad (%)',
-        'humedad': 'Humedad (%)',
-        'temperatura': 'Temperatura (°C)',
-        'conductividadTermica': 'Conductividad Térmica',
-        'reflectancia': 'Reflectancia (%)'
-      });
-      
-      // SECCIÓN 5: ANALISIS DE BORDES
-      htmlContent += crearTablaMetricas('5. Análisis de Bordes', metricas, {
-        'bordeAfilado': 'Borde Afilado (%)',
-        'bordeRomo': 'Borde Romo (%)',
-        'bordeOndeado': 'Borde Ondeado (%)',
-        'bordeIrregular': 'Borde Irregular (%)',
-        'alturaBorde': 'Altura de Borde (mm)',
-        'anguloBorde': 'Ángulo de Borde (°)',
-        'continuidad': 'Continuidad (%)',
-        'simetriaEdge': 'Simetría de Borde (%)'
-      });
-      
-      // SECCIÓN 6: ANALISIS DE ARISTAS
-      htmlContent += crearTablaMetricas('6. Análisis de Aristas', metricas, {
-        'numeroAristas': 'Número de Aristas',
-        'longitudAristas': 'Longitud Total (mm)',
-        'angularidadAristas': 'Angularidad Promedio',
-        'nitidezAristas': 'Nitidez (%)',
-        'uniformidadAristas': 'Uniformidad (%)',
-        'curvaturaBajo': 'Curvatura Baja (%)',
-        'curvaturaMedia': 'Curvatura Media (%)',
-        'curvaturaAlta': 'Curvatura Alta (%)'
-      });
-      
-      // SECCIÓN 7: CARACTERISTICAS TECNICAS
-      htmlContent += crearTablaMetricas('7. Características Técnicas de Manufactura', metricas, {
-        'presionFlake': 'Presión de Talla (%)',
-        'direccionGolpe': 'Dirección Predominante Golpe',
-        'anguloPercusion': 'Ángulo de Percusión (°)',
-        'ondulacionCortante': 'Ondulación de Cortante (%)',
-        'bultasEstrías': 'Bultas/Estrías',
-        'cicatrices': 'Cicatrices de Retoque (%)',
-        'alturaRetoque': 'Altura de Retoque Promedio (mm)',
-        'uniformidadRetoque': 'Uniformidad de Retoque (%)'
-      });
-      
-      // SECCIÓN 8: SIMETRIA Y PROPORCIONES
-      htmlContent += crearTablaMetricas('8. Simetría y Proporciones', metricas, {
-        'simetriaBilateral': 'Simetría Bilateral (%)',
-        'simetricaFrontal': 'Simetría Frontal (%)',
-        'equilibrioMasas': 'Equilibrio de Masas (%)',
-        'distribucionPeso': 'Distribución de Peso (%)',
-        'proporcionAureo': 'Proporción Áurea (%)',
-        'armoniaForma': 'Armonía de Forma (%)',
-        'proporcionalidad': 'Proporcionalidad General (%)',
-        'balanceVisual': 'Balance Visual (%)'
-      });
-      
-      // SECCIÓN 9: CARACTERISTICAS DIAGNOSTICAS
-      htmlContent += crearTablaMetricas('9. Características Diagnósticas', metricas, {
-        'presenciaFilo': 'Presencia Filo Cortante (%)',
-        'estadoFilo': 'Estado Filo (0-100)',
-        'desgaste': 'Desgaste General (%)',
-        'patinaBiologica': 'Pátina Biológica (%)',
-        'coloracion': 'Coloración Dominante',
-        'fracturas': 'Tipo Fracturas Dominante',
-        'corrosion': 'Corrosión (%)',
-        'alteracionPostDepositacional': 'Alteración Post-Deposicional (%)'
-      });
-      
-      // SECCIÓN 10: DIMENSIONES VOLUMETRICAS
-      htmlContent += crearTablaMetricas('10. Dimensiones Volumétricas', metricas, {
-        'volumen': 'Volumen (mm³)',
-        'densidadAparente': 'Densidad Aparente (g/cm³)',
-        'densidadReal': 'Densidad Real (g/cm³)',
-        'porosidadTotal': 'Porosidad Total (%)',
-        'porosidadInterconectada': 'Porosidad Interconectada (%)',
-        'volumenespecifico': 'Volumen Específico (cm³/g)',
-        'factor3D': 'Factor 3D',
-        'esfericidad': 'Esfericidad (%)'
-      });
-      
-      // SECCIÓN 11: ANALISIS DE COLOR Y TEXTURA
-      htmlContent += crearTablaMetricas('11. Análisis de Color y Textura RGB', metricas, {
-        'colorR': 'Rojo (R)',
-        'colorG': 'Verde (G)',
-        'colorB': 'Azul (B)',
-        'colorH': 'Matiz (H)',
-        'colorS': 'Saturación (S)',
-        'colorV': 'Valor (V)',
-        'contrasteCromatico': 'Contraste Cromático',
-        'homogeneidadColor': 'Homogeneidad de Color (%)'
-      });
-      
-      // SECCIÓN 12: METRICAS ANGULARES
-      htmlContent += crearTablaMetricas('12. Métricas Angulares y de Curvatura', metricas, {
-        'anguloMaximo': 'Ángulo Máximo (°)',
-        'anguloMinimo': 'Ángulo Mínimo (°)',
-        'anguloPromedio': 'Ángulo Promedio (°)',
-        'radioCurvatura': 'Radio de Curvatura (mm)',
-        'curvaturaBiaxial': 'Curvatura Biaxial',
-        'torsion': 'Torsión',
-        'alabeo': 'Alabeo (mm)',
-        'ondulacionTotal': 'Ondulación Total (mm)'
-      });
-      
-      // SECCIÓN 13: INDICES MORFOLOGICOS
-      htmlContent += crearTablaMetricas('13. Índices Morfológicos Clásicos', metricas, {
-        'indiceLames': 'Índice de Lames',
-        'indiceAblacion': 'Índice de Ablación',
-        'indicePrecision': 'Índice de Precisión',
-        'indiceUtilidad': 'Índice de Utilidad',
-        'indiceLascas': 'Índice de Lascas',
-        'indiceIntegridad': 'Índice de Integridad',
-        'indiceCalibracion': 'Índice de Calibración',
-        'indiceEficiencia': 'Índice de Eficiencia'
-      });
-      
-      // SECCIÓN 14: CARACTERISTICAS AVANZADAS
-      htmlContent += crearTablaMetricas('14. Características Avanzadas', metricas, {
-        'entropia': 'Entropía de Forma',
-        'complejidadMorfologica': 'Complejidad Morfológica',
-        'variabilidadMarfologica': 'Variabilidad Morfológica',
-        'heterogeneidad': 'Heterogeneidad',
-        'fractalizacion': 'Fractalización',
-        'modularidad': 'Modularidad',
-        'escalabilidad': 'Escalabilidad',
-        'matriz': 'Matriz (Composición)'
-      });
-      
-      // ANÁLISIS DE PERFORACIONES Y HORADACIONES
-      if (perforaciones.length > 0 || horadaciones.length > 0) {
-        htmlContent += `
-        <div class="analisis-ph">
-          <h4>ANÁLISIS DE PERFORACIONES Y HORADACIONES</h4>
-        `;
-        
-        if (perforaciones.length > 0) {
-          htmlContent += `
-          <div style="margin-top: 15px;">
-            <strong>Perforaciones (${perforaciones.length}):</strong>
-            <table class="tabla-ph">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Tipo</th>
-                  <th>Diámetro (mm)</th>
-                  <th>Profundidad (mm)</th>
-                  <th>X (pixel)</th>
-                  <th>Y (pixel)</th>
-                  <th>Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-          `;
-          
-          perforaciones.forEach((p, idx) => {
-            htmlContent += `
-                <tr>
-                  <td>${idx + 1}</td>
-                  <td>${p.tipo || 'N/A'}</td>
-                  <td>${fmt(p.diametro)}</td>
-                  <td>${fmt(p.profundidad)}</td>
-                  <td>${fmt(p.x)}</td>
-                  <td>${fmt(p.y)}</td>
-                  <td>${p.estado || 'Normal'}</td>
-                </tr>
-            `;
-          });
-          
-          htmlContent += `
-              </tbody>
-            </table>
-          </div>
-          `;
-        }
-        
-        if (horadaciones.length > 0) {
-          htmlContent += `
-          <div style="margin-top: 15px;">
-            <strong>Horadaciones (${horadaciones.length}):</strong>
-            <table class="tabla-ph">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Tipo</th>
-                  <th>Diámetro (mm)</th>
-                  <th>Profundidad (mm)</th>
-                  <th>X (pixel)</th>
-                  <th>Y (pixel)</th>
-                  <th>Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-          `;
-          
-          horadaciones.forEach((h, idx) => {
-            htmlContent += `
-                <tr>
-                  <td>${idx + 1}</td>
-                  <td>${h.tipo || 'N/A'}</td>
-                  <td>${fmt(h.diametro)}</td>
-                  <td>${fmt(h.profundidad)}</td>
-                  <td>${fmt(h.x)}</td>
-                  <td>${fmt(h.y)}</td>
-                  <td>${h.estado || 'Normal'}</td>
-                </tr>
-            `;
-          });
-          
-          htmlContent += `
-              </tbody>
-            </table>
-          </div>
-          `;
-        }
-        
-        // Análisis comparativo
-        if (perforaciones.length > 0 && horadaciones.length > 0) {
-          const totalPH = perforaciones.length + horadaciones.length;
-          const porcPerfora = ((perforaciones.length / totalPH) * 100).toFixed(1);
-          const porcHorada = ((horadaciones.length / totalPH) * 100).toFixed(1);
-          
-          htmlContent += `
-          <div class="seccion-comparativa" style="margin-top: 15px;">
-            <h4>Análisis Comparativo P/H</h4>
-            <div class="grid-comparativo">
-              <div class="caja-comparativa">
-                <div class="caja-label">Perforaciones</div>
-                <div class="caja-valor">${perforaciones.length}</div>
-                <div style="font-size: 10px; color: #666;">${porcPerfora}% del total</div>
-              </div>
-              <div class="caja-comparativa">
-                <div class="caja-label">Horadaciones</div>
-                <div class="caja-valor">${horadaciones.length}</div>
-                <div style="font-size: 10px; color: #666;">${porcHorada}% del total</div>
-              </div>
-              <div class="caja-comparativa">
-                <div class="caja-label">Total P/H</div>
-                <div class="caja-valor">${totalPH}</div>
-                <div style="font-size: 10px; color: #666;">elementos</div>
-              </div>
-            </div>
-          </div>
-          `;
-        }
-        
-        htmlContent += `
-        </div>
-        `;
-      } else {
-        // ADR-011: SIEMPRE presente (esqueleto estable). Sin P/H confirmadas.
-        htmlContent += `
-        <div class="analisis-ph">
-          <h4>ANÁLISIS DE PERFORACIONES Y HORADACIONES</h4>
-          <p style="color:#666; font-style:italic; margin-top:10px;">Sin perforaciones ni horadaciones detectadas o confirmadas en este objeto.</p>
-        </div>
-        `;
-      }
-
-      // ======================================================================
-      // SECCIÓN: INCERTIDUMBRE ÓPTICA POSICIONAL
-      // Si el objeto fue guardado antes de que existiera el modelo óptico,
-      // lo recalculamos ahora a partir de los inputs actuales de la UI.
-      // ======================================================================
-      if (metricas.error_optico_lineal_percent === undefined) {
-        try {
-          const focalVal = parseFloat(document.getElementById('focalInput')?.value);
-          const swVal    = parseFloat(document.getElementById('sensorWidthInput')?.value);
-          const shVal    = parseFloat(document.getElementById('sensorHeightInput')?.value);
-          const distVal  = parseFloat(document.getElementById('distanciaInput')?.value);
-          // Dimensiones de imagen: usar cara correcta en bifacial
-          const iW = (obj.cara === 'A' ? imageWidthCaraA  : obj.cara === 'B' ? imageWidthCaraB  : null)
-                     || anchoImagen || imageWidth || 0;
-          const iH = (obj.cara === 'A' ? imageHeightCaraA : obj.cara === 'B' ? imageHeightCaraB : null)
-                     || altoImagen || imageHeight || 0;
-          // Centroide del objeto (campos posibles según cómo fue guardado)
-          let cxObj, cyObj;
-          if (metricas.centroid && typeof metricas.centroid === 'string') {
-            const parts = metricas.centroid.split(',').map(Number);
-            cxObj = parts[0]; cyObj = parts[1];
-          } else if (Array.isArray(metricas.centroid)) {
-            cxObj = metricas.centroid[0]; cyObj = metricas.centroid[1];
-          } else {
-            cxObj = (obj.minX || 0) + (obj.width  || 0) / 2;
-            cyObj = (obj.minY || 0) + (obj.height || 0) / 2;
-          }
-          const errorOpticoRecalc = MetricsOrchestrator.estimarErrorOptico({
-            objCentroide: { x: cxObj, y: cyObj },
-            imgW: iW, imgH: iH,
-            focalMM: focalVal, sensorW: swVal, sensorH: shVal,
-            distanciaObjMM: distVal
-          });
-          if (errorOpticoRecalc) {
-            metricas.error_optico_lineal_percent  = errorOpticoRecalc.error_lineal_percent;
-            metricas.error_optico_area_percent    = errorOpticoRecalc.error_area_percent;
-            metricas.error_perspectiva_percent    = errorOpticoRecalc.error_perspectiva_percent;
-            metricas.error_distorsion_percent     = errorOpticoRecalc.error_distorsion_percent;
-            metricas.posicion_radial_norm         = errorOpticoRecalc.posicion_radial_norm;
-            metricas.angulo_optico_deg            = errorOpticoRecalc.angulo_optico_deg;
-            metricas.k1_estimado                  = errorOpticoRecalc.k1_estimado;
-            metricas.fov_diagonal_deg             = errorOpticoRecalc.fovDiagDeg;
-            metricas.confianza_optica             = errorOpticoRecalc.confianza_optica;
-            metricas.nota_error_optico            = errorOpticoRecalc.nota;
-            aplicarIncertidumbreOptica(metricas, errorOpticoRecalc);
-            console.log(`🔭 Error óptico recalculado para PDF [${obj.id}]: ±${errorOpticoRecalc.error_lineal_percent}%`);
-          }
-        } catch (eoErr) {
-          console.warn('⚠️ No se pudo recalcular error óptico para PDF:', eoErr.message);
-        }
-      }
-
-      if (metricas.error_optico_lineal_percent !== undefined) {
-        const eL    = parseFloat(metricas.error_optico_lineal_percent || 0);
-        const eA    = parseFloat(metricas.error_optico_area_percent   || 0);
-        const eDist = parseFloat(metricas.error_distorsion_percent    || 0);
-        const ePerp = parseFloat(metricas.error_perspectiva_percent   || 0);
-        const rNorm = parseFloat(metricas.posicion_radial_norm        || 0);
-        const ang   = parseFloat(metricas.angulo_optico_deg           || 0);
-        const fov   = parseFloat(metricas.fov_diagonal_deg            || 0);
-        const k1    = metricas.k1_estimado ?? '—';
-        const conf  = metricas.confianza_optica || '—';
-        const nota  = metricas.nota_error_optico || 'k₁ estimado sin calibración formal de lente (±30% del modelo)';
-
-        // Color del semáforo de confianza
-        let colorConf = '#6c757d';
-        if      (eL < 0.5) colorConf = '#28a745';
-        else if (eL < 1.5) colorConf = '#17a2b8';
-        else if (eL < 3.0) colorConf = '#ffc107';
-        else if (eL < 6.0) colorConf = '#fd7e14';
-        else               colorConf = '#dc3545';
-
-        // Filas de incertidumbre propagada por métrica
-        let filasIncert = '';
-        if (metricas._incertidumbre_optica_aplicada) {
-          const pares = [
-            ['area',      metricas.area,      'mm²', 'Área'          ],
-            ['perimeter', metricas.perimeter, 'mm',  'Perímetro'     ],
-            ['width',     metricas.width,     'mm',  'Ancho'         ],
-            ['height',    metricas.height,    'mm',  'Alto'          ],
-            ['eje_mayor', metricas.eje_mayor, 'mm',  'Eje Mayor'     ],
-            ['eje_menor', metricas.eje_menor, 'mm',  'Eje Menor'     ],
-            ['feret_max', metricas.feret_max, 'mm',  'Feret Máx.'    ],
-            ['feret_min', metricas.feret_min, 'mm',  'Feret Mín.'    ],
-          ];
-          pares.forEach(([k, v, u, label]) => {
-            const e  = metricas[`${k}_incertidumbre_abs`];
-            const mn = metricas[`${k}_rango_min`];
-            const mx = metricas[`${k}_rango_max`];
-            if (e === undefined || v === undefined) return;
-            filasIncert += `
-              <tr>
-                <td>${label}</td>
-                <td style="text-align:right;">${parseFloat(v).toFixed(4)} ${u}</td>
-                <td style="text-align:right; color:${colorConf}; font-weight:600;">± ${parseFloat(e).toFixed(4)} ${u}</td>
-                <td style="text-align:right; color:#555;">[${parseFloat(mn).toFixed(4)} – ${parseFloat(mx).toFixed(4)}] ${u}</td>
-              </tr>`;
-          });
-        }
-
-        htmlContent += `
-        <div class="seccion-metricas" style="border-left: 5px solid #6f42c1; padding-left: 15px;">
-          <h3 style="color: #6f42c1; border-bottom: 3px solid #6f42c1; padding-bottom: 8px;">
-            Incertidumbre Óptica Posicional
-          </h3>
-
-          <!-- Bloque: Información Óptica (archivos + parámetros de captura) -->
-          <div style="margin-bottom:14px; padding:10px 14px; background:#f8f9fa; border:1px solid #dee2e6; border-radius:6px;">
-            <div style="font-size:11px; font-weight:700; color:#495057; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.5px;">Información Óptica de la Imagen</div>
-            <table style="width:100%; border-collapse:collapse; font-size:11px;">
-              <tbody>
-                <tr style="background:#fff;"><td style="padding:3px 8px; color:#6c757d; width:40%;">Archivo Fotografía</td><td style="padding:3px 8px; font-family:monospace;">${resolverNombreFotografia(obj) || 'N/A'}</td></tr>
-                <tr style="background:#f8f9fa;"><td style="padding:3px 8px; color:#6c757d;">Archivo RAW</td><td style="padding:3px 8px; font-family:monospace;">${(window.archivoRAWActual?.archivo?.name) || (window.archivoRAWActual?.name) || 'No cargado'}</td></tr>
-                <tr style="background:#fff;"><td style="padding:3px 8px; color:#6c757d;">Modelo cámara</td><td style="padding:3px 8px;">${document.getElementById('cameraModel')?.value || 'N/A'}</td></tr>
-                <tr style="background:#f8f9fa;"><td style="padding:3px 8px; color:#6c757d;">Focal</td><td style="padding:3px 8px;">${document.getElementById('focalInput')?.value || 'N/A'} mm</td></tr>
-                <tr style="background:#fff;"><td style="padding:3px 8px; color:#6c757d;">Apertura</td><td style="padding:3px 8px;">f/${document.getElementById('apertureInput')?.value || 'N/A'}</td></tr>
-                <tr style="background:#f8f9fa;"><td style="padding:3px 8px; color:#6c757d;">Sensor</td><td style="padding:3px 8px;">${document.getElementById('sensorWidthInput')?.value || 'N/A'} × ${document.getElementById('sensorHeightInput')?.value || 'N/A'} mm</td></tr>
-                <tr style="background:#fff;"><td style="padding:3px 8px; color:#6c757d;">Distancia objeto–cámara</td><td style="padding:3px 8px;">${document.getElementById('distanciaInput')?.value || 'N/A'} mm</td></tr>
-                <tr style="background:#f8f9fa;"><td style="padding:3px 8px; color:#6c757d;">Resolución imagen</td><td style="padding:3px 8px;">${((obj.cara === 'A' ? imageWidthCaraA : obj.cara === 'B' ? imageWidthCaraB : anchoImagen || imageWidth) || '?')} × ${((obj.cara === 'A' ? imageHeightCaraA : obj.cara === 'B' ? imageHeightCaraB : altoImagen || imageHeight) || '?')} px</td></tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Resumen de semáforo -->
-          <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:14px; padding:10px; background:#f3e5f5; border-radius:6px;">
-            <span style="background:${colorConf}; color:white; padding:4px 14px; border-radius:20px; font-size:12px; font-weight:700;">${conf}</span>
-            <span style="font-size:12px;">Error lineal: <strong style="color:${colorConf};">±${eL.toFixed(3)}%</strong></span>
-            <span style="font-size:12px;">Error área: <strong style="color:${colorConf};">±${eA.toFixed(3)}%</strong></span>
-            <span style="font-size:11px; background:#e9ecef; padding:3px 8px; border-radius:4px; color:#555;">FOV ${fov.toFixed(1)}° | k₁ = ${k1}</span>
-          </div>
-
-          <!-- Tabla de componentes del error -->
-          <table class="tabla-metricas" style="margin-bottom:14px;">
-            <thead>
-              <tr>
-                <th>Componente</th>
-                <th>Valor (%)</th>
-                <th>Descripción</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td>Distorsión radial (k₁)</td><td style="text-align:right;">±${eDist.toFixed(4)}</td><td style="color:#555;">Deformación geométrica del lente</td></tr>
-              <tr><td>Error de perspectiva (cos²θ)</td><td style="text-align:right;">±${ePerp.toFixed(4)}</td><td style="color:#555;">Objeto fuera del eje óptico</td></tr>
-              <tr><td>Error lineal combinado (DRSS)</td><td style="text-align:right; font-weight:700; color:${colorConf};">±${eL.toFixed(4)}</td><td style="color:#555;">Aplica a medidas en mm</td></tr>
-              <tr><td>Error de área combinado (DRSS)</td><td style="text-align:right; font-weight:700; color:${colorConf};">±${eA.toFixed(4)}</td><td style="color:#555;">Aplica a medidas en mm²</td></tr>
-              <tr><td>Posición radial normalizada</td><td style="text-align:right;">${(rNorm * 100).toFixed(1)}%</td><td style="color:#555;">0% = centro · 100% = borde horizontal</td></tr>
-              <tr><td>Ángulo óptico</td><td style="text-align:right;">${ang.toFixed(3)}°</td><td style="color:#555;">Ángulo real respecto al eje óptico</td></tr>
-            </tbody>
-          </table>
-
-          ${filasIncert ? `
-          <!-- Tabla de incertidumbre propagada por métrica -->
-          <h4 style="color:#6f42c1; font-size:13px; margin-bottom:8px;">Bandas de incertidumbre por métrica absoluta</h4>
-          <table class="tabla-metricas">
-            <thead>
-              <tr>
-                <th>Métrica</th>
-                <th style="text-align:right;">Valor nominal</th>
-                <th style="text-align:right;">Incertidumbre (±)</th>
-                <th style="text-align:right;">Rango posible</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${filasIncert}
-            </tbody>
-          </table>
-          <p style="font-size:10px; color:#888; margin-top:6px;">
-            Métricas <em>no afectadas</em> (adimensionales puros): circularity · compactness · aspect_ratio · solidity · rectangularity · elongation · excentricidad
-          </p>` : ''}
-
-          <!-- Nota metodológica -->
-          <div style="margin-top:10px; padding:8px 12px; background:#fff3cd; border-left:4px solid #ffc107; border-radius:4px; font-size:11px; color:#856404;">
-            <strong>Nota metodológica:</strong> ${nota}
-          </div>
-        </div>
-        `;
-      }
-
-      // PIE DE PÁGINA
-      htmlContent += `
-          <div class="pie-pagina">
-            <p>Reporte generado automáticamente por MAO Plus v1.2.0</p>
-            <p>&copy; 2026 &mdash; Morphological Analysis &amp; Objects</p>
-            <p>Análisis detallado con 140+ métricas &middot; Cara: ${cara} &middot; Objeto: ${obj.id || numeroObjeto}</p>
-          </div>
-        </div>
-      </body>
-      </html>
-      `;
-      
-      return htmlContent;
-      
-    } catch (error) {
-      console.error('❌ Error generando reporte integral:', error);
-      throw error;
-    }
-  } // FIN función generarReportePDFIntegral
-  */
   
   // ============================================================================
   // 🆕 FUNCIONES PARA GENERACIÓN DE PDF BIFACIAL
@@ -27770,7 +27292,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           ],
           timestamp: new Date().toISOString()
         };
-        window.ultimaAuditoriaPDF = auditoriaBifacial;
+        if (window._MAO_DEBUG) window.ultimaAuditoriaPDF = auditoriaBifacial;
         console.log('📄 Auditoría exportación PDF (bifacial)', auditoriaBifacial);
       } catch (auditError) {
         console.warn('⚠️ No se pudo completar la auditoría de exportación PDF bifacial:', auditError);
@@ -29219,7 +28741,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           },
           timestamp: new Date().toISOString()
         };
-        window.ultimaAuditoriaPDF = auditoria;
+        if (window._MAO_DEBUG) window.ultimaAuditoriaPDF = auditoria;
         console.log('📄 Auditoría exportación PDF (morfológico)', auditoria);
       } catch (auditError) {
         console.warn('⚠️ No se pudo completar la auditoría de exportación PDF (morfológico):', auditError);
@@ -30473,7 +29995,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       const blob = new Blob([jsonString], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       
-      const idArq = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `obj_${obj.numeroObjeto}`;
+      const idArq = _idParaArchivo(obj.id, `obj_${obj.numeroObjeto}`);
       const filename = `${idArq}_datos.json`;
       
       const link = document.createElement('a');
@@ -30591,6 +30113,20 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   // ADR-007 §D3 — cableado event-driven con el organizer de Captura (presentación):
   //   organizer → batch / toggle de filtro ; core → lógica + re-render del grid.
   document.addEventListener('mao:batch-analyze:request', function () { _analizarTodos(); });
+
+  // Enriquecimiento retroactivo de métricas por lote
+  document.addEventListener('mao:enrich:request', function (e) {
+    if (typeof window.projectManager?.enrichCollection !== 'function') return;
+    const d          = e && e.detail || {};
+    const projectId  = d.projectId;
+    const folderPath = d.folderPath;   // proyectos externos sin proyectoId registrado
+    if (!projectId && !folderPath) return;
+    window.projectManager.enrichCollection(projectId, d.options || {}, folderPath)
+      .then(s  => document.dispatchEvent(new CustomEvent('mao:enrich:complete', { detail: s })))
+      .catch(err => document.dispatchEvent(new CustomEvent('mao:enrich:error',
+        { detail: { message: err && err.message } })));
+  });
+
   document.addEventListener('mao:triage-filter:toggle', function () {
     _filtroSoloRevisar = !_filtroSoloRevisar;
     individualizarObjetos();
@@ -31712,7 +31248,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    */
   function exportarComparacionMorfologicaPH() {
     console.log('🔬 Iniciando exportación de comparación morfológica Objeto vs P/H...');
-    
+
     // Verificar que hay un objeto analizado
     if (!currentAnalyzedObject || !currentAnalyzedObject.obj || !currentAnalyzedObject.metricas) {
       toast.warning('No hay análisis para exportar. Ejecuta un análisis morfológico primero.', 3000);
@@ -31939,7 +31475,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       }
       
       // Usar diálogo nativo para guardar
-      const objetoId = caraA.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const objetoId = _idParaArchivo(caraA.id);
       const filename = `${objetoId}_bifacial`;
       
       await saveFileWithDialog(filename, csvContent, 'csv');
@@ -31972,7 +31508,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    */
   function exportarAnalisisCompletoUnificado() {
     console.log('🎯 Iniciando exportación unificada inteligente...');
-    
+
     // Verificar que hay un objeto analizado
     if (!currentAnalyzedObject || !currentAnalyzedObject.obj || !currentAnalyzedObject.metricas) {
       toast.warning('No hay análisis para exportar. Ejecuta un análisis morfológico primero.', 3000);
@@ -32374,7 +31910,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           // `.contenedor` (la función generarReportePDFIntegral no existe — estaba
           // comentada y nunca se movió al módulo; llamarla lanzaba el error del botón).
           const htmlContent = '<div class="contenedor"></div>';
-          const nombreBase = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `OBJ_${obj.numeroObjeto}`;
+          const nombreBase = _idParaArchivo(obj.id, `OBJ_${obj.numeroObjeto}`);
           const filename = `${nombreBase}_reporte`;
           await generarPDFDesdeHTML(htmlContent, filename, obj, metricas, { integral: true });
           console.log(`   ✅ PDF completado para ${etiqueta}`);
@@ -32454,7 +31990,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   async function exportarPDFIntegralCaraActiva() {
     try {
       console.log('📊 Iniciando exportación de PDF INTEGRAL con todas las métricas...');
-      
+
       // 🔍 DETECTAR CARA ACTIVA
       let objActivo = currentAnalyzedObject?.obj;
       
@@ -32644,7 +32180,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           const htmlContent = '<div class="contenedor"></div>';
           
           // Crear nombre de archivo para el PDF
-          const nombreBase = obj.id?.replace(/[^a-zA-Z0-9_-]/g, '_') || `OBJ_${obj.numeroObjeto}`;
+          const nombreBase = _idParaArchivo(obj.id, `OBJ_${obj.numeroObjeto}`);
           const filename = `${nombreBase}_integral`;
           
           // Convertir HTML a PDF y guardar con diálogo
@@ -32809,7 +32345,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       csvContent += generarTablaComparativaBifacialCSV(caraA, caraB);
       
       // Usar diálogo nativo para guardar
-      const _idComp = caraA.id?.replace(/_c[ab]$/, '')?.replace(/[^a-zA-Z0-9_-]/g, '_') || idObjeto;
+      const _idComp = _idParaArchivo(String(caraA.id ?? '').replace(/_c[ab]$/, ''), idObjeto);
       const nombreArchivo = `${_idComp}_comparacion`;
       
       await saveFileWithDialog(nombreArchivo, csvContent, 'csv');
@@ -33421,8 +32957,10 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   csvLines += `Dimensiones Básicas,Perímetro,${fmt(m.perimeter, 2)},${m.perimeter_unit || 'mm'}\n`;
   csvLines += `Dimensiones Básicas,Ancho (BB Ajustado),${fmt(m.width, 2)},mm\n`;
   csvLines += `Dimensiones Básicas,Alto (BB Ajustado),${fmt(m.height, 2)},mm\n`;
-  csvLines += `Dimensiones Básicas,Ancho (BB Original),${fmt(m.bounding_width, 2)},mm\n`;
-  csvLines += `Dimensiones Básicas,Alto (BB Original),${fmt(m.bounding_height, 2)},mm\n`;
+  // ADR-016 #1: bounding_width/height a veces quedan en px (path IA). Conversor px→mm fuente única.
+  const _bbOrigF = MetricPresenter.conversorBBaMm(m);
+  csvLines += `Dimensiones Básicas,Ancho (BB Original),${fmt(_bbOrigF(m.bounding_width), 2)},mm\n`;
+  csvLines += `Dimensiones Básicas,Alto (BB Original),${fmt(_bbOrigF(m.bounding_height), 2)},mm\n`;
     csvLines += `Dimensiones Básicas,Puntos del Contorno,${m.contour_points || 'N/A'},-\n`;
     
     // ==========================================================================
@@ -33510,12 +33048,14 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     csvLines += `Convex Hull,Perímetro,${fmt(_csvHullP || parseFloat(m.hull_perimeter_px)||0, 2)},${_csvHullPUnit}\n`;
     csvLines += `Convex Hull,Ancho,${fmt(_csvHullW, 2)},${_csvHullDUnit}\n`;
     csvLines += `Convex Hull,Alto,${fmt(_csvHullH, 2)},${_csvHullDUnit}\n`;
-    csvLines += `Convex Hull,Circularidad,${fmt(m.hull_circularity, 4)},-\n`;
-    csvLines += `Convex Hull,Relación Aspecto,${fmt(m.hull_aspect_ratio, 4)},-\n`;
+    // ADR-016 #4/#7: derivados del hull vía fuente única (metric-presenter).
+    const _hullD = MetricPresenter.hullDerivados(m);
+    csvLines += `Convex Hull,Circularidad,${fmt(_hullD.circularidad, 4)},-\n`;
+    csvLines += `Convex Hull,Relación Aspecto,${fmt(_hullD.aspectRatio, 4)},-\n`;
     csvLines += `Convex Hull,Convexidad,${fmt(m.convexity, 4)},-\n`;
     csvLines += `Convex Hull,Clasificación Convexidad,${m.convexity_class || 'N/A'},-\n`;
-    csvLines += `Convex Hull,Diferencia Área (%),${fmt(m.hull_area_difference_percent, 1)},%\n`;
-    csvLines += `Convex Hull,Diferencia Perímetro (%),${fmt(m.hull_perimeter_difference_percent, 1)},%\n`;
+    csvLines += `Convex Hull,Diferencia Área (%),${fmt(_hullD.difAreaPct, 1)},%\n`;
+    csvLines += `Convex Hull,Diferencia Perímetro (%),${fmt(_hullD.difPerimetroPct, 1)},%\n`;
     csvLines += `Convex Hull,Número de Puntos,${m.convex_hull_points || 'N/A'},-\n`;
     
     // ==========================================================================
@@ -34270,6 +33810,9 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
           }, 0) / obj.horadaciones.length) / (obj.metricas.area || 1)) : 0
       },
       
+      // EFA — coeficientes y espectro del contorno principal (si fue calculado)
+      _efa_data: obj.metricas._efa_data || obj._efa_data || null,
+
       // Clasificación de forma
       clasificacionForma: obj.metricas.forma_detectada || obj.metricas.shape_classification || 'no_clasificada',
       metodoClasificacion: obj.metricas.classification_method || 'meta-clasificacion',
@@ -34916,7 +34459,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     // Si es bifacial, verificar si existe la otra cara para comparar
     if (esBifacial) {
       const caraOpuesta = obj.cara === 'A' ? 'B' : 'A';
-      const idCaraOpuesta = obj.id.replace(obj.cara, caraOpuesta);
+      const idCaraOpuesta = String(obj.id ?? '').replace(obj.cara, caraOpuesta);
       
       const objCaraOpuesta = analisisMorfologicos.objetos.find(o => o.id === idCaraOpuesta);
       
@@ -35030,9 +34573,21 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       objetoGuardado.metricas.porcentaje_perforado = _areaBase > 0 ? (_phefSync.areaBrutaPerforaciones / _areaBase * 100) : 0;
       objetoGuardado.metricas.porcentaje_horadado  = _areaBase > 0 ? (_phefSync.areaTotalHoradaciones  / _areaBase * 100) : 0;
       objetoGuardado.metricas.porosidad            = _areaBase > 0 ? (_phefSync.areaTotalPH            / _areaBase * 100) : 0;
-      // Guardar área neta en metricas para que el CMO la lea directamente sin recalcular
+      // Guardar área neta y perímetro neto en metricas para que el CMO los lea directamente sin recalcular
       objetoGuardado.metricas.area_neta            = Math.max(0, _areaBase - _phefSync.areaTotalPH);
-      console.log(`🔄 Métricas P/H recomputadas: ${_perfs.length} perf. → area_perforaciones=${_phefSync.areaTotalPerforaciones.toFixed(3)} mm² | area_neta=${objetoGuardado.metricas.area_neta.toFixed(3)} mm²`);
+      const _scaleSync = (typeof scale !== 'undefined' && scale > 0) ? scale : 1;
+      const _getPeriSync = (ph) => {
+        if (ph.metricas?.perimeter)      return parseFloat(ph.metricas.perimeter)      || 0;
+        if (ph.metricas?.perimeter_real) return (parseFloat(ph.metricas.perimeter_real)||0) * _scaleSync;
+        return parseFloat(ph.perimetro) || 0;
+      };
+      const _periExtSync = parseFloat(objetoGuardado.metricas.perimeter || obj.perimetro || 0);
+      const _periPHSync  = [..._perfs, ..._horads].reduce((s, ph) => s + _getPeriSync(ph), 0);
+      objetoGuardado.metricas.perimetro_neto = parseFloat((_periExtSync + _periPHSync).toFixed(3));
+      console.log(`🔄 Métricas P/H recomputadas: ${_perfs.length} perf. → area_perforaciones=${_phefSync.areaTotalPerforaciones.toFixed(3)} mm² | area_neta=${objetoGuardado.metricas.area_neta.toFixed(3)} mm² | perimetro_neto=${objetoGuardado.metricas.perimetro_neto} mm`);
+    } else if (objetoGuardado.metricas.perimetro_neto == null) {
+      // Sin P/H: perímetro neto = perímetro externo
+      objetoGuardado.metricas.perimetro_neto = parseFloat(parseFloat(objetoGuardado.metricas.perimeter || 0).toFixed(3));
     }
 
     console.log(`✅ Sincronización completada para ${obj.id} (Cara: ${obj.cara || 'Mono'})`);
@@ -37200,388 +36755,17 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * 🗑️ FUNCIÓN ANTIGUA DESHABILITADA
    * Ya no se usa - reemplazada por generarComparacionBifacialSimple()
    */
-  window.mostrarComparacionBifacial = function(numeroObjeto) {
+  const mostrarComparacionBifacial = function(numeroObjeto) {
     console.log(`⚠️ mostrarComparacionBifacial() deshabilitada - usar nuevo sistema simplificado`);
     // Esta función ya no se usa, el nuevo sistema usa generarComparacionBifacialSimple()
     return;
   }
 
-  window.generarTablaComparativa = function(caraA, caraB, comp) {
-    console.log('🔧 generarTablaComparativa() llamada', {
-      caraA: caraA,
-      caraB: caraB,
-      comp: comp
-    });
-    
-    // 🐛 DEBUG: Verificar estructura completa de metricas
-    console.log('🔍 Estructura de caraA.metricas:', caraA.metricas);
-    console.log('🔍 Estructura de caraB.metricas:', caraB.metricas);
-    console.log('🔍 caraA.area (raíz):', caraA.area);
-    console.log('🔍 caraA.metricas.area:', caraA.metricas?.area);
-    
-    const container = document.getElementById('tablaComparativaContainer');
-    
-    if (!container) {
-      console.error('❌ No se encontró el contenedor tablaComparativaContainer en el DOM');
-      return;
-    }
-    
-    console.log('✅ Contenedor encontrado:', container);
-    
-    // 🔒 Función auxiliar para valores numéricos seguros
-    const safeNum = (val, decimals = 1) => {
-      if (typeof val === 'number' && !isNaN(val)) return val.toFixed(decimals);
-      if (typeof val === 'string') {
-        const num = parseFloat(val);
-        return !isNaN(num) ? num.toFixed(decimals) : '0.0';
-      }
-      return '0.0';
-    };
-    
-    // 🔒 Función para arrays de coordenadas
-    const safeCoordsStr = (coords) => {
-      if (!Array.isArray(coords) || coords.length < 2) return '(0.0, 0.0)';
-      const x = typeof coords[0] === 'number' ? coords[0].toFixed(1) : '0.0';
-      const y = typeof coords[1] === 'number' ? coords[1].toFixed(1) : '0.0';
-      return `(${x}, ${y})`;
-    };
-
-    // Conversión px→mm para coordenadas de centroide
-    const _gtEjeMM = caraA.metricas?.eje_mayor_real_longitud || caraA.objeto?.eje_mayor_real_longitud || caraA.eje_mayor_real_longitud || 0;
-    const _gtEjePx = caraA.metricas?.eje_mayor_real_longitud_px || caraA.objeto?.eje_mayor_real_longitud_px || caraA.eje_mayor_real_longitud_px || 0;
-    const _gtFactor = (_gtEjeMM > 0 && _gtEjePx > 0) ? _gtEjeMM / _gtEjePx : 0;
-    const fmtCoordsGT = (coords) => {
-      if (!Array.isArray(coords) || coords.length < 2) return '(0.00, 0.00)';
-      if (_gtFactor > 0) {
-        const x = typeof coords[0] === 'number' ? (coords[0] * _gtFactor).toFixed(2) : '0.00';
-        const y = typeof coords[1] === 'number' ? (coords[1] * _gtFactor).toFixed(2) : '0.00';
-        return `(${x}, ${y}) mm`;
-      }
-      const x = typeof coords[0] === 'number' ? coords[0].toFixed(1) : '0.0';
-      const y = typeof coords[1] === 'number' ? coords[1].toFixed(1) : '0.0';
-      return `(${x}, ${y}) px`;
-    };
-    const fmtDistGT = (px, dec = 2) => {
-      if (_gtFactor > 0) return `${(parseFloat(px) * _gtFactor).toFixed(dec)} mm`;
-      return `${safeNum(px, dec)} px`;
-    };
-
-    const metricas = [
-      { nombre: 'Área (mm²)', keyA: 'area', keyB: 'area', precision: 2 },
-      { nombre: 'Perímetro (mm)', keyA: 'perimetro', keyB: 'perimetro', precision: 2 },
-      { nombre: 'Circularidad', keyA: 'circularidad', keyB: 'circularidad', precision: 3 },
-      { nombre: 'Convexidad', keyA: 'convexidad', keyB: 'convexidad', precision: 3 },
-      { nombre: 'Solidez', keyA: 'solidez', keyB: 'solidez', precision: 3 },
-      { nombre: 'Compacidad', keyA: 'compacidad', keyB: 'compacidad', precision: 3 },
-      { nombre: 'Rectangularidad', keyA: 'rectangularidad', keyB: 'rectangularidad', precision: 3 },
-      { nombre: 'Elongación', keyA: 'elongacion', keyB: 'elongacion', precision: 3 },
-      { nombre: 'Excentricidad', keyA: 'excentricidad', keyB: 'excentricidad', precision: 3 },
-      { nombre: 'Radio Máx (mm)', keyA: 'radio_maximo', keyB: 'radio_maximo', precision: 2 },
-      { nombre: 'Radio Mín (mm)', keyA: 'radio_minimo', keyB: 'radio_minimo', precision: 2 }
-    ];
-    
-    let filasGeneradas = 0;  // Contador de filas
-    
-    let html = `
-      <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-        <thead>
-          <tr style="background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%); color: white;">
-            <th style="padding: 12px; text-align: left; border: 1px solid #dee2e6;">Métrica</th>
-            <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Cara A</th>
-            <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Cara B</th>
-            <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Diferencia</th>
-            <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Ratio</th>
-            <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Similitud</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-    
-    metricas.forEach((metrica, index) => {
-      // Buscar valor en metricas primero, luego en raíz del objeto
-      const valorA = caraA.metricas?.[metrica.keyA] ?? caraA[metrica.keyA] ?? 0;
-      const valorB = caraB.metricas?.[metrica.keyB] ?? caraB[metrica.keyB] ?? 0;
-      
-      // Debug: mostrar qué valores se están obteniendo
-      console.log(`📊 Métrica: ${metrica.nombre}`, {
-        keyA: metrica.keyA,
-        keyB: metrica.keyB,
-        valorA: valorA,
-        valorB: valorB,
-        tipoA: typeof valorA,
-        tipoB: typeof valorB,
-        fuenteA: caraA.metricas?.[metrica.keyA] !== undefined ? 'metricas' : 'raiz',
-        fuenteB: caraB.metricas?.[metrica.keyB] !== undefined ? 'metricas' : 'raiz'
-      });
-      
-      // Validar que sean números válidos
-      if (typeof valorA !== 'number' || typeof valorB !== 'number' || isNaN(valorA) || isNaN(valorB)) {
-        console.warn(`⚠️ Valores inválidos para ${metrica.nombre}:`, { valorA, valorB });
-        return; // Saltar esta métrica
-      }
-      
-      console.log(`✅ Métrica ${metrica.nombre} - valores válidos, generando fila HTML`);
-      
-      const diferencia = Math.abs(valorA - valorB);
-      const ratio = Math.max(valorA, valorB) / Math.min(valorA, valorB);
-      const similitud = (1 - (diferencia / Math.max(valorA, valorB))) * 100;
-      
-      const bgColor = index % 2 === 0 ? '#f8f9fa' : 'white';
-      const similitudColor = similitud >= 90 ? '#28a745' : (similitud >= 70 ? '#ffc107' : '#dc3545');
-      
-      filasGeneradas++;  // Incrementar contador
-      
-      html += `
-        <tr style="background: ${bgColor};">
-          <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">${metrica.nombre}</td>
-          <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #0066cc;">${valorA.toFixed(metrica.precision)}</td>
-          <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #28a745;">${valorB.toFixed(metrica.precision)}</td>
-          <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center;">${diferencia.toFixed(metrica.precision)}</td>
-          <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center;">${ratio.toFixed(2)}x</td>
-          <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; color: ${similitudColor};">
-            ${similitud.toFixed(1)}%
-          </td>
-        </tr>
-      `;
-    });
-    
-    html += `
-        </tbody>
-      </table>
-      
-      <!-- Tabla de Análisis Espacial - Centroide -->
-      <h3 style="margin-top: 30px; margin-bottom: 15px; color: #2c3e50; font-size: 16px; font-weight: 600; border-bottom: 2px solid #6366f1; padding-bottom: 8px;">
-        Análisis Espacial - Centroide del Convex Hull
-      </h3>
-      
-      <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
-        <thead>
-          <tr style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white;">
-            <th style="padding: 12px; text-align: left; border: 1px solid #dee2e6;">Métrica Espacial</th>
-            <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Valor</th>
-            <th style="padding: 12px; text-align: left; border: 1px solid #dee2e6;">Interpretación</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Centroide Cara A</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #0066cc; font-weight: 600;">
-              ${fmtCoordsGT(comp.centroideA)}
-            </td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
-              Punto ancla de referencia
-            </td>
-          </tr>
-          <tr style="background: #f8f9fa;">
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Centroide Cara B</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #28a745; font-weight: 600;">
-              ${fmtCoordsGT(comp.centroideB)}
-            </td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
-              Punto ancla de referencia
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Desplazamiento Absoluto</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; color: #6366f1;">
-              ${fmtDistGT(comp.desplazamientoCentroides, 2)}
-            </td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
-              Distancia euclidiana entre centroides
-            </td>
-          </tr>
-          <tr style="background: #f8f9fa;">
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Desplazamiento Normalizado</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; color: #6366f1;">
-              ${safeNum(comp.desplazamientoNormalizado, 3)}
-            </td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
-              Relativo al tamaño del objeto
-            </td>
-          </tr>
-          <tr style="background: ${comp.alineacionEspacial === 'Excelente' ? '#d4edda' : (comp.alineacionEspacial === 'Buena' ? '#fff3cd' : '#f8d7da')};">
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Calidad de Alineación</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-weight: 700; font-size: 16px; color: ${comp.alineacionEspacial === 'Excelente' ? '#155724' : (comp.alineacionEspacial === 'Buena' ? '#856404' : '#721c24')};">
-              ${comp.alineacionEspacial || 'N/A'} ${comp.alineacionEspacial === 'Excelente'? '': (comp.alineacionEspacial === 'Buena'? '': '')}
-            </td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #495057;">
-              ${comp.alineacionEspacial === 'Excelente' 
-                ? 'Los centroides están muy bien alineados (< 0.1)' 
-                : (comp.alineacionEspacial === 'Buena' 
-                  ? 'Alineación aceptable, con ligero desplazamiento (0.1-0.3)' 
-                  : 'Desalineación significativa de los centroides (> 0.3)')}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      
-      <!-- Tabla de Reflejo Especular (Anverso ↔ Reverso) -->
-      <h3 style="margin-top: 30px; margin-bottom: 15px; color: #2c3e50; font-size: 16px; font-weight: 600; border-bottom: 2px solid #f59e0b; padding-bottom: 8px;">
-        Reflejo Especular - Anverso ↔ Reverso (Rotación 180°)
-      </h3>
-      
-      <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
-        <thead>
-          <tr style="background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%); color: white;">
-            <th style="padding: 12px; text-align: left; border: 1px solid #dee2e6;">Métrica de Reflejo</th>
-            <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Valor</th>
-            <th style="padding: 12px; text-align: left; border: 1px solid #dee2e6;">Interpretación</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Ángulo Eje Mayor (Cara A)</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #0066cc; font-weight: 600;">
-              ${safeNum(comp.anguloEjeMayorA || 0, 1)}°
-            </td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
-              Orientación del anverso
-            </td>
-          </tr>
-          <tr style="background: #f8f9fa;">
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Ángulo Eje Mayor (Cara B)</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #28a745; font-weight: 600;">
-              ${safeNum(comp.anguloEjeMayorB || 0, 1)}°
-            </td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
-              Orientación del reverso
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Ángulo Reflejado Esperado</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; color: #f59e0b;">
-              ${safeNum(comp.anguloReflejadoEsperado || 0, 1)}°
-            </td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
-              Reflejo horizontal de A
-            </td>
-          </tr>
-          <tr style="background: #f8f9fa;">
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Diferencia Angular</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; color: #f59e0b;">
-              ${safeNum(comp.diferenciaAngularConReflejo || 0, 1)}°
-            </td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
-              Desviación del reflejo esperado
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Simetría de Orientación</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; color: ${(comp.simetriaOrientacion || 0) >= 0.9 ? '#28a745' : ((comp.simetriaOrientacion || 0) >= 0.7 ? '#f59e0b' : '#dc3545')};">
-              ${safeNum((comp.simetriaOrientacion || 0) * 100, 1)}%
-            </td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
-              Precisión del reflejo angular
-            </td>
-          </tr>
-          <tr style="background: #f8f9fa;">
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Simetría Radio Máximo</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; color: ${(comp.simetriaRadioMaximo || 0) >= 0.9 ? '#28a745' : ((comp.simetriaRadioMaximo || 0) >= 0.7 ? '#f59e0b' : '#dc3545')};">
-              ${safeNum((comp.simetriaRadioMaximo || 0) * 100, 1)}%
-            </td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
-              Similitud de radios máximos
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Simetría Radio Mínimo</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; color: ${(comp.simetriaRadioMinimo || 0) >= 0.9 ? '#28a745' : ((comp.simetriaRadioMinimo || 0) >= 0.7 ? '#f59e0b' : '#dc3545')};">
-              ${safeNum((comp.simetriaRadioMinimo || 0) * 100, 1)}%
-            </td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
-              Similitud de radios mínimos
-            </td>
-          </tr>
-          <tr style="background: ${comp.calidadReflejoAngular === 'Excelente' ? '#d4edda' : (comp.calidadReflejoAngular === 'Buena' ? '#fff3cd' : '#f8d7da')};">
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Calidad del Reflejo</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-weight: 700; font-size: 16px; color: ${comp.calidadReflejoAngular === 'Excelente' ? '#155724' : (comp.calidadReflejoAngular === 'Buena' ? '#856404' : '#721c24')};">
-              ${comp.calidadReflejoAngular || 'N/A'} ${comp.calidadReflejoAngular === 'Excelente'? '': (comp.calidadReflejoAngular === 'Buena'? '': '')}
-            </td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-size: 12px; color: #495057;">
-              ${comp.esReflejoEspecular 
-                ? 'Reflejo especular confirmado: anverso y reverso bien alineados' 
-                : 'Reflejo especular parcial o ausente'}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      
-      <!-- Tabla de Perforaciones y Horadaciones -->
-      <h3 style="margin-top: 30px; margin-bottom: 15px; color: #2c3e50; font-size: 16px; font-weight: 600; border-bottom: 2px solid #4a5568; padding-bottom: 8px;">
-        Perforaciones y Horadaciones
-      </h3>
-      
-      <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
-        <thead>
-          <tr style="background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%); color: white;">
-            <th style="padding: 12px; text-align: left; border: 1px solid #dee2e6;">Tipo</th>
-            <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Cara A</th>
-            <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Cara B</th>
-            <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Diferencia</th>
-            <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Análisis</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Perforaciones</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #0066cc; font-weight: 600;">${comp.perforacionesA}</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #28a745; font-weight: 600;">${comp.perforacionesB}</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center;">${Math.abs(comp.perforacionesA - comp.perforacionesB)}</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-size: 12px; color: #6c757d;">
-              ${comp.perforacionesA === comp.perforacionesB ? 'Igual': (comp.perforacionesA >comp.perforacionesB ? 'A >B': 'B >A')}
-            </td>
-          </tr>
-          <tr style="background: #f8f9fa;">
-            <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: 600;">Horadaciones</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #0066cc; font-weight: 600;">${comp.horadacionesA}</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #28a745; font-weight: 600;">${comp.horadacionesB}</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center;">${Math.abs(comp.horadacionesA - comp.horadacionesB)}</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-size: 12px; color: #6c757d;">
-              ${comp.horadacionesA === comp.horadacionesB ? 'Igual': (comp.horadacionesA >comp.horadacionesB ? 'A >B': 'B >A')}
-            </td>
-          </tr>
-          <tr style="background: #f0f2f5; font-weight: 600;">
-            <td style="padding: 10px; border: 1px solid #dee2e6;">TOTAL P/H</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #0066cc; font-size: 16px;">${comp.totalPH_A}</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; color: #28a745; font-size: 16px;">${comp.totalPH_B}</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center;">${Math.abs(comp.totalPH_A - comp.totalPH_B)}</td>
-            <td style="padding: 10px; border: 1px solid #dee2e6; text-align: center; font-size: 12px; color: #6c757d;">
-              ${comp.totalPH_A === comp.totalPH_B ? 'Simétrico': 'Asimétrico'}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      
-      <div style="margin-top: 15px; padding: 12px; background: #f0f2f5; border-left: 4px solid #2196f3; border-radius: 4px;">
-        <strong style="color: #1565c0;">Interpretación de Similitud:</strong>
-        <ul style="margin: 8px 0 0 20px; color: #424242; font-size: 12px; line-height: 1.6;">
-          <li><span style="color: #28a745; font-weight: 600;">≥ 90%</span> = Alta similitud (simétrico)</li>
-          <li><span style="color: #ffc107; font-weight: 600;">70-89%</span> = Similitud moderada</li>
-          <li><span style="color: #dc3545; font-weight: 600;">< 70%</span> = Baja similitud (asimétrico)</li>
-        </ul>
-      </div>
-    `;
-    
-    console.log(`📊 Filas generadas: ${filasGeneradas} de ${metricas.length} métricas`);
-    console.log('📊 HTML generado para tabla comparativa:', {
-      longitudHTML: html.length,
-      tieneContenido: html.includes('<tr'),
-      primerosCaracteres: html.substring(0, 200)
-    });
-    
-    container.innerHTML = html;
-    
-    if (!container) {
-      console.error('❌ No se encontró el contenedor tablaComparativaContainer');
-    } else {
-      console.log('✅ Tabla comparativa insertada en el DOM');
-    }
-  }
 
   /**
    * Generar gráficos comparativos (usando caracteres ASCII/barras)
    */
-  window.generarGraficosComparativos = function(caraA, caraB, comp) {
+  const generarGraficosComparativos = function(caraA, caraB, comp) {
     const container = document.getElementById('graficosContainer');
     
     // Función auxiliar para obtener valor numérico seguro
@@ -37645,7 +36829,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Generar análisis detallado con interpretación
    */
-  window.generarAnalisisDetallado = function(caraA, caraB, comp) {
+  const generarAnalisisDetallado = function(caraA, caraB, comp) {
     const container = document.getElementById('analisisDetalladoContainer');
     
     // 🔒 Función auxiliar para valores numéricos seguros
@@ -37975,7 +37159,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Generar interpretación arqueológica basada en las métricas
    */
-  window.generarInterpretacionArqueologica = function(comp, caraA, caraB) {
+  const generarInterpretacionArqueologica = function(comp, caraA, caraB) {
     let interpretacion = '';
     
     // Análisis de simetría
@@ -38016,7 +37200,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Cerrar panel de comparación bifacial
    */
-  window.cerrarComparacionBifacial = function() {
+  const cerrarComparacionBifacial = function() {
     const container = document.getElementById('bifacialComparisonContainer');
     container.style.display = 'none';
   }
@@ -38024,7 +37208,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   /**
    * Manejar cambio de tabs
    */
-  window.setupBifacialTabs = function() {
+  const setupBifacialTabs = function() {
     const tabs = document.querySelectorAll('.bifacial-tab');
     const contents = document.querySelectorAll('.bifacial-tab-content');
     
@@ -38062,7 +37246,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Actualizar visibilidad del botón de comparación bifacial
    * NUEVA VERSIÓN: Gestiona sección centralizada de botones
    */
-  window.actualizarVisibilidadBotonComparacion = function(numeroObjeto) {
+  const actualizarVisibilidadBotonComparacion = function(numeroObjeto) {
     // Actualizar toda la sección de comparaciones centralizadas
     actualizarSeccionComparacionesBifaciales();
   }
@@ -38075,7 +37259,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * 🆕 ACTUALIZAR SECCIÓN DE COMPARACIÓN BIFACIAL SIMPLIFICADA
    * Crea un botón simple para mostrar/ocultar tabla de comparación
    */
-  window.actualizarSeccionComparacionesBifaciales = function() {
+  const actualizarSeccionComparacionesBifaciales = function() {
     const seccion = document.getElementById('bifacialComparisonsSection');
     const buttonContainer = document.getElementById('bifacialComparisonButtonContainer');
     
@@ -38209,7 +37393,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Tabla organizada por categorías con todas las métricas morfométricas
    * Categorías: Dimensiones Básicas, Estado de Conservación, Clasificación Geométrica
    */
-  window.generarComparacionBifacialSimple = function(caraA, caraB, numeroObjeto) {
+  const generarComparacionBifacialSimple = function(caraA, caraB, numeroObjeto) {
     console.log(`📊 Generando comparación bifacial completa para Objeto ${numeroObjeto}`);
     
     // 💾 GUARDAR REFERENCIA GLOBAL para exportación CSV
@@ -40762,7 +39946,36 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 
     // ADR-007 §D2 — chip de confianza vía MaoOrganizer.setChip (tras el innerHTML).
     _appendConfidenceChip(infoDiv, obj);
-    
+
+    // ADR-014 — Selector de tipología arqueológica (etiqueta para dataset ML)
+    const TIPOS_TIPOLOGIA = [
+      '', 'lasca', 'raedera', 'raedera_lateral', 'raedera_transversal',
+      'punta', 'perforador', 'raspador', 'buril', 'bifaz', 'nucleo', 'fragmento',
+    ];
+    const tipoWrap = document.createElement('div');
+    tipoWrap.style.cssText = 'margin-top:8px;';
+    const tipoLabel = document.createElement('label');
+    tipoLabel.style.cssText = 'font-size:11px;color:#666;display:block;margin-bottom:3px;';
+    tipoLabel.textContent = 'Tipología (dataset ML)';
+    const tipoSel = document.createElement('select');
+    tipoSel.style.cssText = 'width:100%;font-size:12px;padding:4px 6px;border:1px solid #ccc;border-radius:4px;background:#fff;';
+    tipoSel.title = 'Categoría tipológica para entrenar modelos ML';
+    TIPOS_TIPOLOGIA.forEach(function (t) {
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t ? t.replace(/_/g, ' ') : '— sin tipo —';
+      if ((obj.tipologia || '') === t) opt.selected = true;
+      tipoSel.appendChild(opt);
+    });
+    tipoSel.addEventListener('change', function () {
+      obj.tipologia = tipoSel.value || null;
+      document.dispatchEvent(new CustomEvent('mao:objects:changed',
+        { detail: { id: obj.id, tipologia: obj.tipologia } }));
+    });
+    tipoWrap.appendChild(tipoLabel);
+    tipoWrap.appendChild(tipoSel);
+    infoDiv.appendChild(tipoWrap);
+
     // 🆕 Botón "Abrir análisis" que usa caché si existe
     const analyzeBtn = document.createElement('button');
     const tieneCache = obj.analisisCached ? true : false;
@@ -41190,31 +40403,6 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
         individualizarBifacialBtn.style.background = '#6c757d';
         individualizarBifacialBtn.style.color = 'white';
         individualizarBifacialBtn.textContent = 'Individualizar';
-      }
-    }
-    
-    // Actualizar nuevo botón de individualización bifacial (bajo canvas A/B)
-    if (individualizarBifacialBtn2 && modoAnalisis === 'bifacial') {
-      const tieneObjetos = objects.length > 0;
-      const tieneObjetosBifaciales = objects.some(obj => obj.cara);
-      
-      individualizarBifacialBtn2.disabled = !tieneObjetosBifaciales;
-      
-      if (tieneObjetosBifaciales) {
-        if (statusIndividualizarBifacial) {
-          const objetosA = objects.filter(obj => obj.cara === 'A').length;
-          const objetosB = objects.filter(obj => obj.cara === 'B').length;
-          let mensaje = '';
-          if (objetosA > 0) mensaje += `Cara A: ${objetosA} objeto(s) `;
-          if (objetosB > 0) mensaje += `Cara B: ${objetosB} objeto(s)`;
-          statusIndividualizarBifacial.textContent = mensaje;
-          statusIndividualizarBifacial.style.color = '#28a745';
-        }
-      } else {
-        if (statusIndividualizarBifacial) {
-          statusIndividualizarBifacial.textContent = 'Detecte objetos en Cara A y/o B para habilitar';
-          statusIndividualizarBifacial.style.color = '#6c757d';
-        }
       }
     }
     
@@ -41855,6 +41043,30 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     }
     
     console.log('✅ Validación de parámetros de escala exitosa');
+    return true;
+  }
+
+  function normalizeNumericInput(inputElement) {
+    if (!inputElement) return null;
+    const rawValue = `${inputElement.value || ''}`.trim().replace(/\s+/g, '').replace(',', '.');
+    if (!rawValue) {
+      inputElement.value = '';
+      return null;
+    }
+    const numericValue = Number(rawValue);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+      return null;
+    }
+    inputElement.value = rawValue;
+    return numericValue;
+  }
+
+  function validarParametrosEscalaParaGuardar() {
+    const distancia = normalizeNumericInput(distanciaInput);
+    if (!distancia) {
+      UtilityHelpers.setStatus('Error: Distancia lente-objeto inválida.', true);
+      return false;
+    }
     return true;
   }
   
@@ -42774,8 +41986,8 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     });
     
     distanciaInput.addEventListener('blur', function() {
-      // Solo validar entrada - cálculo ahora es manual
-      if (this.value && parseFloat(this.value) > 0) {
+      normalizeNumericInput(distanciaInput);
+      if (distanciaInput.value && parseFloat(distanciaInput.value) > 0) {
         UtilityHelpers.setStatus('Distancia ingresada. Use "Calcular Escala" para proceder.', false);
       }
     });
@@ -42804,14 +42016,22 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
   }
 
   guardarConfigBtn.addEventListener('click', () => {
-    if(!validarEntradas()) return;
-    localStorage.setItem('cameraModel', cameraModelInput.value);
-    localStorage.setItem('focalLength', focalInput.value);
-    localStorage.setItem('aperture', apertureInput.value);
-    localStorage.setItem('sensorWidth', sensorWidthInput.value);
-    localStorage.setItem('sensorHeight', sensorHeightInput.value);
-    localStorage.setItem('distancia', distanciaInput.value);
-    UtilityHelpers.setStatus('Configuración guardada. Use "Calcular Escala"para aplicar cambios.', false);
+    if (!validarParametrosEscalaParaGuardar()) return;
+    try {
+      normalizeNumericInput(distanciaInput);
+      UtilityHelpers.guardarConfiguracion(
+        cameraModelInput,
+        focalInput,
+        apertureInput,
+        sensorWidthInput,
+        sensorHeightInput,
+        distanciaInput
+      );
+      UtilityHelpers.setStatus('Configuración guardada. Use "Calcular Escala" para aplicar cambios.', false);
+    } catch (err) {
+      console.error('❌ Error guardando configuración de escala:', err);
+      UtilityHelpers.setStatus(`Error guardando configuración: ${err.message}`, true);
+    }
     // Cálculo automático eliminado - ahora completamente manual
   });
 
@@ -43582,9 +42802,11 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       window.canvasBackup = canvasOriginal;  // Guardar referencia original
       window.ctxBackup = ctxOriginal;
       
-      // Reasignar variables globales al canvas bifacial
-      window.canvas = document.getElementById('canvasCaraA');
-      window.ctx = window.canvas.getContext('2d');
+      // Reasignar al canvas bifacial. Asignación BARE a las vars del IIFE: `window.canvas`
+      // es un getter sin setter (bridgeIIFEStateToModules) → `window.canvas = …` lanzaba
+      // TypeError y abortaba esta función. Ver AUDITORIA_COHERENCIA_20260731.md §3.1.
+      canvas = document.getElementById('canvasCaraA');
+      ctx = canvas.getContext('2d');
       
       // Marcar que estamos en modo bifacial
       window.deteccionBifacialActiva = {
@@ -43625,9 +42847,11 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
       window.canvasBackup = canvasOriginal;  // Guardar referencia original
       window.ctxBackup = ctxOriginal;
       
-      // Reasignar variables globales al canvas bifacial
-      window.canvas = document.getElementById('canvasCaraB');
-      window.ctx = window.canvas.getContext('2d');
+      // Reasignar al canvas bifacial. Asignación BARE a las vars del IIFE: `window.canvas`
+      // es un getter sin setter (bridgeIIFEStateToModules) → `window.canvas = …` lanzaba
+      // TypeError y abortaba esta función. Ver AUDITORIA_COHERENCIA_20260731.md §3.1.
+      canvas = document.getElementById('canvasCaraB');
+      ctx = canvas.getContext('2d');
       
       // Marcar que estamos en modo bifacial
       window.deteccionBifacialActiva = {
@@ -45845,7 +45069,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * Actualizar la tabla de trazos con los puntos registrados
    * @param {string} modo - 'monofacial' o 'bifacial'
    */
-  window.actualizarTablaTrazos = function(modo) {
+  const actualizarTablaTrazos = function(modo) {
     const sufijo = modo.charAt(0).toUpperCase() + modo.slice(1);
     const tbody = document.getElementById(`trazosBody${sufijo}`);
     const totalesSpan = document.getElementById(`trazosTotales${sufijo}`);
@@ -46013,7 +45237,7 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
    * @param {number} index - Índice del trazo
    * @param {string} modo - 'monofacial' o 'bifacial'
    */
-  window.eliminarTrazo = function(index, modo) {
+  const eliminarTrazo = function(index, modo) {
     if (index >= 0 && index < trazadoPuntos.length) {
       const punto = trazadoPuntos.splice(index, 1)[0];
       console.log(`🗑️ Trazo ${index + 1} eliminado: (${punto.x.toFixed(1)}, ${punto.y.toFixed(1)})`);
@@ -49527,8 +48751,8 @@ import * as BifacialAnalysis from './modules/bifacial-analysis.js';
     }
   }
 
-  // Función para ejecutar pruebas desde consola del navegador
-  window.probarGeneradorID = probarGeneradorID;
+  // Función para ejecutar pruebas desde consola del navegador (solo debug)
+  if (window._MAO_DEBUG) window.probarGeneradorID = probarGeneradorID;
 
   function actualizarID() {
     if (!idGeneradoSpan) {
@@ -50080,8 +49304,8 @@ CASOS DONDE LA DIFERENCIA ES CRÍTICA:
    • Formas orgánicas irregulares
    • Herramientas con muescas o perforaciones`);
 
-    // Función de prueba para demostrar diferencias
-    if (typeof window !== 'undefined') {
+    // Función de prueba para demostrar diferencias (solo debug)
+    if (typeof window !== 'undefined' && window._MAO_DEBUG) {
       window.demostrarDiferencias = function() {
         console.log(`
 EJECUTAR PRUEBA PRÁCTICA:
@@ -50785,12 +50009,13 @@ TODAS ESTAS MEJORAS SON:
    • Testeable con la prueba virtual`);
   }
 
-  // Hacer función disponible globalmente
-  window.generarImagenVirtualPrueba = generarImagenVirtualPrueba;
-  window.validarResultadosPrueba = validarResultadosPrueba;
-  window.auditoriaSistemaMAO = auditoriaSistemaMAO;
+  // Funciones de prueba/auditoría — solo en modo debug
+  if (window._MAO_DEBUG) window.generarImagenVirtualPrueba = generarImagenVirtualPrueba;
+  if (window._MAO_DEBUG) window.validarResultadosPrueba = validarResultadosPrueba;
+  if (window._MAO_DEBUG) window.auditoriaSistemaMAO = auditoriaSistemaMAO;
   window.detectarObjetos = detectarObjetos;
   window.analizarObjetoMorfologicamente = analizarObjetoMorfologicamente;
+  window.eliminarTrazo = eliminarTrazo;
   
   // ============================================================================
   // 🆕 FUNCIONES PARA TABLA COMPARATIVA DE MÚLTIPLES OBJETOS
@@ -51162,8 +50387,8 @@ TODAS ESTAS MEJORAS SON:
   // FIN DE FUNCIONES DE TABLA COMPARATIVA
   // ============================================================================
   
-  // Función de test manual para debugging
-  window.testAnalisisMorfologico = function() {
+  // Función de test manual para debugging (solo _MAO_DEBUG)
+  if (window._MAO_DEBUG) window.testAnalisisMorfologico = function() {
     console.log('🧪 === TEST MANUAL DE ANÁLISIS MORFOLÓGICO ===');
     
     if (!objects || objects.length === 0) {
@@ -51355,7 +50580,6 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       
       // Ocultar botón individualizar bifacial, mostrar monofacial
       if (individualizarBifacialBtn) individualizarBifacialBtn.style.display = 'none';
-      if (individualizarBifacialBtn2) individualizarBifacialBtn2.style.display = 'none';
       if (individualizarBtn) individualizarBtn.style.display = 'inline-block';
       
       // Actualizar descripción
@@ -51376,9 +50600,10 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       // Mostrar nota de escala bifacial
       if (notaEscalaBifacial) notaEscalaBifacial.style.display = 'block';
       
-      // Mostrar botón individualizar bifacial (nuevo), ocultar monofacial y viejo bifacial
-      if (individualizarBifacialBtn) individualizarBifacialBtn.style.display = 'none'; // Ocultar viejo botón en PROCESAMIENTO
-      if (individualizarBifacialBtn2) individualizarBifacialBtn2.style.display = 'inline-block'; // Mostrar nuevo botón bajo canvas
+      // Botón de individualización: el bifacial es el canónico aquí; el monofacial se oculta.
+      // (Antes se ocultaban LOS DOS y actualizarEstadoProcesamiento solo repone disabled/texto,
+      //  nunca el display → en bifacial el botón quedaba funcional pero invisible.)
+      if (individualizarBifacialBtn) individualizarBifacialBtn.style.display = 'inline-block';
       if (individualizarBtn) individualizarBtn.style.display = 'none';
       
       // Inicializar canvas bifaciales con placeholders
@@ -52148,10 +51373,10 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       // tengan IDs distintos y no se sobreescriban mutuamente en objects[].
       const numPad   = String(o.object_id).padStart(3, '0');
       const caraSufx = cara ? ('_Cara' + cara) : '';
-      const objId    = (nombreSafe ? nombreSafe + '_IA_' + numPad : 'IAobj_' + numPad) + caraSufx;
+      const objId    = (nombreSafe ? nombreSafe + '_' + numPad : 'obj_' + numPad) + caraSufx;
       const label    = (nombreBase
-        ? nombreBase + ' — obj. IA #' + o.object_id
-        : (o.label || 'Obj. IA #' + o.object_id))
+        ? nombreBase + ' — obj. #' + o.object_id
+        : (o.label || 'Obj. #' + o.object_id))
         + (cara ? ' (Cara ' + cara + ')' : '');
 
       // Métricas básicas disponibles desde la respuesta AIA (sin Python adicional)

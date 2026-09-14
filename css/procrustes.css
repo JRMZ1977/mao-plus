@@ -1,0 +1,428 @@
+/* ============================================================
+   ANÁLISIS PROCRUSTES — ESTILOS  (procrustes.css ?v=20260629a)
+   PS Parcial & GPA — Colección de formas morfométricas
+   Complementa el sistema de diseño LAAR (mao-tabs-laar.css)
+   ============================================================ */
+
+/* ── 1. MODAL CONTENEDOR ─────────────────────────────────────── */
+#psModal {
+  display: none;
+  position: fixed; inset: 0; z-index: 9000;
+  background: rgba(0,0,0,.55);
+  align-items: center; justify-content: center;
+}
+#psModal.ps-open { display: flex; }
+
+.ps-modal-panel {
+  background: #fff;
+  border-radius: 12px;
+  width: min(99vw, 1440px);
+  max-height: 96vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,.32);
+}
+
+/* ── 2. CABECERA DEL MODAL ───────────────────────────────────── */
+.ps-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 13px 20px 11px;
+  border-bottom: 1.5px solid #2b6cb0;
+  background: linear-gradient(135deg, #1a365d 0%, #2b6cb0 100%);
+  border-radius: 12px 12px 0 0;
+  flex-shrink: 0;
+}
+.ps-modal-header-left  { display: flex; align-items: center; gap: 10px; }
+.ps-modal-header-right { display: flex; align-items: center; gap: 8px; }
+.ps-modal-title {
+  font-size: 15px; font-weight: 700; color: #fff;
+}
+.ps-modal-subtitle {
+  font-size: 11px; color: #bee3f8; margin-left: 4px;
+}
+.ps-modal-btn {
+  background: rgba(255,255,255,.15);
+  border: 1px solid rgba(255,255,255,.35);
+  border-radius: 6px; color: #fff;
+  cursor: pointer; font-size: 12px; font-weight: 600;
+  padding: 5px 12px; line-height: 1.4;
+  transition: background 0.18s;
+}
+.ps-modal-btn:hover { background: rgba(255,255,255,.28); }
+.ps-modal-close {
+  background: rgba(255,255,255,.15); border: none;
+  border-radius: 6px; color: #fff; cursor: pointer;
+  font-size: 16px; padding: 4px 10px; line-height: 1;
+  transition: background 0.18s;
+}
+.ps-modal-close:hover { background: rgba(255,255,255,.28); }
+
+/* ── 3. STEPPER ──────────────────────────────────────────────── */
+.ps-stepper-bar {
+  padding: 10px 20px 6px; border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0; background: #fff;
+}
+
+/* ── 4. CUERPO SCROLLABLE ────────────────────────────────────── */
+.ps-modal-body {
+  flex: 1; overflow-y: auto; padding: 16px 20px 20px;
+}
+
+/* ── 5. SUB-TABS: Parcial / GPA ──────────────────────────────── */
+.ps-tab-bar {
+  display: flex; gap: 4px;
+  margin-bottom: 14px; padding-bottom: 10px;
+  border-bottom: 1.5px solid #e2e8f0; flex-wrap: wrap;
+}
+.ps-tab-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 16px;
+  border: 1.5px solid #e2e8f0; border-radius: 6px;
+  background: #f7fafc; color: #4a5568;
+  font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all 0.18s; line-height: 1.4;
+}
+.ps-tab-btn:hover { background: #edf2f7; border-color: #cbd5e0; color: #2d3748; }
+.ps-tab-btn.active {
+  background: #ebf8ff; border-color: #90cdf4; color: #2b6cb0;
+}
+.ps-tab-btn-sub { font-size: 10px; font-weight: 400; color: inherit; opacity: .7; }
+.ps-tab-pane { display: none; }
+.ps-tab-pane.active { display: block; }
+
+/* ── 6. DESCRIPCIÓN DE CADA TAB ──────────────────────────────── */
+.ps-tab-desc {
+  margin-bottom: 12px; padding: 10px 14px;
+  border-radius: 6px; font-size: 12px; line-height: 1.55;
+}
+.ps-tab-desc--parcial { background: #f0fff4; border: 1px solid #c6f6d5; color: #276749; }
+.ps-tab-desc--gpa     { background: #fffaf0; border: 1px solid #fbd38d; color: #744210; }
+
+/* ── 7. LAYOUT CANVAS-PRIMERO: canvas ocupa toda la anchura ─────── */
+/*    El layout apila verticalmente: canvas arriba, stats debajo.    */
+.ps-layout-2col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ps-canvas-wrap {
+  border: 1px solid #e2e8f0; border-radius: 8px;
+  background: #fff; overflow: hidden;
+  box-shadow: 0 1px 5px rgba(0,0,0,.07);
+  display: flex; flex-direction: column;
+  width: 100%; min-width: 0; flex-shrink: 0;
+}
+
+/* ── 8. CANVAS VIEWPORT (main) ───────────────────────────────── */
+.ps-canvas-title {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f4f8;
+  font-size: 12px; font-weight: 600; color: #2d3748;
+  background: #f7fafc;
+  display: flex; align-items: center; gap: 8px;
+  justify-content: space-between; flex-wrap: wrap; line-height: 1.4;
+  min-height: 36px;
+}
+.ps-canvas-viewport {
+  /* Canvas cuadrado a ancho completo del contenedor.
+     aspect-ratio SIN max-height: el browser mantiene width=height sin conflicto.
+     El modal body tiene overflow-y:auto → el scroll muestra el panel de stats. */
+  position: relative; overflow: hidden; background: #f7fafc;
+  width: 100%;
+  aspect-ratio: 1;
+}
+.ps-canvas-viewport canvas {
+  position: absolute; inset: 0;
+  display: block; width: 100%; height: 100%;
+  cursor: crosshair;
+}
+
+/* ── PANEL DE STATS: 3 zonas horizontales debajo del canvas ───── */
+.ps-stats-col,
+.ps-sequence-col {
+  display: grid;
+  grid-template-columns:
+    minmax(160px, 220px)    /* zona 1: chips / resumen */
+    minmax(220px, 1fr)       /* zona 2: ranking / método */
+    minmax(280px, 2fr);      /* zona 3: matriz / deform */
+  gap: 12px 16px;
+  align-items: start;
+  width: 100%; min-width: 0;
+}
+
+/* ── Asignaciones de zona en PS Parcial ─────────────────────── */
+.ps-stats-col details.ps-method-details { grid-column: 1; }
+.ps-stats-col .ps-chip                  { grid-column: 1; }
+.ps-stats-col .ps-ranking-title         { grid-column: 2; }
+.ps-stats-col .ps-ranking-table,
+.ps-stats-col #psGPARankingTable        { grid-column: 2; }
+.ps-stats-col .ps-matrix-title          { grid-column: 3; }
+.ps-stats-col .ps-table-scroll          { grid-column: 3; overflow-x: auto; }
+/* Notas / inferencias: ancho completo */
+.ps-stats-col .ps-desc-note             { grid-column: 1 / -1; font-size: 11px; }
+
+/* ── Asignaciones de zona en GPA ─────────────────────────────── */
+.ps-stats-col .ps-deform-wrap           { grid-column: 3; }
+.ps-stats-col .ps-gmm-stats-panel       { grid-column: 2 / -1; }
+
+/* ── Canvas deform (340×340, dentro de stats) ────────────────── */
+.ps-deform-wrap {
+  display: flex; flex-direction: column; gap: 6px; grid-column: 3;
+}
+.ps-deform-viewport {
+  position: relative; overflow: hidden; background: #f7fafc;
+  width: 100%; aspect-ratio: 1;
+  max-height: 340px;
+  border: 1px solid #e2e8f0; border-radius: 6px;
+}
+.ps-deform-viewport canvas { display: block; width: 100%; height: 100%; }
+.ps-deform-caption {
+  font-size: 10px; color: #718096; text-align: center; margin: 0;
+}
+
+@media (max-width: 960px) {
+  .ps-stats-col, .ps-sequence-col {
+    grid-template-columns: 1fr 1fr;
+  }
+  .ps-stats-col .ps-deform-wrap,
+  .ps-stats-col .ps-table-scroll { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .ps-stats-col, .ps-sequence-col { grid-template-columns: 1fr; }
+  .ps-stats-col > * { grid-column: 1 !important; }
+}
+.ps-canvas-legend {
+  padding: 6px 10px; min-height: 28px;
+  border-top: 1px solid #f0f4f8;
+  background: #fafafa;
+  display: flex; flex-wrap: wrap; gap: 4px 8px;
+  font-size: 11px; align-items: center;
+}
+
+/* ── 9. PANEL DE ALINEACIÓN MANUAL ──────────────────────────── */
+.ps-align-panel {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 10px;
+  background: #fffbeb;
+  border-top: 1px solid #fde68a;
+  font-size: 11px; color: #78350f;
+}
+.ps-align-panel select,
+.ps-align-panel input[type="number"] {
+  font-size: 11px; padding: 2px 4px;
+  border: 1px solid #fcd34d; border-radius: 4px;
+  background: #fff; color: #374151;
+}
+.ps-align-panel input[type="number"] { width: 58px; text-align: right; }
+.ps-align-label { font-weight: 600; color: #92400e; white-space: nowrap; }
+.ps-align-sep   { color: #fcd34d; margin: 0 2px; }
+.ps-align-status { font-style: italic; font-size: 10px; color: #92400e; margin-left: 2px; }
+
+/* ── 10. CHIPS DE RESUMEN ────────────────────────────────────── */
+.ps-chip {
+  border-radius: 8px; padding: 10px 14px;
+  border: 1px solid #e2e8f0; border-left-width: 4px;
+  background: #fff;
+  display: flex; flex-direction: column; gap: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+.ps-chip-green { border-left-color: #38a169; }
+.ps-chip-red   { border-left-color: #e53e3e; }
+.ps-chip-gray  { border-left-color: #a0aec0; }
+.ps-chip-label {
+  font-size: 10px; font-weight: 700; color: #718096;
+  text-transform: uppercase; letter-spacing: .05em;
+}
+.ps-chip-val {
+  font-size: 13.5px; font-weight: 700; color: #2d3748;
+  word-break: break-word; line-height: 1.3;
+}
+.ps-chip-sub { font-size: 11px; color: #4a5568; }
+
+/* ── 11. TÍTULO DE SECCIÓN ───────────────────────────────────── */
+.ps-matrix-title {
+  font-size: 12px; font-weight: 700; color: #2d3748;
+  padding-bottom: 5px;
+  border-bottom: 1.5px solid #e2e8f0;
+}
+.ps-ranking-title {
+  font-size: 12px; font-weight: 700; color: #2d3748;
+  padding-bottom: 5px;
+  border-bottom: 1.5px solid #e2e8f0;
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+/* ── 12. TABLA DE DISTANCIAS ─────────────────────────────────── */
+.ps-table-scroll {
+  overflow-x: auto; overflow-y: auto;
+  max-height: 360px;
+  border: 1px solid #e2e8f0; border-radius: 6px;
+}
+.ps-dist-table {
+  border-collapse: collapse; font-size: 11px;
+  min-width: 100%; background: #fff;
+}
+.ps-dist-table th,
+.ps-dist-table td {
+  padding: 5px 8px;
+  border: 1px solid #f0f4f8;
+  text-align: center; white-space: nowrap;
+}
+.ps-dist-table thead th {
+  background: #f7fafc; font-weight: 600; color: #4a5568;
+  position: sticky; top: 0; z-index: 2;
+  border-bottom: 1.5px solid #e2e8f0;
+}
+.ps-th-corner { background: #f7fafc !important; min-width: 110px; }
+.ps-th-row {
+  text-align: left !important; font-weight: 600; color: #2d3748;
+  background: #f7fafc; position: sticky; left: 0; z-index: 1;
+  border-right: 1.5px solid #e2e8f0;
+}
+.ps-cell-val { transition: filter 0.1s; }
+.ps-cell-clickable { cursor: pointer; }
+.ps-cell-clickable:hover { filter: brightness(.88); }
+.ps-cell-diag { background: #f7fafc !important; color: #a0aec0; font-weight: 400; }
+.ps-cell-bifacial { font-weight: 700; }
+.ps-obj-dot {
+  display: inline-block; width: 9px; height: 9px;
+  border-radius: 50%; vertical-align: middle;
+  margin-right: 4px; flex-shrink: 0;
+}
+
+/* ── 13. TABLA RANKING ───────────────────────────────────────── */
+.ps-ranking-table {
+  width: 100%; border-collapse: collapse; font-size: 11px;
+}
+.ps-ranking-table th {
+  background: #f7fafc; padding: 5px 8px;
+  border-bottom: 1.5px solid #e2e8f0;
+  font-weight: 600; color: #4a5568; text-align: left;
+}
+.ps-ranking-table td { padding: 5px 8px; border-bottom: 1px solid #f0f4f8; color: #2d3748; vertical-align: middle; }
+.ps-ranking-table tbody tr:hover td { background: #f7fafc; }
+.ps-rank-num  { color: #a0aec0; font-size: 10px; text-align: center !important; width: 28px; }
+.ps-rank-dist { font-family: ui-monospace, monospace; text-align: right !important; font-size: 11.5px; }
+.ps-rank-cs   { text-align: right !important; color: #718096; }
+.ps-rank-be   { font-family: ui-monospace, monospace; text-align: right !important; font-size: 11px; color: #4a5568; }
+
+/* ── 14. PANEL GMM / TARJETAS ESTADÍSTICAS ────────────────────── */
+.ps-gmm-stats-panel {
+  background: #f8fafc; border: 1px solid #e2e8f0;
+  border-radius: 8px; padding: 14px 16px;
+  margin-top: 16px;
+}
+.ps-gmm-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 10px;
+}
+.ps-stat-card {
+  background: #fff; border: 1px solid #e2e8f0;
+  border-radius: 6px; padding: 10px 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+}
+.ps-stat-val {
+  font-size: 15px; font-weight: 700; color: #2d3748;
+  margin-bottom: 3px; font-family: ui-monospace, monospace;
+  line-height: 1.2;
+}
+.ps-stat-lbl { font-size: 10px; color: #718096; line-height: 1.4; }
+
+/* ── 15. PANEL MÉTODO (details) ──────────────────────────────── */
+.ps-method-details {
+  border: 1px solid #e2e8f0; border-radius: 6px;
+  overflow: hidden; background: #fff;
+}
+.ps-method-details > summary {
+  padding: 8px 12px;
+  background: #f7fafc; cursor: pointer;
+  font-size: 11.5px; font-weight: 600; color: #4a5568;
+  list-style: none;
+  display: flex; align-items: center; gap: 6px;
+  transition: background 0.15s; user-select: none;
+}
+.ps-method-details > summary::before {
+  content: '▶'; font-size: 8px; color: #a0aec0;
+  transition: transform 0.18s; flex-shrink: 0;
+}
+.ps-method-details[open] > summary::before { transform: rotate(90deg); }
+.ps-method-details > summary::-webkit-details-marker { display: none; }
+.ps-method-details:hover > summary { background: #edf2f7; }
+.ps-desc-panel { padding: 10px 14px 12px; font-size: 11.5px; color: #4a5568; }
+.ps-desc-title { font-weight: 700; color: #2d3748; margin-bottom: 8px; font-size: 12px; }
+.ps-desc-steps {
+  padding-left: 18px; color: #4a5568; line-height: 1.9; margin: 0;
+}
+.ps-desc-steps li { margin-bottom: 1px; }
+.ps-desc-note {
+  padding: 7px 10px;
+  background: #f7fafc; border-left: 3px solid #cbd5e0;
+  border-radius: 0 4px 4px 0;
+  font-size: 11px; color: #4a5568; line-height: 1.6;
+}
+
+/* ── 16. LEYENDA DEL CANVAS ──────────────────────────────────── */
+.ps-ley-item {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: #4a5568;
+  padding: 2px 6px; border-radius: 4px;
+  transition: opacity 0.15s;
+}
+.ps-ley-toggle { cursor: pointer; }
+.ps-ley-toggle:hover { background: #edf2f7; }
+.ps-ley-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  display: inline-block; flex-shrink: 0;
+}
+
+/* ── 17. AVISOS ──────────────────────────────────────────────── */
+.ps-aviso {
+  padding: 10px 14px; border-radius: 6px;
+  background: #ebf8ff; border: 1px solid #bee3f8;
+  color: #2c5282; font-size: 12px; line-height: 1.6;
+}
+.ps-aviso-error { background: #fff5f5 !important; border-color: #feb2b2 !important; color: #9b2c2c !important; }
+.ps-aviso-warn  { background: #fffbeb !important; border-color: #fbd38d !important; color: #744210 !important; }
+
+/* ── 18. BOTÓN TOGGLE REFLEXIÓN ──────────────────────────────── */
+.ps-toggle-btn {
+  font-size: 11px; padding: 4px 10px; border-radius: 4px;
+  cursor: pointer; font-weight: 500; transition: all 0.18s;
+  border: 1px solid;
+}
+.ps-toggle-btn:hover { filter: brightness(.9); }
+
+/* ── 19. BOTONES DE EXPORTACIÓN ──────────────────────────────── */
+.ps-export-buttons { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* ── 20. BOTÓN PNG SOBRE CANVAS ──────────────────────────────── */
+.ps-canvas-wrap .cmo-export-png-btn { bottom: 6px; right: 6px; }
+
+/* ── 20b. BARRA DE ZOOM — mover a top (canvas muy alto, bottom no visible) ── */
+.ps-canvas-viewport .cz-bar { top: 8px; bottom: auto; }
+
+/* ── 21. BANNER DE MODO (especular / comparación / mixto) ────── */
+.ps-mode-banner {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 14px; margin-bottom: 14px;
+  border-radius: 7px; border-left: 4px solid;
+}
+.ps-mode-banner--especular  { border-color: #3182ce; background: #ebf4ff; }
+.ps-mode-banner--comparacion{ border-color: #38a169; background: #f0fff4; }
+.ps-mode-banner--mixto      { border-color: #d69e2e; background: #fffaf0; }
+.ps-mode-banner-icon { font-size: 20px; line-height: 1; flex-shrink: 0; }
+.ps-mode-banner-title { font-weight: 700; font-size: 13px; margin-bottom: 3px; color: #2d3748; }
+.ps-mode-banner-desc  { font-size: 11px; color: #4a5568; line-height: 1.4; }
+
+/* ── 22. REQUERIMIENTOS (Paso 1) ─────────────────────────────── */
+.ps-requirements-box {
+  margin-top: 12px; padding: 11px 14px;
+  background: #ebf8ff; border: 1px solid #bee3f8;
+  border-radius: 8px; font-size: 12px; color: #2c5282; line-height: 1.6;
+}
+
+/* ── 23. BARRA INFERIOR PASO 2 ───────────────────────────────── */
+.ps-step2-footer {
+  display: flex; margin-top: 14px; gap: 8px; align-items: center;
+}

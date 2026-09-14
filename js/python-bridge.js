@@ -281,7 +281,7 @@ const PythonBridge = (() => {
    * Retorna null si no está implementado → usar detectObjectsAutomatically() JS.
    */
   const detection = {
-    async detect(imageDataURL, { threshold = 0.5, minArea = 100, maxObjects = 50, separateTouching = false } = {}) {
+    async detect(imageDataURL, { threshold = 0.5, minArea = 100, maxObjects = 50, separateTouching = false, roiMode = false } = {}) {
       if (!_serverAvailable || !isModuleActive('detection')) return null;
       const blob = _dataURLtoBlob(imageDataURL);
       return _fetch('/detect', {
@@ -293,6 +293,9 @@ const PythonBridge = (() => {
           min_area: minArea,
           max_objects: maxObjects,
           separate_touching: separateTouching,
+          // roi_mode (ADR-012): ROI recortado a mano → el núcleo desactiva las
+          // heurísticas de imagen completa (recorte de borde, dominancia, reorden).
+          roi_mode: roiMode,
         }),
       });
     },
@@ -536,16 +539,15 @@ const PythonBridge = (() => {
    * Retorna null si no está implementado → usar renderPCA(), etc. JS.
    */
   const comparator = {
-    async pca(objects, { nComponents = 2, nClusters = 0 } = {}) {
+    async pca(objects, { nComponents = 2, nClusters = 0, keys = null } = {}) {
       if (!_serverAvailable || !isModuleActive('comparator')) return null;
-      return _fetch('/pca', {
-        method: 'POST',
-        body: _formData({
-          objects_json: JSON.stringify(objects),
-          n_components: nComponents,
-          n_clusters:   nClusters,
-        }),
-      });
+      const body = {
+        objects_json: JSON.stringify(objects),
+        n_components: nComponents,
+        n_clusters:   nClusters,
+      };
+      if (keys && keys.length) body.keys_json = JSON.stringify(keys);
+      return _fetch('/pca', { method: 'POST', body: _formData(body) });
     },
 
     async statistics(objects, keys) {

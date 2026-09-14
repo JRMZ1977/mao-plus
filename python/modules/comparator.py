@@ -32,10 +32,21 @@ from fastapi import HTTPException
 
 IMPLEMENTED = True
 
-# Umbral de distancia de Mahalanobis para considerar outlier (chi² 97.5% con 2 grados)
-_OUTLIER_THRESHOLD = 2.448  # sqrt(chi2(2, 0.975))
+# Umbral de distancia de Mahalanobis para considerar outlier.
+# sqrt(chi²(2, 0.95)) = 2.448 → percentil 95% (nivel operativo)
+# sqrt(chi²(2, 0.975)) = 2.716 → percentil 97.5% (nivel estricto)
+_OUTLIER_THRESHOLD = 2.716  # percentil 97.5%, consistente con el nivel declarado
 
 # ── Utilidades ──────────────────────────────────────────────────────────────
+
+def _safe_round(val: Any, ndigits: int = 6) -> Any:
+    """Redondea a ndigits si el valor es float finito; devuelve el valor original en caso contrario."""
+    try:
+        f = float(val)
+        return round(f, ndigits) if math.isfinite(f) else val
+    except (TypeError, ValueError):
+        return val
+
 
 def _build_matrix(objects: list[dict], keys: list[str]) -> np.ndarray:
     """Construye matriz numérica de métricas, usando NaN para valores ausentes."""
@@ -43,7 +54,7 @@ def _build_matrix(objects: list[dict], keys: list[str]) -> np.ndarray:
     for obj in objects:
         metricas = obj.get("metricas", obj)   # acepta {metricas:{...}} o {...}
         rows.append([
-            float(metricas.get(k, math.nan))
+            float(metricas.get(k) if metricas.get(k) is not None else math.nan)
             for k in keys
         ])
     return np.array(rows, dtype=float)
@@ -78,14 +89,15 @@ def _get_numeric_keys(objects: list[dict]) -> list[str]:
 
 
 def _impute_median(X: np.ndarray) -> np.ndarray:
-    """Imputa NaN con la mediana de cada columna."""
-    out = X.copy()
+    """Imputa NaN e Inf con la mediana de cada columna."""
+    out = X.astype(float).copy()
     for j in range(out.shape[1]):
         col = out[:, j]
-        nan_mask = np.isnan(col)
-        if nan_mask.any():
-            median = float(np.nanmedian(col))
-            col[nan_mask] = median
+        bad = ~np.isfinite(col)
+        if bad.any():
+            finite_vals = col[np.isfinite(col)]
+            median = float(np.nanmedian(finite_vals)) if len(finite_vals) else 0.0
+            col[bad] = median
     return out
 
 
@@ -95,6 +107,7 @@ async def pca(
     objects: list[dict[str, Any]],
     n_components: int = 2,
     n_clusters: int = 0,
+    selected_keys: list[str] | None = None,
 ) -> dict:
     """
     PCA + K-Means + Silhouette sobre colección de objetos arqueológicos.
@@ -126,7 +139,11 @@ async def pca(
     if len(objects) < 2:
         raise HTTPException(status_code=422, detail="Se necesitan al menos 2 objetos para PCA.")
 
-    keys = _get_numeric_keys(objects)
+    # Respetar selección del usuario; si no se pasa, auto-detectar
+    if selected_keys:
+        keys = [k for k in selected_keys if k and not k.startswith("_")]
+    else:
+        keys = _get_numeric_keys(objects)
     if len(keys) < 2:
         raise HTTPException(status_code=422, detail="Se necesitan al menos 2 métricas numéricas.")
 
@@ -261,16 +278,16 @@ async def statistics(
         mean = float(np.mean(col_clean))
         std  = float(np.std(col_clean, ddof=1))
         stats_out[key] = {
-            "mean":     round(mean, 6),
-            "median":   round(float(np.median(col_clean)), 6),
-            "std":      round(std, 6),
-            "min":      round(float(np.min(col_clean)), 6),
-            "max":      round(float(np.max(col_clean)), 6),
-            "q25":      round(float(np.percentile(col_clean, 25)), 6),
-            "q75":      round(float(np.percentile(col_clean, 75)), 6),
-            "skewness": round(float(st.skew(col_clean)), 4),
-            "kurtosis": round(float(st.kurtosis(col_clean)), 4),
-            "cv":       round(abs(std / mean) if mean else 0.0, 4),
+            "mean":     _safe_round(mean, 6),
+            "median":   _safe_round(float(np.median(col_clean)), 6),
+            "std":      _safe_round(std, 6),
+            "min":      _safe_round(float(np.min(col_clean)), 6),
+            "max":      _safe_round(float(np.max(col_clean)), 6),
+            "q25":      _safe_round(float(np.percentile(col_clean, 25)), 6),
+            "q75":      _safe_round(float(np.percentile(col_clean, 75)), 6),
+            "skewness": _safe_round(float(st.skew(col_clean)), 4),
+            "kurtosis": _safe_round(float(st.kurtosis(col_clean)), 4),
+            "cv":       _safe_round(abs(std / mean) if mean else 0.0, 4),
             "n":        int(len(col_clean)),
         }
 
@@ -285,9 +302,14 @@ async def statistics(
                 corr_mat[i][j] = 1.0
                 pval_mat[i][j] = 0.0
             else:
-                r, p = st.pearsonr(X_imp[:, i], X_imp[:, j])
-                corr_mat[i][j] = round(float(r), 4) if math.isfinite(r) else 0.0
-                pval_mat[i][j] = round(float(p), 4) if math.isfinite(p) else 1.0
+                ci, cj = X_imp[:, i], X_imp[:, j]
+                if np.std(ci) == 0 or np.std(cj) == 0:
+                    corr_mat[i][j] = 0.0
+                    pval_mat[i][j] = 1.0
+                else:
+                    r, p = st.pearsonr(ci, cj)
+                    corr_mat[i][j] = round(float(r), 4) if math.isfinite(r) else 0.0
+                    pval_mat[i][j] = round(float(p), 4) if math.isfinite(p) else 1.0
 
     return {
         "status":             "ok",

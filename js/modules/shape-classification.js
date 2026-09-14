@@ -590,9 +590,41 @@ export function analizarDistribucionRadialAngular(contourPoints, centroid) {
   const cx = centroid.x !== undefined ? centroid.x : centroid[0];
   const cy = centroid.y !== undefined ? centroid.y : centroid[1];
 
+  // El pipeline alimenta esta función con el CONVEX HULL (4-8 vértices) cuando está
+  // disponible (simplificarAFormaRegular, PASO 7). Con tan pocos puntos el perfil radial
+  // describe el MUESTREO, no la forma: los 4 vértices de un rectángulo equidistan del
+  // centroide → uniformidad 1.000 → "Circular", y los huecos angulares entre vértices
+  // consecutivos (>15°) disparan un "Fragmento (81% completo)" que no existe. Se remuestrea
+  // el polígono cerrado a paso fino antes de pasar a polares; con contornos densos
+  // (≥ MIN_PUNTOS) el arreglo es inerte y la salida no cambia.
+  const MIN_PUNTOS = 72;   // 2 puntos por sector de 10°
+  let puntosEntrada = contourPoints;
+  if (contourPoints && contourPoints.length >= 3 && contourPoints.length < MIN_PUNTOS) {
+    const n = contourPoints.length;
+    let perimetroPoli = 0;
+    for (let i = 0; i < n; i++) {
+      const a = contourPoints[i], b = contourPoints[(i + 1) % n];
+      perimetroPoli += Math.hypot(getX(b) - getX(a), getY(b) - getY(a));
+    }
+    if (perimetroPoli > 0) {
+      const paso = perimetroPoli / MIN_PUNTOS;
+      const densos = [];
+      for (let i = 0; i < n; i++) {
+        const a = contourPoints[i], b = contourPoints[(i + 1) % n];
+        const ax = getX(a), ay = getY(a), bx = getX(b), by = getY(b);
+        const L = Math.hypot(bx - ax, by - ay);
+        densos.push({ x: ax, y: ay });
+        for (let d = paso; d < L; d += paso) {
+          densos.push({ x: ax + (bx - ax) * d / L, y: ay + (by - ay) * d / L });
+        }
+      }
+      puntosEntrada = densos;
+    }
+  }
+
   // Convertir a coordenadas polares (r, θ)
   const puntosPolares = [];
-  for (const p of contourPoints) {
+  for (const p of puntosEntrada) {
     const dx = getX(p) - cx;
     const dy = getY(p) - cy;
     const r = Math.sqrt(dx * dx + dy * dy);
@@ -681,6 +713,36 @@ export function analizarDistribucionRadialAngular(contourPoints, centroid) {
     }
   }
 
+  // Máximos radiales (esquinas): un círculo no tiene, una elipse tiene 2 (los extremos del
+  // eje mayor), un rectángulo/trapecio 4, un polígono regular de n lados n. Se cuentan sobre
+  // el perfil radial por sectores, exigiendo prominencia sobre el radio medio y separación
+  // angular mínima (los sectores contiguos de una misma esquina cuentan como un solo pico).
+  const numPicosRadiales = (() => {
+    const n = radiosPromedioSectores.length;
+    if (n < 6) return 0;
+    const VENTANA = 2;          // ±2 sectores ≈ ±20° con 36 sectores
+    const PROMINENCIA = 0.03;   // 3% sobre el radio medio
+    const picos = [];
+    for (let i = 0; i < n; i++) {
+      const r = radiosPromedioSectores[i];
+      if (r < radioGlobalPromedio * (1 + PROMINENCIA)) continue;
+      let esMaximo = true;
+      for (let d = -VENTANA; d <= VENTANA && esMaximo; d++) {
+        if (d === 0) continue;
+        if (radiosPromedioSectores[(i + d + n) % n] > r) esMaximo = false;
+      }
+      if (esMaximo) picos.push(i);
+    }
+    // Fusionar mesetas: picos separados por ≤VENTANA sectores son la misma esquina
+    let fusionados = 0;
+    for (let k = 0; k < picos.length; k++) {
+      const prev = picos[(k - 1 + picos.length) % picos.length];
+      const sep = Math.min(Math.abs(picos[k] - prev), n - Math.abs(picos[k] - prev));
+      if (picos.length === 1 || sep > VENTANA) fusionados++;
+    }
+    return fusionados;
+  })();
+
   const porcentajeCambiosAbruptos = cambiosAbruptos / radiosPromedioSectores.length;
   const porcentajeCambios3Sectores = cambiosAbrupto3Sectores / (radiosPromedioSectores.length - 2);
   const tieneVerticesPronunciados = porcentajeCambiosAbruptos > 0.15 || porcentajeCambios3Sectores > 0.10;
@@ -700,7 +762,12 @@ export function analizarDistribucionRadialAngular(contourPoints, centroid) {
     const sumaCambiosTotal = cambiosOrdenados.reduce((s, v) => s + v, 0);
     const suma3Mayores = cambiosOrdenados.slice(0, 3).reduce((s, v) => s + v, 0);
     const concentracionCambios = sumaCambiosTotal > 0 ? suma3Mayores / sumaCambiosTotal : 1;
-    const esElipsoidal = concentracionCambios < 0.55 && uniformidadRadial >= 0.72;
+    // El discriminante por concentración de los 3 mayores cambios está calibrado para
+    // ≤3 esquinas: con 4 o más, el cambio radial se reparte entre todas y la concentración
+    // baja → CUALQUIER polígono caía en "Elipsoidal" (un rectángulo 200×140 y un cuadrado
+    // salían elipsoidales). El número de MÁXIMOS radiales sí distingue la familia:
+    // círculo 0 · elipse 2 · rectángulo/trapecio 4 · polígono n. Se exige ≤2 para elipsoidal.
+    const esElipsoidal = numPicosRadiales <= 2 && concentracionCambios < 0.55 && uniformidadRadial >= 0.72;
 
     if (esElipsoidal) {
       // Análisis adicional para discriminar morfotipos elipsoidales
@@ -770,6 +837,7 @@ export function analizarDistribucionRadialAngular(contourPoints, centroid) {
     desviacionRadial: desviacionRadios,
     coeficienteVariacionRadial: coeficienteVariacionRadial,
     uniformidadRadial: uniformidadRadial,
+    numPicosRadiales: numPicosRadiales,
     geometriaInferida: geometriaInferida,
     confianzaGeometria: confianzaGeometria,
     sectoresAnalizados: radiosPromedioSectores.length,

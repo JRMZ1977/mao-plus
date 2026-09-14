@@ -34,7 +34,8 @@
   =====================================================================================
   -->
   <link rel="stylesheet" href="css/main.css?v=20260623c">
-  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260623c">
+  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260630a">
+  <link rel="stylesheet" href="css/procrustes.css?v=20260629e">
 </head>
 <body>
   <!-- ═══════════════════════════════════════════════════════════════════════
@@ -1597,16 +1598,7 @@
         <strong>Modo Bifacial:</strong>Ambas caras se muestran simultáneamente para análisis comparativo. Use los controles individuales para zoom y navegación en cada cara.
       </div>
       
-      <!-- Botón Individualizar Bifacial -->
-      <div style="margin-top: 12px; text-align: center;">
-        <button id="individualizarBifacialBtn2" class="laar-btn laar-btn--primary" style="padding: 10px 24px; font-size: 13px;" disabled title="Detecte objetos en ambas caras para individualizar">
-          Individualizar Objetos Bifaciales
-        </button>
-        
-        <div id="statusIndividualizarBifacial" style="margin-top: 6px; font-size: 11px; color: var(--gray-500); min-height: 16px;">
-          Detecte objetos en Cara A y/o B para habilitar
-        </div>
-      </div>
+      <!-- Usa individualizarBifacialBtn en el toolbar LAAR (botón canónico) -->
     </div>
 
     <!-- Sección de individualización de objetos -->
@@ -1674,6 +1666,17 @@
         <span id="cmoHeader">Comparador Multi-Objeto</span>
         <button class="cmo-btn cmo-btn-ghost" id="cmoCerrarBtn" style="font-size: 11px; padding: 4px 10px;">&#10005; Cerrar</button>
       </h3>
+
+      <!-- Selector de proyecto / colección -->
+      <div id="cmoProyectoSelectorWrap" style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--bg-secondary,#f7fafc); border-bottom:1px solid var(--border-color,#e2e8f0); font-size:12px;">
+        <label for="cmoProyectoSelect" style="font-weight:600; white-space:nowrap; color:var(--text-secondary,#4a5568);">Colección:</label>
+        <select id="cmoProyectoSelect" style="flex:1; min-width:0; padding:4px 8px; border:1px solid var(--border-color,#e2e8f0); border-radius:4px; font-size:12px; background:#fff;">
+          <option value="">— Seleccionar proyecto —</option>
+        </select>
+        <button id="cmoCargarColeccionBtn" class="cmo-btn cmo-btn-primary" style="white-space:nowrap; font-size:11px; padding:4px 12px;">Cargar colección</button>
+        <button id="cmoActualizarBtn" class="cmo-btn cmo-btn-ghost" style="white-space:nowrap; font-size:11px; padding:4px 10px;" title="Añadir análisis nuevos sin reiniciar la comparación">&#8635; Actualizar</button>
+      </div>
+
       <!-- Barra de estado visible sólo en modo ventana independiente -->
       <div id="cmoStandaloneMsg"></div>
 
@@ -1743,6 +1746,9 @@
             <button class="cmo-tab-btn" data-tab="correlacion">&#8771; Correlaciones</button>
             <button class="cmo-tab-btn" data-tab="morfologia">&#127919; CGeo</button>
             <button class="cmo-tab-btn" data-tab="pca">&#9671; PCA</button>
+            <button class="cmo-tab-btn" data-tab="dendrograma">&#128202; Dendrograma</button>
+            <button class="cmo-tab-btn" data-tab="efa">&#9670; EFA</button>
+            <button class="cmo-tab-btn" data-tab="errores">&#9888; Errores</button>
           </div>
 
           <!-- Tab: Tabla -->
@@ -1816,6 +1822,28 @@
             </p>
             <div id="cmoPCAContenido"></div>
           </div>
+
+          <div class="cmo-tab-pane" id="cmoTabEFA">
+            <p style="font-size:11px;color:#718096;margin:0 0 10px;">
+              Descriptores de Fourier Elípticos (EFA) por objeto: complejidad de forma, armónicos necesarios para capturar el 95/99 % de la varianza y espectro de potencia comparado.
+            </p>
+            <!-- contenido generado por renderEFA() -->
+          </div>
+
+          <div class="cmo-tab-pane" id="cmoTabErrores">
+            <p style="font-size:11px;color:#718096;margin:0 0 10px;">
+              Verificación de error por análisis: error óptico posicional, incertidumbre propagada en métricas absolutas y confianza de detección de contorno.
+            </p>
+            <!-- contenido generado por renderErrorVerificacion() -->
+          </div>
+
+          <div class="cmo-tab-pane" id="cmoTabDendrograma">
+            <p style="font-size:11px;color:#718096;margin:0 0 10px;">
+              Clasificación jerárquica aglomerativa (enlace de Ward, distancia euclídea sobre métricas estandarizadas).
+              Los objetos más similares se fusionan primero; la altura de cada nodo indica la distancia de fusión.
+            </p>
+            <div id="cmoDendrogramaContenido"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1835,6 +1863,33 @@
         <span class="adr3-chip-label">Exportado</span>
         <span id="adr5ChipExportado" class="laar-chip laar-chip--none">—</span>
       </div>
+      <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+        <button id="adr5BtnVerColeccion" class="laar-btn" title="Abrir gestor de proyectos y colecciones" style="font-size:11px;padding:3px 10px;">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="width:11px;height:11px;margin-right:4px;vertical-align:middle;" aria-hidden="true"><line x1="3" y1="5" x2="13" y2="5"/><line x1="3" y1="9" x2="13" y2="9"/><line x1="3" y1="13" x2="8" y2="13"/><circle cx="12" cy="12" r="2.5"/><path d="M12 10.5v1.5l1 1"/></svg>
+          Ver Colección
+        </button>
+        <button id="adr5BtnAbrirCMO" class="laar-btn" title="Comparar múltiples objetos morfométricamente en una ventana nueva" style="font-size:11px;padding:3px 10px;">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="width:11px;height:11px;margin-right:4px;vertical-align:middle;" aria-hidden="true"><path d="M8 3v10M4 5l-2 3 2 3M12 5l2 3-2 3"/><path d="M2 8h5M9 8h5"/></svg>
+          CMO
+        </button>
+        <button id="adr5BtnAbrirProcrustes" class="laar-btn" title="Abrir módulo de Análisis Procrustes" style="font-size:11px;padding:3px 10px;">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="width:11px;height:11px;margin-right:4px;vertical-align:middle;" aria-hidden="true"><circle cx="4" cy="8" r="2.5"/><circle cx="12" cy="4" r="2.5"/><circle cx="12" cy="12" r="2.5"/><path d="M6.2 7.2L9.8 5M6.2 8.8L9.8 11"/></svg>
+          Procrustes
+        </button>
+        <button id="adr5BtnEnriquecer" class="laar-btn" title="Actualizar métricas de todos los análisis guardados con los nuevos cálculos (error óptico, incertidumbre)" style="font-size:11px;padding:3px 10px;">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="width:11px;height:11px;margin-right:4px;vertical-align:middle;" aria-hidden="true"><path d="M2 8a6 6 0 1 1 1.5 4"/><polyline points="2,12 2,8 6,8"/><line x1="8" y1="5" x2="8" y2="8"/><line x1="8" y1="8" x2="10.5" y2="8"/></svg>
+          Actualizar colección
+        </button>
+      </div>
+    </div>
+    <!-- Barra de progreso del enriquecimiento — oculta por defecto -->
+    <div id="enrichProgressBar" style="display:none;align-items:center;gap:10px;padding:4px 16px;background:var(--laar-bg-alt,#f0f4fa);border-bottom:1px solid var(--laar-border,#d0d7e3);font-size:12px;color:var(--laar-text,#2d3748);">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="width:13px;height:13px;flex-shrink:0;animation:mao-spin 1s linear infinite;" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke-opacity=".25"/><path d="M14 8a6 6 0 0 0-6-6"/></svg>
+      <div style="flex:1;height:4px;background:var(--laar-border,#d0d7e3);border-radius:2px;overflow:hidden;">
+        <div id="enrichProgressFill" style="height:100%;background:#1565c0;border-radius:2px;width:0%;transition:width .2s ease;"></div>
+      </div>
+      <span id="enrichProgressLabel" style="white-space:nowrap;min-width:120px;">Iniciando…</span>
+      <button id="enrichProgressClose" style="border:none;background:none;cursor:pointer;color:var(--laar-muted,#718096);font-size:14px;padding:0 2px;line-height:1;" title="Cerrar">✕</button>
     </div>
 
     <!-- ═══ PANEL MAESTRO DE RESULTADOS ═══════════════════════════════════ -->
@@ -2808,13 +2863,13 @@
   <script src="js/backend-status-badge.js"></script>
   <script src="js/sam-status-ui.js?v=20260618a" defer></script>
   <script src="js/progress.js"></script>
-  <script src="js/project-manager.js"></script>
+  <script src="js/project-manager.js?v=20260912a"></script>
   <script src="js/file-io.js"></script>
   <script src="js/projects-ui.js"></script>
-  <script src="js/collection.js"></script>
+  <script src="js/collection.js?v=20260630f"></script>
   <script src="js/export-manager.js"></script>
   <script src="js/tooltips.js"></script>
-  <script type="module" src="js/analysis-core.js?v=20260624e"></script>
+  <script type="module" src="js/analysis-core.js?v=20260912e"></script>
   <script src="js/obj3d-canonical-raster.js"></script>
   <script src="js/obj3d-export.js"></script>
   <script src="js/obj3d-morph-canvas.js"></script>
@@ -3402,7 +3457,7 @@
 
   <script src="js/canvas-zoom.js"></script>
   <script src="js/object-dimension-mode.js"></script>
-  <script src="js/comparator.js"></script>
+  <script src="js/comparator.js?v=20260629g"></script>
 
 
 <!-- ============================================================== -->
@@ -3609,7 +3664,8 @@
           <div>
             <label style="font-size:11px;font-weight:600;color:#4a5568;display:block;margin-bottom:4px;">Umbralización</label>
             <select id="maoIaThreshold" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid #cbd5e0;border-radius:5px;background:#fff;color:#2d3748;">
-              <option value="otsu" selected>Otsu (automático)</option>
+              <option value="auto" selected>Auto (núcleo OpenCV) · recomendado</option>
+              <option value="otsu">Otsu (ajuste manual)</option>
               <option value="adaptive">Adaptativo (Gaussiano)</option>
               <option value="manual">Manual</option>
             </select>
@@ -3899,7 +3955,7 @@
   </div>
 
   <!-- ── MAO IA: controlador JS externo ── -->
-  <script src="js/mao-ia.js?v=20260623c"></script>
+  <script src="js/mao-ia.js?v=20260630a"></script>
   <script src="js/procrustes.js"></script>
   <script src="js/aps-save.js"></script>
   <!-- ── Controles de ventana unificados (último, tras todos los módulos) ── -->
@@ -3932,24 +3988,24 @@
   </script>
 
   <!-- ═══ MODAL DE ANÁLISIS PROCRUSTES (PS) ══════════════════════════════ -->
-  <div id="psModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.55);align-items:center;justify-content:center;" role="dialog" aria-modal="true" aria-labelledby="psModalTitle">
-    <div style="background:#fff;border-radius:12px;width:min(96vw,1180px);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.35);">
+  <div id="psModal" role="dialog" aria-modal="true" aria-labelledby="psModalTitle">
+    <div class="ps-modal-panel">
 
-      <!-- Cabecera del modal -->
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px 12px;border-bottom:1.5px solid #e2e8f0;background:linear-gradient(135deg,#1a365d 0%,#2b6cb0 100%);border-radius:12px 12px 0 0;">
-        <div style="display:flex;align-items:center;gap:10px;">
+      <!-- Cabecera -->
+      <div class="ps-modal-header">
+        <div class="ps-modal-header-left">
           <svg viewBox="0 0 20 20" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" style="width:20px;height:20px;flex-shrink:0;"><circle cx="5" cy="10" r="3"/><circle cx="15" cy="5" r="3"/><circle cx="15" cy="15" r="3"/><path d="M7.8 9L12.2 6.2M7.8 11L12.2 13.8"/></svg>
-          <span id="psModalTitle" style="font-size:15px;font-weight:700;color:#fff;">An&#225;lisis Procrustes (PS)</span>
-          <span style="font-size:11px;color:#bee3f8;margin-left:4px;">Coleccion de formas &#8212; PS Parcial &amp; GPA</span>
+          <span id="psModalTitle" class="ps-modal-title">An&#225;lisis Procrustes (PS)</span>
+          <span class="ps-modal-subtitle">Coleccion de formas &#8212; PS Parcial &amp; GPA</span>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <button id="psGuardarAPSBtn" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.35);border-radius:6px;color:#fff;cursor:pointer;font-size:12px;font-weight:600;padding:5px 12px;line-height:1.4;transition:background 0.2s;display:none;" title="Guardar análisis Procrustes (PS/GPA) en el proyecto activo">💾 Guardar Procrustes</button>
-          <button id="psCerrarBtn" style="background:rgba(255,255,255,0.15);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:16px;padding:4px 10px;line-height:1;transition:background 0.2s;" title="Cerrar">&#10005;</button>
+        <div class="ps-modal-header-right">
+          <button id="psGuardarAPSBtn" class="ps-modal-btn" style="display:none;" title="Guardar análisis Procrustes (PS/GPA) en el proyecto activo">&#128190; Guardar</button>
+          <button id="psCerrarBtn" class="ps-modal-close" title="Cerrar">&#10005;</button>
         </div>
       </div>
 
       <!-- Stepper -->
-      <div class="cmo-stepper" style="padding:10px 20px 6px;border-bottom:1px solid #e2e8f0;">
+      <div class="cmo-stepper ps-stepper-bar">
         <div class="cmo-step active" id="psStep1">
           <span class="cmo-step-num">1</span>
           <span class="cmo-step-label">Objetos</span>
@@ -3962,7 +4018,7 @@
       </div>
 
       <!-- Cuerpo con scroll -->
-      <div style="flex:1;overflow-y:auto;padding:16px 20px 20px;">
+      <div class="ps-modal-body">
 
         <!-- ── PASO 1: Selección de objetos ── -->
         <div id="psStep1Panel">
@@ -3975,7 +4031,7 @@
               <span class="cmo-contador" id="psCuentaSeleccionados">0 seleccionados</span>
             </div>
           </div>
-          <div style="margin-top:12px;padding:12px 14px;background:#ebf8ff;border:1px solid #bee3f8;border-radius:8px;font-size:12px;color:#2c5282;">
+          <div class="ps-requirements-box">
             <strong>&#9432; Requerimientos:</strong>
             PS Parcial necesita &#8805;&nbsp;2 objetos. El GPA (Consensus) necesita &#8805;&nbsp;3 objetos.<br>
             Los objetos deben tener datos de contorno guardados en disco (<code>geometria.contornoReal.puntos</code> o <code>geometria.convexHull</code>).
@@ -3989,21 +4045,20 @@
         <div id="psStep2Panel" style="display:none;">
 
           <!-- Barra de sub-tabs -->
-          <div style="display:flex;gap:4px;margin-bottom:14px;padding-bottom:10px;border-bottom:1.5px solid #e2e8f0;flex-wrap:wrap;">
-            <button class="ps-tab-btn active" data-tab="parcial" style="display:flex;align-items:center;gap:6px;padding:7px 14px;border:1.5px solid #bee3f8;border-radius:6px;background:#ebf8ff;color:#2b6cb0;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;">
+          <div class="ps-tab-bar">
+            <button class="ps-tab-btn active" data-tab="parcial">
               &#9671; PS Parcial
-              <span style="font-size:10px;font-weight:400;color:#4a5568;">(Pairwise)</span>
+              <span class="ps-tab-btn-sub">(Pairwise)</span>
             </button>
-            <button class="ps-tab-btn" data-tab="gpa" style="display:flex;align-items:center;gap:6px;padding:7px 14px;border:1.5px solid #e2e8f0;border-radius:6px;background:#f7fafc;color:#4a5568;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;">
+            <button class="ps-tab-btn" data-tab="gpa">
               &#9670; PS Completa / GPA
-              <span style="font-size:10px;font-weight:400;">(Consensus)</span>
+              <span class="ps-tab-btn-sub">(Consensus)</span>
             </button>
           </div>
 
           <!-- Tab PS Parcial -->
           <div class="ps-tab-pane active" id="psTab_parcial">
-            <!-- Descripción del sub-tab -->
-            <div style="margin-bottom:12px;padding:10px 14px;background:#f0fff4;border:1px solid #c6f6d5;border-radius:6px;font-size:12px;color:#276749;">
+            <div class="ps-tab-desc ps-tab-desc--parcial">
               <strong>PS Parcial (Pairwise)</strong>: compara cada par de objetos de forma independiente. Para cada par
               se calcula la rotaci&#243;n &#243;ptima (SVD) y la distancia de Procrustes &#960; = arccos(&#931;&#963;<sub>k</sub>) &#8712; [0, &#960;/2].
               Sin consensus &#8212; cada comparaci&#243;n es bilateral y aut&#243;noma.
@@ -4013,8 +4068,7 @@
 
           <!-- Tab PS GPA -->
           <div class="ps-tab-pane" id="psTab_gpa">
-            <!-- Descripción del sub-tab -->
-            <div style="margin-bottom:12px;padding:10px 14px;background:#fffaf0;border:1px solid #fbd38d;border-radius:6px;font-size:12px;color:#744210;">
+            <div class="ps-tab-desc ps-tab-desc--gpa">
               <strong>PS Completa / GPA (Generalized Procrustes Analysis)</strong>: calcula un
               <em>consensus iterativo</em> que representa la forma promedio de todo el conjunto.
               Todos los objetos se rotan simult&#225;neamente hasta minimizar la suma total de distancias cuadr&#225;ticas
@@ -4023,13 +4077,13 @@
             <div id="psGPAContenido"></div>
           </div>
 
-          <div class="cmo-btn-row" style="margin-top:14px;">
+          <div class="ps-step2-footer">
             <button class="cmo-btn cmo-btn-ghost" id="psVolverBtn">&#8592; Volver a selecci&#243;n</button>
           </div>
         </div>
 
-      </div><!-- /cuerpo con scroll -->
-    </div><!-- /panel modal -->
+      </div><!-- /ps-modal-body -->
+    </div><!-- /ps-modal-panel -->
   </div><!-- /#psModal -->
 
   <style>
@@ -4069,40 +4123,30 @@
       border-radius: 4px;
       border-left: 3px solid #a0aec0;
     }
+    /* Layout Procrustes: canvas arriba (ancho completo), stats debajo */
     .ps-layout-2col {
-      display: grid;
-      grid-template-columns: minmax(340px, 1fr) minmax(420px, 560px);
-      gap: 14px;
-      align-items: start;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
       margin-bottom: 16px;
     }
-    /* Proporciones exactas por tab */
-    .ps-layout-2col.ps-layout-2col--parcial {
-      grid-template-columns: minmax(420px, 1.35fr) minmax(420px, 1fr);
-    }
+    .ps-layout-2col.ps-layout-2col--parcial,
     .ps-layout-2col.ps-layout-2col--gpa {
-      grid-template-columns: minmax(430px, 1.2fr) minmax(420px, 1fr);
-    }
-    /* Orden científico: datos/estadística a la izquierda, visualización a la derecha */
-    .ps-layout-2col > .ps-stats-col {
-      grid-column: 1;
+      /* sin override — heredan flex-column */
     }
     .ps-layout-2col > .ps-canvas-wrap {
-      grid-column: 2;
+      width: 100%;
+      order: 1;
+    }
+    .ps-layout-2col > .ps-stats-col,
+    .ps-layout-2col > .ps-sequence-col {
+      width: 100%;
+      order: 2;
     }
     .ps-sequence-col {
       display: flex;
       flex-direction: column;
       gap: 10px;
-    }
-    @media (max-width: 980px) {
-      .ps-layout-2col {
-        grid-template-columns: 1fr;
-      }
-      .ps-layout-2col > .ps-stats-col,
-      .ps-layout-2col > .ps-canvas-wrap {
-        grid-column: 1;
-      }
     }
     /* Tabla con scroll vertical — evita que la matriz de distancias ocupe demasiado espacio */
     .ps-table-compact {
@@ -4144,18 +4188,17 @@
     .ps-canvas-wrap {
       display: flex;
       flex-direction: column;
-      align-items: center;
+      align-items: stretch;
       position: relative;
       border-radius: 8px;
       background: #f8fafc;
       border: 1px solid #e2e8f0;
       padding: 10px;
+      width: 100%;
     }
-    /* Viewport aislado para el canvas — evita solapamientos al hacer zoom */
+    /* Viewport cuadrado a ancho completo del contenedor */
     .ps-canvas-viewport {
-      width: min(100%, 560px);
-      height: auto;
-      min-height: 340px;
+      width: 100%;
       aspect-ratio: 1 / 1;
       overflow: hidden;
       position: relative;
@@ -4163,13 +4206,17 @@
       border: 1px solid #cbd5e0;
       background: #ffffff;
       flex-shrink: 0;
-      align-self: center;
     }
-    .ps-canvas-viewport canvas,
+    .ps-canvas-viewport canvas {
+      position: absolute;
+      inset: 0;
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+    }
     .ps-canvas-wrap canvas {
       display: block;
-      border: 1px solid #e2e8f0;
-      border-radius: 6px;
       max-width: 100%;
     }
     .ps-canvas-title {
@@ -4543,7 +4590,7 @@
   </script>
 
   <!-- LAAR Tab Router — Migración a pestañas -->
-  <script src="js/mao-tab-router.js?v=20260623d" defer></script>
+  <script src="js/mao-tab-router.js?v=20260628b" defer></script>
   <!-- ADR-005 — Base compartida de los organizers (DEBE cargar antes que ellos) -->
   <script src="js/mao-organizer-base.js?v=20260612e" defer></script>
   <!-- ADR-008 Fase 1 — Contrato de salida de captura: normaliza la forma de objeto
@@ -4556,7 +4603,7 @@
   <!-- ADR-004 Fase 2 — Organizador de la pestaña Captura (chips de estado) -->
   <script src="js/mao-captura-organizer.js?v=20260612e" defer></script>
   <!-- ADR-005 Resultados — Organizador de la pestaña Resultados (chips de estado) -->
-  <script src="js/mao-resultados-organizer.js?v=20260614a" defer></script>
+  <script src="js/mao-resultados-organizer.js?v=20260630h" defer></script>
 
 </body>
 </html>

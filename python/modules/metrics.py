@@ -110,6 +110,249 @@ def _convex_hull_metrics(pts: np.ndarray):
         return pts.copy(), _area_shoelace(pts), _perimeter(pts)
 
 
+def _min_area_rect(pts: np.ndarray) -> dict:
+    """
+    Rectángulo mínimo (calibre rotante) vía cv2.minAreaRect.
+
+    A diferencia de `_tight_bbox` (alineado a los ejes de la IMAGEN), este es
+    INVARIANTE A LA ROTACIÓN: un mismo artefacto fotografiado girado da el mismo
+    largo/ancho/rectangularidad. El bbox alineado no lo es — al girar 33° un
+    rectángulo su caja crece y la rectangularidad cae de 1.0 a ~0.7, lo que
+    desviaba la clasificación (un laminar rotado se clasificaba «Cuadrangular»).
+    Se usa para CLASIFICAR; el bbox alineado se conserva para reportar (la ficha
+    describe la caja tal como se ve en la fotografía).
+
+    Devuelve largo ≥ ancho, área del rectángulo y su ángulo en grados.
+    """
+    if len(pts) < 3:
+        return {"largo": 0.0, "ancho": 0.0, "area": 0.0, "angulo": 0.0, "aspect": 1.0}
+    (_cx, _cy), (w, h), ang = cv2.minAreaRect(pts.reshape(-1, 1, 2).astype(np.float32))
+    largo, ancho = (float(w), float(h)) if w >= h else (float(h), float(w))
+    if w < h:                       # el ángulo se refiere al lado w; normalizar al lado largo
+        ang = ang + 90.0
+    return {
+        "largo": largo,
+        "ancho": ancho,
+        "area": largo * ancho,
+        "angulo": float(ang % 180.0),
+        "aspect": (largo / ancho) if ancho > 1e-9 else 1.0,
+    }
+
+
+def _vertices_estables(pts: np.ndarray) -> dict:
+    """
+    Número de vértices ROBUSTO por estabilidad multi-escala.
+
+    `cv2.approxPolyDP` con un epsilon fijo (antes: 3% del perímetro) es frágil:
+    con polígonos de muchos lados ese epsilon funde vértices (un hexágono salía
+    con 4-5) y con contornos ruidosos los inventa. Aquí se barre epsilon en
+    [0.8%, 6%] del perímetro y se elige el recuento que se mantiene estable en el
+    tramo más largo (la «meseta»), que es el número de lados real de la forma.
+
+    Devuelve el recuento, la fracción del barrido en que se sostiene (estabilidad)
+    y cuán bien ese polígono explica el área real (fidelidad) — ambos permiten
+    exigir evidencia fuerte antes de declarar una forma poligonal.
+    """
+    if len(pts) < 3:
+        return {"n": 0, "estabilidad": 0.0, "fidelidad": 0.0, "eps": 0.0}
+    cnt = pts.reshape(-1, 1, 2).astype(np.float32)
+    arc = _perimeter(pts)
+    if arc <= 0:
+        return {"n": 0, "estabilidad": 0.0, "fidelidad": 0.0, "eps": 0.0}
+    area_real = abs(_area_shoelace(pts)) or 1.0
+
+    conteos = []
+    for frac in np.linspace(0.008, 0.06, 27):
+        ap = cv2.approxPolyDP(cnt, max(1.0, arc * float(frac)), True)
+        conteos.append((len(ap), float(frac), ap))
+
+    # meseta más larga (rachas consecutivas del mismo recuento)
+    mejor_n, mejor_len, mejor_frac, mejor_ap = 0, 0, 0.0, None
+    i = 0
+    while i < len(conteos):
+        j = i
+        while j + 1 < len(conteos) and conteos[j + 1][0] == conteos[i][0]:
+            j += 1
+        largo = j - i + 1
+        if largo > mejor_len:
+            medio = (i + j) // 2
+            mejor_n, mejor_len, mejor_frac, mejor_ap = conteos[i][0], largo, conteos[medio][1], conteos[medio][2]
+        i = j + 1
+
+    fidelidad = 0.0
+    if mejor_ap is not None and len(mejor_ap) >= 3:
+        area_aprox = abs(_area_shoelace(mejor_ap.reshape(-1, 2).astype(np.float64)))
+        fidelidad = min(area_aprox, area_real) / max(area_aprox, area_real)
+
+    return {
+        "n": int(mejor_n),
+        "estabilidad": mejor_len / len(conteos),
+        "fidelidad": float(fidelidad),
+        "eps": mejor_frac,
+        "poligono": mejor_ap.reshape(-1, 2).astype(np.float64) if mejor_ap is not None else None,
+    }
+
+
+def _analisis_cuadrilatero(poli) -> dict:
+    """
+    Pares de lados paralelos y regularidad de un polígono de 4 lados.
+
+    Es lo que distingue la familia de cuadriláteros, que los ángulos por sí solos
+    confunden: rectángulo y romboide = 2 pares paralelos (el ángulo decide cuál),
+    trapecio = 1 par, cuadrilátero genérico = 0. Antes un trapecio de lados
+    inclinados 18° salía «Romboidal» porque solo se miraban los ángulos rectos.
+
+    Devuelve pares paralelos (0-2), si los lados son de longitud homogénea y la
+    razón entre los dos lados paralelos (1.0 = paralelogramo, ≠1 = trapecio).
+    """
+    vacio = {"pares_paralelos": 0, "lados_homogeneos": False, "razon_paralelos": 1.0}
+    if poli is None or len(poli) != 4:
+        return vacio
+    lados, angs = [], []
+    for i in range(4):
+        a, b = poli[i], poli[(i + 1) % 4]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        lados.append(math.hypot(dx, dy))
+        angs.append(math.degrees(math.atan2(dy, dx)) % 180.0)
+
+    TOL = 12.0   # grados
+    def _paralelos(i, j):
+        d = abs(angs[i] - angs[j]) % 180.0
+        return min(d, 180.0 - d) < TOL
+
+    pares = int(_paralelos(0, 2)) + int(_paralelos(1, 3))
+    media = sum(lados) / 4.0
+    homog = all(abs(l - media) / media < 0.18 for l in lados) if media > 0 else False
+    # razón entre el par de lados paralelos (el que lo sea)
+    razon = 1.0
+    if _paralelos(0, 2) and min(lados[0], lados[2]) > 0:
+        razon = max(lados[0], lados[2]) / min(lados[0], lados[2])
+    elif _paralelos(1, 3) and min(lados[1], lados[3]) > 0:
+        razon = max(lados[1], lados[3]) / min(lados[1], lados[3])
+    return {"pares_paralelos": pares, "lados_homogeneos": homog, "razon_paralelos": round(razon, 3)}
+
+
+def _defectos_convexidad(pts: np.ndarray) -> dict:
+    """
+    Concavidades significativas del contorno (cv2.convexityDefects).
+
+    Distingue topologías que la solidez sola confunde: una LUNA tiene UNA
+    concavidad dominante (la mordida del creciente), una ESTRELLA tiene n
+    concavidades regulares entre puntas, y un contorno erosionado tiene muchas
+    pequeñas. Antes ambas caían en la misma regla (sol<0.65 + circF bajo) y una
+    estrella de 5 puntas se clasificaba «Lunar».
+
+    Devuelve el número de concavidades con profundidad > 5% del radio equivalente,
+    la profundidad relativa de la mayor y cuán regulares son entre sí (0-1).
+    """
+    vacio = {"n": 0, "profundidad_max": 0.0, "regularidad": 0.0}
+    if len(pts) < 4:
+        return vacio
+    try:
+        # Simplificar ANTES de medir: sobre el contorno crudo, el ruido de borde
+        # rompe cv2.convexityDefects en los dos sentidos — o lanza (puntos duplicados
+        # tras el paso a int32: una estrella ruidosa daba 0 concavidades) o fragmenta
+        # cada concavidad real en decenas de mordiscos (una luna ruidosa daba 28, con
+        # regularidad 0). Un epsilon del 0.7% del perímetro quita el temblor y
+        # conserva las concavidades reales.
+        arc = _perimeter(pts)
+        simple = cv2.approxPolyDP(pts.reshape(-1, 1, 2).astype(np.float32),
+                                  max(1.0, arc * 0.007), True).reshape(-1, 2)
+        base = simple if len(simple) >= 4 else pts
+        # eliminar puntos consecutivos duplicados (convexityDefects los rechaza)
+        dedup = [base[0]]
+        for p in base[1:]:
+            if abs(p[0] - dedup[-1][0]) > 0.5 or abs(p[1] - dedup[-1][1]) > 0.5:
+                dedup.append(p)
+        if len(dedup) < 4:
+            return vacio
+        cnt = np.array(dedup, dtype=np.int32).reshape(-1, 1, 2)
+        hull_idx = cv2.convexHull(cnt, returnPoints=False)
+        if hull_idx is None or len(hull_idx) < 3:
+            return vacio
+        # NO reordenar los índices: convexHull ya los devuelve en el orden que
+        # convexityDefects exige (reordenarlos lanza «hpoints > 0» y anulaba
+        # la detección — todas las formas salían con 0 concavidades).
+        defectos = cv2.convexityDefects(cnt, hull_idx)
+        if defectos is None:
+            return vacio
+        area = abs(_area_shoelace(pts)) or 1.0
+        radio_eq = math.sqrt(area / _PI)
+        profundidades = [d[0][3] / 256.0 / radio_eq for d in defectos if radio_eq > 0]
+        signif = [p for p in profundidades if p > 0.05]
+        if not signif:
+            return vacio
+        media = sum(signif) / len(signif)
+        disp = (sum((p - media) ** 2 for p in signif) / len(signif)) ** 0.5
+        return {
+            "n": len(signif),
+            "profundidad_max": max(signif),
+            "regularidad": max(0.0, 1.0 - (disp / media)) if media > 0 else 0.0,
+        }
+    except Exception:
+        return vacio
+
+
+def _centroide_hull_en_material(pts: np.ndarray) -> float:
+    """
+    Distancia con signo del centroide del convex hull al contorno, normalizada por
+    el radio equivalente. Positiva = el centroide cae DENTRO del material.
+
+    Es el test de topología: una pieza maciza siempre da positivo; si el centro de
+    la envolvente cae en el vacío, hay una mordida o un hueco. La magnitud separa
+    los dos casos — creciente ≈ −0.3 (mordida de borde) · anillo ≈ −0.7 (hueco
+    interior). Antes ambos compartían regla (solidez + circularidad fragmentada) y
+    el anillo se clasificaba «Lunar».
+    """
+    if len(pts) < 3:
+        return 0.0
+    try:
+        cnt = pts.reshape(-1, 1, 2).astype(np.float32)
+        mom = cv2.moments(cv2.convexHull(cnt))
+        if abs(mom["m00"]) < 1e-9:
+            return 0.0
+        hx, hy = mom["m10"] / mom["m00"], mom["m01"] / mom["m00"]
+        area = abs(_area_shoelace(pts)) or 1.0
+        radio_eq = math.sqrt(area / _PI)
+        if radio_eq <= 0:
+            return 0.0
+        return float(cv2.pointPolygonTest(cnt, (float(hx), float(hy)), True)) / radio_eq
+    except Exception:
+        return 0.0
+
+
+def _ajuste_elipse(pts: np.ndarray) -> float:
+    """
+    Calidad del ajuste a una elipse (0-1): 1 = la forma ES una elipse.
+
+    Discrimina Elipsoidal de Amigdaloide/Lanceolada, que comparten aspect ratio,
+    solidez y circularidad — pero solo la elipse ajusta bien una elipse. Sin esto
+    la regla de Amigdaloide capturaba cualquier elipse limpia.
+    """
+    if len(pts) < 5:
+        return 0.0
+    try:
+        cnt = pts.reshape(-1, 1, 2).astype(np.float32)
+        (cx, cy), (d1, d2), ang = cv2.fitEllipse(cnt)
+        a, b = max(d1, d2) / 2.0, min(d1, d2) / 2.0
+        if a <= 0 or b <= 0:
+            return 0.0
+        t = math.radians(ang)
+        cos_t, sin_t = math.cos(t), math.sin(t)
+        # residuo radial normalizado: |r_forma / r_elipse − 1| promedio
+        residuos = []
+        for x, y in pts:
+            dx, dy = x - cx, y - cy
+            u = (dx * cos_t + dy * sin_t) / b      # fitEllipse: d1 es el eje asociado a ang
+            v = (-dx * sin_t + dy * cos_t) / a
+            rho = math.hypot(u, v)
+            residuos.append(abs(rho - 1.0))
+        err = sum(residuos) / len(residuos)
+        return max(0.0, 1.0 - err * 4.0)
+    except Exception:
+        return 0.0
+
+
 def _tight_bbox(pts: np.ndarray) -> dict:
     min_x = float(pts[:, 0].min()); max_x = float(pts[:, 0].max())
     min_y = float(pts[:, 1].min()); max_y = float(pts[:, 1].max())
@@ -256,7 +499,7 @@ def _curvatura_local(pts: np.ndarray) -> dict:
     elif desv < 0.02:   cls = "Suave (bordes redondeados)"
     elif desv < 0.05:   cls = "Moderado (algunas inflexiones)"
     elif desv < 0.10:   cls = "Irregular (múltiples inflexiones)"
-    else:               cls = "Muy irregular (esquinas pronunciadas)"
+    else:               cls = "Muy variable (alta variación de curvatura local)"  # ADR-016 #6: rótulo neutral (medición fiel; no diagnostica daño)
 
     return {"curvatura_media": media, "curvatura_maxima": maxima,
             "desviacion_curvatura": desv, "puntos_inflexion": n_inf,
@@ -278,7 +521,7 @@ def _rugosidad(pts: np.ndarray) -> dict:
     elif rug < 0.15:  cls = "Suave (ligera irregularidad)"
     elif rug < 0.30:  cls = "Moderado (irregular)"
     elif rug < 0.50:  cls = "Rugoso (muy irregular)"
-    else:             cls = "Muy rugoso (fracturado/erosionado)"
+    else:             cls = "Muy rugoso (contorno de alta variabilidad)"  # ADR-016 #6: rótulo neutral — describe la medición, NO diagnostica fractura/erosión (que contradecía la conservación)
 
     return {"rugosidad": rug, "longitud_segmento_media_px": media,
             "desviacion_segmentos_px": desv, "clasificacion_rugosidad": cls}
@@ -599,6 +842,21 @@ async def calculate(
     ar = _r(tw / th if th > 0 else 1.0, 4)
     m["aspect_ratio_tight"] = ar; m["aspect_ratio_original"] = ar
 
+    # ── 7b. Rectángulo mínimo — descriptores INVARIANTES A LA ROTACIÓN ─────
+    # El bbox de arriba está alineado a los ejes de la imagen: al girar la pieza
+    # cambian ar y rectangularidad. Estos no. Se reportan aparte (aditivo) y son
+    # los que consume la clasificación de forma.
+    mrect = _min_area_rect(hull_pts if len(hull_pts) >= 3 else pts)
+    m["min_rect_largo_px"]   = _r(mrect["largo"])
+    m["min_rect_ancho_px"]   = _r(mrect["ancho"])
+    m["min_rect_area_px"]    = _r(mrect["area"])
+    m["min_rect_angulo_deg"] = _r(mrect["angulo"], 1)
+    m["aspect_ratio_min_rect"] = _r(mrect["aspect"], 4)
+    m["rectangularity_min_rect"] = _r(area_real / mrect["area"], 4) if mrect["area"] > 0 else None
+    if sc > 0:
+        m["min_rect_largo"] = _r(mrect["largo"] * sc, 3)
+        m["min_rect_ancho"] = _r(mrect["ancho"] * sc, 3)
+
     # ── 8. Circularidad 4πA/P² (hull=principal, real=referencia de fragmentación) ──
     circ  = (_FOUR_PI * hull_area) / (hull_perim ** 2) if hull_perim > 0 else 0.0
     circF = (_FOUR_PI * area_real) / (perim_real ** 2) if perim_real > 0 else 0.0
@@ -798,120 +1056,176 @@ async def calculate(
     elif ang_data["angulo_medio"] > 150:        m["geometria_vertices"] = "Suavemente curvado"
     else:                                       m["geometria_vertices"] = "Polígono irregular"
 
+    # ── 15b. Descriptores de forma robustos (alimentan la clasificación) ────
+    vest = _vertices_estables(hull_pts if len(hull_pts) >= 3 else pts)
+    m["vertices_estables"]             = vest["n"]
+    m["vertices_estabilidad"]          = _r(vest["estabilidad"], 3)
+    m["vertices_fidelidad_poligonal"]  = _r(vest["fidelidad"], 4)
+    defs_ = _defectos_convexidad(pts)
+    m["concavidades_significativas"]   = defs_["n"]
+    m["concavidad_profundidad_max"]    = _r(defs_["profundidad_max"], 4)
+    m["concavidades_regularidad"]      = _r(defs_["regularidad"], 4)
+    m["ajuste_elipse"]                 = _r(_ajuste_elipse(pts), 4)
+    m["centroide_hull_en_material"]    = _r(_centroide_hull_en_material(pts), 4)
+    quad = _analisis_cuadrilatero(vest.get("poligono"))
+    m["quad_pares_paralelos"]          = quad["pares_paralelos"]
+    m["quad_lados_homogeneos"]         = quad["lados_homogeneos"]
+    m["quad_razon_paralelos"]          = quad["razon_paralelos"]
+
     # ── 16. Clasificación automática de forma (taxonomía extendida) ──────────
     # Ejecutada aquí para tener acceso completo a: indice_estrellamiento (paso 21),
     # indice_lobularidad (paso 22), curvatura (paso 18), rugosidad (paso 19)
     # y ángulos internos de vértices (paso 25).
     def _clasificar():
-        ar_v   = ar or 1.0
+        # Descriptores INVARIANTES A LA ROTACIÓN (ver _min_area_rect): el aspect
+        # ratio y la rectangularidad del bbox alineado cambian al girar la pieza.
+        ar_v   = m.get("aspect_ratio_min_rect") or ar or 1.0
+        rec_v  = m.get("rectangularity_min_rect") or m.get("rectangularity") or 0.0
         sol    = solidez
         lob    = m.get("indice_lobularidad", 1.0) or 1.0
         est    = m.get("indice_estrellamiento", 0.0) or 0.0
         perd   = m.get("perdida_area_fragmentacion_percent", 0.0) or 0.0
         exc_v  = exc.get("excentricidad", 0.0)
-        rec_v  = m.get("rectangularity") or 0.0
         n_rect = ang_data.get("num_angulos_rectos", 0)
         n_ag   = ang_data.get("num_angulos_agudos", 0)
         n_ob   = ang_data.get("num_angulos_obtusos", 0)
         elon_v = elon
         circF  = m.get("circularity_fragmentada", 1.0) or 1.0
 
-        # Vértices con epsilon grueso (3% del perímetro) → clasificación poligonal
-        arc_len  = _perimeter(pts)
-        eps_c    = max(4.0, arc_len * 0.03)
-        approx_c = cv2.approxPolyDP(
-            pts.reshape(-1, 1, 2).astype(np.float32), eps_c, True
-        )
-        nv = len(approx_c)
+        # Recuento de lados por estabilidad multi-escala + evidencia de que ese
+        # polígono explica la forma (fidelidad de área). Sustituye al approxPolyDP
+        # de epsilon fijo, que fundía vértices en polígonos de 5+ lados.
+        nv       = m.get("vertices_estables", 0) or 0
+        nv_estab = m.get("vertices_estabilidad", 0.0) or 0.0
+        nv_fid   = m.get("vertices_fidelidad_poligonal", 0.0) or 0.0
+        # Concavidades: 1 dominante = luna · n regulares = estrella · muchas = erosión
+        ncav     = m.get("concavidades_significativas", 0) or 0
+        cav_max  = m.get("concavidad_profundidad_max", 0.0) or 0.0
+        cav_reg  = m.get("concavidades_regularidad", 0.0) or 0.0
+        fit_el   = m.get("ajuste_elipse", 0.0) or 0.0
+        dcen     = m.get("centroide_hull_en_material", 0.0) or 0.0
 
-        # 1. Lunar: toroide incompleto (le falta una sección del anillo)
-        #    — va ANTES de Anular porque comparte sol<0.55 y perd>25%
-        #    Distinción clave vs Anular: el arco abierto traza borde exterior +
-        #    borde interior → circF muy bajo (<0.35). Un anillo completo procesado
-        #    como contorno exterior tiene circF alto.
-        if sol < 0.65 and perd > 8.0 and circF < 0.35 and circ > 0.55:
-            return "Lunar", _r(max(0.3, (1.0 - sol) * 0.8), 3)
+        # ── ETAPA 1 · TOPOLOGÍA (huecos y concavidades dominantes) ──────────
+        # Va primero: una pieza anular o un creciente no son «casi circulares»
+        # aunque su hull lo parezca. El signo de `dcen` (centroide del hull dentro
+        # o fuera del material) decide si hay hueco, y su magnitud si es un hueco
+        # interior (anillo) o una mordida de borde (creciente).
 
-        # 2. Anular/Perforado: anillo completo (hueco topológico interior)
-        if sol < 0.55 and (perd or 0) > 25.0:
+        # Anular/Perforado: hueco interior — el centro de la envolvente cae MUY
+        # adentro del vacío
+        if dcen < -0.45 and perd > 20.0:
             return "Anular/Perforado", _r(min(1.0 - sol + 0.1, 1.0), 3)
 
-        # 3. Circular: alta circularidad + compacto + no elongado
+        # Lunar: mordida de borde — el centro cae fuera pero cerca del contorno,
+        # con UNA concavidad dominante (ncav<=2 lo separa de la estrella)
+        if dcen < 0.0 and ncav <= 2 and cav_max > 0.22 and circ > 0.50:
+            return "Lunar", _r(max(0.3, (1.0 - sol) * 0.8), 3)
+
+        # Estrellado: varias concavidades REGULARES y PROFUNDAS entre puntas.
+        # No se exige `indice_estrellamiento`: se calcula sobre el hull, que en una
+        # estrella es un polígono liso → ciego a las puntas (una estrella de 5
+        # puntas daba est=0.27 y caía en «Irregular»).
+        # `perd` (área que el hull gana sobre el contorno real) es la guarda contra
+        # el RUIDO: un borde ruidoso genera muchas concavidades someras pero apenas
+        # pierde área (<1%), mientras que puntas y lóbulos reales pierden ≥3%.
+        if ncav >= 4 and cav_reg > 0.35 and cav_max > 0.30 and perd >= 15.0:
+            return "Estrellado", _r(min(max(est, cav_max) / 0.70, 1.0), 3)
+
+        # Lobulado: varias concavidades regulares pero SOMERAS (ondas, no puntas).
+        # Tampoco usa `indice_lobularidad`, que al ir sobre el perímetro del hull
+        # no ve los lóbulos (un trilobulado daba lob=1.07 → «Subcircular»).
+        if 3 <= ncav <= 8 and cav_reg > 0.55 and 0.08 <= cav_max <= 0.30 and sol > 0.70 and perd >= 3.0:
+            return "Lobulado", _r(min(max(lob - 1.0, cav_max) * 4.0, 1.0), 3)
+
+        # ── ETAPA 2 · POLÍGONO CON EVIDENCIA FUERTE ─────────────────────────
+        # Antes las reglas curvilíneas (Circular/Subcircular) iban ANTES que el
+        # recuento de lados y capturaban cualquier polígono compacto: un cuadrado
+        # (circ 0.785) salía «Subcircular» y un hexágono (circ 0.907) «Circular»,
+        # sin llegar nunca a evaluar sus vértices. Ahora el polígono se decide
+        # primero, pero solo con evidencia fuerte (recuento estable + el polígono
+        # reproduce el área real), de modo que una pieza orgánica no se fuerza a
+        # poligonal.
+        # Umbral de fidelidad 0.94: la separación es bimodal y holgada — las formas
+        # curvilíneas se quedan en ≈0.90 (círculo 0.900, elipse 0.900, amigdaloide
+        # 0.902) y los polígonos en ≥0.95 incluso con ruido de contorno (triángulo
+        # ruidoso 0.952, hexágono ruidoso 0.982).
+        es_poligono = (3 <= nv <= 8 and nv_fid >= 0.94 and nv_estab >= 0.20 and sol > 0.80)
+        if es_poligono:
+            if nv == 3:
+                return "Triangular", _r(min(sol, 0.95) * nv_fid, 3)
+            if nv == 4:
+                # La familia del cuadrilátero la decide el PARALELISMO de sus lados,
+                # no el recuento de ángulos rectos: un trapecio de lados inclinados
+                # no tiene ninguno y salía «Romboidal».
+                pares  = m.get("quad_pares_paralelos", 0) or 0
+                razon  = m.get("quad_razon_paralelos", 1.0) or 1.0
+                if pares == 2 and (n_rect >= 3 or rec_v > 0.88):
+                    return "Rectangular", _r((sol + rec_v) / 2, 3)
+                if pares == 2:
+                    return "Romboidal", _r(sol * 0.85, 3)
+                if pares == 1 or (razon > 1.15 and pares >= 1):
+                    return "Trapezoidal", _r(sol * 0.9, 3)
+                if n_rect >= 3 and rec_v > 0.80:
+                    return "Rectangular", _r((sol + rec_v) / 2, 3)
+                if n_rect == 0 and n_ag >= 2 and n_ob >= 1:
+                    return "Romboidal", _r(sol * 0.85, 3)
+                return "Cuadrangular", _r(sol * 0.9, 3)
+            if nv == 5:
+                return "Pentagonal", _r(sol * nv_fid, 3)
+            if nv == 6:
+                return "Hexagonal", _r(sol * nv_fid, 3)
+            return "Poligonal", _r(min(sol * circ + 0.1, 1.0), 3)
+
+        # ── ETAPA 3 · CURVILÍNEAS ───────────────────────────────────────────
+
+        # Circular: alta circularidad + compacto + no elongado
         if circ > 0.90 and sol > 0.88 and elon_v < 0.25:
             return "Circular", _r(circ, 3)
 
-        # 4. Subcircular: casi circular con ligera irregularidad
+        # Subcircular: casi circular con ligera irregularidad
         if circ > 0.78 and exc_v < 0.45 and sol > 0.82 and elon_v < 0.35:
             return "Subcircular", _r((circ + sol) / 2, 3)
 
-        # 5. Amigdaloide: óvalo/almendrada — contorno curvo, muy convexo, AR moderado
-        #    Guía §I: arNorm 0.53-0.85 → ar 1.18-1.89; exc ≈ 0.50-0.88; sol ≥ 0.83
-        #    nv > 4 excluye rombos y trapecios (polígonos de 4 vértices con misma exc/sol)
-        if sol >= 0.83 and 0.50 <= exc_v < 0.88 and circ > 0.60 and ar_v <= 2.0 and nv > 4:
-            return "Amigdaloide", _r((sol + circ) / 2, 3)
-
-        # 6. Laminar: aspect ratio > 3 — va antes de checks de vértices
-        #    porque una elipse muy elongada puede reducirse a nv=4 con epsilon 3%
+        # Laminar: muy elongada (ar > 3) — antes que el resto de curvilíneas
         if ar_v > 3.0:
             return "Laminar", _r(min(ar_v / 6.0, 1.0), 3)
 
-        # 7. Lanceolada: hoja o punta lanceolada (elongada, ar 1.7-3.0)
-        #    Guía §I: arNorm 0.28-0.55 → ar 1.8-3.5; circ 0.46-0.76; sol ≥ 0.66
-        if 1.7 < ar_v <= 3.0 and 0.46 <= circ < 0.78 and sol >= 0.66:
+        # Elipsoidal: la forma AJUSTA una elipse. El ajuste explícito la separa de
+        # Amigdaloide/Lanceolada, que comparten ar, solidez y circularidad — antes
+        # la regla de Amigdaloide capturaba cualquier elipse limpia.
+        if fit_el >= 0.95 and sol > 0.80 and 0.20 < exc_v < 0.92:
+            return "Elipsoidal", _r(circ * 0.5 + fit_el * 0.5, 3)
+
+        # Lanceolada: elongada y convexa pero NO elíptica (extremos apuntados).
+        # El criterio es la falta de ajuste elíptico, no una ventana estrecha de
+        # circularidad: una hoja apuntada de circ 0.79 quedaba fuera por 0.01.
+        if 1.7 < ar_v <= 3.0 and sol >= 0.66 and circ >= 0.40 and fit_el < 0.95:
             return "Lanceolada", _r((sol + circ) / 2, 3)
 
-        # 8. Triangular: 3 vértices estrictos (bordes rectos)
-        #    O 4 vértices con circ baja y ángulos agudos dominantes
-        if nv == 3 or (nv == 4 and circ < 0.65 and n_ag >= 2):
-            return "Triangular", _r(min(sol, 0.95), 3)
+        # Amigdaloide: almendrada — curva y muy convexa, pero NO una elipse
+        if sol >= 0.83 and 0.50 <= exc_v < 0.88 and circ > 0.60 and ar_v <= 2.0:
+            return "Amigdaloide", _r((sol + circ) / 2, 3)
 
-        # 9. Rectangular: 4 vértices + ≥3 ángulos rectos + buena rectangularidad
-        if nv == 4 and n_rect >= 3 and rec_v > 0.65:
-            return "Rectangular", _r((sol + rec_v) / 2, 3)
-
-        # 10. Trapezoidal: 4 vértices + 2 ángulos rectos (trapecio)
-        #     Guía §I: 2-3 ángulos rectos en hull simplificado
-        if nv == 4 and n_rect == 2 and sol > 0.70:
-            return "Trapezoidal", _r(sol * 0.9, 3)
-
-        # 11. Romboidal: 4 vértices + 0 rectos + ≥2 agudos + ≥1 obtuso
-        #     Guía §I: 0 ángulos rectos + ≥2 agudos + ≥2 obtusos
-        if nv == 4 and n_rect == 0 and n_ag >= 2 and n_ob >= 1 and sol > 0.70:
-            return "Romboidal", _r(sol * 0.85, 3)
-
-        # 12. Cuadrangular: 4 vértices (fallback general — rombos, trapecios no captados)
-        if nv == 4 and sol > 0.70:
-            return "Cuadrangular", _r(sol * 0.9, 3)
-
-        # 13. Pentagonal: 5 vértices compactos
-        if nv == 5 and sol > 0.72:
-            return "Pentagonal", _r(sol, 3)
-
-        # 14. Hexagonal: 6 vértices compactos
-        if nv == 6 and sol > 0.75:
-            return "Hexagonal", _r(sol, 3)
-
-        # 15. Elipsoidal (después de polígonos y curvilíneos arqueológicos)
+        # Elipsoidal (criterio amplio, ajuste imperfecto pero geometría elíptica)
         if circ > 0.50 and 0.25 < exc_v < 0.90 and ar_v < 3.5 and sol > 0.80:
             return "Elipsoidal", _r(circ * 0.5 + min(exc_v / 0.8, 1.0) * 0.5, 3)
 
-        # 18. Poligonal: 7-14 vértices con buena solidez y circularity
+        # Poligonal: recuento alto de lados sin la fidelidad exigida en la etapa 2
         if 7 <= nv <= 14 and sol > 0.72 and circ > 0.45:
             return "Poligonal", _r(min(sol * circ + 0.1, 1.0), 3)
 
-        # 19. Estrellado: proyecciones radiales (compacto, no elongado, baja circ)
-        if est > 0.50 and lob > 1.15 and elon_v < 0.45 and circ < 0.70:
-            return "Estrellado", _r(min(est / 0.70, 1.0), 3)
+        # NOTA — aquí había un respaldo de Estrellado/Lobulado por `indice_estrellamiento`
+        # y `indice_lobularidad`. Ambos se calculan sobre el HULL, que es liso por
+        # definición: no pueden ver ni puntas ni lóbulos, pero sí se disparan con
+        # cualquier forma angular (un triángulo da est=0.72 y lob=1.29 → se
+        # clasificaba «Estrellado» en cuanto el ruido bajaba su fidelidad poligonal).
+        # La detección real de ambas familias vive en la etapa 1, por concavidades.
 
-        # 20. Lobulado: borde con lóbulos (bilobulado, trilobulado, etc.)
-        if lob > 1.20 and sol > 0.58:
-            return "Lobulado", _r(min((lob - 1.0) * 4.0, 1.0), 3)
-
-        # 21. Irregular redondeado: circularity media con buena solidez
+        # Irregular redondeado: circularity media con buena solidez
         if 0.42 < circ <= 0.78 and sol > 0.65:
             return "Irregular redondeado", _r(circ, 3)
 
-        # 22. Irregular: fallback general
+        # Irregular: fallback general
         return "Irregular", _r(max(0.15, sol * 0.45), 3)
 
     f_nombre, f_conf = _clasificar()
