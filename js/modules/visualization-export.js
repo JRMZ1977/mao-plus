@@ -53,6 +53,7 @@ import * as ContourQuality from './contour-quality.js';
 import * as GeometryPrimitives from './geometry-primitives.js';
 import * as UtilityHelpers from './utility-helpers.js';
 import * as MetricsOrchestrator from './metrics-orchestrator.js';
+import * as MetricPresenter from './metric-presenter.js';  // fuente única de derivados/rótulos (ADR-016/018)
 import { generarTablaMetricasCompleta as _generarTablaMetricasCompleta } from './tabla-metricas-completa.js';
 
 // ============================================================================
@@ -1412,11 +1413,15 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
       );
 
       if (tienePerforaciones || tieneHoradaciones) {
-        // Área neta: área bruta (mm²) - Σ P/H (mm²) — sin aplicar scale² (ya está en mm²)
+        // ADR-018 · el criterio de aceptación del área neta almacenada (rechazarla si
+        // supera a la bruta) vivía duplicado aquí, en el PDF y en la Tabla. Ahora es
+        // del derivado canónico, que además consulta los DOS sitios donde el área
+        // neta puede haberse guardado (`metricas.area_neta` y `obj.area_neta`).
         const _phefAn = calcularAreaEfectivaPH(obj.perforaciones || [], obj.horadaciones || []);
         const _areaBrutaAN = parseFloat(metricas.area) || 0;
-        const _aNetaAn = (typeof obj.area_neta === 'number' && obj.area_neta <= _areaBrutaAN)
-          ? obj.area_neta
+        const _anPanel = MetricPresenter.areaNetaDerivados(metricas, obj);
+        const _aNetaAn = _anPanel.calculada
+          ? _anPanel.neta
           : Math.max(0, _areaBrutaAN - _phefAn.areaTotalPH);
         metricsHTML += `
               <tr style="background: #e0f7fa;">
@@ -1621,9 +1626,13 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
         // — mismo método que la Tabla Comparativa, evita doble-conteo P+H.
         const _phefBal   = calcularAreaEfectivaPH(obj.perforaciones || [], obj.horadaciones || []);
         const _areaPH    = _phefBal.areaTotalPH;
-        // Derivar Área Neta siempre de Área Bruta − Área P/H para garantizar consistencia visual.
-        // (Ambas columnas se calculan desde metricas.area = Convex Hull × escala²)
-        const _areaNeta  = _areaBruta - _areaPH;
+        // ADR-018 · se prefiere el área neta que el motor ya calculó y persistió; sólo
+        // se recomputa si no la hay. Ambas usan `calcularAreaEfectivaPH` sobre las
+        // mismas P/H, así que el balance de las tres columnas sigue cuadrando —que
+        // era lo que este recálculo perseguía—, pero deja de divergir del valor que
+        // publican el CSV, la Tabla y el PDF.
+        const _anBal     = MetricPresenter.areaNetaDerivados(metricas, obj);
+        const _areaNeta  = _anBal.calculada ? _anBal.neta : (_areaBruta - _areaPH);
         const _pctPH     = _areaBruta > 0 ? ((_areaPH / _areaBruta) * 100).toFixed(1) : '0.0';
         const _pctNeta   = _areaBruta > 0 ? ((_areaNeta / _areaBruta) * 100).toFixed(1) : '100.0';
         const _fmtN      = v => (typeof v === 'number' ? v.toFixed(3) : 'N/A');

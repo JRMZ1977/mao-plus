@@ -2143,6 +2143,7 @@
         forma_categoria: carAnverso.forma_categoria || 'Irregular',
         homologacion_metodo: 'front_back_projection_xy_55_metricas',
         analysis_method: 'OBJ3D + FRONT/BACK 2D HOMOLOGATED',
+        analysis_source: 'obj3d',  // ADR-018
         analysis_timestamp: nowIso,
       };
 
@@ -2248,6 +2249,7 @@
       bifacial_index: toSafeNumber(bif.value, 0),
       orientation_confidence: toSafeNumber(orient.confidence, 0),
       analysis_method: 'OBJ3D + PCA',
+      analysis_source: 'obj3d',  // ADR-018
       analysis_timestamp: nowIso,
       ...(comparatorReady?.metricas || {}),
     };

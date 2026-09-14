@@ -1952,9 +1952,11 @@
 
     // ── solidez clase ──────────────────────────────────────────────────────────
     const sol      = maoObj.solidity || 0;
+    // ADR-018 · era una TERCERA escalera, con umbrales propios (0.90/0.75/0.55) y
+    // rótulos propios: la misma pieza salía «Casi completo» por la vía IA y
+    // «Mayormente completo» por la vía estándar. Ahora delega en la fuente única.
     const solClass = maoObj.solidity_class ||
-      (sol >= 0.90 ? 'Completo' : sol >= 0.75 ? 'Casi completo' :
-       sol >= 0.55 ? 'Parcial'  : 'Muy fragmentado');
+      (window.MetricPresenter ? MetricPresenter.clasificarSolidez(sol) : '');
 
     // ── circularidad → clase ──────────────────────────────────────────────────
     const cir      = maoObj.circularity || 0;
@@ -2051,6 +2053,7 @@
       // 2) Identificación (fija, sobreescribe si el pass-through trajo algo)
       object_id:                    objLabel,
       analysis_method:              'MAO IA \u2014 Detecci\u00f3n autom\u00e1tica',
+      analysis_source:              'ia',  // ADR-018
       contour_extraction_successful: objMorf.has_real_contour,
 
       // 3) Dimensiones convertidas a mm (si hay escala) — forma completa = Hull

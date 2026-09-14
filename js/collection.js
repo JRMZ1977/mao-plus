@@ -4035,7 +4035,12 @@ async function cargarAnalisisDesdeRuta(rutaAnalisis) {
     // para que el CSV exportado contenga todos los campos desde esta apertura en adelante.
     {
       const _om   = metricas.objeto || {};
-      const _isAIA    = _om.analysis_method === 'MAO IA — Detección automática';
+      // ADR-018 · por enum, no por igualdad de cadena. Hoy coincide, pero basta
+      // un sufijo nuevo en el escritor para matar este lector en silencio —que es
+      // exactamente lo que le pasó al contador de fallback de analysis-core.
+      const _isAIA    = (window.MaoDeteccion && MaoDeteccion.esAnalisisIA)
+        ? MaoDeteccion.esAnalisisIA(_om)
+        : String(_om.analysis_method || '').indexOf('MAO IA') !== -1;
       const _isLegacy = Object.keys(_om).length < 40;
       const _pts      = geometria.contornoReal?.puntos || [];
       if (_isAIA && _isLegacy && _pts.length >= 3 &&

@@ -483,7 +483,7 @@
   </div>
   <p>MAO Plus es una aplicación de análisis morfométrico para objetos arqueológicos (líticos, cerámicos, metálicos, óseos, etc.). A partir de una fotografía del objeto sobre fondo neutro, el sistema:</p>
   <div class="col2">
-    <div class="card"><h5>① Detecta el contorno</h5><p>Umbralización adaptativa, delimitación manual o detección AIA por inteligencia artificial (módulo MAO IA): extrae el polígono exacto del borde del objeto.</p></div>
+    <div class="card"><h5>① Detecta el contorno</h5><p>Umbralización adaptativa, delimitación manual o detección automatizada (módulo <strong>MAO IA</strong>, <em>Identificación Automatizada</em>): extrae el polígono exacto del borde del objeto.</p></div>
     <div class="card"><h5>② Extrae geometría</h5><p>Calcula el contorno real y el Convex Hull con precisión subpíxel.</p></div>
     <div class="card"><h5>③ Calcula métricas</h5><p>Más de 120 métricas morfológicas cuantitativas organizadas según el mismo orden del informe exportado.</p></div>
     <div class="card"><h5>④ Clasifica la forma</h5><p>Votación ponderada entre 6 métodos independientes produce una forma detectada con nivel de confianza.</p></div>
@@ -492,7 +492,7 @@
     <strong>Nota sobre escala:</strong> Todas las métricas de longitud (mm, mm²) requieren escala calibrada. Sin escala, los valores se expresan en píxeles. Los índices adimensionales no requieren escala — son ratios y se cancelan.
   </div>
   <div class="callout callout-tip">
-    <strong>Módulo MAO IA:</strong> Además de la detección automática y manual, MAO Plus incluye el módulo <strong>MAO IA</strong> de análisis asistido por inteligencia artificial. Permite detectar múltiples objetos simultáneamente mediante segmentación AIA. Los objetos detectados se integran en el flujo morfométrico estándar con las mismas 125+ métricas. En modo bifacial, los objetos de cara A y cara B se gestionan de forma independiente y quedan disponibles simultáneamente en el panel de análisis. El campo <code>analysis_method</code> de estos objetos es <code>MAO IA — Detección automática</code>.
+    <strong>Módulo MAO IA:</strong> Además de la detección automática y manual, MAO Plus incluye el módulo <strong>MAO IA</strong> — <em>Identificación Automatizada</em>, no «inteligencia artificial» — de análisis asistido. Permite detectar múltiples objetos simultáneamente mediante segmentación AIA. Los objetos detectados se integran en el flujo morfométrico estándar con las mismas 125+ métricas. En modo bifacial, los objetos de cara A y cara B se gestionan de forma independiente y quedan disponibles simultáneamente en el panel de análisis. El campo <code>analysis_method</code> de estos objetos es <code>MAO IA — Detección automática</code>.
   </div>
 </div>
 
@@ -529,7 +529,7 @@
     <span class="section-num">3</span>
     <h2>Módulo MAO IA — Detección AIA</h2>
   </div>
-  <p>El módulo <strong>MAO IA</strong> (botón <strong>AIA</strong> en la barra de herramientas) aplica un pipeline de segmentación por inteligencia artificial para detectar múltiples objetos en la imagen de forma simultánea. Los objetos detectados se integran directamente en el flujo morfométrico estándar con las mismas 125+ métricas.</p>
+  <p>El módulo <strong>MAO IA</strong> (botón <strong>AIA</strong> en la barra de herramientas) aplica un pipeline de segmentación automatizada para detectar múltiples objetos en la imagen de forma simultánea. Los objetos detectados se integran directamente en el flujo morfométrico estándar con las mismas 125+ métricas.</p>
   <div class="col2">
     <div class="card">
       <h5>Detección simultánea</h5>
@@ -1478,7 +1478,7 @@
   <p>Indica que MAO Plus aplicó el refinamiento adaptativo de máscara antes de extraer el contorno. Esto sucede automáticamente en imágenes con fondo blanco o muy claro cuando el objeto es heterogéneo y claramente más oscuro que el fondo. El contorno extraído — y todas las métricas derivadas — son más precisos cuando este campo es <code>true</code>. Si el campo no aparece o es <code>false</code>, el contorno se extrajo de la máscara original sin modificación.</p>
 
   <h4>¿Qué diferencia al módulo MAO IA de la detección automática estándar?</h4>
-  <p>La detección automática estándar procesa un único objeto por ejecución mediante umbralización adaptativa, requiriendo que el usuario seleccione el objeto manualmente. El módulo <strong>MAO IA</strong> aplica un pipeline de segmentación por inteligencia artificial que detecta y delimita todos los objetos presentes en la imagen en una sola operación. El <code>detection_method</code> de los objetos AIA es <code>MAO IA</code>, frente a <code>automatic</code> o <code>manual</code> en los métodos tradicionales. Ambos flujos producen el mismo conjunto de métricas morfométricas.</p>
+  <p>La detección automática estándar procesa un único objeto por ejecución mediante umbralización adaptativa, requiriendo que el usuario seleccione el objeto manualmente. El módulo <strong>MAO IA</strong> aplica un pipeline de segmentación automatizada que detecta y delimita todos los objetos presentes en la imagen en una sola operación. El <code>detection_method</code> de los objetos AIA es <code>MAO IA</code>, frente a <code>automatic</code> o <code>manual</code> en los métodos tradicionales. Ambos flujos producen el mismo conjunto de métricas morfométricas.</p>
 
   <h4>¿Los objetos detectados por MAO IA tienen las mismas métricas que los detectados manual o automáticamente?</h4>
   <p>Sí, exactamente las mismas. Los objetos AIA pasan por el mismo motor de cálculo morfométrico (§I–XV). La única diferencia técnica es que el contorno ya fue calculado por el pipeline AIA (§XV, Paso 3 omitido). Las métricas de textura de superficie (§XIV) sí se calculan sobre la imagen original. El campo <code>_contorno_refinado_por_textura</code> puede ser <code>true</code> o <code>false</code> igual que en detección estándar, según las condiciones de la imagen.</p>

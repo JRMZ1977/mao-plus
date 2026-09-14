@@ -446,6 +446,10 @@ function calcularMetricasConBoundingBox(obj, escalaFactor = null) {
     metrics.detection_method = obj.detectionMethod || 'automatic';
   }
   metrics.analysis_method = 'Bounding Box (Fallback) [APROXIMADO]';
+  // ADR-018 · el enum es la fuente para las máquinas. Es justo este sitio el que
+  // rompió al lector: alguien añadió ` [APROXIMADO]` a la cadena y la comparación
+  // por igualdad de analysis-core dejó de coincidir, en silencio.
+  metrics.analysis_source = 'bbox_fallback';
   metrics.contour_extraction_successful = false;
   metrics.original_bounding_box = `${obj.minX},${obj.minY} to ${obj.maxX},${obj.maxY}`;
   metrics.scale_factor = escalaFactor || 'No configurada';
