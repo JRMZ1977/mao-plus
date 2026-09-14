@@ -183,8 +183,17 @@ que candidata. **Cero errores de consola.**
    «sin evaluar». Ahora lee `metricas.plantilla_completitud` en los **dos** productores
    (duplicado IIFE de `analysis-core.js` incluido — sin él sobrevive por la ruta legacy).
 
+**Herramienta:** `npm run verificar:visual -- --imagen <ruta>` — arranca la app, la conduce
+entera (cargar → escala → identificar → detectar → analizar → emparejar), imprime los números
+y deja 4 capturas. `--focal/--sensor/--apertura` para imágenes sin EXIF legible (CR3);
+`--objeto N` cuando la foto trae escala o carta de color; `--mantener` deja la ventana abierta.
+Única dependencia nueva: `playwright-core` (no descarga navegadores: se conecta al Electron
+que ya está corriendo).
+
 - **Pendiente:** mirarlo con una **fotografía real** (el fixture es sintético: bordes limpios,
   fondo uniforme) y en **macOS** (esto es Linux+Xvfb: no valida `hiddenInset` ni semáforos).
+  Las fotos del corpus llegan al chat como imagen, no como archivo: la corrida con material
+  real se hace en el Mac del usuario con la orden de arriba.
 
 ## 🎯 Sesión 2026-09-13 (e) — ADR-017 F4: los umbrales dejan de ser criterio
 
