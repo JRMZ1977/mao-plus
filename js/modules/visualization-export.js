@@ -692,10 +692,20 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
       
       // ADR-017 F0 — «Pieza completa (sin fragmentación detectada)» era una
       // afirmación fabricada: se emitía por AUSENCIA de dato, no por evidencia.
+      // F5 — el texto quedó CLAVADO en «Sin evaluar» mientras F1 no existía, y
+      // nadie volvió a esta fila al cablear F3: la tarjeta §6 decía «70 %» y dos
+      // centímetros más abajo la tabla seguía diciendo «sin evaluar». Ahora lee
+      // el dato. `metricas.plantilla_*` sólo lo escribe la confirmación humana
+      // (`sincronizarMetricasPlantilla`), así que un candidato sin ratificar
+      // sigue mostrándose «Sin evaluar»: la fila no adelanta ninguna decisión.
+      const _plComp = metricas.plantilla_completitud;
+      const _plTxt = (_plComp !== null && _plComp !== undefined)
+        ? `${Number(_plComp).toFixed(1)} % de ${metricas.plantilla_tipo || 'plantilla'} (confirmado)`
+        : 'Sin evaluar — requiere ajuste de plantilla (ADR-017)';
       metricsHTML += `
         <div class="morphological-metric" style="background: #f3e5f5; padding: 8px; border-radius: 4px; margin: 5px 0;">
           <span class="label">Completitud:</span>
-          <span class="value" style="color: #6a1b9a;">Sin evaluar — requiere ajuste de plantilla (ADR-017 F1)</span>
+          <span class="value" style="color: #6a1b9a;">${_plTxt}</span>
         </div>`;
 
       // Resolver campos mostrados con regla canónica compartida.

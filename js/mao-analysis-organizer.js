@@ -569,7 +569,20 @@
 
   function partition(mm) {
     var root = findRoot(mm);
-    if (!root) return null;
+    if (!root) {
+      /* Segunda pasada en adelante. `findRoot` exige que los <h5> sean HERMANOS,
+         y la primera pasada los repartió por las secciones → desde entonces
+         devolvía null, `organize` no llamaba a los constructores de tarjetas y
+         §P/H y §6 quedaban congeladas en el estado con el que nacieron. Se veía
+         así: pulsar «Evaluar completitud» cambiaba el chip de la cabecera —que
+         se construye ANTES de esta compuerta— y la tarjeta seguía ofreciendo
+         «Evaluar», sin «Confirmar». El botón de confirmar no llegaba a existir.
+         El root quedó marcado con `.adr2-root` en la primera pasada; recuperarlo
+         por ahí es lo que permite REFRESCAR las tarjetas. Detectado en la
+         verificación visual en Electron de ADR-017 F5. */
+      root = mm.classList.contains('adr2-root') ? mm : mm.querySelector('.adr2-root');
+      if (!root) return null;
+    }
 
     /* Wrappers intermedios mm→root participan del flex de la columna */
     var n = root;

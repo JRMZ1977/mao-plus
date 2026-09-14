@@ -24920,7 +24920,9 @@ if (typeof window !== 'undefined') window.MetricPresenter = MetricPresenter;
         </div>
         <div class="metric-row highlight">
           <span class="metric-label">Completitud:</span>
-          <span class="metric-value">Sin evaluar — requiere ajuste de plantilla (ADR-017 F1)</span>
+          <span class="metric-value">${metricas.plantilla_completitud != null
+            ? `${Number(metricas.plantilla_completitud).toFixed(1)} % de ${metricas.plantilla_tipo || 'plantilla'} (confirmado)`
+            : 'Sin evaluar — requiere ajuste de plantilla (ADR-017)'}</span>
         </div>
       </div>
       

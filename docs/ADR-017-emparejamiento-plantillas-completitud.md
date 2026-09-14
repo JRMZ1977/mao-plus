@@ -318,7 +318,7 @@ forma ideal subyacente: el caso normal en lítica). Nunca `--ok` automático.
 | **F1** | ✅ **Hecha.** `python/modules/shape_template.py` + `/api/shape-match` + 19 tests. Ver §6.2 | nuevo módulo, `server.py`, `modules/__init__.py`, 2 ficheros de test | ✅ error ≤ 1 punto porcentual entre 25 % y 100 % · ✅ rechaza < 15 % · ✅ rechaza plantilla errónea · suite 343/4 | 🟢 aditivo |
 | **F2** | ✅ **Hecha.** ICP recortado sobre repertorio + `efa.reconstruct()` publicada + `/api/shape-match/templates`. Ver §6.3 | `shape_template.py`, `efa.py`, `server.py` | ✅ paridad ≤ 0,3 pp en los 4 casos · ✅ 3 plantillas poligonales validadas · suite 357/4 | 🟢 aditivo |
 | **F3** | ✅ **Hecha.** Registro + bridge + chip de 4 estados + confirmar/descartar + persistencia + CSV. Ver §6.4 | `morphometric_registry.py`, `python-bridge.js`, `mao-deteccion-contract.js`, `mao-analysis-organizer.js`, `analysis-core.js`, `project-manager.js`, `tabla-metricas-completa.js`, `mao-tabs-laar.css`, `index.html` | ✅ 4 estados · ✅ persiste en el caché · ✅ CSV sólo lo confirmado · 15 tests de cableado · suite 372/4 | 🟢 |
-| **F5** | ✅ **Hecha.** Superposición de la plantilla en el lienzo, con el tramo reconstruido en discontinuo. Ver §6.6 | `shape_template.py`, `analysis-core.js`, `mao-analysis-organizer.js`, `mao-tabs-laar.css`, `index.html`, gate + 2 ficheros de test | ✅ la vía analítica publica su polilínea (antes sólo el ICP) · ✅ gate funcional 20/20 sobre el código real · suite 413/4 · ⏳ verificación visual en Electron | 🟢 aditivo |
+| **F5** | ✅ **Hecha.** Superposición de la plantilla en el lienzo, con el tramo reconstruido en discontinuo. Ver §6.6 | `shape_template.py`, `analysis-core.js`, `mao-analysis-organizer.js`, `mao-tabs-laar.css`, `index.html`, gate + 2 ficheros de test | ✅ la vía analítica publica su polilínea (antes sólo el ICP) · ✅ gate funcional 20/20 sobre el código real · ✅ **verificado en Electron real**: disco al 70 % medido 70,17 % · suite 416/4 | 🟢 aditivo |
 | **F4** | 🟡 **Parcial.** Banco de umbrales + recalibración + arnés de calibración real. Ver §6.5 | `shape_template.py`, `tools/adr017_banco_umbrales.py`, `tools/adr017_calibracion_draga.py`, `docs/VALIDACION-PLANTILLAS.md`, 2 ficheros de test | ✅ umbrales justificados con datos (87 formas + 15 controles) · ✅ arnés ICC/Bland-Altman/κ probado end-to-end · suite +22 tests (401/4 sobre `main`) · ⏳ **la corrida sobre La Draga la ejecuta el observador**: el corpus está en su equipo | 🟢 |
 
 **Secuencia recomendada:** F0 primero y por separado — es autónomo, corrige un defecto que ya
@@ -359,10 +359,35 @@ parte respaldada sale en **dos** trazos, no uno, porque el hueco no toca la cost
 recorrido empieza dentro de la zona respaldada. Los dos trazos se juntan en el punto 0 y se ven como
 una sola línea. Queda anotado en el gate para que nadie lo lea como un defecto.
 
-**Sigue pendiente la verificación visual en Electron**, que ningún contenedor de estas sesiones puede
-hacer: que el violeta se distinga del verde del contorno y del naranja de la envolvente con una foto
-real detrás, y que la discontinuidad se lea a los zooms de trabajo. Comprobable desde la consola con
-`window.__maoForma.overlay(true|false)` (ADR-010).
+**Verificación visual HECHA** (2026-09-14), contra la aplicación Electron real corriendo con servidor
+X virtual y conducida por CDP; método y escollos en `docs/VERIFICACION-VISUAL-ELECTRON.md`. Fixture
+nuevo `assets/fixtures/sintetico_fragmento_disco.png`: un disco al **70 %** exacto — la cuenta
+circular fracturada que motivó ADR-016 #6.
+
+Por el pipeline completo (detección → contorno → emparejamiento), el programa midió **70,17 %**
+(0,17 pp de error) con soporte de arco 0,704, y **90 de los 128** puntos de la polilínea marcados
+como respaldados (70,3 %, coherente con el número). Confirmado, `plantilla_tipo`/`plantilla_completitud`
+llegaron a `metricas`. En el lienzo: **arco discontinuo violeta cerrando el 30 % ausente** y trazo
+continuo sobre el margen conservado, distinguible del verde del contorno y del naranja de la
+envolvente; la casilla lo quita y lo devuelve sin residuo; confirmada se dibuja más gruesa y opaca
+que candidata. Cero errores de consola.
+
+**Y encontró dos defectos que ningún test estático veía**, ambos anteriores a F5:
+
+1. **Las tarjetas §P/H y §6 se construían una sola vez.** `partition()` reparte los `<h5>` por las
+   secciones en la primera pasada; desde entonces `findRoot()` —que los exige hermanos— devolvía
+   `null` y `organize()` no volvía a llamar a los constructores. Pulsar «Evaluar completitud»
+   cambiaba el chip de la cabecera (que se construye *antes* de esa compuerta) y la tarjeta seguía
+   ofreciendo «Evaluar», sin «Confirmar»: **el botón de confirmar no llegaba a existir**, así que el
+   flujo de ratificación de F3 era inalcanzable desde la interfaz. Arreglado recuperando el root por
+   el marcador `.adr2-root` que deja la primera pasada.
+2. **La fila «Completitud» de la tabla estaba clavada** en «Sin evaluar» desde F0 —cuando no había
+   nada que mostrar— y nadie volvió a ella al cablear F3: la tarjeta §6 decía «70 %» y la tabla, en
+   la misma pantalla, «sin evaluar». Ahora lee `metricas.plantilla_completitud`, en los **dos**
+   productores (el duplicado IIFE de `analysis-core.js` incluido).
+
+Lo que **no** cubre esta verificación: es Linux con Xvfb, no macOS, y el fixture es sintético — falta
+mirarlo con una fotografía real, que es donde el contorno trae ruido de segmentación.
 
 ### 6.5 · F4: lo que el banco dijo de los umbrales (y de este ADR)
 

@@ -301,6 +301,66 @@ def test_la_superposicion_es_una_pasada_aparte():
     )
 
 
+# ── F5 · Dos defectos que sólo apareció al correr la app de verdad ──────────
+
+def test_las_tarjetas_se_pueden_reconstruir_mas_de_una_vez():
+    """
+    `partition()` reparte los <h5> por las secciones en la primera pasada. Desde
+    entonces `findRoot` —que los exige HERMANOS— devolvía null, `organize` no
+    llamaba a los constructores y §P/H y §6 quedaban congeladas en el estado con
+    el que nacieron: pulsar «Evaluar completitud» cambiaba el chip de la cabecera
+    (que se construye antes de esa compuerta) y la tarjeta seguía ofreciendo
+    «Evaluar», sin «Confirmar». **El botón de confirmar no llegaba a existir.**
+
+    Ningún test estático ni `node --check` lo veía: hizo falta pulsar el botón en
+    Electron. El rescate es el marcador `.adr2-root` que deja la primera pasada.
+    """
+    s = _txt(ORGANIZER)
+    bloque = s[s.index("function partition"):s.index("function ensureEfaWrapper")]
+    assert "adr2-root" in bloque, (
+        "partition() no tiene el rescate del root ya particionado: las tarjetas "
+        "§P/H y §6 volverían a construirse una sola vez"
+    )
+    assert bloque.index("findRoot(mm)") < bloque.index("querySelector('.adr2-root')"), (
+        "el camino normal (findRoot) debe intentarse primero; el marcador es el respaldo"
+    )
+
+
+def test_la_fila_de_completitud_no_esta_clavada():
+    """
+    La fila «Completitud» de la tabla legacy quedó con el texto fijo «Sin evaluar»
+    desde F0 —cuando no había nada que mostrar— y nadie volvió a ella al cablear
+    F3. La tarjeta §6 decía «70 %» y dos centímetros más abajo la tabla seguía
+    diciendo «sin evaluar», en la misma pantalla.
+
+    Se comprueban los DOS productores: `visualization-export.js` y el duplicado
+    IIFE de `analysis-core.js` (gotcha permanente del repo — sin tocar el segundo,
+    el defecto sobrevive por la ruta legacy).
+    """
+    for archivo in (ROOT / "js" / "modules" / "visualization-export.js", CORE):
+        s = _txt(archivo)
+        assert "metricas.plantilla_completitud" in s, (
+            f"{archivo.name}: la fila de completitud no lee el dato confirmado"
+        )
+    # Y sigue existiendo el texto para cuando NO hay dato: nunca un 100 % fabricado.
+    assert "Sin evaluar" in _txt(CORE)
+
+
+def test_solo_lo_confirmado_llega_a_la_fila():
+    """
+    Invariante ADR-009/ADR-017: la tabla es registro, no conjetura. La fila lee
+    `metricas.plantilla_*`, y esas claves sólo las escribe la confirmación humana
+    (`sincronizarMetricasPlantilla`), nunca el candidato.
+    """
+    for archivo in (ROOT / "js" / "modules" / "visualization-export.js", CORE):
+        s = _txt(archivo)
+        i = s.index("metricas.plantilla_completitud")
+        ventana = s[max(0, i - 600):i + 600]
+        assert "plantillaCandidata" not in ventana, (
+            f"{archivo.name}: la fila de completitud está mirando al candidato"
+        )
+
+
 def test_las_llamadas_a_toast_respetan_la_firma():
     """
     `MaoOrganizer.toast(kind, msg)` — con los argumentos invertidos no lanza: hace

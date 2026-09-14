@@ -153,11 +153,38 @@ recibe número propio. Detalle en ADR-017 §6.6.
 - **Lo que el gate encontró:** dos expectativas **mías** mal calculadas, no del código — el
   tramo discontinuo abarca 18 puntos y no 19, y la parte respaldada sale en **dos** trazos
   porque el hueco no toca la costura del array. Anotado en el gate para que no se lea como bug.
-- **Verificado:** suite **+12 tests** (401 → **413 passed / 4 skipped**) · gate 20/20 ·
-  `node --check` en los 2 JS · sintaxis 3.9 · cache-bust `?v=20260914a` en los 3 archivos.
-- **Pendiente (sólo Electron):** que el violeta se distinga del verde y el naranja con una foto
-  real detrás, y que la discontinuidad se lea a los zooms de trabajo. Desde la consola:
-  `window.__maoForma.overlay(true|false)`.
+- **Verificado:** suite **+15 tests** (401 → **416 passed / 4 skipped**) · gate 20/20 ·
+  `node --check` · sintaxis 3.9 · cache-bust `?v=20260914b`.
+
+### ✅ VERIFICACIÓN VISUAL EN ELECTRON — hecha, y ya no es «imposible»
+
+**Se puede correr Electron en estos contenedores.** `xvfb-run` + `--remote-debugging-port` +
+Playwright `connectOverCDP` + el hook `__maoE2E` de ADR-010. Receta completa, escollos y
+límites honestos en **`docs/VERIFICACION-VISUAL-ELECTRON.md`**. Esto desbloquea las ~6
+entradas de este archivo que terminan en «pendiente de verificación visual».
+
+Fixture nuevo `assets/fixtures/sintetico_fragmento_disco.png`: disco al **70 % exacto** (la
+cuenta circular fracturada de ADR-016 #6). Por el pipeline completo el programa midió
+**70,17 %** (0,17 pp), arco 0,704, **90/128** puntos marcados como respaldados. En el lienzo:
+arco discontinuo violeta cerrando el 30 % ausente, continuo sobre el margen conservado,
+distinguible del verde y del naranja; la casilla lo quita sin residuo; confirmada más gruesa
+que candidata. **Cero errores de consola.**
+
+**Dos defectos ANTERIORES a F5 que sólo aparecieron al pulsar los botones de verdad:**
+1. ⚠ **Las tarjetas §P/H y §6 se construían UNA sola vez.** `partition()` reparte los `<h5>`
+   por las secciones en la 1ª pasada; desde entonces `findRoot()` —que los exige hermanos—
+   devolvía `null` y `organize()` no volvía a llamar a los constructores. Pulsar «Evaluar
+   completitud» cambiaba el chip de la cabecera (se construye ANTES de esa compuerta) y la
+   tarjeta seguía ofreciendo «Evaluar»: **el botón «Confirmar» no llegaba a existir**, o sea
+   que el flujo de ratificación de F3 era **inalcanzable desde la interfaz**. Arreglado con
+   el marcador `.adr2-root` que deja la primera pasada.
+2. **La fila «Completitud» de la tabla estaba CLAVADA** en «Sin evaluar» desde F0, y nadie
+   volvió a ella al cablear F3: la tarjeta decía «70 %» y la tabla, en la misma pantalla,
+   «sin evaluar». Ahora lee `metricas.plantilla_completitud` en los **dos** productores
+   (duplicado IIFE de `analysis-core.js` incluido — sin él sobrevive por la ruta legacy).
+
+- **Pendiente:** mirarlo con una **fotografía real** (el fixture es sintético: bordes limpios,
+  fondo uniforme) y en **macOS** (esto es Linux+Xvfb: no valida `hiddenInset` ni semáforos).
 
 ## 🎯 Sesión 2026-09-13 (e) — ADR-017 F4: los umbrales dejan de ser criterio
 
