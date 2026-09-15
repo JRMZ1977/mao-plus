@@ -754,6 +754,11 @@ async def match(
         "motivo_rechazo": None,
     }
 
+    # El frontend guarda contornos en dos formatos ([x, y] del backend y {x, y} del
+    # motor JS). Sin normalizar, np.asarray lanzaba TypeError con el segundo y el
+    # botón terminaba diciendo «sin forma ideal» por un fallo de formato.
+    if isinstance(contour_points, (list, tuple)) and contour_points and isinstance(contour_points[0], dict):
+        contour_points = [[p.get("x"), p.get("y")] for p in contour_points]
     pts = np.asarray(contour_points, dtype=np.float64)
     if pts.ndim != 2 or pts.shape[1] != 2:
         return {"status": "error", "message": "contour_points debe ser lista de [x, y]"}

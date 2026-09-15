@@ -166,6 +166,27 @@ if (typeof window !== 'undefined') {
     else console.log(`[${tipo}] ${mensaje}`);
   };
   const showToast = mostrarToast;
+
+  // ── Pipeline JS de métricas SIN tocar el contorno del objeto ────────────────────
+  // Las rutas Python e IA ejecutan calcularMetricasMorfologicas sólo para cosechar
+  // `_forma_idealizada` (distribución radial-angular) y campos de clasificación. Pero
+  // esa función MUTA `obj`: si la forma sale «idealizada» sustituye `obj.contour_points`
+  // por los vértices idealizados (p. ej. 713 puntos reales → 101 vértices {x,y}). En la
+  // ruta Python eso pisaba el contorno canónico (ADR-012) y todo lo posterior —dibujo
+  // «Contorno Real», emparejamiento de plantillas ADR-017, EFA/TPS exportados— leía un
+  // polígono idealizado. Se restauran los campos de contorno al terminar.
+  const _CAMPOS_CONTORNO = ['contour_points', 'contour_data', 'has_real_contour', 'contour_pending',
+    'is_idealized', 'original_contour_points', 'real_area', 'real_perimeter', 'tight_width', 'tight_height'];
+  function metricasJSSinPisarContorno(obj, escala) {
+    const antes = _CAMPOS_CONTORNO.map(k => [k, Object.prototype.hasOwnProperty.call(obj, k), obj[k]]);
+    try {
+      return MetricsOrchestrator.calcularMetricasMorfologicas(obj, escala);
+    } finally {
+      for (const [k, tenia, v] of antes) {
+        if (tenia) obj[k] = v; else delete obj[k];
+      }
+    }
+  }
   // Getters para mao-ia.js (que no puede acceder a las vars locales del IIFE)
   window._maoGetImage      = () => image;
   window._maoGetImageCaraA = () => imageCaraA;
@@ -6968,7 +6989,7 @@ if (typeof window !== 'undefined') {
           if (typeof MetricsOrchestrator.calcularMetricasMorfologicas === 'function') {
             try {
               const _escala = obj.analisisCached?.escalaUsada || 1.0;
-              const _jsMets = MetricsOrchestrator.calcularMetricasMorfologicas(obj, _escala);
+              const _jsMets = metricasJSSinPisarContorno(obj, _escala);
               if (_jsMets?._forma_idealizada) {
                 _jsForma = _jsMets._forma_idealizada;
                 // Complementar con campos de clasificación JS que Python no calcula
@@ -7314,7 +7335,7 @@ if (typeof window !== 'undefined') {
               let _jsFormaNC = null;
               if (obj.contour_points?.length >= 3 && typeof MetricsOrchestrator.calcularMetricasMorfologicas === 'function') {
                 try {
-                  const _jsMetsNC = MetricsOrchestrator.calcularMetricasMorfologicas(obj, scale || 1.0);
+                  const _jsMetsNC = metricasJSSinPisarContorno(obj, scale || 1.0);
                   if (_jsMetsNC?._forma_idealizada) {
                     _jsFormaNC = _jsMetsNC._forma_idealizada;
                     if (!metricas.geometria_vertices && _jsMetsNC.geometria_vertices)

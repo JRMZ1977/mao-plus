@@ -391,8 +391,10 @@ const PythonBridge = (() => {
     } = {}) {
       if (!_serverAvailable || !isModuleActive('shape_template')) return null;
       if (!Array.isArray(contourPoints) || contourPoints.length < 12) return null;
+      // Contrato del endpoint: [[x, y], …]. Los contornos del motor JS llegan como {x, y}.
+      const puntos = contourPoints.map(p => (Array.isArray(p) ? [p[0], p[1]] : [p.x, p.y]));
       const campos = {
-        contour_json: JSON.stringify(contourPoints),
+        contour_json: JSON.stringify(puntos),
         scale_px_mm: scalePxMm,
         forzar_icp: forzarIcp,
         permitir_reflexion: permitirReflexion,

@@ -417,3 +417,44 @@ def test_las_llamadas_a_toast_respetan_la_firma():
     malas = [c for c in llamadas if c not in validos]
     assert not malas, f"primer argumento de MO.toast debe ser el TIPO, no el mensaje: {malas}"
 
+
+
+def test_un_null_del_puente_no_se_publica_como_sin_plantilla():
+    """
+    Verificación en Electron (integración v1.3): con un contorno en formato {x, y} el
+    backend fallaba y el puente devolvía null; el organizer lo guardaba como resultado
+    y decía «Sin forma ideal subyacente — es el caso normal en lítica». Un fallo
+    técnico presentado como hallazgo morfológico.
+    """
+    s = _txt(ORGANIZER)
+    bloque = s[s.index("function evaluarPlantilla"):s.index("function confirmarPlantilla")]
+    i_null = bloque.index("if (!r)")
+    i_eval = bloque.index("obj.plantillaEvaluada = true")
+    assert i_null < i_eval, "el caso null debe cortar ANTES de marcar el objeto como evaluado"
+
+
+def test_el_puente_normaliza_el_contorno_a_pares():
+    s = _txt(BRIDGE)
+    bloque = s[s.index("const shapeTemplate = {"):s.index("async templates()")]
+    assert "[p.x, p.y]" in bloque, "shapeTemplate.match no normaliza contornos {x, y}"
+
+
+def test_las_rutas_python_e_ia_no_pisan_el_contorno_canonico():
+    """
+    Las rutas Python e IA llamaban a calcularMetricasMorfologicas(obj) sólo para
+    cosechar `_forma_idealizada`, y esa función reemplaza `obj.contour_points` por los
+    vértices idealizados. En Electron: 713 puntos reales → 101 vértices, y el
+    emparejamiento, el dibujo «Contorno Real» y la EFA leían el polígono idealizado.
+    """
+    core = _txt(CORE)
+    ini = core.index("async function analizarObjetoMorfologicamente")
+    fin = core.index("\n  }\n", core.index("guardarAnalisisEnCache(obj, metricas);", ini))
+    cuerpo = core[ini:fin]
+    assert "MetricsOrchestrator.calcularMetricasMorfologicas(obj" not in cuerpo.split("if (!metricas) metricas =")[0], (
+        "una ruta Python/IA vuelve a llamar al pipeline JS sobre `obj` sin proteger su contorno"
+    )
+    assert cuerpo.count("metricasJSSinPisarContorno(obj") >= 1
+    assert core.count("metricasJSSinPisarContorno(obj") >= 2
+    helper = core[core.index("function metricasJSSinPisarContorno"):]
+    helper = helper[:helper.index("\n  }\n")]
+    assert "finally" in helper and "contour_points" in core[core.index("const _CAMPOS_CONTORNO"):core.index("function metricasJSSinPisarContorno")]

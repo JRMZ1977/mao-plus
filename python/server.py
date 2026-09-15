@@ -2099,8 +2099,11 @@ async def shape_match(
     templates_json:    str   = Form(default=""),   # JSON: ["circulo","elipse"]; "" = todas
     scale_px_mm:       float = Form(default=1.0),
     gap_min_deg:       float = Form(default=8.0),
-    min_arco_circulo:  float = Form(default=0.30),
-    min_arco_elipse:   float = Form(default=0.45),
+    # None = usar los umbrales CALIBRADOS del módulo (ADR-017 F4: círculo 0,40 ·
+    # elipse 0,50 · anillo 0,60). Antes el endpoint fijaba 0,30/0,45 y los pasaba
+    # SIEMPRE a match(): la app nunca usó la calibración, sólo los tests del módulo.
+    min_arco_circulo:  Optional[float] = Form(default=None),
+    min_arco_elipse:   Optional[float] = Form(default=None),
     forzar_icp:        bool  = Form(default=False),
     permitir_reflexion: bool = Form(default=False),
 ):
@@ -2178,7 +2181,8 @@ async def shape_match(
         templates=templates,
         scale_px_mm=scale_px_mm,
         gap_min_deg=gap_min_deg,
-        min_arco_fraccion={"circulo": min_arco_circulo, "elipse": min_arco_elipse},
+        min_arco_fraccion={k: v for k, v in (("circulo", min_arco_circulo),
+                                             ("elipse", min_arco_elipse)) if v is not None} or None,
         forzar_icp=forzar_icp,
         permitir_reflexion=permitir_reflexion,
     )

@@ -406,8 +406,15 @@
     if (btn) { btn.disabled = true; btn.textContent = 'Evaluando…'; }
     pb.shapeTemplate.match(pts, { templates: PLANTILLAS_POR_DEFECTO })
       .then(function (r) {
+        // `null` NO es «se evaluó y no hay plantilla»: es que la llamada no llegó a
+        // hacerse (motor sin respuesta, módulo inactivo o contorno inválido). Tratarlo
+        // como resultado le decía al usuario «sin forma ideal subyacente» ante un fallo.
+        if (!r) {
+          MO.toast('error', 'No se pudo emparejar la plantilla: el motor no devolvió resultado.');
+          return;
+        }
         obj.plantillaEvaluada = true;
-        obj.plantillaCandidata = r || null;
+        obj.plantillaCandidata = r;
         obj.plantillaDescartada = false;
         if (r && r.plantilla_tipo && r.plantilla_tipo !== 'ninguna') {
           MO.toast('success', 'Candidata: ' + r.plantilla_tipo + ' al ' +
