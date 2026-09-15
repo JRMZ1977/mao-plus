@@ -2,15 +2,13 @@
 
 **Version:** 1.2.0  
 **Last Updated:** 2026-06-07  
-**Status:** Production-Ready (v1.0 contract frozen)
+**Status:** Production-Ready
 
 ---
 
 ## Overview
 
 MAO Plus is a desktop application (Electron + FastAPI) for **bilateral morphometric analysis** of archaeological stone tool bifacial surfaces. It measures symmetry indices, morphometric properties, and provides statistical comparison across multiple objects.
-
-This version aligns mathematically with **MAO_A** through a formal shared contract ensuring reproducible, interoperable results across platforms.
 
 ---
 
@@ -151,18 +149,9 @@ ergonomía de desarrollo.
 
 ### For Developers
 
-- **[Developer Guide — Shared Contract](docs/DEVELOPER_GUIDE_SHARED_CONTRACT.md)** ⭐ **Start here**
-  - Canonical field names (what's what)
-  - Guaranteed parity endpoints (MAO_Plus ↔ MAO_A)
-  - Legacy aliases (how to read old data)
-  - JSON schema examples
-  - Testing parity manually
-
-- **[Technical Contract v1](docs/CONTRATO_COMPAGINACION_MAO_PLUS_MAO_A_v1.md)**
-  - Detailed specification of shared modules
-  - Remediationplans and governance rules
-  - Risk assessment
-  - Environment flags
+- **[ADR status](docs/ESTADO-ADRS.md)** ⭐ **Start here** — every architecture decision and its real implementation state
+- **[ARCHITECTURE.md](docs/arquitectura/ARCHITECTURE.md)** and **[MODULES.md](docs/arquitectura/MODULES.md)** — system and module reference
+- **[FORMULAS_METRICAS_MAO.html](docs/guias/FORMULAS_METRICAS_MAO.html)** — metric formulas specification
 
 ### For Users
 
@@ -190,9 +179,7 @@ ergonomía de desarrollo.
 
 ---
 
-## Data Format: Canonical Schema v1
-
-All outputs follow the **frozen schema v1** as documented in [Developer Guide](docs/DEVELOPER_GUIDE_SHARED_CONTRACT.md).
+## Data Format
 
 ### Example: `/api/bifacial` Response
 
@@ -288,8 +275,11 @@ MAO PLUS_PY_01/
 │   ├── test_bifacial_parity_v2.py  # Parity validation (v1)
 │   └── ...
 ├── docs/
-│   ├── DEVELOPER_GUIDE_SHARED_CONTRACT.md  ⭐ Developer documentation
-│   ├── CONTRATO_COMPAGINACION_MAO_PLUS_MAO_A_v1.md
+│   ├── ESTADO-ADRS.md      ⭐ ADR implementation status
+│   ├── ADR-*.md            # Architecture decision records
+│   ├── arquitectura/       # Architecture and module reference
+│   ├── auditorias/         # Code audits
+│   ├── guias/              # HTML guides (metrics, formulas, glossary)
 │   └── ...
 └── requirements.txt        # Python dependencies
 ```
@@ -305,30 +295,19 @@ source .venv/bin/activate
 pytest tests/ -v
 ```
 
-### Parity Validation (Manual)
-
-```python
-# See docs/DEVELOPER_GUIDE_SHARED_CONTRACT.md section 6
-# Verify bifacial() produces identical results across repos
-```
-
 ---
 
 ## Known Limitations & Future Work
 
-### Current (v1.0 — Frozen)
+### Current
 
-- ✅ Canonical core shared with MAO_A
 - ✅ Bilateral symmetry analysis (legacy + extended CI/CMS)
 - ✅ Perforation analysis
 - ✅ Basic PCA and statistics
-- ❌ Online projects (extension in MAO_A only, not ported to MAO_Plus)
 - ❌ Advanced Procrustes with TPS (reference only in procrustes.js)
 
 ### Planned (Post-v1)
 
-- Extract shared modules to package for easier sync
-- Automated CI/CD parity gate
 - Web-based version (currently Electron desktop only)
 - Multi-language UI (currently Spanish/English)
 
@@ -336,19 +315,7 @@ pytest tests/ -v
 
 ## Contributing
 
-**Before modifying shared modules**, please read:
-
-1. **[Developer Guide](docs/DEVELOPER_GUIDE_SHARED_CONTRACT.md)** — Contract rules and field naming
-2. **[Technical Contract](docs/CONTRATO_COMPAGINACION_MAO_PLUS_MAO_A_v1.md)** — Governance and coordination
-
-**Shared modules** (must coordinate across repos):
-- `python/modules/metrics.py`
-- `python/modules/analysis.py`
-- `python/modules/mao_ia_analyzer.py`
-
-**Repository-specific** (independent):
-- `js/analysis-core.js`, `js/project-manager.js`, etc.
-- `python/modules/scale.py`, `python/modules/detection.py`, etc.
+Before changing a metric or the analysis flow, check [docs/ESTADO-ADRS.md](docs/ESTADO-ADRS.md) for the decision that governs that part, and run the test suite.
 
 ---
 
@@ -360,7 +327,6 @@ pytest tests/ -v
 
 ## Support & Issues
 
-- **Parity issues:** See [Troubleshooting section](docs/DEVELOPER_GUIDE_SHARED_CONTRACT.md#8-troubleshooting-parity-issues) in Developer Guide
 - **Bug reports:** Include schema version (`GET /api/health`)
 - **Feature requests:** Reference [Planned Work](#planned-post-v1) section
 

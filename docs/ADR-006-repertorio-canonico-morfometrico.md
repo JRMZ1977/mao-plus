@@ -2,7 +2,7 @@
 
 - **Estado:** Propuesto (2026-06-12) · Fase 0 = este documento
 - **Decisores:** JFRR (alcance) · Claude (diagnóstico y diseño)
-- **Precedentes:** invariancia rotacional EFA + Procrustes/Feret 3D (commit `91e6307`) · `docs/ESPEC_METODO_HIBRIDO_OBJ3D_MAO.md` · `docs/DEVELOPER_GUIDE_SHARED_CONTRACT.md`
+- **Precedentes:** invariancia rotacional EFA + Procrustes/Feret 3D (commit `91e6307`) · `docs/ESPEC_METODO_HIBRIDO_OBJ3D_MAO.md` · `docs/DEVELOPER_GUIDE_SHARED_CONTRACT.md` (retirado junto con MAO_A; última versión en `8b608da`)
 - **Ámbito:** backend Python (`python/modules/`). No toca UI, ni Tier 1 API, ni lógica de negocio. Aditivo y reversible.
 
 ---

@@ -3,7 +3,7 @@
 > **Objetivo único:** que `MAO Plus.dmg` funcione **completo** (backend incluido) en un Mac Apple
 > Silicon que **nunca tuvo Python**. Hoy no ocurre: `PYTHON_BIN` apunta a `.venv/bin/python` (excluido
 > del bundle) y cae al `python` del PATH; en una máquina ajena la app arranca en **modo JS-only**.
-> **Deriva de:** `docs/auditorias/AUDITORIA-ESTADO-APP-20260622.md` (D1, D5) + roadmap 2026-06-18.
+> **Deriva de:** `docs/auditorias/AUDITORIA-ESTADO-APP-20260622.md` (D1, D5; retirada, última versión en `8b608da`) + roadmap 2026-06-18.
 
 ## Estado de implementación (2026-06-22)
 **A1–A4 implementados y verificados técnicamente.** DMG generado: `dist/MAO Plus-1.2.0-arm64.dmg`

@@ -86,8 +86,7 @@
       "!**/*.bak",
       "!**/*.backup*",
       "!.pytest_cache/**/*",
-      "!tests/**/*",
-      "!modularize.py"
+      "!tests/**/*"
     ],
     "directories": {
       "output": "dist"
