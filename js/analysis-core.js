@@ -7309,11 +7309,54 @@ if (typeof window !== 'undefined') {
                   console.warn('[Python-path] calcularMetricasMorfologicas falló:', _eJsNC.message);
                 }
               }
-              metricas._forma_idealizada = _jsFormaNC || {
-                nombre: metricas.forma_detectada,
-                vertices: (metricas.vertices_coords || []).map(p => Array.isArray(p) ? p : [p.x, p.y]),
-                distribucionRadialAngular: null
-              };
+              if (_jsFormaNC) {
+                metricas._forma_idealizada = _jsFormaNC;
+              } else {
+                // ── Fallback sin análisis JS: NO hubo depuración estadística ──────
+                // Debe cumplir el MISMO contrato que los otros cuatro productores de
+                // `_forma_idealizada` (shape-classification.js:1303 canónico, el
+                // fallback IA de ~:11723 y mao-ia.js:2199): `{nombre, color, vertices,
+                // parametros{...}, distribucionRadialAngular}`.
+                //
+                // Hasta 2026-09-12 este era el ÚNICO productor que devolvía un objeto
+                // parcial (sin `parametros` ni `color`), y hay consumidores que
+                // desreferencian `parametros` sin guarda — el reporte HTML/PDF
+                // (~:24943) y el panel morfológico (visualization-export.js:903).
+                // Resultado: TypeError que abortaba la construcción de ESOS PANELES
+                // ENTEROS, no solo de la sección de depuración.
+                //
+                // Los valores dicen la verdad: N puntos de entrada, 0 eliminados, 0 %
+                // de reducción; `umbral_continuidad` marca explícitamente que no se
+                // ejecutó depuración, igual que la rama IA marca '— (contorno IA)'.
+                const _vertsNC = (metricas.vertices_coords || []).map(p => Array.isArray(p) ? p : [p.x, p.y]);
+                // Puntos de la máscara: entrada y salida COINCIDEN porque no se
+                // eliminó ninguno (reducción 0 %). `vertices_coords` son los vértices
+                // de la forma idealizada por el clasificador Python —otra cosa— y van
+                // en `vertices` / `vertices_significativos`, no en el recuento de la
+                // depuración: mezclarlos daría «680 → 4 puntos, reducción 0,0 %».
+                const _nMascaraNC = (Array.isArray(obj.contour_points) && obj.contour_points.length)
+                  ? obj.contour_points.length
+                  : _vertsNC.length;
+                const _nSignifNC = _vertsNC.length || _nMascaraNC;
+                metricas._forma_idealizada = {
+                  nombre: metricas.forma_detectada,
+                  color: '#007bff',
+                  vertices: _vertsNC,
+                  distribucionRadialAngular: null,
+                  parametros: {
+                    puntos_originales:       _nMascaraNC,
+                    artefactos_eliminados:   0,
+                    puntos_simplificados:    _nMascaraNC,
+                    reduccion_porcentaje:    '0.0',
+                    continuidad_promedio:    '1.000',
+                    umbral_continuidad:      '— (sin depuración estadística)',
+                    vertices_significativos: _nSignifNC,
+                    epsilon_usado:           0,
+                    ancho:                   obj.width,
+                    alto:                    obj.height,
+                  },
+                };
+              }
             }
 
             // ── Forzar etiqueta de fragmento en _forma_idealizada si Python indica baja completitud ──
@@ -9961,6 +10004,32 @@ if (typeof window !== 'undefined') {
     }
   }
 
+  /**
+   * P3 — preferencia «Exportar al finalizar», recordada entre sesiones.
+   * Por defecto DESACTIVADA: el lote tarda 20-40 s y no debe sorprender a nadie
+   * la primera vez. Quien lo active lo mantiene.
+   */
+  const _EXPORT_AL_FINALIZAR_KEY = 'mao.exportarAlFinalizar';
+  function _exportarAlFinalizarActivo() {
+    const chk = document.getElementById('exportarAlFinalizarChk');
+    return !!(chk && chk.checked);
+  }
+  (function _initExportarAlFinalizar() {
+    const aplicar = () => {
+      const chk = document.getElementById('exportarAlFinalizarChk');
+      if (!chk || chk.dataset.wired) return;
+      chk.dataset.wired = '1';
+      try { chk.checked = localStorage.getItem(_EXPORT_AL_FINALIZAR_KEY) === '1'; } catch (_) {}
+      chk.addEventListener('change', () => {
+        try { localStorage.setItem(_EXPORT_AL_FINALIZAR_KEY, chk.checked ? '1' : '0'); } catch (_) {}
+      });
+    };
+    aplicar();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', aplicar, { once: true });
+    }
+  })();
+
   // Event listeners para análisis morfológico
   if (closeAnalysisBtn) closeAnalysisBtn.addEventListener('click', async () => {
     if (closeAnalysisBtn.disabled) return; // evitar doble clic
@@ -9991,6 +10060,13 @@ if (typeof window !== 'undefined') {
         if (iconEl)  iconEl.innerHTML  = '✗';
         if (labelEl) labelEl.textContent = 'Error — Reintentar';
         closeAnalysisBtn.title = 'Error al guardar — intentar de nuevo';
+      } else if (state === 'exportando') {
+        closeAnalysisBtn.disabled = true;
+        closeAnalysisBtn.style.opacity = '0.75';
+        closeAnalysisBtn.style.cursor = 'wait';
+        if (iconEl)  iconEl.innerHTML  = '📦';
+        if (labelEl) labelEl.textContent = 'Exportando...';
+        closeAnalysisBtn.title = 'Exportando a la carpeta de resultados...';
       } else { // reset
         closeAnalysisBtn.disabled = false;
         closeAnalysisBtn.style.background = 'linear-gradient(135deg,#1b7a3e 0%,#28a745 100%)';
@@ -10039,6 +10115,24 @@ if (typeof window !== 'undefined') {
           setBtnState('ok');
           actualizarTarjetaObjeto(obj);
           UtilityHelpers.setStatus(`Análisis ${labelCompleto} guardado. Puede cargar la siguiente imagen.`, false);
+
+          // ── P3 · Exportar en lote tras guardar ────────────────────────────
+          // Aquí, y no antes: la carpeta del análisis YA existe, así que la de
+          // resultados nace junto a su hermana. Y aquí, y no después: el cierre
+          // oculta el panel y anula `currentAnalyzedObject`, del que dependen los
+          // exportadores (el PNG lee el canvas vivo). Es el único punto del flujo
+          // donde ambas condiciones se cumplen a la vez.
+          if (_exportarAlFinalizarActivo()) {
+            setBtnState('exportando');
+            try {
+              await exportarTodoElAnalisis();
+            } catch (e) {
+              console.error('❌ Exportación al finalizar:', e);
+              toast.error(`Guardado OK, pero la exportación falló: ${e.message}`, 5000);
+            }
+            setBtnState('ok');
+          }
+
           await new Promise(r => setTimeout(r, 600));
           morphologicalAnalysisContainer.style.display = 'none';
           // Si esta cara completó el par bifacial → abrir la comparación en Análisis;
@@ -15053,141 +15147,8 @@ if (typeof window !== 'undefined') {
     };
   }
 
-  function descargarImagenConEtiquetas() {
-    if(!image) return;
-    
-    let downloadCanvas = null;
-    let downloadCtx = null;
-    
-    try {
-      // Obtener canvas del pool para la descarga
-      downloadCanvas = canvasPool.getCanvas(image.naturalWidth, image.naturalHeight);
-      downloadCtx = downloadCanvas.getContext('2d');
-      
-      console.log('🖼️ Generando imagen con etiquetas para descarga...');
-    
-    // Dibujar imagen original
-    downloadCtx.drawImage(image, 0, 0);
-    
-    // Asegurar que tenemos objetos detectados
-    if(objects.length === 0) {
-      objects = detectarObjetos();
-    }
-    
-    // Dibujar etiquetas de objetos
-    if(objects.length > 0) {
-      downloadCtx.lineWidth = 2;
-      downloadCtx.strokeStyle = 'red';
-      downloadCtx.fillStyle = '#777';
-      downloadCtx.font = '14px Arial';
-
-      for(let i = 0; i < objects.length; i++){
-        const obj = objects[i];
-        
-        // *** DIBUJAR CONTORNO REAL EN DESCARGA ***
-        if (obj.has_real_contour && obj.contour_points && obj.contour_points.length > 2) {
-          // Dibujar contorno real (línea verde)
-          downloadCtx.strokeStyle = '#00ff00';
-          downloadCtx.lineWidth = 3;
-          downloadCtx.beginPath();
-          
-          const contour = obj.contour_points;
-          downloadCtx.moveTo(contour[0][0], contour[0][1]);
-          for (let j = 1; j < contour.length; j++) {
-            downloadCtx.lineTo(contour[j][0], contour[j][1]);
-          }
-          downloadCtx.closePath();
-          downloadCtx.stroke();
-          
-          // Dibujar tight bounding box (línea azul)
-          downloadCtx.strokeStyle = '#0066ff';
-          downloadCtx.lineWidth = 2;
-          downloadCtx.strokeRect(obj.tight_minX, obj.tight_minY, obj.tight_width, obj.tight_height);
-          
-        } else {
-          // Fallback: rectángulo tradicional
-          downloadCtx.strokeStyle = 'red';
-          downloadCtx.lineWidth = 2;
-          downloadCtx.strokeRect(obj.minX, obj.minY, obj.width, obj.height);
-        }
-
-        // Calcular mediciones en milímetros basadas en contorno real
-        let wmm = null, hmm = null;
-        
-        if(scale && scale > 0) {
-          wmm = (obj.tight_width * scale).toFixed(1);
-          hmm = (obj.tight_height * scale).toFixed(1);
-        }
-
-        // Construir texto de la etiqueta con indicador de método
-        const metodo = obj.has_real_contour ? '[REAL]' : '[APROX]';
-        const texto = obj.id + (wmm && hmm ? ` (${wmm} × ${hmm} mm) ${metodo}` : ` ${metodo}`);
-
-        // Calcular posición de la etiqueta
-        const textWidth = downloadCtx.measureText(texto).width;
-        const padding = 8;
-        const boxWidth = textWidth + 2*padding;
-        const boxHeight = 20 + 2*padding;
-
-        // Posición basada en tight bounding box si está disponible
-        const useX = obj.has_real_contour ? obj.tight_minX : obj.minX;
-        const useY = obj.has_real_contour ? obj.tight_minY : obj.minY;
-        const useMaxY = obj.has_real_contour ? obj.tight_maxY : obj.maxY;
-        
-        let labelX = useX;
-        let labelY = useY - boxHeight - 4;
-        if(labelY < 0) labelY = useMaxY + 4;
-
-        // Dibujar fondo de la etiqueta
-        downloadCtx.save();
-        downloadCtx.globalAlpha = 0.85;
-        downloadCtx.fillStyle = "#fff";
-        downloadCtx.strokeStyle = "#777";
-        downloadCtx.lineWidth = 1;
-        downloadCtx.beginPath();
-        downloadCtx.roundRect(labelX, labelY, boxWidth, boxHeight, 6);
-        downloadCtx.fill();
-        downloadCtx.stroke();
-        downloadCtx.globalAlpha = 1.0;
-
-        // Dibujar texto
-        downloadCtx.fillStyle = "#777";
-        downloadCtx.textAlign = "left";
-        downloadCtx.textBaseline = "top";
-        downloadCtx.fillText(texto, labelX + padding, labelY + padding);
-        downloadCtx.restore();
-      }
-    }
-    
-    // Generar nombre de archivo
-    const _idDet = _idParaArchivo(window.currentAnalyzedObject?.obj?.id, 'deteccion');
-    const fileName = `${_idDet}_deteccion.png`;
-    
-      // Configurar para descarga
-      downloadCanvas.toBlob(blob => {
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(link.href);
-        
-        UtilityHelpers.setStatus(`Imagen descargada: ${fileName}`, false);
-        console.log(`📁 Descarga completada: ${fileName}`);
-      }, 'image/png');
-      
-    } catch (error) {
-      console.error('❌ Error generando imagen para descarga:', error);
-      UtilityHelpers.setStatus(`Error en descarga: ${error.message}`, true);
-    } finally {
-      // Retornar canvas al pool
-      if (downloadCanvas) {
-        canvasPool.returnCanvas(downloadCanvas);
-        downloadCanvas = null;
-      }
-    }
-  }
+  // descargarImagenConEtiquetas: ELIMINADA (Fase 0, docs/AUDITORIA-EXPORTACION-20260912.md §3/§8.6).
+  // Código muerto sin llamadores — 135 líneas.
 
   // ============================================================================
   // 🆕 FUNCIÓN PARA ACTUALIZAR SOLO LA TABLA DE MÉTRICAS (SIN TOCAR EL CANVAS)
@@ -18605,6 +18566,37 @@ if (typeof window !== 'undefined') {
     };
   }
 
+  /**
+   * Resuelve el factor de escala mm/px aplicable a una fuente EFA/TPS.
+   * Prioridad: el factor REALMENTE usado por el backend para esta fuente >
+   * clave legada en métricas > escala viva del IIFE.
+   * Devuelve `null` si no hay escala configurada (el backend usa 0 como
+   * centinela de «sin escala»: efa.py solo escala si scale_px_mm > 0).
+   * @returns {number|null} mm por píxel, o null si no hay escala.
+   */
+  function _resolverEscalaMmPx(metricas = {}) {
+    const candidatos = [
+      metricas?._efa_data?.scale_px_mm,
+      metricas?.scale_px_mm,
+      scale,
+    ];
+    for (const c of candidatos) {
+      const n = Number(c);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return null;
+  }
+
+  /**
+   * Genera un bloque TPS (Rohlf) de un espécimen.
+   * Orden de campos conforme al formato: LM= · coordenadas · IMAGE= · ID= · SCALE= · COMMENT=
+   *
+   * Las coordenadas van en PÍXELES de imagen, que es la convención del formato
+   * (tpsDig las guarda así); `SCALE=` es el multiplicador a unidades reales, y
+   * es lo que leen tpsRelw y geomorph::readland.tps(..., scale = TRUE).
+   * Si no hay escala configurada NO se emite SCALE= (emitir 1.0 afirmaría
+   * falsamente 1 mm/px); en su lugar se deja constancia explícita en COMMENT=.
+   */
   function _generarTextoTPSLandmarks(landmarks, obj = {}, metricas = {}) {
     const id = String(obj?.id || `OBJ_${obj?.numeroObjeto || 'X'}`);
     const lines = [];
@@ -18612,10 +18604,21 @@ if (typeof window !== 'undefined') {
     landmarks.forEach((p) => {
       lines.push(`${Number(p[0]).toFixed(6)} ${Number(p[1]).toFixed(6)}`);
     });
+
+    const imagen = (typeof resolverNombreFotografia === 'function')
+      ? (resolverNombreFotografia(obj) || '')
+      : '';
+    if (imagen) lines.push(`IMAGE=${imagen}`);
+
     lines.push(`ID=${id}`);
-    if (Number.isFinite(Number(metricas?.scale_px_mm))) {
-      lines.push(`COMMENT=scale_px_mm ${Number(metricas.scale_px_mm).toFixed(8)}`);
+
+    const mmPx = _resolverEscalaMmPx(metricas);
+    if (mmPx !== null) {
+      lines.push(`SCALE=${mmPx.toFixed(8)}`);
+    } else {
+      lines.push('COMMENT=SIN ESCALA — coordenadas en pixeles de imagen, no convertibles a mm');
     }
+
     lines.push('COMMENT=MAO Plus semi-landmarks (curvatura + arco)');
     return lines.join('\n') + '\n';
   }
@@ -18633,15 +18636,91 @@ if (typeof window !== 'undefined') {
     URL.revokeObjectURL(link.href);
   }
 
-  function _descargarCoeficientesEFA(efaData, obj = {}, fileBaseOverride = null) {
+  /**
+   * Genera el CSV completo de un análisis EFA.
+   *
+   * Estructura (misma convención que exportarAnalisisMorfologico: tabla primero,
+   * bloque de metadatos después de una línea en blanco) para que `read.csv(...)`
+   * / `pandas.read_csv(..., nrows=n)` puedan leer la tabla directamente.
+   *
+   * Incluye los coeficientes CRUDOS y `normalization.scale_factor`, sin los
+   * cuales la normalización es irreversible: `coefficients` sale con |1er
+   * armónico| = 1 para toda forma, de modo que el tamaño desaparece. Verificado
+   * contra python/modules/efa.py: `scale_factor` es el semieje mayor del primer
+   * armónico tras la alineación (NO el del objeto — la razón entre ambos varía
+   * con la elongación) y es la variable de tamaño para alometría.
+   *
+   * @param {Object} efaData respuesta de /api/efa
+   * @param {string} fuente  etiqueta identificadora de la fuente (contorno, P1, H1…)
+   * @returns {string} contenido CSV
+   */
+  function _generarCsvEFA(efaData, fuente = '') {
     const coeffs = Array.isArray(efaData?.coefficients) ? efaData.coefficients : [];
-    const csvLines = ['harmonic,an,bn,cn,dn'];
+    const raw    = Array.isArray(efaData?.coefficients_raw) ? efaData.coefficients_raw : [];
+    const ps     = Array.isArray(efaData?.power_spectrum) ? efaData.power_spectrum : [];
+    const varAc  = Array.isArray(efaData?.variance_explained) ? efaData.variance_explained : [];
+
+    const num = (v) => (v === null || v === undefined || Number.isNaN(Number(v))) ? '' : String(v);
+    const txt = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+    // ── Tabla principal: un armónico por fila ────────────────────────────────
+    const lines = [
+      'harmonic,a_norm,b_norm,c_norm,d_norm,a_raw,b_raw,c_raw,d_raw,power_spectrum,variance_acum_pct'
+    ];
     coeffs.forEach((c, idx) => {
       if (!Array.isArray(c) || c.length < 4) return;
-      csvLines.push(`${idx + 1},${c[0]},${c[1]},${c[2]},${c[3]}`);
+      const r = Array.isArray(raw[idx]) ? raw[idx] : [];
+      lines.push([
+        idx + 1,
+        num(c[0]), num(c[1]), num(c[2]), num(c[3]),
+        num(r[0]), num(r[1]), num(r[2]), num(r[3]),
+        num(ps[idx]), num(varAc[idx]),
+      ].join(','));
     });
+
+    // ── Bloque de metadatos ──────────────────────────────────────────────────
+    const n = efaData?.normalization || {};
+    const dc = Array.isArray(efaData?.dc) ? efaData.dc : [];
+    const esc = Number(efaData?.scale_px_mm);
+    // `fila` cita Valor y Nota: varias notas llevan comas y ':' — sin comillas
+    // desalinearían las columnas del bloque (mismo fallo que ADR-008 corrigió en
+    // el CSV morfológico).
+    const fila = (seccion, campo, valor, nota) =>
+      `${seccion},${campo},${txt(valor)},${txt(nota)}`;
+
+    const meta = [
+      'Seccion,Campo,Valor,Nota',
+      fila('EFA_Metadatos', 'Fuente', fuente,
+        'Contorno al que corresponden los coeficientes'),
+      fila('EFA_Metadatos', 'Armonicos', num(efaData?.n_harmonics),
+        'Numero de armonicos calculados'),
+      fila('EFA_Metadatos', 'Puntos_contorno', num(efaData?.n_points_input),
+        'Puntos de entrada del contorno'),
+      fila('EFA_Metadatos', 'Armonicos_95pct', num(efaData?.harmonics_for_95pct),
+        'Armonicos necesarios para explicar el 95% de la varianza'),
+      fila('EFA_Metadatos', 'Armonicos_99pct', num(efaData?.harmonics_for_99pct),
+        'Armonicos necesarios para explicar el 99% de la varianza'),
+      fila('EFA_Metadatos', 'Escala_mm_px', (Number.isFinite(esc) && esc > 0) ? esc : '',
+        'mm/px aplicados al contorno ANTES del EFD; vacio = sin escala configurada'),
+      fila('EFA_Normalizacion', 'scale_factor', num(n.scale_factor),
+        'TAMANO: semieje mayor del PRIMER ARMONICO tras alinear la orientacion, en las unidades del contorno (mm si Escala_mm_px no esta vacio). Multiplicar los coeficientes normalizados por el restituye la magnitud. NO es el semieje mayor del objeto: la razon entre ambos varia con la elongacion'),
+      fila('EFA_Normalizacion', 'theta_1_deg', num(n.theta_1_deg),
+        'Rotacion de alineacion al semieje mayor eliminada (grados)'),
+      fila('EFA_Normalizacion', 'psi_1_deg', num(n.psi_1_deg),
+        'Rotacion de fase en el plano eliminada (grados)'),
+      fila('EFA_Normalizacion', 'convenio_quiralidad', 'd1>=0',
+        'Reflexion canonizada: si d1<0 se niegan cn y dn de todos los armonicos. Se aplica DESPUES del escalado, de modo que coef_norm x scale_factor puede diferir en el signo de las componentes-y'),
+      fila('EFA_DC', 'dc_a', num(dc[0]), 'Componente DC en X: centroide del contorno'),
+      fila('EFA_DC', 'dc_c', num(dc[1]), 'Componente DC en Y: centroide del contorno'),
+    ];
+
+    return `${lines.join('\n')}\n\n${meta.join('\n')}\n`;
+  }
+
+  function _descargarCoeficientesEFA(efaData, obj = {}, fileBaseOverride = null) {
     const fileBase = String(fileBaseOverride || obj?.id || `obj_${obj?.numeroObjeto || 'x'}`).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const blob = new Blob([csvLines.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' });
+    const csv = _generarCsvEFA(efaData, fileBaseOverride || obj?.id || '');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `${fileBase}_efa_coeffs.csv`;
@@ -18720,6 +18799,10 @@ if (typeof window !== 'undefined') {
     if (efaDataPrincipal) {
       const areaContorno = Number(metricas?.area);
       fuentes.push({
+        // `clave`: identificador ESTABLE para nombres de archivo (no traducir).
+        // `etiqueta`: rótulo de UI, puede cambiar sin afectar a los exportables.
+        key: 'contorno',
+        clave: 'contorno',
         etiqueta: 'Contorno principal',
         tipo: 'contorno',
         efaData: efaDataPrincipal,
@@ -18735,6 +18818,7 @@ if (typeof window !== 'undefined') {
         if (!metricasPH?._efa_data) return;
         fuentes.push({
           key: `${tipo}_${item?.id ?? index + 1}`,
+          clave: `${prefijo}${item?.id ?? index + 1}`,
           etiqueta: `${prefijo}${item?.id ?? index + 1}`,
           tipo,
           efaData: metricasPH._efa_data,
@@ -18853,7 +18937,7 @@ if (typeof window !== 'undefined') {
             fuente.landmarks,
             fuente.objRef || obj,
             fuente.metricasRef || metricas,
-            `${obj?.id || 'obj'}_${fuente.etiqueta}`
+            `${obj?.id || 'obj'}_${fuente.clave}`
           );
         };
       }
@@ -18864,7 +18948,7 @@ if (typeof window !== 'undefined') {
           _descargarCoeficientesEFA(
             fuente.efaData,
             fuente.objRef || obj,
-            `${obj?.id || 'obj'}_${fuente.etiqueta}`
+            `${obj?.id || 'obj'}_${fuente.clave}`
           );
         };
       }
@@ -19167,1961 +19251,17 @@ if (typeof window !== 'undefined') {
     };
   }
   
+  // ============================================================================
+  // 🔐 VALIDAR COHERENCIA DATOS ANTES DE EXPORTAR PDF
+  // ============================================================================
+  // validarCoherenciaPreexportacion: ELIMINADA (Fase 0 bis, 2026-09-13). Quedó sin llamadores al
+  // borrar su único consumidor — 101 líneas.
   
   // ============================================================================
   // GENERAR REPORTE MORFOLÓGICO COMPLETO
   // ============================================================================
-  async function generarReporteMorfologico(obj, metricas, formato = 'html') {
-    try {
-      const formatoTexto = formato === 'pdf' ? 'PDF' : 'HTML';
-      UtilityHelpers.setStatus(`Generando reporte morfológico en ${formatoTexto}...`, false);
-
-      // � NUEVO: VALIDAR COHERENCIA ANTES DE EXPORTAR PDF
-      if (formato === 'pdf') {
-        console.log('🔐 Iniciando validación pre-exportación...');
-        const validacion = await VisualizationExport.validarCoherenciaPreexportacion(obj, metricas, 'monofacial');
-        
-        if (!validacion.integridad) {
-          const erroresFormulados = validacion.errores.join('\n• ');
-          throw new Error(`Validación fallida - No se puede exportar:\n• ${erroresFormulados}`);
-        }
-        
-        if (validacion.advertencias.length > 0) {
-          console.warn('⚠️ Se detectaron advertencias pero exportación continuará');
-        }
-      }
-
-      // 🔐 FIX CRÍTICO MONOFACIAL #1: Llenar perforaciones y horadaciones desde metricas
-      if (!obj.perforaciones && metricas.perforaciones) {
-        obj.perforaciones = metricas.perforaciones;
-        console.log(`   ✅ Perforaciones rellenadas: ${obj.perforaciones.length}`);
-      }
-      if (!obj.horadaciones && metricas.horadaciones) {
-        obj.horadaciones = metricas.horadaciones;
-        console.log(`   ✅ Horadaciones rellenadas: ${obj.horadaciones.length}`);
-      }
-      if (!obj.perforaciones) obj.perforaciones = [];
-      if (!obj.horadaciones) obj.horadaciones = [];
-
-      // 🔐 FIX CRÍTICO MONOFACIAL #1: Llenar perforaciones y horadaciones desde metricas
-      if (!obj.perforaciones && metricas.perforaciones) {
-        obj.perforaciones = metricas.perforaciones;
-        console.log(`   ✅ Perforaciones rellenadas: ${obj.perforaciones.length}`);
-      }
-      if (!obj.horadaciones && metricas.horadaciones) {
-        obj.horadaciones = metricas.horadaciones;
-        console.log(`   ✅ Horadaciones rellenadas: ${obj.horadaciones.length}`);
-      }
-      if (!obj.perforaciones) obj.perforaciones = [];
-      if (!obj.horadaciones) obj.horadaciones = [];
-
-      // FIX CRITICO: Llenar perforaciones y horadaciones desde metricas
-      if (!obj.perforaciones && metricas.perforaciones) {
-        obj.perforaciones = metricas.perforaciones;
-        console.log(`   Perforaciones rellenadas desde metricas: ${obj.perforaciones.length}`);
-      }
-      if (!obj.horadaciones && metricas.horadaciones) {
-        obj.horadaciones = metricas.horadaciones;
-        console.log(`   Horadaciones rellenadas desde metricas: ${obj.horadaciones.length}`);
-      }
-      if (!obj.perforaciones) obj.perforaciones = [];
-      if (!obj.horadaciones) obj.horadaciones = [];
-
-      // �🛡️ PRESERVACIÓN DE UI - Respaldar el estado actual ANTES de cualquier cambio
-      console.log('🛡️ Preservando estado de UI para restauración post-PDF...');
-      const vistaAnterior = currentAnalyzedObject && currentAnalyzedObject.obj ? {
-        obj: currentAnalyzedObject.obj,
-        metricas: currentAnalyzedObject.metricas
-      } : null;
-
-      if (vistaAnterior) {
-        console.log(`   ✅ Vista anterior guardada: Objeto ${vistaAnterior.obj.id} (Cara ${vistaAnterior.obj.cara || 'mono'})`);
-      } else {
-        console.log(`   ℹ️ No hay vista anterior para respaldar`);
-      }
-
-      const morphCanvasActual = document.getElementById('morphologicalCanvas');
-      let backupCanvasImage = null;
-
-      if (morphCanvasActual && morphCanvasActual.width > 0 && morphCanvasActual.height > 0) {
-        const tempBackup = document.createElement('canvas');
-        tempBackup.width = morphCanvasActual.width;
-        tempBackup.height = morphCanvasActual.height;
-        tempBackup.getContext('2d').drawImage(morphCanvasActual, 0, 0);
-        backupCanvasImage = tempBackup;
-        console.log(`   ✅ Canvas morfológico respaldado: ${tempBackup.width}×${tempBackup.height}px`);
-      } else {
-        console.log(`   ℹ️ Canvas morfológico vacío o no disponible para backup`);
-      }
-
-      // 🔄 Si el canvas está vacío o pertenece a otra cara/objeto, forzar un redibujado previo
-      const canvasIncompleto = !morphCanvasActual || morphCanvasActual.width === 0 || morphCanvasActual.height === 0;
-      const esOtraCara = vistaAnterior && (vistaAnterior.obj?.id !== obj.id || vistaAnterior.obj?.cara !== obj.cara);
-
-      if (canvasIncompleto || esOtraCara) {
-        console.log(`📐 Preparando canvas antes de exportar (incompleto: ${canvasIncompleto}, otraCara: ${esOtraCara})...`);
-        try {
-          VisualizationExport.mostrarAnalisisMorfologico(obj, metricas);
-          // Dar tiempo a que el DOM/canvas se dibuje antes de capturar
-          await new Promise(resolve => setTimeout(resolve, 150));
-        } catch (prepErr) {
-          console.warn('⚠️ No se pudo preparar el canvas antes de exportar PDF:', prepErr);
-        }
-      }
-      
-      // 1. Obtener los canvas necesarios para el reporte
-      // Canvas 1: Canvas del objeto individual (creado dinámicamente en la tarjeta del objeto)
-      const canvasObjetoIndividual = document.querySelector('.individual-object-canvas');
-      
-      // Canvas 2: Canvas morfológico (análisis con contornos y convex hull)
-      const canvasMorfologico = document.getElementById('morphologicalCanvas');
-      
-      // Canvas 3: Canvas idealizado (contorno depurado estadísticamente)
-      const canvasIdealizado = document.getElementById('idealizedShapeCanvas');
-      
-      // Canvas 4: Canvas debug (máscara binaria con trazados)
-      const canvasDebug = document.getElementById('debugMaskCanvas');
-      
-      // Validar que existan los canvas mínimos necesarios
-      if (!canvasMorfologico) {
-        throw new Error('No se encontró el canvas morfológico. Asegúrese de que el objeto esté en análisis.');
-      }
-      
-      // Determinar qué canvas incluir (algunos son opcionales)
-      const incluirCanvasIndividual = canvasObjetoIndividual && canvasObjetoIndividual.width > 0;
-      const incluirCanvasDebug = canvasDebug && canvasDebug.width > 0;
-      const incluirCanvasIdealizado = canvasIdealizado && metricas._forma_idealizada;
-      
-      // ========================================================================
-      // 2. NORMALIZAR CANVAS A LA MISMA ESCALA Y TAMAÑO PARA EL REPORTE
-      // ========================================================================
-      console.log('📏 Normalizando canvas para reporte (misma escala y tamaño)...');
-      console.log(`   🔍 Canvas a incluir: Morfológico (siempre)${incluirCanvasIndividual ? ', Objeto Individual' : ''}${incluirCanvasDebug ? ', Debug' : ''}${incluirCanvasIdealizado ? ', Contorno Depurado' : ''}`);
-      
-      // Definir tamaño estándar para todos los canvas del reporte
-      const REPORT_CANVAS_SIZE = 800; // Tamaño fijo para el reporte
-      
-      // Calcular escala para que el objeto quepa con margen del 10%
-      const objMaxDim = Math.max(obj.width, obj.height);
-      const reportScale = (REPORT_CANVAS_SIZE * 0.8) / objMaxDim;
-      const scaledWidth = obj.width * reportScale;
-      const scaledHeight = obj.height * reportScale;
-      const offsetX = (REPORT_CANVAS_SIZE - scaledWidth) / 2;
-      const offsetY = (REPORT_CANVAS_SIZE - scaledHeight) / 2;
-      
-      console.log(`   📐 Objeto original: ${obj.width}×${obj.height}px`);
-      console.log(`   📏 Escala reporte: ${reportScale.toFixed(3)}x`);
-      console.log(`   🖼️ Canvas reporte: ${REPORT_CANVAS_SIZE}×${REPORT_CANVAS_SIZE}px`);
-      console.log(`   📊 Objeto escalado: ${scaledWidth.toFixed(1)}×${scaledHeight.toFixed(1)}px`);
-      
-      // Crear canvas normalizados temporales
-      const normalizedObjetoIndividual = incluirCanvasIndividual ? document.createElement('canvas') : null;
-      const normalizedMorfologico = document.createElement('canvas');
-      const normalizedDebug = incluirCanvasDebug ? document.createElement('canvas') : null;
-      const normalizedIdealizado = incluirCanvasIdealizado ? document.createElement('canvas') : null;
-      
-      if (normalizedObjetoIndividual) {
-        normalizedObjetoIndividual.width = REPORT_CANVAS_SIZE;
-        normalizedObjetoIndividual.height = REPORT_CANVAS_SIZE;
-      }
-      normalizedMorfologico.width = REPORT_CANVAS_SIZE;
-      normalizedMorfologico.height = REPORT_CANVAS_SIZE;
-      if (normalizedDebug) {
-        normalizedDebug.width = REPORT_CANVAS_SIZE;
-        normalizedDebug.height = REPORT_CANVAS_SIZE;
-      }
-      if (normalizedIdealizado) {
-        normalizedIdealizado.width = REPORT_CANVAS_SIZE;
-        normalizedIdealizado.height = REPORT_CANVAS_SIZE;
-      }
-      
-      const ctxObjetoIndividual = normalizedObjetoIndividual ? normalizedObjetoIndividual.getContext('2d') : null;
-      const ctxMorfologico = normalizedMorfologico.getContext('2d');
-      const ctxDebug = normalizedDebug ? normalizedDebug.getContext('2d') : null;
-      const ctxIdealizado = normalizedIdealizado ? normalizedIdealizado.getContext('2d') : null;
-      
-      // Fondo blanco para todos
-      const allContexts = [ctxMorfologico];
-      if (ctxObjetoIndividual) allContexts.push(ctxObjetoIndividual);
-      if (ctxDebug) allContexts.push(ctxDebug);
-      if (ctxIdealizado) allContexts.push(ctxIdealizado);
-      
-      allContexts.forEach(ctx => {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, REPORT_CANVAS_SIZE, REPORT_CANVAS_SIZE);
-      });
-      
-      // Copiar y escalar canvas originales a los normalizados
-      // Todos los canvas ya muestran solo el objeto, así que solo necesitamos escalarlos
-      
-      // Canvas 1: Objeto Individual (si existe)
-      if (ctxObjetoIndividual && canvasObjetoIndividual) {
-        ctxObjetoIndividual.drawImage(
-          canvasObjetoIndividual,
-          0, 0, canvasObjetoIndividual.width, canvasObjetoIndividual.height,
-          offsetX, offsetY, scaledWidth, scaledHeight
-        );
-      }
-      
-      // Canvas 2: Morfológico (siempre presente)
-      ctxMorfologico.drawImage(
-        canvasMorfologico,
-        0, 0, canvasMorfologico.width, canvasMorfologico.height,
-        offsetX, offsetY, scaledWidth, scaledHeight
-      );
-      
-      // Canvas 3: Debug (si existe)
-      if (ctxDebug && canvasDebug) {
-        ctxDebug.drawImage(
-          canvasDebug,
-          0, 0, canvasDebug.width, canvasDebug.height,
-          offsetX, offsetY, scaledWidth, scaledHeight
-        );
-      }
-      
-      // Canvas 4: Idealizado/Contorno Depurado (si existe)
-      if (ctxIdealizado && canvasIdealizado) {
-        ctxIdealizado.drawImage(
-          canvasIdealizado,
-          0, 0, canvasIdealizado.width, canvasIdealizado.height,
-          offsetX, offsetY, scaledWidth, scaledHeight
-        );
-      }
-      
-      // Agregar borde y dimensiones a cada canvas normalizado
-      const canvasToAnnotate = [
-        { ctx: ctxMorfologico, title: 'Canvas Morfológico' }
-      ];
-      if (ctxObjetoIndividual) {
-        canvasToAnnotate.unshift({ ctx: ctxObjetoIndividual, title: 'Objeto Individual' });
-      }
-      if (ctxDebug) {
-        canvasToAnnotate.push({ ctx: ctxDebug, title: 'Canvas Debug' });
-      }
-      if (ctxIdealizado) {
-        canvasToAnnotate.push({ ctx: ctxIdealizado, title: 'Contorno Depurado' });
-      }
-      
-      canvasToAnnotate.forEach(({ ctx, title }) => {
-        // Borde del canvas
-        ctx.strokeStyle = '#cccccc';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(1, 1, REPORT_CANVAS_SIZE - 2, REPORT_CANVAS_SIZE - 2);
-        
-        // Borde del objeto escalado
-        ctx.strokeStyle = '#ff0000';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(offsetX, offsetY, scaledWidth, scaledHeight);
-        
-        // Dimensiones del objeto
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.font = '14px Arial';
-        ctx.fillText(`${obj.width}×${obj.height}px (escala: ${reportScale.toFixed(3)}x)`, 10, 25);
-      });
-      
-      console.log('✅ Canvas normalizados creados a la misma escala');
-      
-      // Convertir canvas normalizados a imágenes base64 de ALTA CALIDAD
-      const imgObjetoIndividual = normalizedObjetoIndividual ? normalizedObjetoIndividual.toDataURL('image/png', 1.0) : null;
-      const imgMorfologico = normalizedMorfologico.toDataURL('image/png', 1.0);
-      const imgDebug = normalizedDebug ? normalizedDebug.toDataURL('image/png', 1.0) : null;
-      const imgIdealizado = normalizedIdealizado ? normalizedIdealizado.toDataURL('image/png', 1.0) : null;
-      
-      console.log(`✅ Imágenes generadas: ${REPORT_CANVAS_SIZE}×${REPORT_CANVAS_SIZE}px, calidad máxima`);
-      
-      // ========================================================================
-      // 3. Obtener timestamp y nombre de archivo
-      // ========================================================================
-      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-      const fechaLegible = new Date().toLocaleString('es-ES', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-      
-      // ========================================================================
-      // 3.5. Construir HTML del canvas objeto individual (si existe)
-      // ========================================================================
-      let canvasObjetoIndividualHTML = '';
-      if (imgObjetoIndividual) {
-        canvasObjetoIndividualHTML = '\n      <div class="canvas-item">' +
-          '\n        <div class="canvas-container">' +
-          '\n          <img src="' + imgObjetoIndividual + '" alt="Canvas Objeto Individual">' +
-          '\n          <p class="canvas-label">Figura 1 — Objeto Individual</p>' +
-          '\n          <div class="legend">' +
-          '\n            <div class="legend-title">Leyenda</div>' +
-          '\n            <div class="legend-item">' +
-          '\n              <span style="font-size: 8pt;">Región de interés (ROI) extraída del objeto detectado, normalizada para comparación entre objetos</span>' +
-          '\n            </div>' +
-          '\n          </div>' +
-          '\n        </div>' +
-          '\n      </div>';
-      }
-      
-      // ========================================================================
-      // 3.6. Construir HTML del canvas debug (si existe)
-      // ========================================================================
-      let canvasDebugHTML = '';
-      if (imgDebug) {
-        canvasDebugHTML = '\n      <div class="canvas-item">' +
-          '\n        <div class="canvas-container">' +
-          '\n          <img src="' + imgDebug + '" alt="Canvas de Debug">' +
-          '\n          <p class="canvas-label">Figura 2 — Análisis de Contornos</p>' +
-          '\n          <div class="legend">' +
-          '\n            <div class="legend-title">Leyenda</div>' +
-          '\n            <div class="legend-item">' +
-          '\n              <div class="legend-color" style="background-color: #00ff00;"></div>' +
-          '\n              <span>Contorno original (verde)</span>' +
-          '\n            </div>' +
-          '\n            <div class="legend-item">' +
-          '\n              <div class="legend-color" style="background-color: #00ffff;"></div>' +
-          '\n              <span>Contorno suavizado (cian)</span>' +
-          '\n            </div>' +
-          '\n            <div class="legend-item">' +
-          '\n              <div class="legend-color dashed" style="color: #ff8800;"></div>' +
-          '\n              <span>Convex hull (naranja)</span>' +
-          '\n            </div>' +
-          '\n            <div class="legend-item">' +
-          '\n              <span class="legend-symbol" style="color: #ff0000;">●</span>' +
-          '\n              <span>Centroide (rojo)</span>' +
-          '\n            </div>' +
-          '\n          </div>' +
-          '\n        </div>' +
-          '\n      </div>';
-      }
-      
-      // ========================================================================
-      // 3.7. Construir HTML del canvas idealizado (si existe)
-      // ========================================================================
-      let canvasIdealizadoHTML = '';
-      if (imgIdealizado) {
-        canvasIdealizadoHTML = '\n      <div class="canvas-item">' +
-          '\n        <div class="canvas-container">' +
-          '\n          <img src="' + imgIdealizado + '" alt="Canvas Contorno Depurado">' +
-          '\n          <p class="canvas-label">Figura 3 — Contorno Depurado</p>' +
-          '\n          <div class="legend">' +
-          '\n            <div class="legend-title">Leyenda</div>' +
-          '\n            <div class="legend-item">' +
-          '\n              <div class="legend-color" style="background-color: #007bff;"></div>' +
-          '\n              <span>Contorno depurado (azul)</span>' +
-          '\n            </div>' +
-          '\n            <div class="legend-item">' +
-          '\n              <span class="legend-symbol" style="color: #ff0000;">●</span>' +
-          '\n              <span>Centroide (rojo)</span>' +
-          '\n            </div>' +
-          '\n            <div class="legend-item">' +
-          '\n              <div class="legend-color dashed" style="color: #ff0000;"></div>' +
-          '\n              <span>Eje mayor (rojo)</span>' +
-          '\n            </div>' +
-          '\n            <div class="legend-item">' +
-          '\n              <div class="legend-color dashed" style="color: #00ff00;"></div>' +
-          '\n              <span>Eje menor (verde)</span>' +
-          '\n            </div>' +
-          '\n          </div>' +
-          '\n        </div>' +
-          '\n      </div>';
-      }
-      
-      // ========================================================================
-      // 4. Reutilizar análisis comparativo avanzado (ya calculado)
-      // ========================================================================
-      // Usar el análisis ya calculado si existe, si no, calcularlo ahora
-      const analisisComparativo = obj.analisisComparativo || calcularAnalisisComparativo(obj, metricas);
-      
-      if (obj.analisisComparativo) {
-        console.log('📊 Reutilizando análisis comparativo ya calculado para PDF');
-      } else {
-        console.log('📊 Análisis comparativo calculado para PDF:', analisisComparativo);
-      }
-      
-      // ========================================================================
-      // 5. Generar HTML del reporte
-      // ========================================================================
-      const reporteHTML = `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Reporte Morfológico - Objeto ${obj.id}</title>
-  <style>
-    /* ===== ESTILOS BASE ===== */
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    
-    body {
-      font-family: 'Times New Roman', Times, serif;
-      background: #ffffff;
-      padding: 0;
-      line-height: 1.5;
-      color: #000000;
-      font-size: 11pt;
-    }
-    
-    .container {
-      max-width: 800px;
-      margin: 0 auto;
-      background: #ffffff;
-      padding: 30px 40px;
-    }
-    
-    /* ===== PORTADA ===== */
-    .header {
-      margin: -30px -40px 30px -40px;
-      padding: 46px 46px 38px;
-      background: #fff;
-      border-top: 5px solid #1a202c;
-      border-bottom: 1px solid #e2e8f0;
-      font-family: 'Segoe UI', system-ui, Arial, sans-serif;
-      page-break-after: avoid;
-    }
-    .header-brand {
-      display: flex; align-items: center; gap: 16px;
-      margin-bottom: 30px; padding-bottom: 22px;
-      border-bottom: 1px solid #e2e8f0;
-    }
-    .header-logo {
-      width: 64px; height: 64px; object-fit: contain;
-      border-radius: 14px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.05);
-      flex-shrink: 0;
-    }
-    .header-wordmark { font-size: 21px; font-weight: 800; color: #1a202c; line-height: 1.1; letter-spacing: -0.3px; }
-    .header-wordmark span { color: #2b6cb0; }
-    .header-tagline { font-size: 9pt; color: #718096; margin-top: 3px; }
-    .header-super { font-size: 9pt; letter-spacing: 3px; text-transform: uppercase; color: #718096; margin-bottom: 12px; }
-    .header h1 {
-      font-size: 26pt; font-weight: 800; color: #1a202c;
-      letter-spacing: -0.5px; line-height: 1.1; margin-bottom: 8px;
-    }
-    .header .subtitle {
-      font-size: 10pt; color: #4a5568; margin-bottom: 18px; font-style: normal;
-    }
-    .header-badge {
-      display: inline-block; background: #f7fafc; border: 1px solid #cbd5e0;
-      border-radius: 4px; padding: 3px 10px; font-size: 9pt;
-      letter-spacing: 0.8px; color: #4a5568; margin-bottom: 22px; text-transform: uppercase;
-    }
-    .header-meta {
-      display: flex; gap: 28px; flex-wrap: wrap;
-      padding-top: 16px; border-top: 1px solid #e2e8f0;
-    }
-    .header-meta-item .h-label { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 1.5px; color: #718096; }
-    .header-meta-item .h-value { font-size: 11pt; color: #1a202c; font-weight: 700; }
-    
-    /* ===== CAJA DE INFORMACIÓN ===== */
-    .info-box {
-      background: #f5f5f5;
-      padding: 12px 15px;
-      border: 1px solid #cccccc;
-      border-left: 3px solid #000000;
-      margin: 20px 0;
-      page-break-inside: avoid;
-    }
-    
-    .info-box h3 {
-      color: #000000;
-      font-size: 11pt;
-      font-weight: bold;
-      margin-bottom: 8px;
-      border-bottom: 1px solid #cccccc;
-      padding-bottom: 4px;
-    }
-    
-    .info-box p {
-      color: #000000;
-      font-size: 9pt;
-      margin: 4px 0;
-      line-height: 1.4;
-    }
-    
-    .info-box p strong {
-      font-weight: bold;
-      color: #000000;
-    }
-    
-    /* ===== SECCIONES ===== */
-    .canvas-section, .metrics-section {
-      margin: 30px 0 20px 0;
-      page-break-before: auto;
-      page-break-after: auto;
-      page-break-inside: avoid;
-    }
-    
-    .canvas-section h2, .metrics-section h2 {
-      color: #000000;
-      font-size: 14pt;
-      font-weight: bold;
-      border-bottom: 1.5px solid #666666;
-      padding-bottom: 8px;
-      margin-bottom: 15px;
-      page-break-after: avoid;
-    }
-    
-    /* ===== SECCIÓN HEADER DE CANVAS ===== */
-    .canvas-section-header {
-      margin: 20px 0 10px 0;
-      page-break-after: avoid;
-    }
-    
-    .canvas-section-header h2 {
-      font-size: 14pt;
-      font-weight: bold;
-      border-bottom: 1.5px solid #666666;
-      padding-bottom: 8px;
-      page-break-after: avoid;
-    }
-    
-    /* ===== ITEMS DE CANVAS INDIVIDUALES ===== */
-    .canvas-item {
-      page-break-inside: avoid;
-      page-break-before: auto;
-      page-break-after: auto;
-      margin: 20px 0;
-    }
-    
-    /* ===== CONTENEDORES DE CANVAS ===== */
-    .canvas-container {
-      text-align: center;
-      background: #ffffff;
-      padding: 15px 10px;
-      margin: 0;
-      page-break-inside: avoid;
-    }
-    
-    .canvas-container img {
-      max-width: 100%;
-      width: auto;
-      height: auto;
-      border: 1px solid #cccccc;
-      display: block;
-      margin: 0 auto 10px auto;
-      page-break-inside: avoid;
-      object-fit: contain; /* Mantener proporciones sin deformación */
-      image-rendering: -webkit-optimize-contrast; /* Mayor nitidez */
-      image-rendering: crisp-edges;
-    }
-    
-    .canvas-label {
-      font-weight: bold;
-      color: #000000;
-      margin: 10px 0 8px 0;
-      font-size: 10pt;
-      text-align: center;
-      page-break-before: avoid;
-    }
-    
-    /* ===== LEYENDAS ===== */
-    .legend {
-      background: #fafafa;
-      border: 1px solid #cccccc;
-      padding: 10px 12px;
-      margin: 10px auto;
-      text-align: left;
-      max-width: 650px;
-      page-break-inside: avoid;
-    }
-    
-    .legend-title {
-      font-weight: bold;
-      color: #000000;
-      margin-bottom: 8px;
-      font-size: 9pt;
-      border-bottom: 1px solid #dddddd;
-      padding-bottom: 4px;
-    }
-    
-    .legend-item {
-      display: flex;
-      align-items: center;
-      margin: 5px 0;
-      font-size: 8pt;
-      color: #000000;
-      line-height: 1.3;
-    }
-    
-    .legend-color {
-      width: 24px;
-      height: 12px;
-      margin-right: 8px;
-      border: 1px solid #666666;
-      flex-shrink: 0;
-    }
-    
-    .legend-color.dashed {
-      background: linear-gradient(to right, currentColor 40%, transparent 40%);
-      background-size: 8px 100%;
-      border: 1px solid #666666;
-    }
-    
-    .legend-symbol {
-      font-size: 10pt;
-      margin-right: 8px;
-      min-width: 24px;
-      text-align: center;
-      flex-shrink: 0;
-    }
-    
-    /* ===== MÉTRICAS ===== */
-    .metric-group {
-      margin: 20px 0;
-      page-break-inside: avoid;
-    }
-    
-    .metric-group h3 {
-      color: #000000;
-      font-size: 11pt;
-      font-weight: bold;
-      margin-bottom: 10px;
-      padding: 8px 10px;
-      background: #f0f0f0;
-      border-left: 3px solid #333333;
-      page-break-after: avoid;
-    }
-    
-    .metric-row {
-      display: grid;
-      grid-template-columns: 1.2fr 1fr;
-      gap: 8px;
-      margin: 6px 0;
-      padding: 6px 10px;
-      background: #fafafa;
-      border-left: 1px solid #dddddd;
-      page-break-inside: avoid;
-    }
-    
-    .metric-row.highlight {
-      background: #f5f5f5;
-      border-left: 2px solid #000000;
-      font-weight: 500;
-    }
-    
-    .metric-label {
-      font-weight: 500;
-      color: #000000;
-      font-size: 9pt;
-    }
-    
-    .metric-value {
-      color: #000000;
-      text-align: right;
-      font-size: 9pt;
-    }
-    
-    .metric-value strong {
-      color: #000000;
-      font-weight: bold;
-    }
-    
-    /* ===== NOTAS Y DESCRIPCIONES ===== */
-    .metric-group p {
-      font-size: 8pt;
-      color: #333333;
-      margin: 8px 10px;
-      line-height: 1.3;
-      font-style: italic;
-    }
-    
-    .metric-group div[style*="background: #fff"] {
-      background: #f9f9f9 !important;
-      padding: 8px 10px;
-      border: 1px solid #dddddd;
-      border-radius: 0;
-      margin-top: 8px;
-      font-size: 8pt;
-      color: #000000;
-      line-height: 1.4;
-      page-break-inside: avoid;
-    }
-    
-    /* ===== PIE DE PÁGINA ===== */
-    .footer {
-      margin-top: 30px;
-      padding-top: 15px;
-      border-top: 1.5px solid #000000;
-      text-align: center;
-      color: #333333;
-      font-size: 9pt;
-      page-break-inside: avoid;
-    }
-    
-    .footer p {
-      margin: 4px 0;
-      color: #333333;
-    }
-    
-    /* ===== CONTROL DE PAGINACIÓN ===== */
-    @media print {
-      body { 
-        background: #ffffff; 
-        padding: 0;
-      }
-      .container { 
-        padding: 20px 30px;
-        max-width: 100%;
-      }
-      .canvas-container,
-      .metric-group,
-      .info-box,
-      .legend {
-        page-break-inside: avoid;
-      }
-      h1, h2, h3 {
-        page-break-after: avoid;
-      }
-      .canvas-container img {
-        max-height: 400px;
-        width: auto;
-        height: auto;
-        object-fit: contain;
-        page-break-inside: avoid;
-      }
-    }
-    
-    /* ===== AJUSTES PARA PDF ===== */
-    @page {
-      margin: 20mm;
-      size: letter;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <div class="header-brand">
-        <img src="icon.png" alt="MAO Plus" class="header-logo">
-        <div>
-          <div class="header-wordmark">MAO <span>Plus</span></div>
-          <div class="header-tagline">Morphological Analysis &amp; Objects</div>
-        </div>
-      </div>
-      <div class="header-super">Reporte de análisis</div>
-      <h1>Análisis Morfológico</h1>
-      <p class="subtitle">Morfometría arqueológica de objetos — MAO Plus v1.2.0</p>
-      <div class="header-badge">Objeto: ${obj.id} &middot; ${obj.cara ? 'Cara ' + obj.cara : 'Monofacial'}</div>
-      <div class="header-meta">
-        <div class="header-meta-item">
-          <div class="h-label">Versión</div>
-          <div class="h-value">MAO Plus v1.2.0</div>
-        </div>
-        <div class="header-meta-item">
-          <div class="h-label">Fecha</div>
-          <div class="h-value">${fechaLegible}</div>
-        </div>
-        <div class="header-meta-item">
-          <div class="h-label">ID Objeto</div>
-          <div class="h-value">${obj.id}</div>
-        </div>
-      </div>
-    </div>
-    
-    <div class="info-box">
-      <h3>Información del Análisis</h3>
-      <p><strong>ID del Objeto:</strong> ${obj.id}</p>
-      <p><strong>Fecha:</strong> ${fechaLegible}</p>
-      <p><strong>Método de análisis:</strong> ${metricas.analysis_method}</p>
-      <p><strong>Unidad de medida:</strong> ${metricas.area_unit === 'mm²' ? 'Milímetros' : 'Píxeles'}</p>
-      ${window.escalaCorregida?.activa ? `<p style="background: #d4edda; padding: 8px; border-left: 4px solid #28a745; margin: 8px 0;"><strong>ESCALA CORREGIDA MANUALMENTE:</strong>${scale.toFixed(6)} mm/px (Factor: ${window.escalaCorregida.factorCorreccion.toFixed(4)} | Error original: ${window.escalaCorregida.errorOriginal.toFixed(2)}%)</p>`: ''}
-      <p><strong>Escala de visualización:</strong> ${reportScale.toFixed(3)}× (normalizada para comparación)</p>
-      <p><strong>Dimensiones originales:</strong> ${obj.width} × ${obj.height} px</p>
-      <p><strong>Figuras incluidas:</strong> ${1 + (incluirCanvasIndividual ? 1 : 0) + (incluirCanvasDebug ? 1 : 0) + (incluirCanvasIdealizado ? 1 : 0)} visualizaciones</p>
-    </div>
-    
-    <!-- SECCIÓN DE CANVAS -->
-    <div class="canvas-section-header">
-      <h2>Visualizaciones del Análisis</h2>
-    </div>
-    
-    ${canvasObjetoIndividualHTML}
-    
-    <div class="canvas-item">
-      <div class="canvas-container">
-        <img src="${imgMorfologico}" alt="Canvas Morfológico">
-        <p class="canvas-label">Figura ${incluirCanvasIndividual ? '2' : '1'} — Análisis Morfológico</p>
-        <div class="legend">
-          <div class="legend-title">Leyenda</div>
-          <div class="legend-item">
-            <div class="legend-color" style="background-color: #00ff00;"></div>
-            <span>Contorno real del objeto (verde)</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-color dashed" style="color: #ff8800;"></div>
-            <span>Convex hull - forma completa estimada (naranja)</span>
-          </div>
-          <div class="legend-item">
-            <span class="legend-symbol" style="color: #ff8800;">●</span>
-            <span>Centroide del objeto (naranja)</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-color" style="background-color: #00ffff;"></div>
-            <span>Eje mayor (cian)</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-color" style="background-color: #ff00ff;"></div>
-            <span>Eje menor (magenta)</span>
-          </div>
-        </div>
-      </div>
-    </div>
-    
-    ${canvasDebugHTML}
-    
-    ${canvasIdealizadoHTML}
-    
-    <!-- SECCIÓN DE MÉTRICAS -->
-    <div class="metrics-section">
-      <h2>Métricas Morfológicas</h2>
-      
-      <div class="metric-group">
-        <h3>Dimensiones Básicas (Envolvente Convexa)</h3>
-        <p>Las dimensiones corresponden a los ejes principales del objeto, no a la caja contenedora rectangular.</p>
-        <div class="metric-row highlight">
-          <span class="metric-label">Área:</span>
-          <span class="metric-value"><strong>${metricas.area} ${metricas.area_unit}</strong></span>
-        </div>
-        <div class="metric-row highlight">
-          <span class="metric-label">Perímetro:</span>
-          <span class="metric-value"><strong>${metricas.perimeter} ${metricas.perimeter_unit}</strong></span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Eje mayor / Eje menor:</span>
-          <span class="metric-value">${metricas.eje_mayor_real_longitud || metricas.eje_mayor} / ${metricas.eje_menor_real_longitud || metricas.eje_menor} ${metricas.perimeter_unit}</span>
-        </div>
-      </div>
-      
-      <div class="metric-group">
-        <h3>Análisis Radial (desde centroide)</h3>
-        <div class="metric-row highlight">
-          <span class="metric-label">Radio máximo:</span>
-          <span class="metric-value"><strong>${metricas.radio_maximo ?? '—'} ${metricas.perimeter_unit}</strong></span>
-        </div>
-        <div class="metric-row highlight">
-          <span class="metric-label">Radio mínimo:</span>
-          <span class="metric-value"><strong>${metricas.radio_minimo ?? '—'} ${metricas.perimeter_unit}</strong></span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Radio medio:</span>
-          <span class="metric-value">${metricas.radio_medio ?? '—'} ${metricas.perimeter_unit}</span>
-        </div>
-        <div class="metric-row highlight">
-          <span class="metric-label">Ratio de radios (Rmin/Rmax):</span>
-          <span class="metric-value"><strong>${metricas.ratio_radios ?? '—'}</strong></span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Regularidad radial:</span>
-          <span class="metric-value">${metricas.regularidad_radial ?? '—'}% ${parseFloat(metricas.regularidad_radial) >= 90 ? '(muy regular)' : parseFloat(metricas.regularidad_radial) >= 75 ? '(regular)' : parseFloat(metricas.regularidad_radial) >= 60 ? '(irregular)' : '(muy irregular)'}</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Desviación radial:</span>
-          <span class="metric-value">${metricas.desviacion_radial ?? '—'} ${metricas.perimeter_unit}</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Coeficiente de variación radial:</span>
-          <span class="metric-value">${metricas.coeficiente_variacion_radial ?? '—'}%</span>
-        </div>
-        ${metricas.punto_radio_maximo ? `
-        <div class="metric-row">
-          <span class="metric-label">Punto radio máximo (x, y):</span>
-          <span class="metric-value">(${metricas.punto_radio_maximo[0].toFixed(1)}, ${metricas.punto_radio_maximo[1].toFixed(1)})</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Punto radio mínimo (x, y):</span>
-          <span class="metric-value">(${metricas.punto_radio_minimo[0].toFixed(1)}, ${metricas.punto_radio_minimo[1].toFixed(1)})</span>
-        </div>
-        ` : ''}
-        <div style="background: #f9f9f9; padding: 8px; border: 1px solid #ddd; margin-top: 8px; font-size: 8pt; color: #000;">
-          <strong>Interpretación del análisis radial:</strong><br>
-          • Radio máximo: distancia más larga desde el centroide al borde (identifica protrusiones o extensiones)<br>
-          • Radio mínimo: distancia más corta desde el centroide al borde (identifica concavidades o estrechamientos)<br>
-          • Ratio cercano a 1.0 indica forma circular; valores bajos indican formas irregulares o alargadas<br>
-          • Regularidad >90% = forma muy regular; <60% = forma muy irregular
-        </div>
-      </div>
-      
-      <div class="metric-group">
-        <h3>Estado de Conservación</h3>
-        <div class="metric-row highlight">
-          <span class="metric-label">Solidez (completitud):</span>
-          <span class="metric-value"><strong>${metricas.solidity} → ${metricas.solidity_class}</strong></span>
-        </div>
-        ${metricas.perdida_area_fragmentacion_percent ? `
-        <div class="metric-row">
-          <span class="metric-label">Pérdida por fragmentación (área):</span>
-          <span class="metric-value">${metricas.perdida_area_fragmentacion_percent}%</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Pérdida por fragmentación (perímetro):</span>
-          <span class="metric-value">${metricas.perdida_perimetro_fragmentacion_percent}%</span>
-        </div>
-        ` : ''}
-        <div class="metric-row">
-          <span class="metric-label">Área fragmentada real:</span>
-          <span class="metric-value">${metricas.area_fragmentada} ${metricas.area_unit}</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Perímetro fragmentado real:</span>
-          <span class="metric-value">${metricas.perimeter_fragmentado} ${metricas.perimeter_unit}</span>
-        </div>
-        ${metricas.completitud_estimada ? `
-        <div class="metric-row highlight">
-          <span class="metric-label">Completitud estimada:</span>
-          <span class="metric-value"><strong>${metricas.completitud_estimada}% → ${metricas.completitud_tipo_fragmento}</strong></span>
-        </div>
-        ` : ''}
-      </div>
-      
-      <div class="metric-group">
-        <h3>Forma Geométrica</h3>
-        <div class="metric-row highlight">
-          <span class="metric-label">Forma mostrada al usuario:</span>
-          <span class="metric-value"><strong>${(metricas.forma_tipologica_inferida && metricas.forma_requiere_reinterpretacion_tipologica) ? metricas.forma_tipologica_inferida : metricas.forma_detectada}</strong></span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Forma geométrica observada:</span>
-          <span class="metric-value">${metricas.forma_geometrica_observada || metricas.forma_detectada}</span>
-        </div>
-        ${(metricas.forma_tipologica_inferida || metricas.forma_detectada_tipologica) ? `
-        <div class="metric-row ${metricas.forma_requiere_reinterpretacion_tipologica ? 'highlight' : ''}">
-          <span class="metric-label">Interpretación tipológica:</span>
-          <span class="metric-value">${metricas.forma_tipologica_inferida || metricas.forma_detectada_tipologica}</span>
-        </div>
-        ` : ''}
-        ${metricas.forma_razon_tipologica ? `
-        <div class="metric-row" style="font-size: 0.9em; color: #555;">
-          <span class="metric-label">Razón tipológica:</span>
-          <span class="metric-value">${metricas.forma_razon_tipologica}</span>
-        </div>
-        ` : ''}
-        <div class="metric-row">
-          <span class="metric-label">Confianza de clasificación:</span>
-          <span class="metric-value">${(parseFloat(metricas.forma_confianza) * 100).toFixed(1)}%</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Circularidad:</span>
-          <span class="metric-value">${metricas.circularity_real} → ${metricas.shape_class_circularity}</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Compacidad:</span>
-          <span class="metric-value">${metricas.compactness_real} → ${metricas.shape_class_compactness}</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Relación de aspecto:</span>
-          <span class="metric-value">${metricas.aspect_ratio_tight} → ${metricas.shape_class_aspect}</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Convexidad:</span>
-          <span class="metric-value">${metricas.convexity_real}</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Vértices detectados:</span>
-          <span class="metric-value">${metricas.vertices_aproximados}</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Puntos del contorno:</span>
-          <span class="metric-value">${metricas.contour_points}</span>
-        </div>
-      </div>
-      
-      <div class="metric-group">
-        <h3>Características Morfométricas</h3>
-        <div class="metric-row">
-          <span class="metric-label">Centroide (Cx, Cy):</span>
-          <span class="metric-value">(${metricas.centroide_x}, ${metricas.centroide_y})</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Excentricidad:</span>
-          <span class="metric-value">${metricas.excentricidad}</span>
-        </div>
-        ${metricas.simetria_bilateral ? `
-        <div class="metric-row">
-          <span class="metric-label">Simetría Bilateral:</span>
-          <span class="metric-value">${metricas.simetria_bilateral} → ${metricas.simetria_clasificacion}</span>
-        </div>
-        ${metricas.simetria_distancia_asimetria_px ? `
-        <div class="metric-row">
-          <span class="metric-label">Distancia de Asimetría:</span>
-          <span class="metric-value">${metricas.simetria_distancia_asimetria_px} px</span>
-        </div>
-        ` : ''}
-        ` : ''}
-        ${metricas.curvatura_media ? `
-        <div class="metric-row">
-          <span class="metric-label">Curvatura Media:</span>
-          <span class="metric-value">${metricas.curvatura_media} → ${metricas.curvatura_clasificacion}</span>
-        </div>
-        ${metricas.curvatura_maxima ? `
-        <div class="metric-row">
-          <span class="metric-label">Curvatura Máxima:</span>
-          <span class="metric-value">${metricas.curvatura_maxima}</span>
-        </div>
-        ` : ''}
-        <div class="metric-row">
-          <span class="metric-label">Puntos de Inflexión:</span>
-          <span class="metric-value">${metricas.curvatura_puntos_inflexion} (esquinas: ${metricas.curvatura_puntos_esquina})</span>
-        </div>
-        ` : ''}
-        ${metricas.rugosidad_contorno ? `
-        <div class="metric-row">
-          <span class="metric-label">Rugosidad del Contorno:</span>
-          <span class="metric-value">${metricas.rugosidad_contorno} → ${metricas.rugosidad_clasificacion}</span>
-        </div>
-        ${metricas.rugosidad_longitud_segmento_media_px ? `
-        <div class="metric-row">
-          <span class="metric-label">Longitud Media de Segmentos:</span>
-          <span class="metric-value">${metricas.rugosidad_longitud_segmento_media_px} px (σ: ${metricas.rugosidad_desviacion_px} px)</span>
-        </div>
-        ` : ''}
-        ` : ''}
-        ${metricas.eje_principal_angulo ? `
-        <div class="metric-row">
-          <span class="metric-label">Orientación del Eje Principal:</span>
-          <span class="metric-value">${metricas.eje_principal_angulo}° → ${metricas.eje_principal_orientacion}</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Anisotropía (Elongación):</span>
-          <span class="metric-value">${metricas.eje_principal_anisotropia} → ${metricas.eje_principal_forma_dominante}</span>
-        </div>
-        ` : ''}
-        ${metricas.esfericidad ? `
-        <div class="metric-row">
-          <span class="metric-label">Esfericidad:</span>
-          <span class="metric-value">${metricas.esfericidad} → ${metricas.forma_3d_inferida}</span>
-        </div>
-        ` : ''}
-        ${metricas.oblongacion ? `
-        <div class="metric-row">
-          <span class="metric-label">Oblongación:</span>
-          <span class="metric-value">${metricas.oblongacion} → ${metricas.oblongacion_clasificacion}</span>
-        </div>
-        ` : ''}
-        ${metricas.aplanamiento_inferido ? `
-        <div class="metric-row">
-          <span class="metric-label">Aplanamiento Inferido:</span>
-          <span class="metric-value">${metricas.aplanamiento_inferido}</span>
-        </div>
-        ` : ''}
-        ${metricas.contour_complexity_index ? `
-        <div class="metric-row">
-          <span class="metric-label">Complejidad del Contorno:</span>
-          <span class="metric-value">${metricas.contour_complexity_index} → ${metricas.shape_class_complexity}</span>
-        </div>
-        ` : ''}
-      </div>
-      
-      ${metricas.completitud_cobertura_grados ? `
-      <div class="metric-group">
-        <h3>Métricas Adicionales de Completitud</h3>
-        <div class="metric-row">
-          <span class="metric-label">Cobertura Angular:</span>
-          <span class="metric-value">${metricas.completitud_cobertura_grados}° (${(parseFloat(metricas.completitud_cobertura_grados)/360*100).toFixed(1)}% del círculo)</span>
-        </div>
-        ${metricas.completitud_metodo_angular ? `
-        <div class="metric-row">
-          <span class="metric-label">Método Angular:</span>
-          <span class="metric-value">${metricas.completitud_metodo_angular}%</span>
-        </div>
-        ` : ''}
-        ${metricas.completitud_metodo_convexidad ? `
-        <div class="metric-row">
-          <span class="metric-label">Método Convexidad:</span>
-          <span class="metric-value">${metricas.completitud_metodo_convexidad}%</span>
-        </div>
-        ` : ''}
-      </div>
-      ` : ''}
-    </div>
-    
-    <!-- CARACTERÍSTICAS GEOMÉTRICAS AVANZADAS -->
-    ${metricas.indice_estrellamiento ? `
-    <div class="metric-group">
-      <h3>Características Geométricas Avanzadas</h3>
-      <p style="font-size: 8pt; font-style: italic; color: #666; margin-bottom: 10px;">
-        Análisis geométrico avanzado para caracterización detallada de artefactos arqueológicos.
-      </p>
-      
-      ${metricas.indice_estrellamiento ? `
-      <div class="metric-row highlight">
-        <span class="metric-label">Índice de Estrellamiento:</span>
-        <span class="metric-value"><strong>${metricas.indice_estrellamiento} → ${metricas.estrellamiento_clasificacion}</strong></span>
-      </div>
-      <p style="font-size: 8pt; color: #555; margin: 5px 0 10px 15px;">
-        Mide cuán "estrellada" es la forma. Valores altos (&gt;0.5) = protuberancias pronunciadas; valores bajos (&lt;0.2) = formas redondeadas.
-      </p>
-      ` : ''}
-      
-      ${metricas.indice_lobularidad ? `
-      <div class="metric-row highlight">
-        <span class="metric-label">Índice de Lobularidad:</span>
-        <span class="metric-value"><strong>${metricas.indice_lobularidad} → ${metricas.lobularidad_clasificacion}</strong></span>
-      </div>
-      <p style="font-size: 8pt; color: #555; margin: 5px 0 10px 15px;">
-        Detecta lóbulos o protuberancias suaves. Identifica asas, vertedores, apéndices redondeados o expansiones laterales.
-      </p>
-      ` : ''}
-      
-      ${metricas.energia_curvatura ? `
-      <div class="metric-row highlight">
-        <span class="metric-label">Energía de Curvatura:</span>
-        <span class="metric-value"><strong>${metricas.energia_curvatura} → ${metricas.energia_clasificacion}</strong></span>
-      </div>
-      <p style="font-size: 8pt; color: #555; margin: 5px 0 10px 15px;">
-        Suma de cuadrados de curvaturas. Valores altos = contorno sinuoso con cambios bruscos; valores bajos = trazos suaves.
-      </p>
-      ` : ''}
-      
-      ${metricas.feret_max ? `
-      <div style="margin: 15px 0; padding: 10px; background: #f5f5f5; border-left: 3px solid #666;">
-        <p style="margin: 3px 0; font-size: 9pt; font-weight: 600;">Diámetro de Feret (Caliper Diameter)</p>
-        <div class="metric-row">
-          <span class="metric-label">Feret Máximo:</span>
-          <span class="metric-value">${metricas.feret_max} ${metricas.perimeter_unit} (${metricas.feret_angulo_max}°)</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Feret Mínimo:</span>
-          <span class="metric-value">${metricas.feret_min} ${metricas.perimeter_unit} (${metricas.feret_angulo_min}°)</span>
-        </div>
-        <div class="metric-row highlight">
-          <span class="metric-label">Ratio Feret (min/max):</span>
-          <span class="metric-value"><strong>${metricas.feret_ratio} → ${metricas.feret_clasificacion}</strong></span>
-        </div>
-        <p style="font-size: 8pt; color: #555; margin: 8px 0 0 0;">
-          Ancho máximo/mínimo medido con calibrador rotatorio. Medición robusta independiente de la orientación del artefacto.
-        </p>
-      </div>
-      ` : ''}
-      
-      ${metricas.geometria_vertices ? `
-      <div style="margin: 15px 0; padding: 10px; background: #f5f5f5; border-left: 3px solid #666;">
-        <p style="margin: 3px 0; font-size: 9pt; font-weight: 600;">Análisis de Ángulos en Vértices</p>
-        <div class="metric-row highlight">
-          <span class="metric-label">Geometría Detectada:</span>
-          <span class="metric-value"><strong>${metricas.geometria_vertices}</strong></span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Ángulo Medio:</span>
-          <span class="metric-value">${metricas.angulo_medio_vertices}°</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Ángulo Predominante:</span>
-          <span class="metric-value"><strong>${metricas.angulo_predominante}°</strong></span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Desviación Estándar:</span>
-          <span class="metric-value">${metricas.desviacion_angulos}°</span>
-        </div>
-        <div style="margin: 8px 0; padding: 8px; background: #fff; border: 1px solid #ddd;">
-          <table style="width: 100%; font-size: 8pt; text-align: center;">
-            <tr>
-              <td><strong style="font-size: 10pt; color: #388e3c;">${metricas.num_angulos_rectos}</strong><br>Rectos (~90°)</td>
-              <td><strong style="font-size: 10pt; color: #1976d2;">${metricas.num_angulos_agudos}</strong><br>Agudos (&lt;75°)</td>
-              <td><strong style="font-size: 10pt; color: #d32f2f;">${metricas.num_angulos_obtusos}</strong><br>Obtusos (&gt;105°)</td>
-            </tr>
-          </table>
-        </div>
-        <p style="font-size: 8pt; color: #555; margin: 8px 0 0 0;">
-          Discrimina formas geométricas planificadas (triángulo, cuadrado, pentágono) vs formas orgánicas irregulares.
-        </p>
-      </div>
-      ` : ''}
-    </div>
-    ` : ''}
-    
-    <!-- DEPURACIÓN ESTADÍSTICA DE CONTORNO -->
-    ${metricas._forma_idealizada ? `
-    <div class="metric-group">
-      <h3>Depuración Estadística de Contorno</h3>
-      <p style="font-size: 8pt; font-style: italic; color: #666; margin-bottom: 10px;">
-        Eliminación de artefactos digitales preservando la geometría real del objeto.
-      </p>
-      
-      <div class="metric-row highlight">
-        <span class="metric-label">Forma Identificada:</span>
-        <span class="metric-value"><strong>${metricas._forma_idealizada.nombre}</strong></span>
-      </div>
-      
-      <div class="metric-row">
-        <span class="metric-label">Puntos Originales (Máscara):</span>
-        <span class="metric-value">${metricas._forma_idealizada.parametros.puntos_originales} puntos</span>
-      </div>
-      
-      <div class="metric-row highlight">
-        <span class="metric-label">Artefactos Eliminados:</span>
-        <span class="metric-value"><strong>${metricas._forma_idealizada.parametros.artefactos_eliminados} puntos (${((metricas._forma_idealizada.parametros.artefactos_eliminados/metricas._forma_idealizada.parametros.puntos_originales)*100).toFixed(1)}%)</strong></span>
-      </div>
-      
-      <div class="metric-row">
-        <span class="metric-label">Puntos Depurados (Geometría Real):</span>
-        <span class="metric-value">${metricas._forma_idealizada.parametros.puntos_simplificados} puntos (reducción: ${metricas._forma_idealizada.parametros.reduccion_porcentaje}%)</span>
-      </div>
-      
-      <div class="metric-row">
-        <span class="metric-label">Continuidad Geométrica Promedio:</span>
-        <span class="metric-value">${metricas._forma_idealizada.parametros.continuidad_promedio} (umbral: ${metricas._forma_idealizada.parametros.umbral_continuidad})</span>
-      </div>
-      
-      <div class="metric-row">
-        <span class="metric-label">Vértices Significativos:</span>
-        <span class="metric-value">${metricas._forma_idealizada.parametros.vertices_significativos} puntos de alta curvatura</span>
-      </div>
-      
-      <div class="metric-row">
-        <span class="metric-label">Epsilon Adaptativo:</span>
-        <span class="metric-value">${metricas._forma_idealizada.parametros.epsilon_usado} px (Douglas-Peucker)</span>
-      </div>
-      
-      <div style="margin-top: 10px; padding: 10px; background: #e8f4fd; border-left: 3px solid #007bff; font-size: 8pt;">
-        <strong>Metodología:</strong>Análisis de continuidad → Filtrado de alta frecuencia → Suavizado Gaussiano → 
-        Detección de curvatura → Simplificación adaptativa.<br>
-        <strong>Resultado:</strong><strong>${metricas._forma_idealizada.parametros.reduccion_porcentaje}% menos puntos</strong>
-        pero <strong>resolución geométrica preservada</strong>. NO es forma abstracta, sino geometría real libre de artefactos.
-      </div>
-      
-      ${metricas.forma_idealizada_nombre ? `
-      <div class="metric-row highlight">
-        <span class="metric-label">Clasificación Geométrica Idealizada:</span>
-        <span class="metric-value"><strong>${metricas.forma_idealizada_nombre}</strong> (confianza: ${(parseFloat(metricas.forma_idealizada_confianza) * 100).toFixed(1)}%)</span>
-      </div>
-      ` : ''}
-    </div>
-    ` : ''}
-    
-    <!-- CLASIFICACIONES INDIVIDUALES (6 VOTANTES + VALIDADOR) -->
-    ${metricas._clasificaciones_individuales ? `
-    <div class="metric-group">
-      <h3>Meta-Clasificación Geométrica (Sistema de Votación)</h3>
-      <p style="font-size: 8pt; font-style: italic; color: #666; margin-bottom: 10px;">
-        Clasificación por consenso de 6 métodos independientes + 1 validador de convexidad.
-      </p>
-      
-      <div class="metric-row highlight">
-        <span class="metric-label">Clasificación Definitiva:</span>
-        <span class="metric-value"><strong>${metricas.forma_detectada}</strong></span>
-      </div>
-      
-      <div class="metric-row">
-        <span class="metric-label">Confianza Global:</span>
-        <span class="metric-value">${(parseFloat(metricas.forma_confianza) * 100).toFixed(1)}%</span>
-      </div>
-      
-      <div class="metric-row">
-        <span class="metric-label">Consenso (métodos coincidentes):</span>
-        <span class="metric-value">${metricas.forma_metodos_coincidentes || 'N/A'}</span>
-      </div>
-      
-      <div style="margin: 10px 0; padding: 10px; background: #f5f5f5; border: 1px solid #ddd;">
-        <p style="margin: 3px 0; font-size: 9pt; font-weight: 600; color: #555;">Clasificaciones Individuales:</p>
-        <table style="width: 100%; font-size: 8pt; margin-top: 5px;">
-          <tr>
-            <td style="padding: 3px 5px; border-bottom: 1px solid #ddd;"><strong>Radial-Angular:</strong></td>
-            <td style="padding: 3px 5px; border-bottom: 1px solid #ddd; color: #4caf50; font-weight: 600;">${metricas._clasificaciones_individuales.radial_angular}</td>
-          </tr>
-          <tr>
-            <td style="padding: 3px 5px; border-bottom: 1px solid #ddd;"><strong>Ángulos Vértices:</strong></td>
-            <td style="padding: 3px 5px; border-bottom: 1px solid #ddd; color: #2196f3; font-weight: 600;">${metricas._clasificaciones_individuales.angulos_vertices}</td>
-          </tr>
-          <tr>
-            <td style="padding: 3px 5px; border-bottom: 1px solid #ddd;"><strong>Simetría:</strong></td>
-            <td style="padding: 3px 5px; border-bottom: 1px solid #ddd; color: #9c27b0; font-weight: 600;">${metricas._clasificaciones_individuales.simetria}</td>
-          </tr>
-          <tr>
-            <td style="padding: 3px 5px; border-bottom: 1px solid #ddd;"><strong>Tradicional:</strong></td>
-            <td style="padding: 3px 5px; border-bottom: 1px solid #ddd; color: #ff9800; font-weight: 600;">${metricas._clasificaciones_individuales.tradicional}</td>
-          </tr>
-          <tr>
-            <td style="padding: 3px 5px; border-bottom: 1px solid #ddd;"><strong>Complejidad:</strong></td>
-            <td style="padding: 3px 5px; border-bottom: 1px solid #ddd; color: #607d8b; font-weight: 600;">${metricas._clasificaciones_individuales.complejidad}</td>
-          </tr>
-          <tr>
-            <td style="padding: 3px 5px; border-bottom: 1px solid #ddd;"><strong>Curvatura:</strong></td>
-            <td style="padding: 3px 5px; border-bottom: 1px solid #ddd; color: #795548; font-weight: 600;">${metricas._clasificaciones_individuales.curvatura}</td>
-          </tr>
-          <tr>
-            <td style="padding: 3px 5px; font-style: italic;"><strong>Convexidad (Validador):</strong></td>
-            <td style="padding: 3px 5px; color: #e91e63; font-weight: 600; font-style: italic;">${metricas._clasificaciones_individuales.convexidad}</td>
-          </tr>
-        </table>
-      </div>
-      
-      ${metricas.forma_razonamiento ? `
-      <div style="margin-top: 10px; padding: 10px; background: #fafafa; border-left: 3px solid #2196f3; font-size: 8pt;">
-        <p style="margin: 0 0 5px 0; font-weight: 600;">Razonamiento de la Decisión:</p>
-        ${metricas.forma_razonamiento.split(' | ').map(r => `<p style="margin: 3px 0;">• ${r}</p>`).join('')}
-      </div>
-      ` : ''}
-    </div>
-    ` : ''}
-    
-    <!-- SECCIÓN DE PERFORACIONES/HORADACIONES -->
-    ${obj.perforaciones && obj.perforaciones.length > 0 ? `
-    <div class="metric-group">
-      <h3>Perforaciones Detectadas</h3>
-      <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-        <thead>
-          <tr>
-            <th style="border: 1px solid #666; padding: 8px; background: #f0f0f0; text-align: left; font-size: 9pt;">ID</th>
-            <th style="border: 1px solid #666; padding: 8px; background: #f0f0f0; text-align: left; font-size: 9pt;">Área</th>
-            <th style="border: 1px solid #666; padding: 8px; background: #f0f0f0; text-align: left; font-size: 9pt;">Perímetro</th>
-            <th style="border: 1px solid #666; padding: 8px; background: #f0f0f0; text-align: left; font-size: 9pt;">Forma</th>
-            <th style="border: 1px solid #666; padding: 8px; background: #f0f0f0; text-align: left; font-size: 9pt;">Circularidad</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${obj.perforaciones.map((perf, idx) => {
-            const bg = idx % 2 === 0 ? '#f8f9fa' : '#ffffff';
-            const area = parseFloat(perf.metricas?.area || perf.area) || 0;
-            const perimetro = parseFloat(perf.metricas?.perimeter || perf.perimetro) || 0;
-            const circularidad = parseFloat(perf.metricas?.circularity) || 0;
-            return `
-            <tr style="background: ${bg};">
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center; font-weight: 600; font-size: 9pt;">P${perf.id}</td>
-              <td style="border: 1px solid #ddd; padding: 6px; font-size: 9pt;">${area.toFixed(2)} mm²</td>
-              <td style="border: 1px solid #ddd; padding: 6px; font-size: 9pt;">${perimetro.toFixed(2)} mm</td>
-              <td style="border: 1px solid #ddd; padding: 6px; font-size: 9pt;">${perf.metricas?.forma_detectada || 'N/A'}</td>
-              <td style="border: 1px solid #ddd; padding: 6px; font-size: 9pt;">${circularidad.toFixed(3)}</td>
-            </tr>
-            `;
-          }).join('')}
-        </tbody>
-      </table>
-      <div style="margin-top: 10px; padding: 10px; background: #f0f0f0; border-left: 3px solid #333; font-size: 9pt;">
-        <strong>Resumen:</strong> ${obj.perforaciones.length} perforación(es) • 
-        ${(() => {
-          const _ef = calcularAreaEfectivaPH(obj.perforaciones || [], obj.horadaciones || []);
-          const _areaMedida = _ef.areaBrutaPerforaciones;
-          const _pct = parseFloat(metricas.area) > 0 ? (_areaMedida / parseFloat(metricas.area) * 100).toFixed(2) : '0.00';
-          const _nota = _ef.numContenidas > 0
-            ? ` | ${_ef.numContenidas} inscrita(s) en H (area neta usa deduplicacion)` : '';
-          return `Area medida: ${_areaMedida.toFixed(2)} mm²${_nota} • ${_pct}% del objeto`;
-        })()}
-      </div>
-    </div>
-    ` : ''}
-    
-    ${obj.horadaciones && obj.horadaciones.length > 0 ? `
-    <div class="metric-group">
-      <h3>Horadaciones Detectadas</h3>
-      <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-        <thead>
-          <tr>
-            <th style="border: 1px solid #666; padding: 8px; background: #f0f0f0; text-align: left; font-size: 9pt;">ID</th>
-            <th style="border: 1px solid #666; padding: 8px; background: #f0f0f0; text-align: left; font-size: 9pt;">Área</th>
-            <th style="border: 1px solid #666; padding: 8px; background: #f0f0f0; text-align: left; font-size: 9pt;">Perímetro</th>
-            <th style="border: 1px solid #666; padding: 8px; background: #f0f0f0; text-align: left; font-size: 9pt;">Forma</th>
-            <th style="border: 1px solid #666; padding: 8px; background: #f0f0f0; text-align: left; font-size: 9pt;">Circularidad</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${obj.horadaciones.map((horad, idx) => {
-            const bg = idx % 2 === 0 ? '#f8f9fa' : '#ffffff';
-            const area = parseFloat(horad.metricas?.area || horad.area) || 0;
-            const perimetro = parseFloat(horad.metricas?.perimeter || horad.perimetro) || 0;
-            const circularidad = parseFloat(horad.metricas?.circularity) || 0;
-            return `
-            <tr style="background: ${bg};">
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center; font-weight: 600; font-size: 9pt;">H${horad.id}</td>
-              <td style="border: 1px solid #ddd; padding: 6px; font-size: 9pt;">${area.toFixed(2)} mm²</td>
-              <td style="border: 1px solid #ddd; padding: 6px; font-size: 9pt;">${perimetro.toFixed(2)} mm</td>
-              <td style="border: 1px solid #ddd; padding: 6px; font-size: 9pt;">${horad.metricas?.forma_detectada || 'N/A'}</td>
-              <td style="border: 1px solid #ddd; padding: 6px; font-size: 9pt;">${circularidad.toFixed(3)}</td>
-            </tr>
-            `;
-          }).join('')}
-        </tbody>
-      </table>
-      <div style="margin-top: 10px; padding: 10px; background: #f0f0f0; border-left: 3px solid #333; font-size: 9pt;">
-        <strong>Resumen:</strong> ${obj.horadaciones.length} horadación(es) • 
-        ${(() => {
-          const _efH = calcularAreaEfectivaPH(obj.perforaciones || [], obj.horadaciones || []);
-          const _pct = parseFloat(metricas.area) > 0 ? (_efH.areaTotalHoradaciones / parseFloat(metricas.area) * 100).toFixed(2) : '0.00';
-          const _nota = _efH.numContenidas > 0 ? ` (incluye ${_efH.numContenidas} P inscrita(s))` : '';
-          return `Área total: ${_efH.areaTotalHoradaciones.toFixed(2)} mm²${_nota} • ${_pct}% del objeto`;
-        })()}
-      </div>
-    </div>
-    ` : ''}
-    
-    <!-- TABLA COMPARATIVA DE MÉTRICAS MORFOLÓGICAS -->
-    ${(obj.perforaciones?.length > 0 || obj.horadaciones?.length > 0) ? `
-    <div class="metric-group">
-      <h3>Tabla Comparativa de Métricas Morfológicas</h3>
-      
-      <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 8pt;">
-        <thead>
-          <tr>
-            <th style="border: 1px solid #666; padding: 8px; background: #e0e0e0; text-align: left; font-weight: 600;">Métrica</th>
-            <th style="border: 1px solid #666; padding: 8px; background: #f0f2f5; text-align: center; font-weight: 600;">
-              OBJETO<br/>
-              <span style="font-size: 7pt; font-weight: 400;">${obj.id || 'Principal'}</span><br/>
-              <span style="font-size: 7pt; font-weight: 400;">${metricas.forma_detectada || ''}</span>
-            </th>
-            ${obj.perforaciones?.map((perf, idx) => `
-              <th style="border: 1px solid #666; padding: 8px; background: #f0f2f5; text-align: center; font-weight: 600;">
-                P${perf.id}<br/>
-                <span style="font-size: 7pt; font-weight: 400;">${perf.metricas?.forma_detectada || 'Circular'}</span>
-              </th>
-            `).join('') || ''}
-            ${obj.horadaciones?.map((horad, idx) => `
-              <th style="border: 1px solid #666; padding: 8px; background: #e8f5e9; text-align: center; font-weight: 600;">
-                H${horad.id}<br/>
-                <span style="font-size: 7pt; font-weight: 400;">${horad.metricas?.forma_detectada || 'Circular'}</span>
-              </th>
-            `).join('') || ''}
-          </tr>
-        </thead>
-        <tbody>
-          <!-- DIMENSIONES BÁSICAS -->
-          <tr style="background: #f5f5f5;">
-            <td colspan="${2 + (obj.perforaciones?.length || 0) + (obj.horadaciones?.length || 0)}" style="border: 1px solid #666; padding: 6px; font-weight: 600; background: #ddd;">
-              DIMENSIONES BÁSICAS${window.escalaCorregida?.activa ? '<span style="color: #28a745; font-size: 10px;">( ESCALA CORREGIDA)</span>': ''}
-            </td>
-          </tr>
-          <tr style="background: #fafafa;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Área</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.area).toFixed(3)} mm²</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.area || p.area || 0).toFixed(2)} mm²</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.area || h.area || 0).toFixed(2)} mm²</td>
-            `).join('') || ''}
-          </tr>
-          ${(obj.perforaciones?.length > 0 || obj.horadaciones?.length > 0) ? `
-          <tr style="background: #e0f7fa; border-left: 4px solid #00bcd4;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px; font-weight: bold; color: #006064;">★ Área Neta (efectiva)</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center; font-weight: bold; color: #006064;">${(() => { const _areaBrutaMM2 = parseFloat(metricas.area) || 0; const _phef = calcularAreaEfectivaPH(obj.perforaciones || [], obj.horadaciones || []); const _aN = typeof obj.area_neta === 'number' && obj.area_neta <= _areaBrutaMM2 ? obj.area_neta : (_areaBrutaMM2 - _phef.areaTotalPH); return Math.max(0, _aN).toFixed(3);})()}&nbsp;mm²</td>
-            ${obj.perforaciones?.map(() => '<td style="border: 1px solid #ddd; padding: 6px; text-align: center; color: #888;">—</td>').join('') || ''}
-            ${obj.horadaciones?.map(() => '<td style="border: 1px solid #ddd; padding: 6px; text-align: center; color: #888;">—</td>').join('') || ''}
-          </tr>` : ''}
-          <tr style="background: #ffffff;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Perímetro</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.perimeter).toFixed(3)} mm</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.perimeter || p.perimetro || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.perimeter || h.perimetro || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-          </tr>
-          ${(obj.perforaciones?.length > 0 || obj.horadaciones?.length > 0) ? `
-          <tr style="background: #e8f5e9; border-left: 4px solid #43a047;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px; font-weight: bold; color: #1b5e20;">★ Perímetro Neto (topológico)</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center; font-weight: bold; color: #1b5e20;">${(() => { const _scP=(typeof scale!=='undefined'&&scale>0)?scale:1; const _gP=(ph)=>ph.metricas?.perimeter?parseFloat(ph.metricas.perimeter)||0:(ph.metricas?.perimeter_real?(parseFloat(ph.metricas.perimeter_real)||0)*_scP:(parseFloat(ph.perimetro)||0)); const _pExt=parseFloat(metricas.perimeter||0); const _pPH=[...(obj.perforaciones||[]),...(obj.horadaciones||[])].reduce((s,ph)=>s+_gP(ph),0); return (obj.perimetro_neto ?? (_pExt+_pPH)).toFixed(3);})()}&nbsp;mm</td>
-            ${obj.perforaciones?.map(p => `<td style="border: 1px solid #ddd; padding: 6px; text-align: center; font-size:0.85em; color:#555;">${parseFloat(p.metricas?.perimeter||p.perimetro||0).toFixed(2)} mm</td>`).join('') || ''}
-            ${obj.horadaciones?.map(h => `<td style="border: 1px solid #ddd; padding: 6px; text-align: center; font-size:0.85em; color:#555;">${parseFloat(h.metricas?.perimeter||h.perimetro||0).toFixed(2)} mm</td>`).join('') || ''}
-          </tr>` : ''}
-          <tr style="background: #fafafa;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Dimensiones (W×H)</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.width).toFixed(3)} × ${parseFloat(metricas.height).toFixed(3)} mm</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.width || 0).toFixed(2)} × ${parseFloat(p.metricas?.height || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.width || 0).toFixed(2)} × ${parseFloat(h.metricas?.height || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-          </tr>
-          <tr style="background: #ffffff;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Centroide (X, Y)</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">(${parseFloat(metricas.centroid_x).toFixed(2)}, ${parseFloat(metricas.centroid_y).toFixed(2)})</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">(${parseFloat(p.metricas?.centroid_x || 0).toFixed(1)}, ${parseFloat(p.metricas?.centroid_y || 0).toFixed(1)})</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">(${parseFloat(h.metricas?.centroid_x || 0).toFixed(1)}, ${parseFloat(h.metricas?.centroid_y || 0).toFixed(1)})</td>
-            `).join('') || ''}
-          </tr>
-          
-          <!-- ANÁLISIS RADIAL -->
-          <tr style="background: #f5f5f5;">
-            <td colspan="${2 + (obj.perforaciones?.length || 0) + (obj.horadaciones?.length || 0)}" style="border: 1px solid #666; padding: 6px; font-weight: 600; background: #ddd;">
-              ANÁLISIS RADIAL
-            </td>
-          </tr>
-          <tr style="background: #fafafa;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Radio Máximo</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.radio_max).toFixed(2)} mm</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.radio_max || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.radio_max || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-          </tr>
-          <tr style="background: #ffffff;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Radio Mínimo</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.radio_min).toFixed(2)} mm</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.radio_min || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.radio_min || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-          </tr>
-          <tr style="background: #fafafa;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Radio Medio</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.radio_mean).toFixed(2)} mm</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.radio_mean || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.radio_mean || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-          </tr>
-          <tr style="background: #ffffff;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Ratio Radios</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.radii_ratio || 0).toFixed(4)}</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.radii_ratio || 0).toFixed(3)}</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.radii_ratio || 0).toFixed(3)}</td>
-            `).join('') || ''}
-          </tr>
-          <tr style="background: #fafafa;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Regularidad Radial</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${(parseFloat(metricas.radii_ratio || 0) * 100).toFixed(2)}%</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${(parseFloat(p.metricas?.radii_ratio || 0) * 100).toFixed(1)}%</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${(parseFloat(h.metricas?.radii_ratio || 0) * 100).toFixed(1)}%</td>
-            `).join('') || ''}
-          </tr>
-          
-          <!-- EJES Y EXCENTRICIDAD -->
-          <tr style="background: #f5f5f5;">
-            <td colspan="${2 + (obj.perforaciones?.length || 0) + (obj.horadaciones?.length || 0)}" style="border: 1px solid #666; padding: 6px; font-weight: 600; background: #ddd;">
-              EJES Y EXCENTRICIDAD
-            </td>
-          </tr>
-          <tr style="background: #fafafa;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Eje Mayor</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.major_axis_length).toFixed(2)} mm</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.major_axis_length || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.major_axis_length || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-          </tr>
-          <tr style="background: #ffffff;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Eje Menor</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.minor_axis_length).toFixed(2)} mm</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.minor_axis_length || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.minor_axis_length || 0).toFixed(2)} mm</td>
-            `).join('') || ''}
-          </tr>
-          <tr style="background: #fafafa;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Excentricidad</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.eccentricity || 0).toFixed(4)}</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.eccentricity || 0).toFixed(4)}</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.eccentricity || 0).toFixed(4)}</td>
-            `).join('') || ''}
-          </tr>
-          
-          <!-- MÉTRICAS DE FORMA -->
-          <tr style="background: #f5f5f5;">
-            <td colspan="${2 + (obj.perforaciones?.length || 0) + (obj.horadaciones?.length || 0)}" style="border: 1px solid #666; padding: 6px; font-weight: 600; background: #ddd;">
-              MÉTRICAS DE FORMA
-            </td>
-          </tr>
-          <tr style="background: #fafafa;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Forma Detectada</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${metricas.forma_detectada || 'No calculado'}</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${p.metricas?.forma_detectada || 'Circular'}</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${h.metricas?.forma_detectada || 'Circular'}</td>
-            `).join('') || ''}
-          </tr>
-          <tr style="background: #ffffff;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Circularidad</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.circularity).toFixed(4)}</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.circularity || 0).toFixed(4)}</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.circularity || 0).toFixed(4)}</td>
-            `).join('') || ''}
-          </tr>
-          <tr style="background: #fafafa;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Compacidad</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.compactness).toFixed(4)}</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.compactness || 0).toFixed(2)}</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.compactness || 0).toFixed(2)}</td>
-            `).join('') || ''}
-          </tr>
-          <tr style="background: #ffffff;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Solidez</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.solidity || 1).toFixed(4)}</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.solidity || 1).toFixed(4)}</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.solidity || 1).toFixed(4)}</td>
-            `).join('') || ''}
-          </tr>
-          <tr style="background: #fafafa;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Convexidad</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.convexity).toFixed(4)}</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.convexity || 1).toFixed(4)}</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.convexity || 1).toFixed(4)}</td>
-            `).join('') || ''}
-          </tr>
-          <tr style="background: #ffffff;">
-            <td style="border: 1px solid #ddd; padding: 6px; padding-left: 15px;">Relación Aspecto</td>
-            <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(metricas.aspect_ratio).toFixed(4)}</td>
-            ${obj.perforaciones?.map(p => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(p.metricas?.aspect_ratio || 1).toFixed(2)}</td>
-            `).join('') || ''}
-            ${obj.horadaciones?.map(h => `
-              <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${parseFloat(h.metricas?.aspect_ratio || 1).toFixed(2)}</td>
-            `).join('') || ''}
-          </tr>
-        </tbody>
-      </table>
-      
-      <div style="margin-top: 10px; padding: 10px; background: #fffde7; border-left: 3px solid #fbc02d; font-size: 8pt;">
-        <strong>Nota:</strong>Esta tabla permite comparar rápidamente las métricas del objeto principal con todas sus perforaciones y horadaciones identificadas.
-      </div>
-    </div>
-    ` : ''}
-    
-    <!-- ANÁLISIS COMPARATIVO AVANZADO -->
-    ${(obj.perforaciones?.length > 0 || obj.horadaciones?.length > 0) && analisisComparativo ? `
-    <div class="metric-group">
-      <h3>Análisis Comparativo Avanzado</h3>
-      
-      ${analisisComparativo.ratios ? `
-      <div style="margin-bottom: 15px;">
-        <h4 style="margin: 8px 0; font-size: 10pt; color: #333;">Ratios y Proporciones</h4>
-        
-        ${obj.perforaciones?.length > 0 ? `
-        <div style="background: #f0f2f5; padding: 10px; margin: 8px 0; border-left: 3px solid #2196f3;">
-          <p style="margin: 3px 0; font-size: 9pt;"><strong>Perforaciones:</strong></p>
-          <p style="margin: 3px 0; font-size: 9pt; padding-left: 10px;">
-            <strong>${analisisComparativo.ratios?.porcentaje_perforaciones?.toFixed(2) || 'N/A'}%</strong> del área total
-          </p>
-          <p style="margin: 3px 0; font-size: 8pt; padding-left: 10px; color: #555;">
-            Área total: ${analisisComparativo.ratios?.area_total_perforaciones?.toFixed(2) || 'N/A'} mm²
-          </p>
-          <p style="margin: 3px 0; font-size: 8pt; padding-left: 10px; color: #555;">
-            Promedio: ${analisisComparativo.ratios?.area_promedio?.toFixed(2) || 'N/A'} mm²
-          </p>
-          <p style="margin: 3px 0; font-size: 8pt; padding-left: 10px; color: #555;">
-            CV: ${(analisisComparativo.ratios?.coeficienteVariacion_areas * 100)?.toFixed(1) || 'N/A'}%
-          </p>
-        </div>
-        ` : ''}
-        
-        ${obj.horadaciones?.length > 0 ? `
-        <div style="background: #e8f5e9; padding: 10px; margin: 8px 0; border-left: 3px solid #4caf50;">
-          <p style="margin: 3px 0; font-size: 9pt;"><strong>Horadaciones:</strong></p>
-          <p style="margin: 3px 0; font-size: 9pt; padding-left: 10px;">
-            <strong>${analisisComparativo.ratios?.porcentaje_horadaciones?.toFixed(2) || 'N/A'}%</strong> del área total
-          </p>
-          <p style="margin: 3px 0; font-size: 8pt; padding-left: 10px; color: #555;">
-            Área total: ${analisisComparativo.ratios?.area_total_horadaciones?.toFixed(2) || 'N/A'} mm²
-          </p>
-          <p style="margin: 3px 0; font-size: 8pt; padding-left: 10px; color: #555;">
-            Promedio: ${analisisComparativo.ratios?.area_promedio?.toFixed(2) || 'N/A'} mm²
-          </p>
-          <p style="margin: 3px 0; font-size: 8pt; padding-left: 10px; color: #555;">
-            CV: ${(analisisComparativo.ratios?.coeficienteVariacion_areas * 100)?.toFixed(1) || 'N/A'}%
-          </p>
-        </div>
-        ` : ''}
-        
-        <div style="background: #f3e5f5; padding: 10px; margin: 8px 0; border-left: 3px solid #9c27b0;">
-          <p style="margin: 3px 0; font-size: 9pt;"><strong>Total Combinado:</strong></p>
-          <p style="margin: 3px 0; font-size: 9pt; padding-left: 10px;">
-            <strong>${analisisComparativo.ratios?.porcentaje_total?.toFixed(2) || 'N/A'}%</strong> del área total
-          </p>
-          <p style="margin: 3px 0; font-size: 8pt; padding-left: 10px; color: #555;">
-            Área total P/H: ${(analisisComparativo.ratios?.area_total_perforaciones + analisisComparativo.ratios?.area_total_horadaciones)?.toFixed(2) || 'N/A'} mm²
-          </p>
-          <p style="margin: 3px 0; font-size: 8pt; padding-left: 10px; color: #555;">
-            Total elementos: ${analisisComparativo.total_perforaciones_horadaciones || 'N/A'}
-          </p>
-        </div>
-      </div>
-      ` : ''}
-      
-      ${analisisComparativo.simetria_distribucion ? `
-      <div style="margin-bottom: 15px;">
-        <h4 style="margin: 8px 0; font-size: 10pt; color: #333;">Simetría y Distribución Espacial</h4>
-        <div style="background: #fff3e0; padding: 10px; margin: 8px 0; border-left: 3px solid #ff9800;">
-          <p style="margin: 3px 0; font-size: 9pt;">
-            <strong>Distancia Media:</strong> ${analisisComparativo.simetria_distribucion?.distancia_media_al_centroide || 'N/A'} mm
-          </p>
-          <p style="margin: 3px 0; font-size: 9pt;">
-            <strong>Distancia Máx:</strong> ${analisisComparativo.simetria_distribucion?.distancia_maxima_al_centroide || 'N/A'} mm
-          </p>
-          <p style="margin: 3px 0; font-size: 9pt;">
-            <strong>Distancia Mín:</strong> ${analisisComparativo.simetria_distribucion?.distancia_minima_al_centroide || 'N/A'} mm
-          </p>
-          <p style="margin: 3px 0; font-size: 9pt;">
-            <strong>Regularidad:</strong> ${analisisComparativo.simetria_distribucion?.regularidad_espacial || 'N/A'}
-          </p>
-          
-          ${analisisComparativo.simetria_distribucion?.distribucion_angular ? `
-          <p style="margin: 8px 0 3px 0; font-size: 9pt;">
-            <strong>Distribución Angular:</strong>${analisisComparativo.simetria_distribucion?.distribucion_angular}
-          </p>
-          ` : ''}
-          
-          ${analisisComparativo.simetria_distribucion?.patron_clustering ? `
-          <p style="margin: 3px 0; font-size: 9pt;">
-            <strong>Patrón de Agrupamiento:</strong>${analisisComparativo.simetria_distribucion?.patron_clustering}
-          </p>
-          ` : ''}
-        </div>
-        
-        ${analisisComparativo.simetria_distribucion?.detalles_posiciones?.length > 0 ? `
-        <div style="margin-top: 10px;">
-          <p style="margin: 5px 0; font-size: 9pt;"><strong>Posiciones Detalladas:</strong></p>
-          <table style="width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 8pt;">
-            <thead>
-              <tr>
-                <th style="border: 1px solid #999; padding: 5px; background: #f0f0f0; text-align: center;">ID</th>
-                <th style="border: 1px solid #999; padding: 5px; background: #f0f0f0; text-align: center;">Distancia (mm)</th>
-                <th style="border: 1px solid #999; padding: 5px; background: #f0f0f0; text-align: center;">Ángulo (°)</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${analisisComparativo.simetria_distribucion?.detalles_posiciones.map((pos, idx) => `
-                <tr style="background: ${idx % 2 === 0 ? '#f8f9fa' : '#ffffff'};">
-                  <td style="border: 1px solid #ddd; padding: 5px; text-align: center; font-weight: 600;">${pos.id}</td>
-                  <td style="border: 1px solid #ddd; padding: 5px; text-align: center;">${pos.distancia_mm}</td>
-                  <td style="border: 1px solid #ddd; padding: 5px; text-align: center;">${pos.angulo_grados}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-        ` : ''}
-      </div>
-      ` : ''}
-      
-      ${analisisComparativo.clasificacion ? `
-      <div style="margin-bottom: 15px;">
-        <h4 style="margin: 8px 0; font-size: 10pt; color: #333;">Clasificación Funcional</h4>
-        <div style="background: #fce4ec; padding: 12px; margin: 8px 0; border-left: 4px solid #e91e63;">
-          <p style="margin: 5px 0; font-size: 11pt; font-weight: 600; color: #c2185b;">
-            ${analisisComparativo.clasificacion || 'NO DETERMINADO'}
-          </p>
-          <p style="margin: 5px 0; font-size: 9pt; color: #555;">
-            <strong>Confianza:</strong> ${(analisisComparativo.confianza * 100).toFixed(0) || 'N/A'}%
-          </p>
-          ${analisisComparativo.descripcion ? `
-          <p style="margin: 8px 0 5px 0; font-size: 9pt;">
-            <strong>Descripción:</strong>
-          </p>
-          <p style="margin: 3px 0; font-size: 8pt; color: #555; font-style: italic; padding-left: 10px;">
-            ${analisisComparativo.descripcion}
-          </p>
-          ` : ''}
-          ${analisisComparativo.clasificacion_funcional?.tecnica_manufactura ? `
-          <p style="margin: 5px 0; font-size: 8pt; color: #555;">
-            <strong>Técnica:</strong>${analisisComparativo.clasificacion_funcional?.tecnica_manufactura}
-          </p>
-          ` : ''}
-          ${analisisComparativo.clasificacion_funcional?.patron_desgaste ? `
-          <p style="margin: 5px 0; font-size: 8pt; color: #555;">
-            <strong>Desgaste:</strong>${analisisComparativo.clasificacion_funcional?.patron_desgaste}
-          </p>
-          ` : ''}
-        </div>
-      </div>
-      ` : ''}
-    </div>
-    ` : ''}
-    
-    <!-- SECCIÓN RESUMEN TÉCNICO DE EXPORTACIÓN -->
-    <div class="metric-group">
-      <h3>Resumen Técnico de Exportación PDF</h3>
-      <p style="font-size: 8pt; color: #555; margin: 6px 0 10px 0;">
-        Modo de reporte: <strong>Morfólogico (monofacial)</strong>. Este bloque resume las métricas clave y el modo
-        con el que se generó el presente PDF, para facilitar la trazabilidad entre el análisis en MAO Plus
-        y el documento exportado.
-      </p>
-      <div class="metric-row highlight">
-        <span class="metric-label">Área / Perímetro (objeto completo):</span>
-        <span class="metric-value"><strong>${metricas.area} ${metricas.area_unit} · ${metricas.perimeter} ${metricas.perimeter_unit}</strong></span>
-      </div>
-      <div class="metric-row">
-        <span class="metric-label">Dimensiones (ancho × alto, mm):</span>
-        <span class="metric-value">${metricas.width} × ${metricas.height}</span>
-      </div>
-      <div class="metric-row">
-        <span class="metric-label">Forma detectada / confianza:</span>
-        <span class="metric-value">${metricas.forma_detectada || 'N/D'} · ${(parseFloat(metricas.forma_confianza || 0) * 100).toFixed(1)}%</span>
-      </div>
-      <div class="metric-row">
-        <span class="metric-label">Circularidad / Solidez / Convexidad:</span>
-        <span class="metric-value">${metricas.circularity} · ${metricas.solidity} · ${metricas.convexity}</span>
-      </div>
-      <div class="metric-row">
-        <span class="metric-label">Perforaciones / Horadaciones detectadas:</span>
-        <span class="metric-value">${(obj.perforaciones || []).length} perforación(es) · ${(obj.horadaciones || []).length} horadación(es)</span>
-      </div>
-      <p style="font-size: 8pt; color: #666; margin: 8px 0 0 0;">
-        Nota: los valores anteriores se toman directamente de las métricas calculadas en el análisis morfométrico
-        para este objeto en la sesión actual de MAO Plus.
-      </p>
-    </div>
-    
-    <div class="footer">
-      <p><strong>MAO Plus</strong> — Morfometría Arqueológica de Objetos</p>
-      <p>Desarrollado por Quipus / Juan Francisco Ramírez, 2025</p>
-      <p>Fecha de generación: ${fechaLegible}</p>
-    </div>
-  </div>
-</body>
-</html>
-`;
-      
-      // 4. Generar y descargar según el formato solicitado
-      const filename = `${_idParaArchivo(obj.id, `obj_${obj.numeroObjeto}`)}_reporte`;
-      
-      if (formato === 'pdf') {
-        // ========================================================================
-        // GENERAR PDF DIRECTAMENTE (MODO MORFOLÓGICO)
-        // ========================================================================
-        await generarPDFDesdeHTML(reporteHTML, filename, obj, metricas, {
-          modo: 'morfologico',
-          origen: 'generarReporteMorfologico'
-        });
-      } else {
-        // ========================================================================
-        // DESCARGAR HTML DIRECTAMENTE
-        // ========================================================================
-        const blob = new Blob([reporteHTML], { type: 'text/html; charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = filename + '.html';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        UtilityHelpers.setStatus(`Reporte HTML descargado: ${filename}.html`, false);
-        console.log('📊 Reporte morfológico HTML generado exitosamente');
-      }
-      
-    } catch (error) {
-      console.error('Error generando reporte:', error);
-      UtilityHelpers.setStatus(`Error generando reporte: ${error.message}`, true);
-    }
-  } // FIN función generarReporteMorfologico
-  
-  // generarReportePDFIntegral: eliminada (código muerto, ADR-011).
-  // El PDF integral lo arma generarPDFDesdeHTML(opciones.integral) desde visualization-export.js.
-
-  
-  // ============================================================================
-  // 🆕 FUNCIONES PARA GENERACIÓN DE PDF BIFACIAL
-  // ============================================================================
-  
-  /**
-   * Crea imagen recortada directamente desde la imagen original (NO desde canvas)
-   * @param {Object} obj - Objeto con coordenadas del bounding box
-   * @param {HTMLImageElement} sourceImage - Imagen original
-   * @returns {Promise<string>} Data URL de la imagen recortada
-   */
-  async function crearImagenRecortadaDesdeImagen(obj, sourceImage) {
-    if (!obj || !sourceImage) {
-      console.warn('⚠️ No se puede crear imagen recortada: datos insuficientes');
-      return null;
-    }
-    
-    try {
-      // Esperar a que la imagen esté completamente cargada
-      if (sourceImage.tagName === 'IMG' && !sourceImage.complete) {
-        console.log('⏳ Esperando a que la imagen se cargue...');
-        await new Promise((resolve, reject) => {
-          sourceImage.onload = resolve;
-          sourceImage.onerror = reject;
-        });
-      }
-      
-      // Determinar coordenadas (soporta tanto x/y como minX/minY)
-      const objX = obj.x !== undefined ? obj.x : (obj.minX !== undefined ? obj.minX : 0);
-      const objY = obj.y !== undefined ? obj.y : (obj.minY !== undefined ? obj.minY : 0);
-      const objWidth = obj.width || (obj.maxX !== undefined && obj.minX !== undefined ? obj.maxX - obj.minX : 0);
-      const objHeight = obj.height || (obj.maxY !== undefined && obj.minY !== undefined ? obj.maxY - obj.minY : 0);
-      
-      const imgWidth = sourceImage.naturalWidth || sourceImage.width;
-      const imgHeight = sourceImage.naturalHeight || sourceImage.height;
-      
-      console.log('📐 Coordenadas para recorte desde imagen:', {
-        objX, objY, objWidth, objHeight,
-        sourceWidth: imgWidth,
-        sourceHeight: imgHeight,
-        imageComplete: sourceImage.complete !== undefined ? sourceImage.complete : 'N/A'
-      });
-      
-      if (!objWidth || !objHeight) {
-        console.error('❌ Dimensiones inválidas para recorte');
-        return null;
-      }
-      
-      if (!imgWidth || !imgHeight) {
-        console.error('❌ Imagen fuente sin dimensiones válidas');
-        return null;
-      }
-      
-      const margen = 40; // Píxeles de margen alrededor del objeto
-      const x = Math.max(0, objX - margen);
-      const y = Math.max(0, objY - margen);
-      const width = Math.min(imgWidth - x, objWidth + margen * 2);
-      const height = Math.min(imgHeight - y, objHeight + margen * 2);
-      
-      console.log('✂️ Recortando región:', { x, y, width, height, margen });
-      
-      // Crear canvas temporal para el recorte
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      
-      // Fondo blanco para debugging (debería quedar cubierto por la imagen)
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, width, height);
-      
-      // Dibujar la región recortada de la imagen original
-      ctx.drawImage(
-        sourceImage,
-        x, y, width, height,  // Región fuente
-        0, 0, width, height   // Región destino
-      );
-      
-      // Convertir a data URL
-      const dataURL = canvas.toDataURL('image/png', 1.0);
-      
-      console.log(`✂️ Imagen recortada creada desde imagen original: ${width}x${height}px desde (${x},${y})`);
-      console.log(`  📊 Data URL generado: ${dataURL.length} caracteres`);
-      
-      return dataURL;
-      
-    } catch (error) {
-      console.error('❌ Error creando imagen recortada:', error);
-      return null;
-    }
-  }
+  // generarReporteMorfologico: ELIMINADA (Fase 0, docs/AUDITORIA-EXPORTACION-20260912.md §3/§8.6).
+  // Código muerto sin llamadores — 2868 líneas.
   
   /**
    * Crea un canvas con la imagen recortada del objeto detectado
@@ -22276,6 +20416,29 @@ if (typeof window !== 'undefined') {
    * 🆕 GENERA REPORTE PDF COMPARATIVO BIFACIAL COMPLETO
    * Incluye: Portada, Canvas comparativos, Tabla de métricas
    */
+  /**
+   * Envuelve una promesa con un tope de tiempo. Rechaza con un error legible en
+   * vez de quedarse colgada para siempre.
+   *
+   * Motivo (verificación E2E 2026-09-13): `generarReporteBifacialPDF()` se quedó
+   * >5 min sin terminar, sin error y sin timeout — el status decía «puede tomar
+   * 20-30 segundos» indefinidamente y, dentro de la exportación en lote, el
+   * destino nunca se cerraba ni se escribía el manifiesto. html2canvas sobre un
+   * contenedor fuera de pantalla puede no resolver nunca si una imagen queda
+   * pendiente. Un cuelgue silencioso es peor que un fallo: con tope, el lote lo
+   * registra como omisión en el manifiesto y sigue.
+   */
+  function _conTimeout(promesa, ms, etiqueta) {
+    let temporizador;
+    return Promise.race([
+      Promise.resolve(promesa).finally(() => clearTimeout(temporizador)),
+      new Promise((_, reject) => {
+        temporizador = setTimeout(
+          () => reject(new Error(`Tiempo agotado (${Math.round(ms / 1000)} s): ${etiqueta}`)), ms);
+      }),
+    ]);
+  }
+
   async function generarReporteBifacialPDF() {
     // Variables de preservación declaradas fuera del try para ser accesibles en catch
     let vistaAnterior = null;
@@ -22492,8 +20655,8 @@ if (typeof window !== 'undefined') {
         throw new Error('No se encontraron los canvas en el layout temporal');
       }
       
-      await renderizarCanvasDesdeTrazos(caraA, canvasA);
-      await renderizarCanvasDesdeTrazos(caraB, canvasB);
+      await _conTimeout(renderizarCanvasDesdeTrazos(caraA, canvasA), 20000, 'render del canvas de la cara A');
+      await _conTimeout(renderizarCanvasDesdeTrazos(caraB, canvasB), 20000, 'render del canvas de la cara B');
 
       // 🖼️ CONVERTIR CANVAS A IMÁGENES ESTÁTICAS antes de html2canvas
       // html2canvas no puede leer píxeles de elementos <canvas> en contenedores
@@ -22574,14 +20737,16 @@ if (typeof window !== 'undefined') {
         // 📐 Escala adaptativa: reduce de 3.0 a 1.5x-2.0x (40% más rápido)
         const optimalScale = pages[i].offsetHeight > 2000 ? 1.5 : 2.0;
         
-        const canvas = await html2canvas(pages[i], {
+        const canvas = await _conTimeout(html2canvas(pages[i], {
           scale: optimalScale,
           useCORS: true,
           logging: false,
           backgroundColor: '#ffffff',
           windowWidth: 1000,
-          imageTimeout: 0
-        });
+          // CAUSA RAÍZ del cuelgue: 0 = ESPERA INDEFINIDA por cada imagen. Con un
+          // tope, html2canvas descarta la imagen que no carga y sigue.
+          imageTimeout: 15000
+        }), 45000, `captura de la página ${i + 1}/${pages.length} del PDF bifacial`);
         
         console.log(`📐 html2canvas scale: ${optimalScale}x (adaptativo para página ${i+1})`);
         
@@ -23628,16 +21793,9 @@ if (typeof window !== 'undefined') {
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
       
-      // 🆕 Usar identificación asignada para el nombre del archivo
-      const identificacion = obtenerIdentificacionActual();
-      let nombreBase = `Obj${numeroObjeto}`;
-      
-      if (identificacion && identificacion.valor) {
-        // Limpiar el valor de la identificación para usar como nombre de archivo
-        nombreBase = identificacion.valor.replace(/[^a-zA-Z0-9_-]/g, '_');
-      }
-      
-      const filenameAttr = `${nombreBase}_bifacial`;
+      // Nombre derivado del PAR exportado, no de la identificación viva del
+      // formulario. Comparte helper con el CSV para que no vuelvan a divergir.
+      const filenameAttr = `${_baseNombreParBifacial(caraA, caraB, numeroObjeto)}_bifacial`;
       
       // Exportar a Blob y guardar con diálogo
       const pdfBlob = pdf.output('blob');
@@ -25005,7 +23163,9 @@ if (typeof window !== 'undefined') {
           logging: false,
           backgroundColor: '#ffffff',
           windowWidth: 800,
-          imageTimeout: 0,
+          // CAUSA RAÍZ del cuelgue: 0 = ESPERA INDEFINIDA por cada imagen. Con un
+          // tope, html2canvas descarta la imagen que no carga y sigue.
+          imageTimeout: 15000,
           allowTaint: true,
           removeContainer: true,
           // Configuración específica para imágenes
@@ -25107,33 +23267,9 @@ if (typeof window !== 'undefined') {
   } // FIN función generarPDFDesdeHTML
   
   // Exportar JSON como archivo
-  function exportarJSON(obj, metricas) {
-    try {
-      const jsonData = generarJSON(obj, metricas);
-      const jsonString = JSON.stringify(jsonData, null, 2);
-      
-      const blob = new Blob([jsonString], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      
-      const idArq = _idParaArchivo(obj.id, `obj_${obj.numeroObjeto}`);
-      const filename = `${idArq}_datos.json`;
-      
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      
-      UtilityHelpers.setStatus(`JSON exportado: ${filename}`, false);
-      console.log('📄 Datos JSON exportados:', jsonData);
-      
-    } catch (error) {
-      console.error('Error exportando JSON:', error);
-      UtilityHelpers.setStatus(`Error exportando JSON: ${error.message}`, true);
-    }
-  }
+  // exportarJSON: ELIMINADA (Fase 0, docs/AUDITORIA-EXPORTACION-20260912.md §3).
+  // Código muerto sin llamadores — 27 líneas. (procrustes.js tiene su propia
+  // homónima, de otro ámbito: no se ve afectada.)
   
   // Copiar JSON al portapapeles
   function copiarJSON(obj, metricas) {
@@ -25509,6 +23645,21 @@ if (typeof window !== 'undefined') {
    */
   async function saveFileWithDialog(filename, content, format = 'csv') {
     try {
+      // ── Desvío a la carpeta de resultados (exportación en lote) ─────────────
+      // Con MaoExportDestino inactivo esto no hace nada y el flujo sigue al
+      // diálogo nativo de siempre. Es el único punto que hay que tocar para
+      // redirigir CSV y PDF: ambos exportadores pasan por aquí.
+      const _destino = window.MaoExportDestino;
+      if (_destino?.activo) {
+        const _ext = { csv:'.csv', pdf:'.pdf', html:'.html', json:'.json', png:'.png',
+                       jpg:'.jpg', jpeg:'.jpg', svg:'.svg', tps:'.tps' };
+        const _f = String(format || 'csv').toLowerCase();
+        const _nombre = filename.endsWith(_ext[_f] || `.${_f}`) ? filename : filename + (_ext[_f] || `.${_f}`);
+        const _r = await _destino.escribir(_nombre, content, _f);
+        if (!_r.success) console.warn(`⚠️ [lote] no se pudo escribir ${_nombre}: ${_r.error}`);
+        return _r;
+      }
+
       const extensionMap = {
         csv: '.csv',
         pdf: '.pdf',
@@ -25834,6 +23985,159 @@ if (typeof window !== 'undefined') {
    * Genera CSV de comparación bifacial usando objetos guardados en memoria
    * GARANTIZA 100% coherencia con CSVs individuales
    */
+  /**
+   * Base de nombre CANÓNICA para los exportables de UNA cara / análisis.
+   *
+   * Fuente única para los cuatro formatos (CSV, SVG, PNG, PDF) y para la carpeta
+   * de resultados. Antes cada exportador la derivaba por su cuenta y salían
+   * nombres mixtos dentro de la misma carpeta: `QP1_U1_N1_E1_01_analisis.csv`
+   * junto a `1_geometria.svg`, porque SVG/PNG/PDF usaban `obj.id` —que es
+   * NUMÉRICO en el flujo de detección automática— en vez de la identificación
+   * arqueológica.
+   *
+   * Convención de cara: sufijo `_ca`/`_cb`, el mismo que usan `obj.id` en
+   * bifacial y las carpetas de análisis (`QP1_U1_N1_E1_01_ca`). No se duplica si
+   * la identificación ya lo trae.
+   *
+   * ⚠️ La identificación se lee del formulario (`obtenerIdentificacionActual`),
+   * que es estado VIVO: es la única fuente disponible porque el ID arqueológico
+   * no viaja en el objeto (deuda ADR-008 C2). Si se implementa C2, esta función
+   * es el único sitio a cambiar.
+   *
+   * @param {Object} obj objeto analizado
+   * @returns {string} base saneada, sin extensión ni sufijo de formato
+   */
+  function _baseNombreAnalisis(obj = {}) {
+    const sanear = (v) => String(v ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    // 1) ID SELLADO en el objeto: dato persistido, inmune a que el formulario
+    //    haya avanzado a otro objeto. Es la fuente preferente.
+    if (obj && obj.idArqueologico) return sanear(obj.idArqueologico);
+
+    // 2) Identificación viva del formulario. Se SELLA en el objeto la primera vez,
+    //    de modo que a partir de aquí ya no dependemos del estado vivo.
+    const ident = (typeof obtenerIdentificacionActual === 'function')
+      ? obtenerIdentificacionActual() : null;
+    if (ident && ident.valor) {
+      const base = sanear(ident.valor);
+      const conCara = /_c[ab]$/i.test(base)               // ya trae la cara
+        ? base
+        : (obj && obj.cara ? `${base}_c${String(obj.cara).toLowerCase()}` : base);
+      if (obj) obj.idArqueologico = conCara;
+      return conCara;
+    }
+
+    // 3) Respaldos: id del objeto (numérico en detección automática) y número.
+    const porId = sanear(obj && obj.id);
+    if (porId) return porId;
+    return sanear(`OBJ_${(obj && obj.numeroObjeto) ?? 'X'}`);
+  }
+  // Expuesta para los exportadores de collection.js (SVG y PNG), que viven fuera
+  // de este IIFE. Mismo patrón que `window.calcularEscala`.
+  window.maoBaseNombreAnalisis = _baseNombreAnalisis;
+
+  /**
+   * Base de nombre ESTABLE para los exportables de un PAR bifacial.
+   *
+   * Los artefactos de comparación pertenecen al OBJETO, no a una cara, así que
+   * su nombre se deriva del id del par (`QP1_U1_N1_E1_01`), obtenido quitando el
+   * sufijo de cara `_ca`/`_cb` del id de cualquiera de las dos caras.
+   *
+   * Antes cada exportador lo resolvía por su cuenta: el CSV y el PDF usaban
+   * `obtenerIdentificacionActual()` — la identificación que hay AHORA en el
+   * formulario, no la del par exportado, de modo que tras pasar a otro objeto el
+   * archivo salía con el nombre equivocado; y el CSV de ambas caras usaba
+   * `caraA.id`, dejando el sufijo `_ca` en un archivo que es del par.
+   *
+   * @param {Object} caraA cara A del par (se usa su id)
+   * @param {Object} caraB cara B — respaldo si A no tiene id
+   * @param {number|string} numeroObjeto último recurso
+   * @returns {string} base saneada, sin extensión ni sufijo de formato
+   */
+  function _baseNombreParBifacial(caraA, caraB, numeroObjeto) {
+    const sanear = (v) => String(v || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sinCara = (id) => String(id || '').replace(/_c[ab]$/i, '');
+
+    const desdeCara = sinCara(caraA?.id) || sinCara(caraB?.id);
+    if (desdeCara) return sanear(desdeCara);
+
+    // Respaldo: identificación viva (comportamiento anterior). Solo se alcanza
+    // si ninguna cara tiene id, caso en el que no hay nada mejor disponible.
+    const ident = (typeof obtenerIdentificacionActual === 'function')
+      ? obtenerIdentificacionActual()
+      : null;
+    if (ident?.valor) return sanear(ident.valor);
+
+    return sanear(`OBJ_${numeroObjeto ?? 'X'}`);
+  }
+
+  /**
+   * Bloque CSV del Índice Morfométrico Comparativo (IMC).
+   *
+   * El IMC se calcula en `generarComparacionBifacialSimple()` y se guarda en
+   * `window.ultimaComparacionBifacial.imc`, pero hasta 2026-09-12 no llegaba a
+   * NINGÚN archivo exportado: el único exportador que lo escribía era
+   * `exportarComparacionBifacial()`, hoy ELIMINADA en la Fase 0. El dato
+   * más interpretativo de la comparación bilateral se veía en pantalla y se
+   * perdía al exportar.
+   *
+   * Devuelve una sub-tabla de 4 columnas autodescriptiva. Si no hay IMC deja
+   * constancia explícita en lugar de omitir el bloque en silencio: la ausencia
+   * del índice no debe confundirse con un índice bajo.
+   *
+   * @param {Object|null} imc payload de ultimaComparacionBifacial.imc
+   * @returns {string} bloque CSV terminado en línea en blanco
+   */
+  function _generarBloqueCsvIMC(imc) {
+    const fila = (...celdas) => _csvRow(celdas);
+    const pct  = (v) => (v === null || v === undefined || Number.isNaN(Number(v)))
+      ? 'N/D'
+      : (Number(v) * 100).toFixed(1) + '%';
+
+    let out = '# COHERENCIA MORFOMÉTRICA INTEGRAL (IMC)\n';
+
+    if (!imc) {
+      out += fila('Indicador', 'Valor', 'Peso', 'Descripción');
+      out += fila('IMC', 'No disponible', '-',
+        'El índice se calcula al abrir la tabla de comparación bifacial; ábrela antes de exportar');
+      return out + '\n';
+    }
+
+    out += fila('Indicador', 'Valor', 'Peso', 'Descripción');
+    out += fila('IMC Global', pct(imc.global), '100%',
+      'Índice de compatibilidad morfológica bilateral [0-100%]');
+    out += fila('Nivel de coherencia', imc.nivel || 'N/D', '-',
+      'Clasificación interpretativa del IMC global');
+    out += fila('Coherencia Identitaria (CI)', pct(imc.ci), '-',
+      'Solo dimensional: confirma que ambas caras son del mismo objeto');
+    out += fila('Coherencia de Superficie (CMS)', pct(imc.cms), '-',
+      'Forma + radial + contorno: similitud superficial entre caras');
+    out += fila('Dimensional (tamaño)', pct(imc.dimensional), '30%',
+      'Área / perímetro / ejes / Feret');
+    out += fila('Forma (descriptores)', pct(imc.forma), '30%',
+      'Circularidad / solidez / aspecto / elongación');
+    out += fila('Radial (perfil)', pct(imc.radial), '20%',
+      'Radios / regularidad radial / CV radial');
+    out += fila('Contorno (textura)', pct(imc.contorno), '10%',
+      'Rugosidad / curvatura / lobularidad / simetría');
+    out += fila('Conservación', pct(imc.conservacion), '10%',
+      'Completitud / pérdida de área / solidez');
+
+    if (Array.isArray(imc.divergentes) && imc.divergentes.length) {
+      out += fila(
+        'Rasgos divergentes (Δ>20%)',
+        imc.divergentes.slice(0, 6).map(d => `${d.nombre} Δ${d.dif}%`).join(' | '),
+        '-',
+        'Métricas con mayor discordancia bilateral'
+      );
+    } else {
+      out += fila('Rasgos divergentes (Δ>20%)', 'Ninguno', '-',
+        'Ninguna métrica supera el umbral de discordancia bilateral');
+    }
+
+    return out + '\n';
+  }
+
   async function exportarComparacionBifacialDesdeUI() {
     console.log('📊 Exportando comparación bifacial desde datos reales...');
     
@@ -25994,6 +24298,14 @@ if (typeof window !== 'undefined') {
       }
       // ========================================================================
       
+      // ── COHERENCIA MORFOMÉTRICA INTEGRAL (IMC) ────────────────────────────
+      // Hasta 2026-09-12 el IMC se calculaba, se pintaba en #imcSummaryCard y se
+      // perdía al exportar: el único exportador que lo escribía era `exportarComparacionBifacial()`,
+      // hoy eliminada. Va antes de la tabla, igual que # PROYECTO.
+      csv += _generarBloqueCsvIMC(window.ultimaComparacionBifacial?.imc || null);
+      // ──────────────────────────────────────────────────────────────────────
+
+      csv += '# COMPARACIÓN MÉTRICA POR CARA\n';
       csv += 'Categoría,Métrica,Cara A (Anverso),Cara B (Reverso),Diferencia %\n';
       
       const addRow = (cat, metrica, valA, valB, dif = '-') => {
@@ -26324,16 +24636,9 @@ if (typeof window !== 'undefined') {
       
       addRow('ESTADO DE CONSERVACIÓN', 'Integridad Estructural', integridadA, integridadB, '-');
       
-      // Usar diálogo nativo para guardar
-      const identificacion = obtenerIdentificacionActual();
-      let nombreBase = 'bifacial';
-      
-      if (identificacion && identificacion.valor) {
-        // Limpiar el valor de la identificación para usar como nombre de archivo
-        nombreBase = identificacion.valor.replace(/[^a-zA-Z0-9_-]/g, '_');
-      }
-      
-      const filename = `${nombreBase}_comparacion`;
+      // Nombre derivado del PAR exportado, no de la identificación viva del
+      // formulario (que puede haber avanzado a otro objeto). Ver _baseNombreParBifacial.
+      const filename = `${_baseNombreParBifacial(caraA, caraB, numeroObjeto)}_comparacion`;
       await saveFileWithDialog(filename, csv, 'csv');
       
       const numMetricas = csv.split('\n').length - 2;
@@ -26532,8 +24837,9 @@ if (typeof window !== 'undefined') {
       }
       
       // Usar diálogo nativo para guardar
-      const objetoId = _idParaArchivo(caraA.id);
-      const filename = `${objetoId}_bifacial`;
+      // Es un archivo del PAR: usar el id sin sufijo de cara (antes salía
+      // «..._ca_bifacial.csv», nombrando con una cara un artefacto de ambas).
+      const filename = `${_baseNombreParBifacial(caraA, caraB, numeroObjeto)}_bifacial`;
       
       await saveFileWithDialog(filename, csvContent, 'csv');
       console.log(`📊 CSV bifacial generado con ${numLineas} métricas totales`);
@@ -26563,6 +24869,318 @@ if (typeof window !== 'undefined') {
    * - Formato adaptativo según modo de análisis
    * - Simplifica la UI (elimina 3 botones redundantes)
    */
+  // ===========================================================================
+  // EXPORTACIÓN EN LOTE — una acción → carpeta de resultados
+  // docs/AUDITORIA-EXPORTACION-20260912.md §7 (plan) · §5.1 (orden) · §9.2 (EFA)
+  // ===========================================================================
+
+  /**
+   * Ejecuta un paso del lote y garantiza que quede registrado.
+   *
+   * Un sub-exportador que sale antes con un toast —sin lanzar y sin escribir—
+   * no aparecía ni en `archivos` ni en `omitidos`: el manifiesto declaraba
+   * «0 omitidos» ocultando un paso que no hizo nada. Comparar el número de
+   * escritos antes y después cierra ese hueco.
+   */
+  async function _pasoLote(destino, etiqueta, fn) {
+    const antes = destino.activo ? destino.activo.escritos.length : 0;
+    try {
+      await fn();
+    } catch (e) {
+      destino.omitir(etiqueta, e.message);
+      return false;
+    }
+    const despues = destino.activo ? destino.activo.escritos.length : 0;
+    if (despues === antes) {
+      destino.omitir(etiqueta, 'el exportador terminó sin escribir ningún archivo');
+      return false;
+    }
+    return true;
+  }
+
+  /** Guardia de reentrada: el lote tarda 20-40 s y no debe solaparse (§5.3). */
+  let _loteEnCurso = false;
+
+  /** Mensaje de progreso unificado (status + consola). */
+  function _loteProgreso(paso, total, texto) {
+    const msg = `Exportando ${paso}/${total} — ${texto}`;
+    UtilityHelpers.setStatus(msg, false);
+    console.log(`📦 [lote] ${msg}`);
+  }
+
+  /**
+   * TPS multi-espécimen: contorno + cada P/H confirmada en UN archivo.
+   * TPS es un formato multi-espécimen; un archivo por contorno obliga al
+   * investigador a concatenarlos a mano antes de poder usar tpsRelw o
+   * geomorph::readland.tps(). Generarlo es concatenar bloques que ya existen.
+   */
+  function _generarTpsMultiEspecimen(fuentes, obj, metricas) {
+    return fuentes
+      .filter(f => Array.isArray(f.landmarks) && f.landmarks.length)
+      .map(f => _generarTextoTPSLandmarks(f.landmarks, f.objRef || obj, f.metricasRef || metricas))
+      .join('');
+  }
+
+  /**
+   * Escribe TPS + CSV EFA de cada fuente confirmada (contorno + P/H) y el TPS
+   * agregado. Registra en el manifiesto lo que NO pudo generarse y por qué:
+   * una carpeta incompleta en silencio es peor que un error (§9.7).
+   */
+  async function _exportarLandmarksLote(obj, metricas, destino) {
+    const fuentes = _colectarFuentesEFAConfirmadas(
+      obj, metricas, metricas._efa_data, { landmarks: metricas._landmarks_semiauto }
+    );
+
+    if (!fuentes.length) {
+      const bridgeOk = window.PythonBridge && PythonBridge.isModuleActive('efa');
+      destino.omitir('landmarks/', bridgeOk
+        ? 'EFA no calculado para este objeto (contorno < 8 puntos o cálculo fallido)'
+        : 'módulo EFA del backend Python inactivo');
+      return 0;
+    }
+
+    for (const f of fuentes) {
+      const clave = f.clave || 'fuente';
+      const etiquetaArchivo = `${obj?.id || 'obj'}_${clave}`;
+      await destino.escribir(`landmarks/${clave}.tps`,
+        _generarTextoTPSLandmarks(f.landmarks, f.objRef || obj, f.metricasRef || metricas), 'tps');
+      await destino.escribir(`landmarks/${clave}_efa.csv`,
+        _generarCsvEFA(f.efaData, etiquetaArchivo), 'csv');
+    }
+
+    // P/H confirmadas que quedaron fuera por no tener EFA hidratado
+    const confirmadas = (obj.perforaciones || []).length + (obj.horadaciones || []).length;
+    const conEfa = fuentes.filter(f => f.tipo !== 'contorno').length;
+    if (confirmadas > conEfa) {
+      destino.omitir('landmarks/ (P/H)',
+        `${confirmadas - conEfa} P/H confirmadas sin EFA hidratado — no exportadas`);
+    }
+
+    await destino.escribir('landmarks/landmarks.tps',
+      _generarTpsMultiEspecimen(fuentes, obj, metricas), 'tps');
+    return fuentes.length;
+  }
+
+  /**
+   * Exporta TODOS los formatos del análisis activo a
+   * `<proyecto>/resultados/<ID>/` en una sola acción.
+   *
+   * Orden OBLIGATORIO (§5.1): los lectores de canvas van ANTES que el PDF
+   * integral, porque éste re-renderiza `#morphologicalCanvas` y lo restaura de
+   * forma ASÍNCRONA (`img.onload`); si el PNG corriese después capturaría un
+   * canvas a medio restaurar.
+   */
+  async function exportarTodoElAnalisis() {
+    const destino = window.MaoExportDestino;
+    if (!destino) { toast.error('Capa de destino no disponible', 4000); return; }
+    if (_loteEnCurso) { toast.warning('Ya hay una exportación en curso.', 3000); return; }
+
+    const _cao = currentAnalyzedObject;   // binding único (ver declaración ~:137)
+    if (!_cao?.obj || !_cao?.metricas) {
+      toast.warning('No hay análisis activo para exportar. Analiza un objeto primero.', 3500);
+      return;
+    }
+
+    _loteEnCurso = true;
+    const btn = document.getElementById('exportarTodoLoteBtn');
+    const sidebarBtn = document.getElementById('sidebarExportTodoBtn');
+    [btn, sidebarBtn].forEach(b => { if (b) b.disabled = true; });
+
+    const TOTAL = 6;
+    try {
+      // ── 0 · Esperar al EFA (§9.2) ───────────────────────────────────────────
+      // renderPanelEFA() es asíncrona y nadie la espera salvo «Guardar y
+      // Finalizar». Sin este await el lote escribe carpetas sin landmarks.
+      _loteProgreso(0, TOTAL, 'esperando descriptores de Fourier…');
+      if (_cao.efaPromise) {
+        try { await Promise.resolve(_cao.efaPromise); }
+        catch (e) { console.warn('⚠️ [lote] EFA falló:', e.message); }
+      }
+
+      const obj = _cao.obj;
+      const metricas = _cao.metricas;
+
+      // Carpeta y archivos comparten base canónica: `_baseNombreAnalisis`.
+      const idArq = _baseNombreAnalisis(obj);
+
+      const ab = await destino.abrir({ tipo: 'cara', id: idArq });
+      if (!ab.success) {
+        if (ab.error !== 'cancelado') toast.error(`No se pudo abrir la carpeta de resultados: ${ab.error}`, 5000);
+        return;
+      }
+      console.log(`📦 [lote] destino: ${ab.carpeta}`);
+
+      // ── 1 · CSV de métricas ────────────────────────────────────────────────
+      _loteProgreso(1, TOTAL, 'CSV de métricas');
+      await _pasoLote(destino, 'CSV de métricas', () => exportarAnalisisMonofacialUnificado(obj, metricas));
+
+      // ── 2 · SVG vectorial ──────────────────────────────────────────────────
+      _loteProgreso(2, TOTAL, 'SVG vectorial');
+      await _pasoLote(destino, 'SVG', () => exportarSVGMorfologicoActual());
+
+      // ── 3 · PNG morfológico (lee el canvas vivo → antes del PDF) ────────────
+      _loteProgreso(3, TOTAL, 'PNG morfológico');
+      await _pasoLote(destino, 'PNG', () => exportarPNGMorfologicoActual());
+
+      // ── 4 · Landmarks TPS + coeficientes EFA ───────────────────────────────
+      _loteProgreso(4, TOTAL, 'landmarks TPS y coeficientes EFA');
+      try { await _exportarLandmarksLote(obj, metricas, destino); }
+      catch (e) { destino.omitir('landmarks/', e.message); }
+
+      // ── 5 · PDF integral — SIEMPRE el último (§5.1) ─────────────────────────
+      _loteProgreso(5, TOTAL, 'PDF integral (puede tardar 10-15 s)');
+      // Tope global: defensa en profundidad. Si el generador se cuelga por dentro,
+      // el lote lo registra como omisión y cierra el manifiesto igualmente.
+      await _pasoLote(destino, 'PDF integral', () => _conTimeout(exportarPDFIntegralCaraActiva(), 180000, 'PDF integral'));
+
+      // ── 6 · Manifiesto ─────────────────────────────────────────────────────
+      _loteProgreso(6, TOTAL, 'manifiesto');
+      const resumen = await destino.cerrar({
+        objeto: { id: idArq, cara: obj.cara || null, modo: obj.cara ? 'bifacial' : 'monofacial' },
+        escala_mm_px: _resolverEscalaMmPx(metricas),
+      });
+
+      const n = resumen.escritos.length, om = resumen.omitidos.length;
+      UtilityHelpers.setStatus(`Exportación completa: ${n} archivo(s) en ${resumen.carpeta}`, false);
+      if (om) {
+        toast.warning(`Exportados ${n} archivos · ${om} omitido(s), ver manifiesto.json`, 6000);
+        console.warn('📦 [lote] omitidos:', resumen.omitidos);
+      } else {
+        toast.success(`Exportación completa: ${n} archivos en resultados/${idArq}`, 5000);
+      }
+      document.dispatchEvent(new CustomEvent('mao:export:done', { detail: resumen }));
+    } catch (error) {
+      console.error('❌ [lote] error en exportación:', error);
+      toast.error(`Error en la exportación: ${error.message}`, 5000);
+      try { await destino.cerrar({ error: error.message }); } catch (_) { destino.abortar(); }
+    } finally {
+      _loteEnCurso = false;
+      [btn, sidebarBtn].forEach(b => { if (b) b.disabled = false; });
+    }
+  }
+
+  /**
+   * Exporta TODOS los formatos de la comparación bifacial a
+   * `<proyecto>/resultados/<ID_par>__bifacial/`.
+   *
+   * Es un orquestador SEPARADO porque la comparación pertenece al OBJETO, no a
+   * una cara, y sólo existe tras guardar la 2ª cara (§8.1).
+   */
+  async function exportarTodoElObjetoBifacial() {
+    const destino = window.MaoExportDestino;
+    if (!destino) { toast.error('Capa de destino no disponible', 4000); return; }
+    if (_loteEnCurso) { toast.warning('Ya hay una exportación en curso.', 3000); return; }
+
+    if (!window.ultimaComparacionBifacial) {
+      toast.warning('No hay comparación bifacial activa. Ábrela antes de exportar.', 3500);
+      return;
+    }
+    const { caraA, caraB, numeroObjeto } = window.ultimaComparacionBifacial;
+    if (!caraA || !caraB) { toast.error('Datos de comparación incompletos', 3500); return; }
+
+    _loteEnCurso = true;
+    const btn = document.getElementById('exportarTodoBifacialBtn');
+    if (btn) btn.disabled = true;
+
+    const TOTAL = 4;
+    try {
+      const idPar = _baseNombreParBifacial(caraA, caraB, numeroObjeto);
+      const ab = await destino.abrir({ tipo: 'bifacial', id: idPar });
+      if (!ab.success) {
+        if (ab.error !== 'cancelado') toast.error(`No se pudo abrir la carpeta de resultados: ${ab.error}`, 5000);
+        return;
+      }
+      console.log(`📦 [lote bifacial] destino: ${ab.carpeta}`);
+
+      // ── 1 · CSV de comparación (incluye el bloque IMC, §8.5a) ───────────────
+      _loteProgreso(1, TOTAL, 'CSV de comparación bifacial');
+      await _pasoLote(destino, 'CSV de comparación', () => exportarComparacionBifacialDesdeUI());
+
+      // ── 2 · CSV con las métricas completas de ambas caras ───────────────────
+      _loteProgreso(2, TOTAL, 'CSV de ambas caras');
+      await _pasoLote(destino, 'CSV de ambas caras', () => exportarObjetoBifacialCompletoDesdeDatos(numeroObjeto));
+
+      // ── 3 · JSON del análisis comparativo ──────────────────────────────────
+      // Hasta ahora sólo existía suelto en la RAÍZ del proyecto y con timestamp,
+      // acumulando un archivo por cada guardado (§8.4).
+      _loteProgreso(3, TOTAL, 'JSON comparativo');
+      const comparativo = caraA.analisisComparativo || caraB.analisisComparativo || null;
+      if (comparativo) {
+        await destino.escribir('comparacion.json', JSON.stringify({
+          tipo: 'analisis_comparativo_bifacial',
+          version: '1.0.0',
+          generadoEn: new Date().toISOString(),
+          objeto: { id: idPar, numeroObjeto, caraA: caraA.id, caraB: caraB.id },
+          imc: window.ultimaComparacionBifacial.imc || null,
+          comparacion: comparativo,
+        }, null, 2), 'json');
+      } else {
+        destino.omitir('comparacion.json', 'sin analisisComparativo en las caras');
+      }
+
+      // ── 4 · PDF bifacial — el último: restaura el canvas vivo (§8.5c) ───────
+      _loteProgreso(4, TOTAL, 'PDF bifacial (puede tardar 20-30 s)');
+      // Tope global: ver _conTimeout. Sin él, un cuelgue aquí dejaba el destino
+      // abierto y sin manifiesto (verificación E2E 2026-09-13).
+      await _pasoLote(destino, 'PDF bifacial', () => _conTimeout(generarReporteBifacialPDF(), 180000, 'PDF bifacial'));
+
+      const resumen = await destino.cerrar({
+        objeto: { id: idPar, numeroObjeto, caraA: caraA.id, caraB: caraB.id, modo: 'bifacial' },
+        imc_global: window.ultimaComparacionBifacial.imc?.global ?? null,
+      });
+
+      const n = resumen.escritos.length, om = resumen.omitidos.length;
+      UtilityHelpers.setStatus(`Exportación bifacial completa: ${n} archivo(s) en ${resumen.carpeta}`, false);
+      if (om) {
+        toast.warning(`Exportados ${n} archivos · ${om} omitido(s), ver manifiesto.json`, 6000);
+        console.warn('📦 [lote bifacial] omitidos:', resumen.omitidos);
+      } else {
+        toast.success(`Exportación bifacial completa: ${n} archivos`, 5000);
+      }
+      document.dispatchEvent(new CustomEvent('mao:export:done', { detail: resumen }));
+    } catch (error) {
+      console.error('❌ [lote bifacial] error:', error);
+      toast.error(`Error en la exportación bifacial: ${error.message}`, 5000);
+      try { await destino.cerrar({ error: error.message }); } catch (_) { destino.abortar(); }
+    } finally {
+      _loteEnCurso = false;
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // ── Cableado de los botones del lote ───────────────────────────────────────
+  // A NIVEL DE IIFE, no dentro de un `window.addEventListener('DOMContentLoaded')`.
+  // Este módulo evalúa tarde (grafo ESM de 11 módulos sobre el protocolo app://) y
+  // los handlers registrados en aquellos bloques no llegaron a ejecutarse al pulsar
+  // el botón — el propio archivo ya usa el guard `document.readyState` al final
+  // para `inicializarMAO()` por la misma razón. Aquí se aplica el mismo patrón.
+  (function _cablearBotonesLote() {
+    const conectar = () => {
+      const bLote = document.getElementById('exportarTodoLoteBtn');
+      if (bLote && !bLote.dataset.loteWired) {
+        bLote.dataset.loteWired = '1';
+        bLote.addEventListener('click', () => {
+          console.log('🖱️ Click en Exportar TODO (lote → carpeta de resultados)');
+          exportarTodoElAnalisis();
+        });
+        console.log('✅ Botón de exportación en lote conectado');
+      }
+      const bBif = document.getElementById('exportarTodoBifacialBtn');
+      if (bBif && !bBif.dataset.loteWired) {
+        bBif.dataset.loteWired = '1';
+        bBif.addEventListener('click', () => {
+          console.log('🖱️ Click en Exportar TODO bifacial (lote → carpeta de resultados)');
+          exportarTodoElObjetoBifacial();
+        });
+        console.log('✅ Botón de exportación en lote bifacial conectado');
+      }
+    };
+    conectar();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', conectar, { once: true });
+    }
+  })();
+
   function exportarAnalisisCompletoUnificado() {
     console.log('🎯 Iniciando exportación unificada inteligente...');
 
@@ -26670,8 +25288,7 @@ if (typeof window !== 'undefined') {
       }
       
       // Añadir sufijo de cara para diferenciar exportaciones bifaciales (igual que PDF integral)
-      const caraSufijo = obj.cara ? `_Cara${obj.cara}` : '';
-      const nombreArchivo = `${nombreBase}${caraSufijo}_analisis`;
+      const nombreArchivo = `${_baseNombreAnalisis(obj)}_analisis`;
       
       csvContent = _normalizarCsvEstructural(csvContent, 4);
       await saveFileWithDialog(nombreArchivo, csvContent, 'csv');
@@ -26916,7 +25533,7 @@ if (typeof window !== 'undefined') {
           // `.contenedor` (la función generarReportePDFIntegral no existe — estaba
           // comentada y nunca se movió al módulo; llamarla lanzaba el error del botón).
           const htmlContent = '<div class="contenedor"></div>';
-          const nombreBase = _idParaArchivo(obj.id, `OBJ_${obj.numeroObjeto}`);
+          const nombreBase = String(obj.id ?? '').replace(/[^a-zA-Z0-9_-]/g, '_') || `OBJ_${obj.numeroObjeto}`;
           const filename = `${nombreBase}_reporte`;
           await generarPDFDesdeHTML(htmlContent, filename, obj, metricas, { integral: true });
           console.log(`   ✅ PDF completado para ${etiqueta}`);
@@ -27185,9 +25802,8 @@ if (typeof window !== 'undefined') {
           // comentada y nunca se movió al módulo; llamarla lanzaba el error del botón).
           const htmlContent = '<div class="contenedor"></div>';
           
-          // Crear nombre de archivo para el PDF
-          const nombreBase = _idParaArchivo(obj.id, `OBJ_${obj.numeroObjeto}`);
-          const filename = `${nombreBase}_integral`;
+          // Nombre canónico compartido con CSV/SVG/PNG y la carpeta de resultados.
+          const filename = `${_baseNombreAnalisis(obj)}_integral`;
           
           // Convertir HTML a PDF y guardar con diálogo
           await generarPDFDesdeHTML(htmlContent, filename, obj, metricas, { integral: true });
@@ -27253,115 +25869,8 @@ if (typeof window !== 'undefined') {
    * � EXPORTAR TABLA COMPARATIVA BIFACIAL (CSV INDEPENDIENTE)
    * Exporta únicamente la comparación métrica entre Cara A y Cara B
    */
-  async function exportarComparacionBifacial() {
-    console.log('🔄 Iniciando exportación de tabla comparativa bifacial...');
-    
-    // Verificar que hay un análisis bifacial completo
-    if (!currentAnalyzedObject || !currentAnalyzedObject.obj) {
-      toast.warning('No hay análisis bifacial para comparar.', 3000);
-      return;
-    }
-    
-    const obj = currentAnalyzedObject.obj;
-    const numeroObjeto = obj.numeroObjeto;
-    
-    if (!numeroObjeto) {
-      toast.warning('No se puede identificar el objeto para comparación.', 3000);
-      return;
-    }
-    
-    try {
-      // Buscar ambas caras
-      const caraA = analisisMorfologicos.objetos.find(
-        o => o.numeroObjeto === numeroObjeto && o.cara === 'A'
-      );
-      const caraB = analisisMorfologicos.objetos.find(
-        o => o.numeroObjeto === numeroObjeto && o.cara === 'B'
-      );
-      
-      // Verificar que ambas caras están analizadas
-      if (!caraA || !caraB || !caraA.metricas || !caraB.metricas) {
-        toast.warning('Se requieren ambas caras analizadas para generar comparación bifacial.', 4000);
-        console.log('Caras disponibles:', { caraA: !!caraA, caraB: !!caraB });
-        return;
-      }
-      
-      console.log('✅ Ambas caras encontradas, generando comparación...');
-      
-      // Generar CSV de comparación
-      const idObjeto = `OBJ_${numeroObjeto}`;
-      let csvContent = '';
-      const row = (...cells) => _csvRow(cells);
-      
-      // ========================================================================
-      // METADATOS DEL PROYECTO
-      // ========================================================================
-      if (projectManager?.activeProject) {
-        csvContent += `# PROYECTO\n`;
-        csvContent += row('Nombre del Proyecto', projectManager.activeProject.name || 'N/A');
-        if (projectManager.activeProject.descripcion) {
-          csvContent += row('Descripcion', projectManager.activeProject.descripcion);
-        }
-        if (projectManager.activeProject.sitio) {
-          csvContent += row('Sitio Arqueologico', projectManager.activeProject.sitio);
-        }
-        if (projectManager.activeProject.investigadorResponsable) {
-          csvContent += row('Investigador Responsable', projectManager.activeProject.investigadorResponsable);
-        }
-        if (projectManager.activeProject.institucionResponsable) {
-          csvContent += row('Institucion Responsable', projectManager.activeProject.institucionResponsable);
-        }
-        csvContent += `\n`;
-      }
-      // ========================================================================
-      
-      // Header del archivo
-      csvContent += `Comparación Morfológica Bifacial - MAO Plus v1.1.0\n`;
-      csvContent += row('Objeto', idObjeto);
-      csvContent += row('Fecha', new Date().toLocaleString('es-ES'));
-      csvContent += `\n`;
-      csvContent += `Este archivo contiene la comparación métrica entre Cara A (Anverso) y Cara B (Reverso)\n`;
-      csvContent += `\n`;
-
-      // ── SECCIÓN IMC ───────────────────────────────────────────────────────
-      const _imcExport = window.ultimaComparacionBifacial?.imc;
-      if (_imcExport) {
-        const _fmtPct = v => v !== null && v !== undefined ? (v*100).toFixed(1)+'%' : 'N/D';
-        csvContent += `COHERENCIA MORFOMÉTRICA INTEGRAL (IMC)\n`;
-        csvContent += row('IMC Global', _fmtPct(_imcExport.global), '', 'Índice de compatibilidad morfológica bilateral [0–100%]');
-        csvContent += row('Nivel de coherencia', _imcExport.nivel || 'N/D', '', 'Clasificación interpretativa');
-        csvContent += row('Coherencia Identitaria (CI)', _fmtPct(_imcExport.ci), '', 'Solo dimensional — confirma identidad del objeto');
-        csvContent += row('Coherencia de Superficie (CMS)', _fmtPct(_imcExport.cms), '', 'Forma+radial+contorno — similitud superficial entre caras');
-        csvContent += row('Dimensional (tamaño)', _fmtPct(_imcExport.dimensional), '', 'Peso 30% — área / perímetro / ejes / Feret');
-        csvContent += row('Forma (descriptores)', _fmtPct(_imcExport.forma), '', 'Peso 30% — circularidad / solidez / aspecto / elongación');
-        csvContent += row('Radial (perfil)', _fmtPct(_imcExport.radial), '', 'Peso 20% — radios / regularidad radial / CV radial');
-        csvContent += row('Contorno (textura)', _fmtPct(_imcExport.contorno), '', 'Peso 10% — rugosidad / curvatura / lobularidad / simetría');
-        csvContent += row('Conservación', _fmtPct(_imcExport.conservacion), '', 'Peso 10% — completitud / pérdida área / solidez');
-        if (_imcExport.divergentes?.length) {
-          csvContent += row('Rasgos divergentes (Δ>20%)', _imcExport.divergentes.slice(0,6).map(d => `${d.nombre} Δ${d.dif}%`).join(' | '), '', 'Métricas con mayor discordancia bilateral');
-        }
-        csvContent += `\n`;
-      }
-      // ─────────────────────────────────────────────────────────────────────
-
-      // Header de tabla
-      csvContent += `Métrica,Cara A,Cara B,Diferencia,% Diferencia,Interpretación\n`;
-      
-      // Generar comparación métrica
-      csvContent += generarTablaComparativaBifacialCSV(caraA, caraB);
-      
-      // Usar diálogo nativo para guardar
-      const _idComp = _idParaArchivo(String(caraA.id ?? '').replace(/_c[ab]$/, ''), idObjeto);
-      const nombreArchivo = `${_idComp}_comparacion`;
-      
-      await saveFileWithDialog(nombreArchivo, csvContent, 'csv');
-      console.log(`✅ Exportado: ${nombreArchivo}.csv`);
-      
-    } catch (error) {
-      console.error('❌ Error al exportar comparación bifacial:', error);
-      toast.error('Error al exportar comparación: '+ error.message, 5000);
-    }
-  }
+  // exportarComparacionBifacial: ELIMINADA (Fase 0, docs/AUDITORIA-EXPORTACION-20260912.md §3/§8.6).
+  // Código muerto sin llamadores — 109 líneas.
   
   /**
    * �🔧 Helper: Extraer métricas completas de un objeto (incluye P/H) - Formato Bifacial
@@ -27421,172 +25930,8 @@ if (typeof window !== 'undefined') {
    * � Generar tabla comparativa bifacial completa (Cara A vs Cara B)
    * Compara métricas clave entre ambas caras del objeto
    */
-  function generarTablaComparativaBifacialCSV(caraA, caraB) {
-    let csvContent = '';
-    const row = (...cells) => _csvRow(cells);
-    
-    const mA = caraA.metricas;
-    const mB = caraB.metricas;
-    
-    // Helper para calcular diferencia y porcentaje
-    const calcularDiferencia = (valorA, valorB) => {
-      const diff = valorB - valorA;
-      const porcentaje = valorA !== 0 ? ((diff / valorA) * 100) : 0;
-      return { diff, porcentaje };
-    };
-    
-    // Helper para interpretar diferencia
-    const interpretarDiferencia = (porcentaje) => {
-      const abs = Math.abs(porcentaje);
-      if (abs < 5) return 'Muy similar';
-      if (abs < 15) return 'Similar';
-      if (abs < 30) return 'Moderadamente diferente';
-      if (abs < 50) return 'Diferente';
-      return 'Muy diferente';
-    };
-    
-    // Helper para formatear
-    const fmt = (val, decimales = 2) => {
-      if (val === null || val === undefined || val === '') return 'N/A';
-      if (typeof val === 'number') return val.toFixed(decimales);
-      return val;
-    };
-    
-    // ============================================================
-    // SECCIÓN 1: DIMENSIONES BÁSICAS
-    // ============================================================
-    csvContent += `\n DIMENSIONES BÁSICAS\n`;
-    
-    // Área
-    let comp = calcularDiferencia(mA.area, mB.area);
-  csvContent += `Área (mm²),${fmt(mA.area, 2)},${fmt(mB.area, 2)},${fmt(comp.diff, 2)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // Perímetro
-    comp = calcularDiferencia(mA.perimeter, mB.perimeter);
-  csvContent += `Perímetro (mm),${fmt(mA.perimeter, 2)},${fmt(mB.perimeter, 2)},${fmt(comp.diff, 2)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // Ancho
-    comp = calcularDiferencia(mA.width, mB.width);
-  csvContent += `Ancho (mm),${fmt(mA.width, 2)},${fmt(mB.width, 2)},${fmt(comp.diff, 2)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // Alto
-    comp = calcularDiferencia(mA.height, mB.height);
-  csvContent += `Alto (mm),${fmt(mA.height, 2)},${fmt(mB.height, 2)},${fmt(comp.diff, 2)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // ============================================================
-    // SECCIÓN 2: ÍNDICES DE FORMA
-    // ============================================================
-    csvContent += `\n ÍNDICES DE FORMA\n`;
-    
-    // Circularidad
-    comp = calcularDiferencia(mA.circularity, mB.circularity);
-  csvContent += `Circularidad,${fmt(mA.circularity, 4)},${fmt(mB.circularity, 4)},${fmt(comp.diff, 4)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // Compacidad
-    comp = calcularDiferencia(mA.compactness, mB.compactness);
-  csvContent += `Compacidad,${fmt(mA.compactness, 4)},${fmt(mB.compactness, 4)},${fmt(comp.diff, 4)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // Solidez
-    comp = calcularDiferencia(mA.solidity, mB.solidity);
-  csvContent += `Solidez,${fmt(mA.solidity, 4)},${fmt(mB.solidity, 4)},${fmt(comp.diff, 4)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // Convexidad
-    comp = calcularDiferencia(mA.convexity, mB.convexity);
-  csvContent += `Convexidad,${fmt(mA.convexity, 4)},${fmt(mB.convexity, 4)},${fmt(comp.diff, 4)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // ============================================================
-    // SECCIÓN 3: EJES PRINCIPALES
-    // ============================================================
-    csvContent += `\n EJES PRINCIPALES\n`;
-    
-    // Eje Mayor — usar valor real del objeto detectado (mismo criterio que análisis morfológico)
-    const ejeMayorA = mA.eje_mayor_real_longitud || mA.eje_mayor;
-    const ejeMayorB = mB.eje_mayor_real_longitud || mB.eje_mayor;
-    comp = calcularDiferencia(ejeMayorA, ejeMayorB);
-  csvContent += `Eje Mayor (mm),${fmt(ejeMayorA, 2)},${fmt(ejeMayorB, 2)},${fmt(comp.diff, 2)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // Eje Menor — usar valor real del objeto detectado (mismo criterio que análisis morfológico)
-    const ejeMenorA = mA.eje_menor_real_longitud || mA.eje_menor;
-    const ejeMenorB = mB.eje_menor_real_longitud || mB.eje_menor;
-    comp = calcularDiferencia(ejeMenorA, ejeMenorB);
-  csvContent += `Eje Menor (mm),${fmt(ejeMenorA, 2)},${fmt(ejeMenorB, 2)},${fmt(comp.diff, 2)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // Excentricidad
-    comp = calcularDiferencia(mA.excentricidad, mB.excentricidad);
-  csvContent += `Excentricidad,${fmt(mA.excentricidad, 4)},${fmt(mB.excentricidad, 4)},${fmt(comp.diff, 4)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // ============================================================
-    // SECCIÓN 4: ANÁLISIS RADIAL
-    // ============================================================
-    csvContent += `\n ANÁLISIS RADIAL\n`;
-    
-    // Radio Máximo
-    comp = calcularDiferencia(mA.radio_maximo, mB.radio_maximo);
-  csvContent += `Radio Máximo (mm),${fmt(mA.radio_maximo, 2)},${fmt(mB.radio_maximo, 2)},${fmt(comp.diff, 2)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // Radio Mínimo
-    comp = calcularDiferencia(mA.radio_minimo, mB.radio_minimo);
-  csvContent += `Radio Mínimo (mm),${fmt(mA.radio_minimo, 2)},${fmt(mB.radio_minimo, 2)},${fmt(comp.diff, 2)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // Radio Medio
-    comp = calcularDiferencia(mA.radio_medio, mB.radio_medio);
-  csvContent += `Radio Medio (mm),${fmt(mA.radio_medio, 2)},${fmt(mB.radio_medio, 2)},${fmt(comp.diff, 2)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // Regularidad Radial
-    comp = calcularDiferencia(mA.regularidad_radial, mB.regularidad_radial);
-  csvContent += `Regularidad Radial (%),${fmt(mA.regularidad_radial, 2)},${fmt(mB.regularidad_radial, 2)},${fmt(comp.diff, 2)},${fmt(comp.porcentaje, 2)}%,${interpretarDiferencia(comp.porcentaje)}\n`;
-    
-    // ============================================================
-    // SECCIÓN 5: CLASIFICACIÓN MORFOLÓGICA
-    // ============================================================
-    csvContent += `\n CLASIFICACIÓN MORFOLÓGICA\n`;
-    
-    csvContent += row('Forma Detectada', mA.forma_detectada || 'N/A', mB.forma_detectada || 'N/A', '-', '-', mA.forma_detectada === mB.forma_detectada ? 'Idéntica' : 'Diferente');
-    csvContent += row('Confianza (%)', fmt((mA.forma_confianza || 0) * 100, 1), fmt((mB.forma_confianza || 0) * 100, 1), '-', '-', '-');
-    csvContent += row('Categoría Base', mA.forma_categoria_base || 'N/A', mB.forma_categoria_base || 'N/A', '-', '-', mA.forma_categoria_base === mB.forma_categoria_base ? 'Idéntica' : 'Diferente');
-    
-    // ============================================================
-    // SECCIÓN 6: PERFORACIONES Y HORADACIONES
-    // ============================================================
-    const perfA = caraA.perforaciones?.length || 0;
-    const perfB = caraB.perforaciones?.length || 0;
-    const horadA = caraA.horadaciones?.length || 0;
-    const horadB = caraB.horadaciones?.length || 0;
-    
-    if (perfA > 0 || perfB > 0 || horadA > 0 || horadB > 0) {
-      csvContent += `\n PERFORACIONES Y HORADACIONES\n`;
-      csvContent += row('Número de Perforaciones', perfA, perfB, perfB - perfA, '-', perfA === perfB ? 'Igual' : (perfA > perfB ? 'Más en Cara A' : 'Más en Cara B'));
-      csvContent += row('Número de Horadaciones', horadA, horadB, horadB - horadA, '-', horadA === horadB ? 'Igual' : (horadA > horadB ? 'Más en Cara A' : 'Más en Cara B'));
-      csvContent += row('Total P/H', perfA + horadA, perfB + horadB, (perfB + horadB) - (perfA + horadA), '-', '-');
-    }
-    
-    // ============================================================
-    // SECCIÓN 7: RESUMEN DE SIMETRÍA
-    // ============================================================
-    csvContent += `\n RESUMEN DE SIMETRÍA BIFACIAL\n`;
-    
-    // Calcular índice de simetría general (promedio de diferencias porcentuales)
-    const diferenciasClave = [
-      Math.abs(calcularDiferencia(mA.area, mB.area).porcentaje),
-      Math.abs(calcularDiferencia(mA.perimeter, mB.perimeter).porcentaje),
-      Math.abs(calcularDiferencia(mA.circularity, mB.circularity).porcentaje),
-      Math.abs(calcularDiferencia(mA.solidity, mB.solidity).porcentaje)
-    ];
-    
-    const promedioDiferencias = diferenciasClave.reduce((a, b) => a + b, 0) / diferenciasClave.length;
-    
-    let nivelSimetria = '';
-    if (promedioDiferencias < 5) nivelSimetria = 'Muy simétrico';
-    else if (promedioDiferencias < 15) nivelSimetria = 'Simétrico';
-    else if (promedioDiferencias < 30) nivelSimetria = 'Moderadamente simétrico';
-    else if (promedioDiferencias < 50) nivelSimetria = 'Poco simétrico';
-    else nivelSimetria = 'Muy asimétrico';
-    
-    csvContent += row('Índice de Simetría Global (%)', fmt(100 - promedioDiferencias, 1), nivelSimetria, '-', '-', '-');
-    csvContent += row('Diferencia Promedio (%)', fmt(promedioDiferencias, 1), '-', '-', '-', '-');
-    
-    return csvContent;
-  }
+  // generarTablaComparativaBifacialCSV: ELIMINADA (Fase 0, docs/AUDITORIA-EXPORTACION-20260912.md §3/§8.6).
+  // Código muerto sin llamadores — 166 líneas.
   
   /**
    * �🔧 Helper: Extraer métricas completas - Formato Monofacial Simple
@@ -28376,6 +26721,11 @@ if (typeof window !== 'undefined') {
     // Extraer datos completos del análisis
     const datosAnalisis = {
       id: obj.id,
+      // ID arqueológico sellado: fuente ÚNICA para la carpeta del análisis, la de
+      // resultados y los nombres de archivo. Antes no se persistía en ninguna parte
+      // y cada ruta lo derivaba por su cuenta (unas del formulario vivo, otras de
+      // `obj.id`, que es numérico en detección automática) → carpetas desalineadas.
+      idArqueologico: _baseNombreAnalisis(obj),
       numeroObjeto: obj.numeroObjeto,
       cara: obj.cara,
       fechaAnalisis: new Date().toISOString(),
@@ -35740,6 +34090,30 @@ if (typeof window !== 'undefined') {
     console.log('✅ Validación de parámetros de escala exitosa');
     return true;
   }
+
+  function normalizeNumericInput(inputElement) {
+    if (!inputElement) return null;
+    const rawValue = `${inputElement.value || ''}`.trim().replace(/\s+/g, '').replace(',', '.');
+    if (!rawValue) {
+      inputElement.value = '';
+      return null;
+    }
+    const numericValue = Number(rawValue);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+      return null;
+    }
+    inputElement.value = rawValue;
+    return numericValue;
+  }
+
+  function validarParametrosEscalaParaGuardar() {
+    const distancia = normalizeNumericInput(distanciaInput);
+    if (!distancia) {
+      UtilityHelpers.setStatus('Error: Distancia lente-objeto inválida.', true);
+      return false;
+    }
+    return true;
+  }
   
   /**
    * Función asíncrona que ejecuta la detección de objetos
@@ -36657,8 +35031,8 @@ if (typeof window !== 'undefined') {
     });
     
     distanciaInput.addEventListener('blur', function() {
-      // Solo validar entrada - cálculo ahora es manual
-      if (this.value && parseFloat(this.value) > 0) {
+      normalizeNumericInput(distanciaInput);
+      if (distanciaInput.value && parseFloat(distanciaInput.value) > 0) {
         UtilityHelpers.setStatus('Distancia ingresada. Use "Calcular Escala" para proceder.', false);
       }
     });
@@ -36687,14 +35061,22 @@ if (typeof window !== 'undefined') {
   }
 
   guardarConfigBtn.addEventListener('click', () => {
-    if(!validarEntradas()) return;
-    localStorage.setItem('cameraModel', cameraModelInput.value);
-    localStorage.setItem('focalLength', focalInput.value);
-    localStorage.setItem('aperture', apertureInput.value);
-    localStorage.setItem('sensorWidth', sensorWidthInput.value);
-    localStorage.setItem('sensorHeight', sensorHeightInput.value);
-    localStorage.setItem('distancia', distanciaInput.value);
-    UtilityHelpers.setStatus('Configuración guardada. Use "Calcular Escala"para aplicar cambios.', false);
+    if (!validarParametrosEscalaParaGuardar()) return;
+    try {
+      normalizeNumericInput(distanciaInput);
+      UtilityHelpers.guardarConfiguracion(
+        cameraModelInput,
+        focalInput,
+        apertureInput,
+        sensorWidthInput,
+        sensorHeightInput,
+        distanciaInput
+      );
+      UtilityHelpers.setStatus('Configuración guardada. Use "Calcular Escala" para aplicar cambios.', false);
+    } catch (err) {
+      console.error('❌ Error guardando configuración de escala:', err);
+      UtilityHelpers.setStatus(`Error guardando configuración: ${err.message}`, true);
+    }
     // Cálculo automático eliminado - ahora completamente manual
   });
 
@@ -37885,11 +36267,10 @@ if (typeof window !== 'undefined') {
         return;
       }
 
-      // Sincronizar la var local del IIFE con la fuente autoritativa. El flujo IA/tabs
-      // deja `currentAnalyzedObject` (local) en null → finalizarTodosTrazados y los
-      // confirmadores de candidatos, que leen la local, no sincronizaban las P/H al
-      // objeto real ni refrescaban la tabla. Alinearla aquí lo arregla para toda la
-      // sesión del modal (el modal solo se abre por esta vía).
+      // OBSOLETO desde 2026-09-13: ya no hay «var local» que alinear — el IIFE y los
+      // módulos comparten un único binding (ver declaración ~:137). Se conserva por
+      // ser inocuo (auto-asignación) y porque `cao` puede traer un objeto ya
+      // resuelto por el llamador.
       currentAnalyzedObject = cao;
 
       // Extraer el objeto real del análisis morfológico
@@ -40984,6 +39365,7 @@ if (typeof window !== 'undefined') {
     actualizarListaTrazados();
     redibujarPoligonoEnCanvasAmpliado();
     sincronizarCandidatosPHEnObjeto();
+    _emitirPHCambiado(selectedObjectForPerforation);
     const nombre = tipo === 'perforacion' ? 'Perforación' : 'Horadación';
     UtilityHelpers.setStatus(`Candidato confirmado como ${nombre}. Finalice los trazados para aplicarlo al objeto.`, false);
   }
@@ -41001,6 +39383,7 @@ if (typeof window !== 'undefined') {
     actualizarListaTrazados();
     redibujarPoligonoEnCanvasAmpliado();
     sincronizarCandidatosPHEnObjeto();
+    _emitirPHCambiado(selectedObjectForPerforation);
     const rest = trazadosPerforaciones.filter(t => t.tipo === 'candidato').length;
     UtilityHelpers.setStatus(`Candidato descartado. Candidatos restantes: ${rest}.`, false);
   }
@@ -41983,6 +40366,25 @@ if (typeof window !== 'undefined') {
   /**
    * Finalizar todos los trazados y aplicarlos al objeto
    */
+  /**
+   * Señal de que el conjunto de P/H del objeto cambió (aplicar trazados, confirmar
+   * o descartar un candidato de ADR-009). La emite quien MUTA los datos, para que
+   * los organizers no tengan que adivinarlo observando mutaciones del DOM en el
+   * instante justo — que era la causa de la cabecera ADR-002 obsoleta.
+   */
+  function _emitirPHCambiado(obj) {
+    try {
+      document.dispatchEvent(new CustomEvent('mao:ph:changed', {
+        detail: {
+          id: obj && obj.id,
+          perforaciones: (obj && obj.perforaciones || []).length,
+          horadaciones:  (obj && obj.horadaciones  || []).length,
+          candidatos:    (obj && obj.phCandidatos  || []).length,
+        },
+      }));
+    } catch (_) { /* la señal nunca debe romper el flujo que la emite */ }
+  }
+
   function finalizarTodosTrazados() {
     if (trazadosPerforaciones.length === 0) {
       // Permitir eliminación total de P/H preexistentes.
@@ -42010,6 +40412,7 @@ if (typeof window !== 'undefined') {
         }
 
         UtilityHelpers.setStatus('Se eliminaron todas las perforaciones/horadaciones del objeto.', false);
+        _emitirPHCambiado(selectedObjectForPerforation);
         ocultarCanvasAmpliadoPerforation();
         return;
       }
@@ -42173,6 +40576,7 @@ if (typeof window !== 'undefined') {
     contadorTrazados = 0;
     
     UtilityHelpers.setStatus(`${perforaciones.length} perforaciones y ${horadaciones.length} horadaciones aplicadas al objeto.`, false);
+    _emitirPHCambiado(selectedObjectForPerforation);
     
     // Ocultar canvas ampliado
     ocultarCanvasAmpliadoPerforation();

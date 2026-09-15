@@ -1,8 +1,7 @@
 # ADR-013 — Separación figura-fondo primaria; separación de instancias subordinada y no destructiva
 
-- **Estado:** 🟡 **Aprobado + Fase 1 implementada (2026-06-25)** · pendiente verificación visual en
-  Electron. **Fase 2 (replicabilidad del contorno) aprobada — implementación pendiente.** Refina
-  (no contradice) ADR-012.
+- **Estado:** ✅ **Fases 1 + 2 implementadas.** F1: 2026-06-25. F2: 2026-09-12. Pendiente
+  verificación visual en Electron. Refina (no contradice) ADR-012.
 - **Decisión JFRR:** la separación **figura-fondo** (objeto vs fondo) es la tarea **primaria** del
   núcleo de detección y debe **siempre** producir un contorno cerrado del objeto dominante. La
   separación de **instancias** (objetos pegados / watershed) es **secundaria**, condicionada por
@@ -115,7 +114,7 @@ divide**; dos objetos genuinamente pegados conservan **2 picos → divide en 2**
 Aditivo y acotado a `_separate_touching_watershed`. Revertir = restaurar el cuerpo previo de la
 función (la máscara cruda) — no toca el núcleo figura-fondo ni los llamadores.
 
-## Fase 2 — Replicabilidad del contorno (aprobada · implementación pendiente)
+## Fase 2 — Replicabilidad del contorno (implementada)
 
 La etapa de contorno (`contour.extract`) es el punto **más crítico** de la premisa: de ahí salen
 área, perímetro, circularidad, EFA y todas las métricas. Para la ciencia de MAO, lo decisivo no es

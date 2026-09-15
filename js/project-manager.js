@@ -80,6 +80,16 @@ function _extractAnalysisSummary(analysisData = {}) {
   };
 }
 
+function _csvCell(value) {
+  const s = (value === null || value === undefined) ? '' : String(value);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function _csvNum(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function _buildMetricTraceability(modo = 'monofacial', metricas = {}, options = {}) {
   const metricKeys = Object.keys(metricas || {});
   const includesPH = Number(options?.numPerforaciones || 0) > 0 || Number(options?.numHoradaciones || 0) > 0;
@@ -407,8 +417,19 @@ class ProjectManager {
     // String(): nombreObjeto/id pueden ser numéricos (obj.id de detección automática) → .replace lanzaría.
     const nombreSanitizado = String(nombreObjeto).replace(/[^a-z0-9]/gi, '_').substring(0, 30);
     
-    // Nombre de carpeta: ID arqueológico del objeto (ej: QP1_U1_N1_E1_01_ca)
-    const idArqueologico = String(analysis.data?.id ?? '').replace(/[^a-zA-Z0-9_-]/g, '_') || null;
+    // Nombre de carpeta: ID arqueológico del objeto (ej: QP1_U1_N1_E1_01_ca).
+    //
+    // Prioridad `data.idArqueologico` (2026-09-13): es el ID SELLADO en el análisis,
+    // la misma fuente que usan la carpeta de resultados y los nombres de archivo.
+    // Sin él ambas rutas divergían: el análisis caía en `<proyecto>/1/` y sus
+    // exportables en `<proyecto>/resultados/QP1_U1_N1_E1_01/` — no eran hermanas.
+    //
+    // String(): `data.id` es NUMÉRICO en el flujo de detección automática y el `?.`
+    // no protege (1 es truthy), así que `1?.replace` lanzaba TypeError, lo tragaba
+    // el try/catch de esta función y el guardado fallaba con «Error al guardar
+    // archivos». Mismo defecto sistémico corregido en la ruta de exportación.
+    const idArqueologico = String(analysis.data?.idArqueologico ?? analysis.data?.id ?? '')
+      .replace(/[^a-zA-Z0-9_-]/g, '_');
     const analysisFolderName = idArqueologico || `${nombreSanitizado}_${analysisNumber}`;
     const analysisFolderPath = `${projectFolder}/${analysisFolderName}`;
     
@@ -726,15 +747,6 @@ class ProjectManager {
       window._maoLog('🖼️ Guardando imágenes...');
       await this.saveAnalysisImages(analysis, `${analysisFolderPath}/imagenes`);
       
-      // 8. ACTUALIZAR RESUMEN.CSV DEL PROYECTO
-      window._maoLog('📊 Actualizando resumen del proyecto...');
-      try {
-        await this.updateProjectSummaryCSV();
-        window._maoLog('✅ Resumen actualizado');
-      } catch (csvError) {
-        console.error('⚠️ Error actualizando resumen CSV (no crítico):', csvError.message);
-      }
-      
       window._maoLog(`\n✅✅✅ Análisis completo guardado exitosamente ✅✅✅`);
       window._maoLog(`📂 Carpeta: ${analysisFolderName}`);
       window._maoLog(`📍 Ruta completa: ${analysisFolderPath}`);
@@ -750,6 +762,17 @@ class ProjectManager {
         delete this.activeProject.analyses[analysisIndex].data;
         this.save();
         window._maoLog('✅ Referencia actualizada en localStorage con ruta de disco');
+      }
+      
+      // 8. ACTUALIZAR RESUMEN.CSV DEL PROYECTO
+      // Después de asignar la carpeta: escribirlo antes dejaba la última fila
+      // del archivo con «N/A» en su columna Carpeta, en todas las colecciones.
+      window._maoLog('📊 Actualizando resumen del proyecto...');
+      try {
+        await this.updateProjectSummaryCSV();
+        window._maoLog('✅ Resumen actualizado');
+      } catch (csvError) {
+        console.error('⚠️ Error actualizando resumen CSV (no crítico):', csvError.message);
       }
       
     } catch (error) {
@@ -975,34 +998,62 @@ class ProjectManager {
         'Carpeta'
       ];
       
+      // El índice de colección es la fuente. Se escribe desde el análisis
+      // completo y vive en disco, así que se puede releer y corregir. Las
+      // referencias de localStorage solo guardan la foto que se tomó al
+      // crearlas: si nació incompleta, nada volvía a repararla.
+      let objetos = [];
+      try {
+        const indexPath = `${this.activeProject.folderPath}/collection_index.json`;
+        const readResult = await _fs.readFile(indexPath);
+        if (readResult.success) {
+          objetos = JSON.parse(readResult.content).objetos || [];
+        }
+      } catch (indexError) {
+        window._maoLog(`  ℹ️ Índice de colección no legible: ${indexError.message}`);
+      }
+      
+      // Lo que el índice todavía no conoce no se pierde: se completa con la
+      // referencia en memoria, que al menos trae el nombre y la carpeta.
+      const enIndice = new Set(objetos.map(o => o.id));
+      const sueltas = (this.activeProject.analyses || [])
+        .filter(ref => !enIndice.has(ref.id))
+        .map(ref => ({
+          id: ref.id,
+          nombreObjeto: ref.nombreObjeto,
+          timestamp: ref.timestamp,
+          modo: ref.modo,
+          cara: ref.cara,
+          metricasResumen: ref.metricasResumen,
+          carpeta: ref.carpeta
+        }));
+      
       const rows = [headers.join(',')];
       
-      for (const analysis of this.activeProject.analyses) {
-        const data = analysis.data || {};
-        const metricas = data.metricas || {};
-        const resumen = analysis.metricasResumen || _extractAnalysisSummary(data);
+      for (const objeto of objetos.concat(sueltas)) {
+        const resumen = objeto.metricasResumen || {};
         const row = [
-          analysis.id,
-          data.nombreObjeto || analysis.nombreObjeto || 'SinNombre',
-          new Date(analysis.timestamp).toLocaleDateString('es-ES'),
-          analysis.modo || _normalizeAnalysisMode(data),
-          analysis.cara || _normalizeAnalysisCara(data),
-          resumen.area || 0,
+          objeto.id,
+          objeto.nombreObjeto || 'SinNombre',
+          objeto.timestamp ? new Date(objeto.timestamp).toLocaleDateString('es-ES') : '',
+          objeto.modo || 'monofacial',
+          objeto.cara || 'Mono',
+          _csvNum(resumen.area),
           resumen.medidaUnidad || 'mm²',
-          resumen.perimetro || metricas.perimeter || 0,
-          resumen.circularidad || metricas.circularity || 0,
-          resumen.elongacion || metricas.elongation || 0,
+          _csvNum(resumen.perimetro),
+          _csvNum(resumen.circularidad),
+          _csvNum(resumen.elongacion),
           resumen.clasificacionForma || 'sin_clasificar',
-          (resumen.numPerforaciones || 0) + (resumen.numHoradaciones || 0),
-          resumen.porosidad || metricas.porosidad || 0,
-          analysis.carpeta || 'N/A'
+          _csvNum(resumen.numPerforaciones) + _csvNum(resumen.numHoradaciones),
+          _csvNum(resumen.porosidad),
+          objeto.carpeta || 'N/A'
         ];
-        rows.push(row.join(','));
+        rows.push(row.map(_csvCell).join(','));
       }
       
       const csvPath = `${this.activeProject.folderPath}/resumen.csv`;
       await _fs.saveFile(csvPath, rows.join('\n'));
-      window._maoLog('  ✅ resumen.csv actualizado');
+      window._maoLog(`  ✅ resumen.csv actualizado (${objetos.length + sueltas.length} análisis)`);
     } catch (error) {
       console.warn('Error actualizando resumen.csv:', error);
     }
@@ -1835,9 +1886,12 @@ class ProjectManager {
       //    - El formato antiguo usa el ID arqueológico directamente (ej: DRG21_25069_01_ca)
       //    - Se incluyen TODAS las subcarpetas no ocultas (la presencia de metadata.json
       //      confirma si es un análisis; la lectura fallida descarta carpetas no-análisis)
+      // 'resultados' y 'aps' NO son análisis: son carpetas de artefactos derivados
+      // (exportación en lote y Procrustes). Sin excluirlas se cuentan como
+      // candidatas y, en el conteo de projects-ui.js, inflan el nº de análisis.
       const CARPETAS_SISTEMA = new Set([
         'imagenes', 'img', 'images', 'thumbnails',
-        'aps', 'cmo', '_exportados', 'exportados',
+        'resultados', 'aps', 'cmo', '_exportados', 'exportados',
         'exports', 'export', 'csv', 'pdf', 'reports',
         'temp', 'tmp', 'cache',
       ]);
@@ -2833,7 +2887,8 @@ function _buildEnrichCsvRow(ref, m) {
     _f(m.aspect_ratio, 4),
     _csvVal(m.forma_detectada),
     // — Detección —
-    _csvVal(m.detection_method),
+    // ADR-016 #5: detection_method puede venir como detectionMethod en objetos IA legacy.
+    _csvVal(m.detection_method || m.detectionMethod || m.detection_mode),
     _f(m.detection_confidence, 4),
     // ADR-017: los análisis anteriores en disco sólo tienen `detection_confidence_level`;
     // esta columna salía vacía SIEMPRE por leer únicamente la clave canónica.

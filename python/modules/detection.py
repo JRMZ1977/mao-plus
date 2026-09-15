@@ -290,19 +290,31 @@ def _aplicar_clahe(img_bgr: np.ndarray, clip_limit: float = 4.0,
     return cv2.cvtColor(cv2.merge([l_eq, a_ch, b_ch]), cv2.COLOR_LAB2BGR)
 
 
-def _build_binary_mask(img_bgr: np.ndarray, fondo: dict, zscan: "dict | None" = None) -> np.ndarray:
+def _build_binary_mask(
+    img_bgr: np.ndarray,
+    fondo: dict,
+    zscan: "dict | None" = None,
+    white_thresh_override: "float | None" = None,
+) -> np.ndarray:
     """
     Crea máscara binaria objeto=1, fondo=0.
     Estrategia 1 (fondo blanco): umbral estático por blancos absolutos — igual JS.
     Estrategia 2 (Z-scan disponible): clasificación competitiva obj vs fondo.
     Estrategia 3 (fallback): umbral Otsu sobre canal de diferencia de color.
+
+    white_thresh_override: si se provee, reemplaza el cálculo de white_thresh para
+    la Estrategia 1. Permite que contour.extract pase un umbral derivado de la imagen
+    completa (ROI-invariante) sin afectar a detect().
     """
     h, w = img_bgr.shape[:2]
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB).astype(np.float32)
 
     if fondo["es_fondo_blanco"]:
         # Caso 1 JS: blancos absolutos — umbral dinámico
-        white_thresh = max(fondo["brillo_min"] - 15, 220)
+        if white_thresh_override is not None:
+            white_thresh = white_thresh_override
+        else:
+            white_thresh = max(fondo["brillo_min"] - 15, 220)
         r, g, b = img_rgb[:, :, 0], img_rgb[:, :, 1], img_rgb[:, :, 2]
         mask = np.where(
             (r >= white_thresh) & (g >= white_thresh) & (b >= white_thresh),

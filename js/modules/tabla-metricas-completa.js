@@ -424,9 +424,9 @@ function generarSeccionFragmentacion(metricas, estiloTabla, estiloTh, estiloTd) 
             <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de área perdida</td>
           </tr>
           <tr>
-            <td style="${estiloTd}; font-weight: 600;">Pérdida Perímetro (%)</td>
-            <td style="${estiloTd}; font-weight: 700; color: ${perdidaPerimetro > 20 ? '#dc3545' : perdidaPerimetro > 10 ? '#ffc107' : '#28a745'};">${perdidaPerimetro.toFixed(2)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de perímetro afectado</td>
+            <td style="${estiloTd}; font-weight: 600;">Variación Perímetro (%)</td>
+            <td style="${estiloTd}; font-weight: 700; color: ${Math.abs(perdidaPerimetro) > 20 ? '#dc3545' : Math.abs(perdidaPerimetro) > 10 ? '#ffc107' : '#28a745'};">${perdidaPerimetro.toFixed(2)}%</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Variación vs perímetro convexo (neg. = contorno sinuoso)</td>
           </tr>
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}; font-weight: 600;">Completitud Estimada</td>
@@ -1581,9 +1581,9 @@ function generarSeccionEstadoConservacion(metricas, estiloTabla, estiloTh, estil
             <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de área perdida por fragmentación</td>
           </tr>
           <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Pérdida de Perímetro (Fragmentación)</td>
-            <td style="${estiloTd}; font-weight: 600; color: ${perdidaPerimetro < 5 ? '#28a745' : perdidaPerimetro < 15 ? '#ffc107' : '#dc3545'};">${perdidaPerimetro.toFixed(2)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de perímetro afectado</td>
+            <td style="${estiloTd}; font-weight: 600;">Variación de Perímetro</td>
+            <td style="${estiloTd}; font-weight: 600; color: ${Math.abs(perdidaPerimetro) < 5 ? '#28a745' : Math.abs(perdidaPerimetro) < 15 ? '#ffc107' : '#dc3545'};">${perdidaPerimetro.toFixed(2)}%</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Variación vs perímetro convexo (neg. = contorno sinuoso)</td>
           </tr>
           <tr>
             <td style="${estiloTd}; font-weight: 600;">Área Fragmentada Estimada</td>
@@ -1818,7 +1818,9 @@ function generarSeccionEjesOrientacion(metricas, estiloTabla, estiloTh, estiloTd
     const orientacion = metricas.eje_principal_orientacion || 'N/A';
     const anisotropia = parseFloat(metricas.eje_principal_anisotropia) || 0;
     const formaDominante = metricas.eje_principal_forma_dominante || 'N/A';
-    
+    // ADR-016 #10: p1/p2 son coordenadas 3D — ocultar en objetos 2D donde siempre son null
+    const tieneEjesReales = !!(metricas.eje_mayor_real_p1 || metricas.eje_menor_real_p1);
+
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #fd7e14;">
         ${encabezadoDe('ejes_orientacion')}
@@ -1862,20 +1864,21 @@ function generarSeccionEjesOrientacion(metricas, estiloTabla, estiloTh, estiloTd
             <td style="${estiloTd}">${formaDominante}</td>
             <td style="${estiloTd}; font-size: 12px;">Basado en relación de ejes</td>
           </tr>
+          ${tieneEjesReales ? `
           <tr style="background: #f8f9fa;">
             <td style="${estiloTd}">Ejes Reales (p1)</td>
             <td style="${estiloTd}; font-size: 11px;" colspan="2">
-              Mayor: [${metricas.eje_mayor_real_p1 ? `${metricas.eje_mayor_real_p1[0].toFixed(1)}, ${metricas.eje_mayor_real_p1[1].toFixed(1)}` : 'N/A'}] • 
+              Mayor: [${metricas.eje_mayor_real_p1 ? `${metricas.eje_mayor_real_p1[0].toFixed(1)}, ${metricas.eje_mayor_real_p1[1].toFixed(1)}` : 'N/A'}] •
               Menor: [${metricas.eje_menor_real_p1 ? `${metricas.eje_menor_real_p1[0].toFixed(1)}, ${metricas.eje_menor_real_p1[1].toFixed(1)}` : 'N/A'}]
             </td>
           </tr>
           <tr>
             <td style="${estiloTd}">Ejes Reales (p2)</td>
             <td style="${estiloTd}; font-size: 11px;" colspan="2">
-              Mayor: [${metricas.eje_mayor_real_p2 ? `${metricas.eje_mayor_real_p2[0].toFixed(1)}, ${metricas.eje_mayor_real_p2[1].toFixed(1)}` : 'N/A'}] • 
+              Mayor: [${metricas.eje_mayor_real_p2 ? `${metricas.eje_mayor_real_p2[0].toFixed(1)}, ${metricas.eje_mayor_real_p2[1].toFixed(1)}` : 'N/A'}] •
               Menor: [${metricas.eje_menor_real_p2 ? `${metricas.eje_menor_real_p2[0].toFixed(1)}, ${metricas.eje_menor_real_p2[1].toFixed(1)}` : 'N/A'}]
             </td>
-          </tr>
+          </tr>` : ''}
         </tbody>
       </table>
     `;
@@ -2291,6 +2294,9 @@ function generarSeccionSimetria(metricas, estiloTabla, estiloTh, estiloTd) {
     const simetriaBilateral = parseFloat(metricas.simetria_bilateral) || 0;
     const clasificacion = metricas.simetria_clasificacion || 'No clasificada';
     const distanciaAsimetria = parseFloat(metricas.simetria_distancia_asimetria) || 0;
+    // ADR-016 #11: contextualizar la distancia de asimetría vs el tamaño del objeto
+    const ejeMayorRef = parseFloat(metricas.eje_mayor_real_longitud || metricas.eje_mayor) || 0;
+    const distPct = ejeMayorRef > 0 ? (distanciaAsimetria / ejeMayorRef * 100) : null;
     
     // Color según nivel de simetría
     let colorSimetria = '#dc3545';
@@ -2330,8 +2336,8 @@ function generarSeccionSimetria(metricas, estiloTabla, estiloTh, estiloTd) {
           </tr>
           <tr>
             <td style="${estiloTd}">Distancia de Asimetría</td>
-            <td style="${estiloTd}">${distanciaAsimetria.toFixed(2)} mm</td>
-            <td style="${estiloTd}; font-size: 12px;">Desplazamiento del eje de simetría</td>
+            <td style="${estiloTd}">${distanciaAsimetria.toFixed(2)} mm${distPct !== null ? ` <span style="color:#6c757d;font-size:11px;">(${distPct.toFixed(1)}% del eje mayor)</span>` : ''}</td>
+            <td style="${estiloTd}; font-size: 12px;">Residuo Hausdorff promedio respecto al radio medio del contorno</td>
           </tr>
         </tbody>
       </table>

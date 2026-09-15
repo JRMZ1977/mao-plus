@@ -2,15 +2,13 @@
 
 **Version:** 1.2.0  
 **Last Updated:** 2026-06-07  
-**Status:** Production-Ready (v1.0 contract frozen)
+**Status:** Production-Ready
 
 ---
 
 ## Overview
 
 MAO Plus is a desktop application (Electron + FastAPI) for **bilateral morphometric analysis** of archaeological stone tool bifacial surfaces. It measures symmetry indices, morphometric properties, and provides statistical comparison across multiple objects.
-
-This version aligns mathematically with **MAO_A** through a formal shared contract ensuring reproducible, interoperable results across platforms.
 
 ---
 
@@ -41,7 +39,7 @@ npm start
 
 The application launches at `http://localhost:3000` (Electron) with backend at `http://localhost:8000` (FastAPI).
 
-> **Phase 2 note:** `js/analysis-core.js` no longer contains the analysis logic directly — it delegates to ES6 modules in `js/modules/`. See [MODULES.md](MODULES.md) for the full module reference.
+> **Phase 2 note:** `js/analysis-core.js` no longer contains the analysis logic directly — it delegates to ES6 modules in `js/modules/`. See [MODULES.md](docs/arquitectura/MODULES.md) for the full module reference.
 
 ### Lanzador de desarrollo (macOS · icono/Dock)
 
@@ -151,18 +149,9 @@ ergonomía de desarrollo.
 
 ### For Developers
 
-- **[Developer Guide — Shared Contract](docs/DEVELOPER_GUIDE_SHARED_CONTRACT.md)** ⭐ **Start here**
-  - Canonical field names (what's what)
-  - Guaranteed parity endpoints (MAO_Plus ↔ MAO_A)
-  - Legacy aliases (how to read old data)
-  - JSON schema examples
-  - Testing parity manually
-
-- **[Technical Contract v1](docs/CONTRATO_COMPAGINACION_MAO_PLUS_MAO_A_v1.md)**
-  - Detailed specification of shared modules
-  - Remediationplans and governance rules
-  - Risk assessment
-  - Environment flags
+- **[ADR status](docs/ESTADO-ADRS.md)** ⭐ **Start here** — every architecture decision and its real implementation state
+- **[ARCHITECTURE.md](docs/arquitectura/ARCHITECTURE.md)** and **[MODULES.md](docs/arquitectura/MODULES.md)** — system and module reference
+- **[FORMULAS_METRICAS_MAO.html](docs/guias/FORMULAS_METRICAS_MAO.html)** — metric formulas specification
 
 ### For Users
 
@@ -190,9 +179,7 @@ ergonomía de desarrollo.
 
 ---
 
-## Data Format: Canonical Schema v1
-
-All outputs follow the **frozen schema v1** as documented in [Developer Guide](docs/DEVELOPER_GUIDE_SHARED_CONTRACT.md).
+## Data Format
 
 ### Example: `/api/bifacial` Response
 
@@ -238,8 +225,8 @@ Phase 2 (completed 2026-06-07) refactored the frontend analysis code from a sing
 - **What changed:** `js/analysis-core.js` was split into `js/modules/` — 10 modules covering geometry, contour processing, metrics, classification, orchestration, visualization, and export.
 - **What stayed the same:** All public behavior, the Python backend, and the v1 canonical schema are unchanged.
 - **References:**
-  - [MODULES.md](MODULES.md) — per-module reference, dependency matrix, load order, and extension guidelines
-  - [ARCHITECTURE.md](ARCHITECTURE.md) — overall system architecture and Phase 2 metrics
+  - [MODULES.md](docs/arquitectura/MODULES.md) — per-module reference, dependency matrix, load order, and extension guidelines
+  - [ARCHITECTURE.md](docs/arquitectura/ARCHITECTURE.md) — overall system architecture and Phase 2 metrics
 
 ---
 
@@ -285,11 +272,13 @@ MAO PLUS_PY_01/
 │       └── ...
 ├── tests/                  # Pytest suite
 │   ├── test_metrics.py
-│   ├── test_bifacial_parity_v2.py  # Parity validation (v1)
 │   └── ...
 ├── docs/
-│   ├── DEVELOPER_GUIDE_SHARED_CONTRACT.md  ⭐ Developer documentation
-│   ├── CONTRATO_COMPAGINACION_MAO_PLUS_MAO_A_v1.md
+│   ├── ESTADO-ADRS.md      ⭐ ADR implementation status
+│   ├── ADR-*.md            # Architecture decision records
+│   ├── arquitectura/       # Architecture and module reference
+│   ├── auditorias/         # Code audits
+│   ├── guias/              # HTML guides (metrics, formulas, glossary)
 │   └── ...
 └── requirements.txt        # Python dependencies
 ```
@@ -318,37 +307,26 @@ python3 -m venv .venv && .venv/bin/python -m pip install -r requirements-runtime
 
 ```bash
 npm run test:esm    # parseo como módulo — detecta lo que node -c no ve
-npm run test:js     # contratos window.* + comportamiento de shape-classification
+npm run test:js     # contratos window.* + clasificación de forma + exportación
 npm run test:py     # suite pytest (tests/ + python/tests/)
 ```
 
-Los 2 tests saltados son `test_bifacial_parity{,_v2}`: exigen el checkout externo `MAO_A`. CI
-falla si aparecen saltos **nuevos**, que suelen ser tests desactivados sin querer.
-
-### Parity Validation (Manual)
-
-```python
-# See docs/DEVELOPER_GUIDE_SHARED_CONTRACT.md section 6
-# Verify bifacial() produces identical results across repos
-```
+La suite no tiene saltos permanentes: los tests de paridad con `MAO_A` se retiraron junto con ese
+proyecto. CI falla si aparece un salto, que suele ser un test desactivado sin querer.
 
 ---
 
 ## Known Limitations & Future Work
 
-### Current (v1.0 — Frozen)
+### Current
 
-- ✅ Canonical core shared with MAO_A
 - ✅ Bilateral symmetry analysis (legacy + extended CI/CMS)
 - ✅ Perforation analysis
 - ✅ Basic PCA and statistics
-- ❌ Online projects (extension in MAO_A only, not ported to MAO_Plus)
 - ❌ Advanced Procrustes with TPS (reference only in procrustes.js)
 
 ### Planned (Post-v1)
 
-- Extract shared modules to package for easier sync
-- Automated CI/CD parity gate
 - Web-based version (currently Electron desktop only)
 - Multi-language UI (currently Spanish/English)
 
@@ -356,19 +334,7 @@ falla si aparecen saltos **nuevos**, que suelen ser tests desactivados sin quere
 
 ## Contributing
 
-**Before modifying shared modules**, please read:
-
-1. **[Developer Guide](docs/DEVELOPER_GUIDE_SHARED_CONTRACT.md)** — Contract rules and field naming
-2. **[Technical Contract](docs/CONTRATO_COMPAGINACION_MAO_PLUS_MAO_A_v1.md)** — Governance and coordination
-
-**Shared modules** (must coordinate across repos):
-- `python/modules/metrics.py`
-- `python/modules/analysis.py`
-- `python/modules/mao_ia_analyzer.py`
-
-**Repository-specific** (independent):
-- `js/analysis-core.js`, `js/project-manager.js`, etc.
-- `python/modules/scale.py`, `python/modules/detection.py`, etc.
+Before changing a metric or the analysis flow, check [docs/ESTADO-ADRS.md](docs/ESTADO-ADRS.md) for the decision that governs that part, and run the test suite.
 
 ---
 
@@ -380,7 +346,6 @@ falla si aparecen saltos **nuevos**, que suelen ser tests desactivados sin quere
 
 ## Support & Issues
 
-- **Parity issues:** See [Troubleshooting section](docs/DEVELOPER_GUIDE_SHARED_CONTRACT.md#8-troubleshooting-parity-issues) in Developer Guide
 - **Bug reports:** Include schema version (`GET /api/health`)
 - **Feature requests:** Reference [Planned Work](#planned-post-v1) section
 
@@ -391,8 +356,8 @@ falla si aparecen saltos **nuevos**, que suelen ser tests desactivados sin quere
 ### v1.2.0 (2026-06-07)
 
 - ✅ Phase 2 complete: `analysis-core.js` split into 10 ES6 modules in `js/modules/`
-- ✅ Module reference published ([MODULES.md](MODULES.md))
-- ✅ Architecture documentation updated ([ARCHITECTURE.md](ARCHITECTURE.md))
+- ✅ Module reference published ([MODULES.md](docs/arquitectura/MODULES.md))
+- ✅ Architecture documentation updated ([ARCHITECTURE.md](docs/arquitectura/ARCHITECTURE.md))
 - ✅ Zero behavioral changes — all public APIs and schema v1 preserved
 
 ### v1.0 (2026-04-27)

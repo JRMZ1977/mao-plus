@@ -197,6 +197,7 @@ def calculate(
     obj_centroide_x: Optional[float] = None,
     obj_centroide_y: Optional[float] = None,
     image_bytes: Optional[bytes] = None,
+    perfil_calibracion: Optional[dict] = None,
 ) -> dict:
     """
     Calcula la escala px→mm y el error óptico posicional.
@@ -307,13 +308,37 @@ def calculate(
     # ── 5. Error óptico posicional (Sección IX) ───────────────────────────
     cx = obj_centroide_x if obj_centroide_x is not None else (img_w_px / 2)
     cy = obj_centroide_y if obj_centroide_y is not None else (img_h_px / 2 if img_h_px else img_w_px / 2)
-    result["error_optico"] = _estimar_error_optico(
-        cx=cx, cy=cy,
-        img_w=img_w_px, img_h=img_h_px or img_w_px,
-        focal_mm=focal_mm,
-        sensor_w_mm=sensor_w_mm,
-        sensor_h_mm=sensor_h_mm,
-    )
+
+    # ADR-015 B1: usar perfil de calibración real si está disponible;
+    # fallback a la tabla FOV cuando no hay perfil (incertidumbre ±30%).
+    if perfil_calibracion is not None:
+        try:
+            from python.modules.optical_calibration import calcular_error_optico_calibrado
+            result["error_optico"] = calcular_error_optico_calibrado(
+                cx=cx, cy=cy,
+                img_w=img_w_px, img_h=img_h_px or img_w_px,
+                focal_mm=focal_mm,
+                sensor_w_mm=sensor_w_mm,
+                sensor_h_mm=sensor_h_mm,
+                perfil=perfil_calibracion,
+            )
+        except Exception:
+            # Si el perfil falla por algún motivo, caer al camino FOV
+            result["error_optico"] = _estimar_error_optico(
+                cx=cx, cy=cy,
+                img_w=img_w_px, img_h=img_h_px or img_w_px,
+                focal_mm=focal_mm,
+                sensor_w_mm=sensor_w_mm,
+                sensor_h_mm=sensor_h_mm,
+            )
+    else:
+        result["error_optico"] = _estimar_error_optico(
+            cx=cx, cy=cy,
+            img_w=img_w_px, img_h=img_h_px or img_w_px,
+            focal_mm=focal_mm,
+            sensor_w_mm=sensor_w_mm,
+            sensor_h_mm=sensor_h_mm,
+        )
 
     return result
 

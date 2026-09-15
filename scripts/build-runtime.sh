@@ -74,7 +74,7 @@ rm -rf "$RUNTIME_DIR/lib/python3.9/test" \
 
 # ── 5. Verificación de integridad ────────────────────────────────────────────
 log "Verificando que el runtime importa todo lo necesario…"
-"$PYBIN" -c "import cv2, numpy, scipy, skimage, shapely, trimesh, onnxruntime, fastapi, uvicorn, sklearn, PIL, yaml; print('  imports OK')" \
+"$PYBIN" -c "import cv2, numpy, scipy, skimage, shapely, trimesh, onnxruntime, fastapi, uvicorn, sklearn, PIL, yaml, piexif; print('  imports OK')" \
   || err "El runtime podado no puede importar una dependencia de runtime — revisa la poda."
 
 log "Tamaño final: $(du -sh "$RUNTIME_DIR" | cut -f1)"

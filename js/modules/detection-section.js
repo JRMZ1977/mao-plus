@@ -28,7 +28,9 @@ const METODO_LABEL = {
 /** Rótulo humano del método, tolerante con los valores crudos legacy. */
 export function metodoLegible(metricas) {
   const m = metricas || {};
-  const canon = m.detection_method;
+  // ADR-016 #5: los objetos IA guardados antes del contrato ADR-007/008 traen la
+  // clave como `detectionMethod` o `detection_mode` en su metricas.json.
+  const canon = m.detection_method || m.detectionMethod || m.detection_mode;
   if (canon && METODO_LABEL[canon]) return METODO_LABEL[canon];
   if (canon) return String(canon);
   return null;

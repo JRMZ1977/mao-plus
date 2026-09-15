@@ -30,7 +30,7 @@ from fastapi import HTTPException
 
 from python.modules.detection import (
     _bytes_to_cv, _detectar_color_fondo, _build_binary_mask,
-    _zscan_color_analysis, _aplicar_clahe, _grabcut_mask,
+    _zscan_color_analysis, _aplicar_clahe,
     _confianza_objeto, detect_holes,
 )
 
@@ -407,7 +407,30 @@ async def extract(
         except Exception:
             zscan_roi = None
 
-    mask = _build_binary_mask(roi_for_mask, fondo, zscan_roi)    # objeto=1, fondo=0
+    # ── ADR-013 F2: umbral ROI-invariante para fondo blanco ──────────────────
+    # Para fondo blanco, el umbral `brillo_min - 15` de _build_binary_mask
+    # depende de img_full (ya estable), pero la zona de penumbra en el borde
+    # del objeto puede variar si GrabCut se activaba (no-determinista).
+    # Mejora: intentar Otsu sobre el gris del ROI → umbral adaptado al valle
+    # real del histograma de este encuadre. Si produce cobertura razonable,
+    # se usa como white_thresh_override (aislado en contour.extract, sin afectar
+    # detect()). Falla-con-gracia: si Otsu no produce cobertura válida, usa el
+    # umbral estándar (fondo["brillo_min"]-15).
+    white_thresh_override = None
+    if fondo["es_fondo_blanco"]:
+        try:
+            _gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            _otsu_t, _ = cv2.threshold(_gray_roi, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            # Píxeles < otsu_t → objeto (oscuro); >= otsu_t → fondo (blanco)
+            _otsu_obj_px = int((_gray_roi < _otsu_t).sum())
+            _otsu_coverage = _otsu_obj_px / max(1, _gray_roi.size)
+            # Aceptar Otsu si: cobertura razonable Y umbral indica valle real (≥80)
+            if 0.04 < _otsu_coverage < 0.65 and _otsu_t >= 80:
+                white_thresh_override = float(_otsu_t)
+        except Exception:
+            pass  # falla silenciosamente → usa white_thresh estándar
+
+    mask = _build_binary_mask(roi_for_mask, fondo, zscan_roi, white_thresh_override)    # objeto=1, fondo=0
     mask_u8 = (mask * 255).astype(np.uint8)
 
     # Snapshot de la máscara con los HUECOS PRESERVADOS (antes del MORPH_CLOSE del
@@ -421,33 +444,49 @@ async def extract(
     mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_CLOSE, kernel, iterations=iters)
     mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_OPEN,  kernel, iterations=iters)
 
-    # ── GrabCut fallback: cobertura anómala indica máscara invertida ─────────
-    # Cobertura > 92%: máscara probablemente invertida (objeto=fondo detectado).
-    # Cobertura < 4%:  máscara vacía (objeto no detectado).
-    # GrabCut usa la máscara inicial como hint (GC_INIT_WITH_MASK) para refinar.
-    _grabcut_usado = False
+    # ── ADR-013 F2: fallback determinista — reemplaza GrabCut ───────────────
+    # GrabCut era no-determinista (GMM con estado interno aleatorio) y violaba
+    # el invariante (a) de replicabilidad. Sustituido por dos fallbacks puros:
+    #   · >92% cobertura → probable máscara invertida → invertir (determinista)
+    #   · <4%  cobertura → máscara vacía → Otsu sobre gris (determinista)
+    # Si ninguno produce cobertura válida, se conserva la máscara original.
+    _fallback_usado = False
+    _fallback_metodo = None
     roi_px = bw * bh
     if roi_px > 0:
         coverage = float((mask_u8 > 0).sum()) / roi_px
-        if coverage > 0.92 or coverage < 0.04:
-            try:
-                gc_result = _grabcut_mask(roi, initial_mask_u8=mask_u8)
-                gc_u8 = (gc_result * 255).astype(np.uint8)
-                gc_coverage = float((gc_u8 > 0).sum()) / roi_px
-                if 0.04 < gc_coverage < 0.92:
-                    # GrabCut produjo cobertura razonable → limpiar y adoptar
-                    gc_u8 = cv2.morphologyEx(gc_u8, cv2.MORPH_CLOSE, kernel, iterations=iters)
-                    gc_u8 = cv2.morphologyEx(gc_u8, cv2.MORPH_OPEN,  kernel, iterations=iters)
-                    mask_u8 = gc_u8
-                    _grabcut_usado = True
-            except Exception:
-                pass  # fallback: continúa con la máscara original
+        if coverage > 0.92:
+            # Probable inversión (objeto claro detectado como fondo)
+            inv_u8 = 255 - mask_u8
+            inv_coverage = float((inv_u8 > 0).sum()) / roi_px
+            if 0.04 < inv_coverage < 0.92:
+                inv_u8 = cv2.morphologyEx(inv_u8, cv2.MORPH_CLOSE, kernel, iterations=iters)
+                inv_u8 = cv2.morphologyEx(inv_u8, cv2.MORPH_OPEN,  kernel, iterations=iters)
+                mask_u8 = inv_u8
+                _fallback_usado = True
+                _fallback_metodo = "inversion"
+        elif coverage < 0.04:
+            # Máscara vacía → Otsu sobre gris (THRESH_BINARY_INV: oscuro=objeto)
+            _gray_fb = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            _, otsu_fb = cv2.threshold(_gray_fb, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+            otsu_coverage = float((otsu_fb > 0).sum()) / roi_px
+            if 0.04 < otsu_coverage < 0.92:
+                otsu_fb = cv2.morphologyEx(otsu_fb, cv2.MORPH_CLOSE, kernel, iterations=iters)
+                otsu_fb = cv2.morphologyEx(otsu_fb, cv2.MORPH_OPEN,  kernel, iterations=iters)
+                mask_u8 = otsu_fb
+                _fallback_usado = True
+                _fallback_metodo = "otsu_gris"
 
+    _otsu_thresh_label = (
+        f"_otsu{int(white_thresh_override)}" if white_thresh_override is not None else ""
+    )
     metodo = (
-        "python_grabcut"               if _grabcut_usado
-        else "python_blancos_absolutos" if fondo["es_fondo_blanco"]
-        else "python_zscan_lc_clahe"   if (zscan_roi is not None and roi_for_mask is not roi)
-        else "python_zscan_competitivo" if zscan_roi is not None
+        "python_contour_inv"              if (_fallback_usado and _fallback_metodo == "inversion")
+        else "python_contour_otsu_gris"   if (_fallback_usado and _fallback_metodo == "otsu_gris")
+        else f"python_blancos_otsu{int(white_thresh_override)}" if (fondo["es_fondo_blanco"] and white_thresh_override is not None)
+        else "python_blancos_absolutos"   if fondo["es_fondo_blanco"]
+        else "python_zscan_lc_clahe"      if (zscan_roi is not None and roi_for_mask is not roi)
+        else "python_zscan_competitivo"   if zscan_roi is not None
         else "python_adaptativo"
     )
 
@@ -600,7 +639,7 @@ async def extract(
     # área neta; el usuario las confirma y tipa. Si GrabCut reemplazó la máscara
     # (cobertura anómala) la detección de huecos no es fiable → se omite.
     ph_candidates: list = []
-    if not _grabcut_usado:
+    if not _fallback_usado:
         try:
             ph_candidates = detect_holes(mask_raw_holes, offset_xy=(x, y), roi_bgr=roi)
         except Exception:
