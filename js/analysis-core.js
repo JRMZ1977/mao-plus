@@ -158,6 +158,14 @@ if (typeof window !== 'undefined') {
   // exportaciones (ver AUDITORIA_COHERENCIA_20260731.md §3.1). La propiedad se inicializa
   // aquí, antes de que se invoque cualquier función que la consuma.
   window.currentAnalyzedObject = null; // Objeto actualmente en análisis morfológico
+  // Avisos del modo Geometría Manual: su código llamaba a `mostrarToast`/`showToast`,
+  // que no existieron nunca — el ReferenceError abortaba el manejador en vez de avisar.
+  const mostrarToast = (mensaje, tipo = 'info') => {
+    const t = window.toast;
+    if (t && typeof t[tipo] === 'function') t[tipo](mensaje);
+    else console.log(`[${tipo}] ${mensaje}`);
+  };
+  const showToast = mostrarToast;
   // Getters para mao-ia.js (que no puede acceder a las vars locales del IIFE)
   window._maoGetImage      = () => image;
   window._maoGetImageCaraA = () => imageCaraA;
@@ -1832,8 +1840,12 @@ if (typeof window !== 'undefined') {
       return null;
     }
     
-    // Calcular métricas
-    const metrics = calcularMetricasCompletas(contorno, width, height, binaryMask);
+    // Calcular métricas — mismas que la ruta canónica extraerContornoReal.
+    // Antes llamaba a `calcularMetricasCompletas`, que no existió nunca: con 2+ objetos
+    // pegados en modo solo-JS, el clic sobre uno lanzaba ReferenceError (promesa
+    // rechazada sin capturar) y la selección no hacía nada.
+    const metrics = calcularMetricasContorno(contorno, obj);
+    if (metrics) metrics.quality = ContourQuality.evaluarCalidadContorno(contorno, obj);
     
     if (!metrics) {
       console.error('❌ No se pudieron calcular métricas del contorno');
@@ -36614,13 +36626,13 @@ if (typeof window !== 'undefined') {
       console.log('📐 Botón "Geometría Manual" clickeado');
       
       // Verificar que hay un objeto en análisis morfológico
-      if (!currentAnalyzedObject?.obj && !currentAnalyzedObjectCaraA?.obj && !currentAnalyzedObjectCaraB?.obj) {
+      if (!currentAnalyzedObject?.obj && !window.currentAnalyzedObjectCaraA?.obj && !window.currentAnalyzedObjectCaraB?.obj) {
         showToast('Debe ejecutar el análisis morfológico de un objeto primero', 'warning');
         return;
       }
       
       // Obtener el objeto del análisis morfológico actual
-      const obj = currentAnalyzedObject?.obj || currentAnalyzedObjectCaraA?.obj || currentAnalyzedObjectCaraB?.obj;
+      const obj = currentAnalyzedObject?.obj || window.currentAnalyzedObjectCaraA?.obj || window.currentAnalyzedObjectCaraB?.obj;
       
       console.log('✅ Abriendo Geometría Manual para objeto del análisis morfológico:', obj.id);
       mostrarGeometriaManual(obj);
@@ -38237,7 +38249,8 @@ if (typeof window !== 'undefined') {
     
     // Convertir a unidades métricas usando la escala del objeto
     let distanciaMetrica = '';
-    const obj = modo === 'monofacial' ? geometrySelectedObject : (geometryBifacialData ? geometryBifacialData[0] : null);
+    // `geometryBifacialData` no se declaró nunca: leída a pelo lanzaba ReferenceError en modo bifacial.
+    const obj = modo === 'monofacial' ? geometrySelectedObject : (window.geometryBifacialData ? window.geometryBifacialData[0] : null);
     
     if (obj && obj.pixelesPorCm) {
       const distanciaCm = distanciaPx / obj.pixelesPorCm;
@@ -43800,8 +43813,9 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
 
     // --- PASO 2: Limpiar objetos detectados y análisis ---
     objects = [];
-    selectedObject = null;
-    hoveredObject = null;
+    // (Aquí se asignaban `selectedObject`/`hoveredObject`, sin declarar en ningún sitio:
+    //  en un módulo ES eso lanza ReferenceError y abortaba «Nuevo análisis» en este
+    //  paso — la escala, los análisis previos y los metadatos EXIF quedaban vivos.)
     if (typeof analisisMorfologicos !== 'undefined') {
       analisisMorfologicos.objetosMonofaciales = [];
       analisisMorfologicos.objetosBifaciales = [];

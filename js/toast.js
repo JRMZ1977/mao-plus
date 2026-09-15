@@ -64,3 +64,7 @@ class ToastManager {
 
 // Crear instancia global
 const toast = new ToastManager();
+// `const` en un script clásico crea un binding global, pero NO una propiedad de
+// `window`. MaoOrganizer.toast() y los adaptadores de analysis-core leen
+// `window.toast`: sin esta línea todos sus avisos eran no-ops silenciosos.
+window.toast = toast;
