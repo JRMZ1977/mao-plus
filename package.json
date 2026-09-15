@@ -7,7 +7,8 @@
     "start": "electron .",
     "dev": "electron . --enable-logging",
     "package": "electron-builder --mac",
-    "launcher": "bash scripts/build-dev-launcher.sh"
+    "launcher": "bash scripts/build-dev-launcher.sh",
+    "test:js": "node tests/test_efa_tps_export.js && node tests/test_bifacial_export.js && node tests/test_export_destino.js"
   },
   "keywords": [
     "electron",

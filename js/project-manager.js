@@ -417,8 +417,19 @@ class ProjectManager {
     // String(): nombreObjeto/id pueden ser numéricos (obj.id de detección automática) → .replace lanzaría.
     const nombreSanitizado = String(nombreObjeto).replace(/[^a-z0-9]/gi, '_').substring(0, 30);
     
-    // Nombre de carpeta: ID arqueológico del objeto (ej: QP1_U1_N1_E1_01_ca)
-    const idArqueologico = String(analysis.data?.id ?? '').replace(/[^a-zA-Z0-9_-]/g, '_') || null;
+    // Nombre de carpeta: ID arqueológico del objeto (ej: QP1_U1_N1_E1_01_ca).
+    //
+    // Prioridad `data.idArqueologico` (2026-09-13): es el ID SELLADO en el análisis,
+    // la misma fuente que usan la carpeta de resultados y los nombres de archivo.
+    // Sin él ambas rutas divergían: el análisis caía en `<proyecto>/1/` y sus
+    // exportables en `<proyecto>/resultados/QP1_U1_N1_E1_01/` — no eran hermanas.
+    //
+    // String(): `data.id` es NUMÉRICO en el flujo de detección automática y el `?.`
+    // no protege (1 es truthy), así que `1?.replace` lanzaba TypeError, lo tragaba
+    // el try/catch de esta función y el guardado fallaba con «Error al guardar
+    // archivos». Mismo defecto sistémico corregido en la ruta de exportación.
+    const idArqueologico = String(analysis.data?.idArqueologico ?? analysis.data?.id ?? '')
+      .replace(/[^a-zA-Z0-9_-]/g, '_');
     const analysisFolderName = idArqueologico || `${nombreSanitizado}_${analysisNumber}`;
     const analysisFolderPath = `${projectFolder}/${analysisFolderName}`;
     
@@ -1844,9 +1855,12 @@ class ProjectManager {
       //    - El formato antiguo usa el ID arqueológico directamente (ej: DRG21_25069_01_ca)
       //    - Se incluyen TODAS las subcarpetas no ocultas (la presencia de metadata.json
       //      confirma si es un análisis; la lectura fallida descarta carpetas no-análisis)
+      // 'resultados' y 'aps' NO son análisis: son carpetas de artefactos derivados
+      // (exportación en lote y Procrustes). Sin excluirlas se cuentan como
+      // candidatas y, en el conteo de projects-ui.js, inflan el nº de análisis.
       const CARPETAS_SISTEMA = new Set([
         'imagenes', 'img', 'images', 'thumbnails',
-        'aps', 'cmo', '_exportados', 'exportados',
+        'resultados', 'aps', 'cmo', '_exportados', 'exportados',
         'exports', 'export', 'csv', 'pdf', 'reports',
         'temp', 'tmp', 'cache',
       ]);

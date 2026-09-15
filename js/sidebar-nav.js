@@ -154,6 +154,7 @@
     const pairs = [
       ['sidebarPerforacionesBtn',        'trazarPerforacionesBtn'],
       ['sidebarAbrirComparadorBtn',       'abrirComparadorBtn'],
+      ['sidebarExportTodoBtn',            'exportarTodoLoteBtn'],
       ['sidebarExportCSVBtn',             'exportarAnalisisCompletoBtn'],
       ['sidebarExportPDFBtn',             'exportarPDFIntegralBtn'],
       ['sidebarExportSVGBtn',             'exportarSVGVectorialBtn'],

@@ -143,6 +143,12 @@
       phBtn.addEventListener('click', lanzarModalPH);
       phBox.appendChild(phBtn);
       hdr.appendChild(phBox);
+      /* P4 — chip «listo para exportar». Va DESPUÉS del de P/H a propósito: el
+         updater usa querySelector('.laar-chip') para aquél, y el primero en el DOM
+         debe seguir siendo el suyo. Éste se localiza por su clase propia. */
+      var expBox = el('span', 'adr2-h-export');
+      expBox.appendChild(el('span', 'adr2-chip-export laar-chip'));
+      hdr.appendChild(expBox);
       var tablaBtn = el('button', 'adr2-btn-tabla', 'Tabla completa ›');
       tablaBtn.type = 'button';
       tablaBtn.addEventListener('click', abrirTablaCompleta);
@@ -185,6 +191,44 @@
     set('.laar-chip', 'textContent', chipTxt);
     set('.laar-chip', 'className', chipCls);
     set('.adr2-btn-ph', 'textContent', btnTxt);
+
+    /* ── P4 · ¿exportar ahora produciría una carpeta completa? ──────────────
+       Dice ANTES lo que el manifiesto sólo registra DESPUÉS. Dos cosas pueden
+       dejar huecos sin que nada avise: que el EFA aún no haya resuelto (es
+       asíncrono → landmarks/ saldría vacío) y que queden candidatos P/H de
+       ADR-009 sin confirmar (no se exportan hasta que el humano los tipa). */
+    var exp = estadoExportacion(obj, met, st);
+    set('.adr2-chip-export', 'textContent', exp.txt);
+    set('.adr2-chip-export', 'className', 'adr2-chip-export ' + exp.cls);
+    set('.adr2-chip-export', 'title', exp.ayuda);
+  }
+
+  /**
+   * Estado de preparación para exportar. Prioridad: EFA (afecta a todo el
+   * subdirectorio landmarks/) → candidatos P/H → listo.
+   */
+  function estadoExportacion(obj, met, st) {
+    var bridge = window.PythonBridge;
+    var efaActivo = !(bridge && typeof bridge.isModuleActive === 'function') ||
+                    bridge.isModuleActive('efa');
+    if (!efaActivo) {
+      return { txt: 'Exportar: sin EFA',
+               cls: 'laar-chip laar-chip--none',
+               ayuda: 'El módulo EFA del backend Python no está activo: la exportación no incluirá landmarks TPS ni coeficientes de Fourier.' };
+    }
+    if (!met || !met._efa_data) {
+      return { txt: 'Exportar: EFA pendiente',
+               cls: 'laar-chip laar-chip--wa',
+               ayuda: 'Los descriptores de Fourier aún se están calculando. Exportar ahora dejaría la carpeta landmarks/ vacía.' };
+    }
+    if (st && st.key === 'candidatos') {
+      return { txt: 'Exportar: ' + st.nC + ' P/H sin confirmar',
+               cls: 'laar-chip laar-chip--wa',
+               ayuda: 'Hay candidatos de P/H detectados sin confirmar. Sólo se exportan las P/H confirmadas: revísalos antes de exportar.' };
+    }
+    return { txt: 'Listo para exportar',
+             cls: 'laar-chip laar-chip--ok',
+             ayuda: 'Contorno y P/H resueltos: la exportación producirá la carpeta de resultados completa.' };
   }
 
   /* ── §2 P/H: tarjeta de estado (los «Resumen de…» renderizados se le unen) ── */
@@ -393,10 +437,21 @@
   function schedule() {
     if (scheduled) return;
     scheduled = true;
-    requestAnimationFrame(function () {
+    /* rAF NO dispara en ventanas ocultas/minimizadas. Con el patrón anterior una
+       sola pasada perdida dejaba `scheduled` en true de forma indefinida y el
+       organizer se quedaba mudo el resto de la sesión: la cabecera no volvía a
+       refrescarse aunque los datos cambiaran. Se corre lo primero que llegue —
+       rAF (pinta antes del frame) o el temporizador de respaldo— y `ejecutar` es
+       idempotente, así que la segunda llegada no hace nada. */
+    var hecho = false;
+    var ejecutar = function () {
+      if (hecho) return;
+      hecho = true;
       scheduled = false;
       try { organize(); } catch (e) { console.warn('[ADR2] organize falló:', e); }
-    });
+    };
+    requestAnimationFrame(ejecutar);
+    setTimeout(ejecutar, 250);
   }
 
   function organize() {
@@ -419,14 +474,23 @@
   }
 
   function boot() {
-    var mm = $('morphologicalMetrics');
-    if (!mm) return;
-    new MutationObserver(schedule).observe(mm, { childList: true, subtree: false });
-    var efa = $('efaMetricsPanel');
-    if (efa) {
-      new MutationObserver(schedule)
-        .observe(efa, { childList: true, attributes: true, attributeFilter: ['style'] });
-    }
+    /* Observar el CONTENEDOR con subtree, no `#morphologicalMetrics` a secas.
+       El panel se re-renderiza reemplazando nodos internos, así que un observador
+       enganchado al nodo hijo quedaba HUÉRFANO tras el primer re-render: seguía
+       vigilando un elemento ya desconectado del documento y no volvía a disparar.
+       Ése era el origen real de la cabecera obsoleta — `adr2-on` engañaba porque
+       classList.add es sticky y probaba que organize() corrió alguna vez, no que
+       siguiera corriendo. El contenedor sí es estable durante toda la sesión. */
+    var cont = $('morphologicalAnalysisContainer');
+    if (!cont) return;
+    new MutationObserver(schedule).observe(cont, { childList: true, subtree: true });
+    /* Señales de intención, además de los observadores de DOM: el refresco pasa a
+       depender de que los datos cambien, no de que el re-render produzca una
+       mutación observable en el instante justo. `mao:ph:changed` lo emite
+       analysis-core al aplicar/confirmar/descartar trazados. */
+    ['mao:ph:changed', 'mao:objects:changed', 'mao:analysis:done']
+      .forEach(function (ev) { document.addEventListener(ev, schedule); });
+
     schedule();
     MO.log('ADR2', 'Analysis Organizer activo (Fase 2: jerarquía §1–§8 + chip P/H)');
   }
