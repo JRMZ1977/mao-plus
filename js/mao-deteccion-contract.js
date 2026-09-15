@@ -51,6 +51,78 @@
     return 'automatic';
   }
 
+  /* ── ADR-018 · procedencia del ANÁLISIS (distinta de la de detección) ──────
+   *
+   * `analysis_method` es texto libre y siete sitios lo escriben con siete
+   * cadenas distintas («Contorno Real Extraído [REAL]», «… [Python]»,
+   * «Bounding Box (Fallback) [APROXIMADO]», «MAO IA — Detección automática»,
+   * «OBJ3D + PCA», «OBJ3D + FRONT/BACK 2D HOMOLOGATED», «MAO 3D — <cara>»).
+   * Dos sitios lo comparaban por IGUALDAD, y una de esas comparaciones ya
+   * estaba muerta: `analysis-core.js` buscaba «Bounding Box (Fallback)» exacto
+   * mientras el único escritor emite «Bounding Box (Fallback) [APROXIMADO]»
+   * — el sufijo se añadió después y nadie actualizó al lector, así que el
+   * contador `sinContorno` valía 0 siempre.
+   *
+   * El campo mezcla además tres hechos ortogonales: de dónde salió el contorno,
+   * si es un fallback aproximado, y con qué modo se detectó el objeto. La
+   * cadena legible se conserva intacta (va al CSV y al informe); lo que se
+   * añade es el enum que las máquinas deben leer, igual que ADR-008 hizo con
+   * `detectionMethod` → enum + `detectionMethodRaw`.
+   *
+   * La derivación legacy usa SUBCADENA, nunca igualdad: es lo que hace que un
+   * sufijo nuevo no vuelva a matar un lector en silencio.
+   */
+  var ANALYSIS_SOURCE = {
+    CONTORNO_REAL: 'contorno_real',   // contorno extraído de verdad (JS o Python)
+    BBOX_FALLBACK: 'bbox_fallback',   // aproximación por caja: métricas degradadas
+    IA:            'ia',              // Identificación Automatizada (modal MAO IA)
+    OBJ3D:         'obj3d',           // malla 3D / homologación de caras
+  };
+
+  /**
+   * Enum canónico de procedencia del análisis. Prefiere `analysis_source`; si
+   * falta (análisis guardados en disco antes de ADR-018), lo deriva de la
+   * cadena legible por subcadena. Devuelve null si no hay nada que leer.
+   */
+  function fuenteAnalisis(m) {
+    if (!m || typeof m !== 'object') return null;
+    var canon = m.analysis_source;
+    if (canon && canon !== '') return String(canon);
+
+    var s = String(m.analysis_method || '').toLowerCase();
+    if (s === '') return null;
+    if (s.indexOf('bounding box') !== -1) return ANALYSIS_SOURCE.BBOX_FALLBACK;
+    if (s.indexOf('mao ia') !== -1)       return ANALYSIS_SOURCE.IA;
+    if (s.indexOf('obj3d') !== -1 ||
+        s.indexOf('mao 3d') !== -1)       return ANALYSIS_SOURCE.OBJ3D;
+    if (s.indexOf('contorno real') !== -1) return ANALYSIS_SOURCE.CONTORNO_REAL;
+    return null;
+  }
+
+  /**
+   * ¿El análisis se resolvió por caja envolvente en vez de por contorno real?
+   * Las métricas de forma de esos objetos son aproximaciones, no mediciones.
+   */
+  function esFallbackBBox(m) {
+    return fuenteAnalisis(m) === ANALYSIS_SOURCE.BBOX_FALLBACK;
+  }
+
+  /** ¿El objeto proviene del modal de Identificación Automatizada? */
+  function esAnalisisIA(m) {
+    return fuenteAnalisis(m) === ANALYSIS_SOURCE.IA;
+  }
+
+  /**
+   * Sella la procedencia del análisis sobre un dict de métricas, in place.
+   * Aditivo e idempotente: no toca `analysis_method` (que viaja al CSV y al
+   * informe) y no pisa un `analysis_source` ya presente.
+   */
+  function marcarFuenteAnalisis(m, fuente) {
+    if (!m || typeof m !== 'object') return m;
+    if (!m.analysis_source && fuente) m.analysis_source = fuente;
+    return m;
+  }
+
   /**
    * Normaliza UN objeto de detección in place y lo devuelve.
    * Aditivo: solo rellena lo que falta. Nunca lanza.
@@ -283,6 +355,11 @@
     normalizar: normalizar,
     normalizarLista: normalizarLista,
     modoCanonico: modoCanonico,
+    ANALYSIS_SOURCE: ANALYSIS_SOURCE,
+    fuenteAnalisis: fuenteAnalisis,
+    esFallbackBBox: esFallbackBBox,
+    esAnalisisIA: esAnalisisIA,
+    marcarFuenteAnalisis: marcarFuenteAnalisis,
     aplicarProcedencia: aplicarProcedencia,
     validar: validar,
     buildMonitorAnalisis: buildMonitorAnalisis,

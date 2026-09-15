@@ -4,6 +4,101 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 📖 Glosario canónico de métricas — ADR-018 (F0-F2 ✅, 2026-09-03)
+
+`js/modules/glossary.js` es la fuente ÚNICA de **qué significa cada número** que publica MAO.
+Hermano de `category-manifest.js` (qué secciones hay) y `morphometric_registry.py` (qué es
+homólogo 2D↔3D). Doc: `docs/ADR-018-glosario-canonico.md`.
+
+**Por qué es un módulo de datos y no un documento:** el informe tiene **dos taxonomías, a
+propósito**. ADR-011 congeló los rótulos del CSV (28 secciones en castellano llano, sin
+romanos) porque hay scripts externos que dependen de esos nombres de columna, mientras
+panel/Tabla/PDF migraron al índice canónico (I → XX-b). No mapean 1:1 — el CSV funde II con
+II-b, y publica Feret bajo «Métricas Avanzadas» aunque la Tabla lo rinda en IV. Cada entrada
+declara **a la vez** su `categoria` canónica y su columna `csv`, de modo que el glosario **es
+el puente** en vez de la tercera taxonomía divergente.
+
+| Artefacto | Qué hace |
+|---|---|
+| `js/modules/glossary.js` | 88 entradas (clave, categoría, columna CSV, fórmula, unidad, rango, interpretación, fuente, referencia) |
+| `js/modules/glossary-annex.js` | `anexoGlosarioHTML()` · `diccionarioColumnasCSV()` · `tooltipDe()` · `bibliografiaHTML()` |
+| `scripts/glosario_inventario.py` | cruza manifiesto × CSV × Tabla × registry → cobertura real (`npm run glosario:inventario`) |
+| `scripts/generar-glosario-html.mjs` | `GLOSARIO_METRICAS_MAO.html`, página autónoma (`npm run glosario`) |
+| `python/tests/test_glosario.py` | 7 pruebas de contrato; la clave es que **toda columna CSV declarada se emita de verdad** |
+
+**Cobertura:** 88 de 278 términos · 12 de 26 categorías · 73 columnas de CSV. F1 (núcleo
+morfométrico: IV, V, VI, VII, VII-b, VIII, IX, IX-b, XVII) y F2 (procedencia: I, II, II-b)
+cerradas. Pendientes F3 (P/H + bifacial), F4 (resto) y **F5 (cablear el anexo al PDF y los
+tooltips a la Tabla — hoy ningún consumidor de producción los importa)**.
+
+⚠️ **Procedencia del ANÁLISIS ≠ procedencia de la DETECCIÓN (ADR-018).** `analysis_method`
+es texto libre que **8** sitios escriben distinto y **2** comparaban por igualdad; una de esas
+comparaciones estaba **muerta** (`analysis-core.js` buscaba `"Bounding Box (Fallback)"` exacto
+y el escritor emite `'… [APROXIMADO]'` → el contador `sinContorno` valía **0 siempre**, y las
+piezas medidas por caja envolvente se reportaban como medidas sobre contorno real).
+**Corregido** con el patrón de ADR-008: enum `ANALYSIS_SOURCE`
+(`contorno_real`/`bbox_fallback`/`ia`/`obj3d`) + `fuenteAnalisis()`/`esFallbackBBox()`/
+`esAnalisisIA()` en `js/mao-deteccion-contract.js`; los 8 escritores sellan `analysis_source`
+y los 2 lectores usan los predicados. La derivación legacy va **por subcadena, nunca por
+igualdad** — eso es lo que impide que un sufijo nuevo mate otro lector en silencio.
+`analysis_method` NO cambia (viaja al CSV y al informe). Tests:
+`python/tests/test_procedencia_analisis.py` (5).
+
+🔧 **Dos correcciones de ADR-018 (salidas del informe).**
+**(a) Área neta publicada.** `area_neta`/`perimetro_neto`/`porosidad` se calculaban y persistían
+pero **ninguna salida las rendía**: el CSV daba la bruta y los totales P/H en secciones
+separadas. Ahora van **junto a la bruta** en las **6 superficies** (CSV monofacial · Tabla · **`metricas.csv`** archivado por pieza · **PDF integral** · panel · motor), vía `MetricPresenter.areaNetaDerivados(metricas, obj)` + `notaAreaNeta()` — que distingue los
+tres casos que «neta = bruta» confunde: sin huecos · huecos sin confirmar · valor almacenado
+incoherente (se rechaza si neta > bruta). Hace visible el invariante de ADR-009: **solo se
+descuentan P/H CONFIRMADAS**. Llegó a haber **6 derivaciones independientes** del criterio de
+aceptación; el PDF además ignoraba el valor persistido y lo recalculaba. GOTCHAS: (1) el área
+neta vive en **DOS sitios** —`metricas.area_neta` (sincronización P/H) y `obj.area_neta` (ruta
+de exportación)—, y quien consulte solo uno muestra «sin P/H» en piezas que sí los tienen;
+(2) `visualization-export.js` **no importaba** `metric-presenter.js` (`node -c` no lo ve, la
+prueba de humo del módulo sí); (3) el renderizador del PDF **omite la fila si la clave no
+existe**, así que las secciones aceptan ahora un tercer elemento con el valor ya derivado.
+**(b) `solidity_class` neutralizado.** Decía «Moderadamente/Muy/Extremadamente fragmentado»
+cuando mide `A_real/A_hull` — baja igual por fractura que por morfología cóncava, y contradecía
+a XII. Había **3 escaleras** (`metrics.py`, `analysis-core.js` y `mao-ia.js`, esta última con
+umbrales propios 0.90/0.75/0.55 → la misma pieza recibía rótulos distintos según la vía). Ahora
+una: `metric-presenter.js::clasificarSolidez`, paridad textual en Python, **umbrales intactos**.
++4 tests en `test_coherencia_entrega.py`; la solidez entra en el enforcement de fuente única.
+
+📐 **10 convenciones de nomenclatura** en `CONVENCIONES` de `glossary.js` (aparte de
+`TERMINOS`: una sigla no tiene clave, unidad ni fórmula), rendidas como preámbulo del anexo.
+El campo `tipo` separa `sigla` («A = B») de `regla` (enunciado). Cada una nació de una
+ambigüedad **verificada en el código**: **IA** = Identificación Automatizada · **AIA**
+retirada (2ª sigla del mismo módulo, nunca desarrollada) · **Confianza** nunca sola (hay **8**
+distintas) · **Procedencia** detección≠análisis · **Simetría** bilateral≠bifacial ·
+**Eje** 3 sistemas · **Área** 6 magnitudes (la **neta** no tiene clave propia) · **Rótulos**
+miden y no diagnostican (`solidity_class` dice «fragmentado» y contradice a XII) ·
+**Cara A**=anverso · **P/H** pasante-vs-ciega NO observable en 2D. Dos señalan deuda que no
+se arregla escribiendo: clave propia para el área neta, y neutralizar `solidity_class`.
+
+⚠️ **Convención de nomenclatura — la sigla IA.** En MAO Plus **IA = «Identificación
+Automatizada»**, NO «inteligencia artificial». Nombra QUÉ hace el modo (aislar la pieza sin
+trazado ni encuadre del operador), no con qué técnica: eso va en `ia_segmentador` (núcleo
+OpenCV, MobileSAM como prior, o ambos). Leerla mal atribuye a un modelo estadístico
+mediciones que produjo la umbralización clásica. Vive en `CONVENCIONES` de `glossary.js`
+(aparte de `TERMINOS`: una sigla no tiene clave, ni unidad, ni fórmula) y se rinde como
+preámbulo del anexo. Corregido en `detection-section.js::METODO_LABEL` (etiqueta de
+presentación; el enum canónico `ia` no cambia, ADR-008), en las dos guías de referencia que
+la expandían mal y en el tooltip del botón. 2 tests lo sostienen.
+
+⚠️ **`GLOSARIO_METRICAS_MAO.html` es una SALIDA generada.** No editarla a mano: se pierde al
+regenerar y diverge de lo que muestra la app. Las definiciones se corrigen en `glossary.js`.
+
+**4 defectos del código que destapó F0** (registrados en el ADR, no corregidos — cambian la
+salida del informe y exigen verificación visual en Electron):
+1. `XIV. Depuración` está en el manifiesto pero **ninguna función de la Tabla la rinde** (son
+   25 secciones, no las 26 que declaró ADR-011); el CSV sí emite sus 3 filas.
+2. `XX. Comparación Bifacial` y `XX-b` tampoco: `generarSeccionComparacionBifacial()` rotula
+   «22. COMPARACIÓN BIFACIAL» **en arábigo y a mano**. El test de ADR-017 no lo ve porque
+   solo persigue numerales romanos.
+3. `generarTablaComparativa{Dimensiones,Forma,PH}()` rotulan sin `encabezadoDe()`.
+4. `generarSeccionIncertidumbrePropagada` (II-b + II) y `generarSeccionPropiedadesContorno`
+   (XIII + VII) emiten dos secciones desde un cuerpo → sus claves no se adjudican solas.
+
 ## 🎯 Sesión 2026-06-24 — ADR-012 detección monolítica (Fases 1-3 ✅) + fix modo componente
 
 **ADR-012 «detección monolítica»** (`docs/ADR-012-deteccion-monolitica.md`, commit `eaf01d3`): núcleo de

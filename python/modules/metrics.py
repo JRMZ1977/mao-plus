@@ -879,11 +879,18 @@ async def calculate(
     # ── 11. Solidez A_real / A_hull ───────────────────────────────────────
     solidez = area_real / hull_area if hull_area > 0 else 1.0
     m["solidity"] = _r(solidez, 4)
-    if solidez >= 0.95:    m["solidity_class"] = "Completamente sólido/intacto"
-    elif solidez >= 0.85:  m["solidity_class"] = "Mayormente completo"
-    elif solidez >= 0.70:  m["solidity_class"] = "Moderadamente fragmentado"
-    elif solidez >= 0.50:  m["solidity_class"] = "Muy fragmentado"
-    else:                  m["solidity_class"] = "Extremadamente fragmentado"
+    # ADR-018 · rótulo NEUTRAL: describe cuánto de su envolvente convexa ocupa la
+    # pieza, no diagnostica fractura. Los textos anteriores («… fragmentado»)
+    # emitían un juicio tafonómico que la medición no sostiene —la solidez baja
+    # igual por una fractura que por una morfología cóncava— y contradecían a
+    # «XII. Estado de Conservación», que sí mide fragmentación por área perdida.
+    # Misma corrección que ADR-016 #6 hizo con la rugosidad. Umbrales intactos.
+    # Paridad textual con js/modules/metric-presenter.js::clasificarSolidez.
+    if solidez >= 0.95:    m["solidity_class"] = "Sin concavidades (ocupa su envolvente)"
+    elif solidez >= 0.85:  m["solidity_class"] = "Concavidades leves"
+    elif solidez >= 0.70:  m["solidity_class"] = "Concavidades moderadas"
+    elif solidez >= 0.50:  m["solidity_class"] = "Concavidades marcadas"
+    else:                  m["solidity_class"] = "Contorno muy entrante (área muy inferior a su envolvente)"
 
     # ── 12. Factor de forma P² / (4πA) y bounding box efficiency ─────────
     m["shape_factor"]            = _r(hull_perim**2 / (_FOUR_PI * hull_area), 4) if hull_area > 0 else None

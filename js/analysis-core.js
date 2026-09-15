@@ -1633,8 +1633,17 @@ if (typeof window !== 'undefined') {
           obj.metrics = metricas;
           procesados++;
           
-          // Contar tipos de análisis
-          if (metricas.analysis_method === "Bounding Box (Fallback)") {
+          // Contar tipos de análisis.
+          // ADR-018 — ESTA COMPARACIÓN ESTABA MUERTA: buscaba «Bounding Box
+          // (Fallback)» exacto, pero el único escritor emite «Bounding Box
+          // (Fallback) [APROXIMADO]». El sufijo se añadió sin actualizar aquí,
+          // así que `sinContorno` valía 0 siempre y toda pieza se contaba como
+          // medida sobre contorno real. Ahora va por el enum canónico, que
+          // además tolera los análisis guardados en disco antes de ADR-018.
+          const _esFallback = (window.MaoDeteccion && MaoDeteccion.esFallbackBBox)
+            ? MaoDeteccion.esFallbackBBox(metricas)
+            : String(metricas.analysis_method || '').indexOf('Bounding Box') !== -1;
+          if (_esFallback) {
             sinContorno++;
           } else {
             conContorno++;
@@ -5666,17 +5675,9 @@ if (typeof window !== 'undefined') {
     metrics.solidity = solidez.toFixed(4);
     
     // Clasificación de solidez
-    if (solidez >= 0.95) {
-      metrics.solidity_class = "Completamente sólido/intacto";
-    } else if (solidez >= 0.85) {
-      metrics.solidity_class = "Mayormente completo";
-    } else if (solidez >= 0.70) {
-      metrics.solidity_class = "Moderadamente fragmentado";
-    } else if (solidez >= 0.50) {
-      metrics.solidity_class = "Muy fragmentado";
-    } else {
-      metrics.solidity_class = "Extremadamente fragmentado";
-    }
+    // ADR-018 · rótulo neutral desde la fuente única (antes, escalera duplicada
+    // aquí y en metrics.py, con texto que diagnosticaba fractura).
+    metrics.solidity_class = MetricPresenter.clasificarSolidez(solidez);
     
     // === NUEVAS VARIABLES GEOMÉTRICAS AVANZADAS ===
     
@@ -6247,6 +6248,9 @@ if (typeof window !== 'undefined') {
       metrics.detection_method = obj.detectionMethod || 'automatic';
     }
     metrics.analysis_method = "Contorno Real Extraído [REAL]";
+    // ADR-018: enum canónico junto a la cadena legible. La cadena viaja al CSV
+    // y al informe; el enum es lo que las máquinas deben comparar.
+    metrics.analysis_source = "contorno_real";
     metrics.contour_extraction_successful = true;
     metrics.original_bounding_box = `${obj.minX},${obj.minY} to ${obj.maxX},${obj.maxY}`;
     metrics.tight_bounding_box = `${contornoMetrics.tight_bounding_box.minX},${contornoMetrics.tight_bounding_box.minY} to ${contornoMetrics.tight_bounding_box.maxX},${contornoMetrics.tight_bounding_box.maxY}`;
@@ -7238,6 +7242,7 @@ if (typeof window !== 'undefined') {
             // CRÍTICO: sin contour_extraction_successful=true el panel oculta todas las métricas
             metricas.object_id                     = obj.id || `${obj.numeroObjeto || '??'}`;
             metricas.analysis_method               = 'Contorno Real Extraído [Python]';
+            metricas.analysis_source               = 'contorno_real';  // ADR-018
             metricas.contour_extraction_successful = true;
             metricas.analysis_timestamp            = new Date().toISOString();
 
@@ -16865,7 +16870,7 @@ if (typeof window !== 'undefined') {
         </tbody>
       </table>
       <div style="margin-top: 15px; padding: 12px; background: ${solidez >= 0.95 ? '#d4edda' : solidez >= 0.85 ? '#fff3cd' : '#f8d7da'}; border-left: 4px solid ${solidez >= 0.95 ? '#28a745' : solidez >= 0.85 ? '#ffc107' : '#dc3545'}; border-radius: 4px;">
-        <strong>Evaluación:</strong>${solidez >= 0.95 ? 'Objeto en excelente estado de conservación': solidez >= 0.85 ? 'Objeto con fragmentación moderada': 'Objeto con fragmentación significativa'} • 
+        <strong>Lectura:</strong>${MetricPresenter.clasificarSolidez(solidez)} — la solidez mide el área frente a su envolvente convexa; la fragmentación real se consigna en «Estado de Conservación» • 
         Solidez: ${(solidez * 100).toFixed(1)}% • 
         Pérdida estimada: ${perdidaArea.toFixed(1)}% de área
       </div>
@@ -24264,6 +24269,12 @@ if (typeof window !== 'undefined') {
           addImageSection('B. Vista Esquemática Morfométrica (ejes, centroides y radios)', imagenEsquematica, 90, true, false, true);
           
           // SECCIONES DE MÉTRICAS — orden arqueológico con unidades explícitas
+          // ADR-018 · derivado canónico del área neta, único sitio que decide si un
+          // `area_neta` almacenado es fiable. Antes el PDF la recomputaba por su
+          // cuenta más abajo (sexta derivación independiente del mismo criterio).
+          const _anPDF = MetricPresenter.areaNetaDerivados(metricas);
+          const _anNotaPDF = MetricPresenter.notaAreaNeta(metricas);
+
           const seccionesMetricas = [
             {
               // ADR-017 — procedencia del dato antes que el dato. Es el hallazgo #5
@@ -24293,7 +24304,9 @@ if (typeof window !== 'undefined') {
             {
               titulo: 'II. Dimensiones Métricas del Objeto (mm — escala calibrada)',
               metricas: [
-                ['Área convex hull (mm²)', 'area'],
+                ['Área convex hull (mm²) — BRUTA', 'area'],
+                ['Área neta (mm²) — P/H confirmadas descontadas', 'area_neta', _anPDF.neta.toFixed(3)],
+                ['Área neta — nota', '_nota_area_neta', _anNotaPDF],
                 ['Perímetro convex hull (mm)', 'perimeter'],
                 ['Longitud máxima — Feret↑ (mm)', 'feret_max'],
                 ['Anchura máxima — Feret↓ (mm)', 'feret_min'],
@@ -24429,8 +24442,12 @@ if (typeof window !== 'undefined') {
 
           seccionesMetricas.forEach(seccion => {
             const filas = seccion.metricas
-              .map(([nombre, key]) => {
-                const val = metricas[key] ?? null;
+              .map(([nombre, key, valorFijo]) => {
+                // ADR-018 · tercer elemento opcional: valor ya derivado. Necesario
+                // para el área neta, cuya clave NO existe cuando no hay P/H
+                // confirmadas — y omitir la fila entonces devolvería al lector a
+                // la duda de si la pieza tiene huecos o simplemente no se evaluó.
+                const val = valorFijo !== undefined ? valorFijo : (metricas[key] ?? null);
                 const formatted = val === null ? null : (typeof val === 'number' ? Number(val).toFixed(3) : String(val));
                 return formatted !== null ? [nombre, formatted] : null;
               })
@@ -24608,7 +24625,13 @@ if (typeof window !== 'undefined') {
             const porcHora  = totalPH ? ((totalHora / totalPH) * 100).toFixed(1) : '0.0';
             ensureSpace(45);
             addText('X.b  Resumen estadístico P/H', 11, true);
-            const _areaNetaPDF = metricas.area > 0 ? metricas.area - sumArea : 0;
+            // ADR-018 · antes: `metricas.area - sumArea`, recomputado aquí e ignorando
+            // el `area_neta` que el motor ya había calculado y persistido. Ahora el
+            // derivado canónico, que además rechaza un valor incoherente en vez de
+            // propagarlo. Se conserva el respaldo por si el módulo no cargó.
+            const _areaNetaPDF = _anPDF.calculada
+              ? _anPDF.neta
+              : (metricas.area > 0 ? metricas.area - sumArea : 0);
             const _pctNetaPDF  = metricas.area > 0 ? ((_areaNetaPDF / metricas.area) * 100) : 0;
             addTable(['Métrica', 'Valor'], [
               ['Total P/H',              String(totalPH)],
@@ -27600,6 +27623,22 @@ if (typeof window !== 'undefined') {
     // CATEGORÍA: Dimensiones Básicas
     // ==========================================================================
     csvLines += `Dimensiones Básicas,Área,${fmt(m.area, 3)},${m.area_unit || 'mm²'}\n`;
+    // ADR-018 · el área NETA se calculaba y persistía, pero ninguna salida de
+    // lectura la publicaba: el CSV daba el área bruta aquí y los totales de P/H
+    // en otra sección, dejando la resta —y la duda de si procedía— al lector.
+    // Se emite SIEMPRE (esqueleto estable, ADR-011): sin P/H confirmados, neta
+    // y bruta coinciden, y la nota lo dice en vez de dejarlo en ambigüedad.
+    {
+      const _an = MetricPresenter.areaNetaDerivados(m);
+      csvLines += `Dimensiones Básicas,Área Neta (P/H descontadas),${fmt(_an.neta, 3)},${_an.unidad}\n`;
+      csvLines += `Dimensiones Básicas,Área Neta - Nota,"${MetricPresenter.notaAreaNeta(m)}",-\n`;
+      if (_an.perimetroNeto != null) {
+        csvLines += `Dimensiones Básicas,Perímetro Neto (incluye bordes de P/H),${fmt(_an.perimetroNeto, 2)},mm\n`;
+      }
+      if (_an.porosidad != null) {
+        csvLines += `Dimensiones Básicas,Porosidad (P/H sobre área bruta),${fmt(_an.porosidad, 2)},%\n`;
+      }
+    }
   csvLines += `Dimensiones Básicas,Perímetro,${fmt(m.perimeter, 2)},${m.perimeter_unit || 'mm'}\n`;
   csvLines += `Dimensiones Básicas,Ancho (BB Ajustado),${fmt(m.width, 2)},mm\n`;
   csvLines += `Dimensiones Básicas,Alto (BB Ajustado),${fmt(m.height, 2)},mm\n`;
@@ -46019,6 +46058,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       const metricasIaCache = {
         object_id:                    label,
         analysis_method:              'MAO IA — Detección automática',
+        analysis_source:              'ia',  // ADR-018
         contour_extraction_successful: !!(o.contour_points && o.contour_points.length > 2),
         // ── Área ─────────────────────────────────────────────────────────
         area:                         _s ? +(_hullAreaPx * _s * _s).toFixed(4) : Math.round(_hullAreaPx),
@@ -46219,6 +46259,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       // Campos de infraestructura requeridos por el panel morfológico
       metricas3d.object_id                     = metricas3d.object_id || record.id || `obj3d_${faceLabel.toLowerCase()}`;
       metricas3d.analysis_method               = metricas3d.analysis_method || `MAO 3D — ${faceLabel}`;
+      metricas3d.analysis_source               = metricas3d.analysis_source || 'obj3d';  // ADR-018
       metricas3d.contour_extraction_successful = contourPts.length >= 3;
       if (!metricas3d.analysis_timestamp) metricas3d.analysis_timestamp = record.timestamp || new Date().toISOString();
 

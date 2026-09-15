@@ -11,7 +11,9 @@
     "test": "npm run test:esm && npm run test:js && npm run test:py",
     "test:esm": "node scripts/check-esm.mjs",
     "test:js": "node tests/test_window_contracts.js && node tests/test_shape_classification.mjs",
-    "test:py": "bash scripts/run-pytest.sh"
+    "test:py": "bash scripts/run-pytest.sh",
+    "glosario": "node scripts/generar-glosario-html.mjs",
+    "glosario:inventario": "python3 scripts/glosario_inventario.py --md docs/GLOSARIO-INVENTARIO-F0.md"
   },
   "keywords": [
     "electron",

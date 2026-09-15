@@ -316,6 +316,28 @@ function generarSeccionDimensiones(obj, metricas, estiloTabla, estiloTh, estiloT
             <td style="${estiloTd}; font-weight: 700; color: #28a745; font-size: 15px;">${area.toFixed(2)}</td>
             <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm² — área convex hull (forma canónica completa)</td>
           </tr>
+          ${(() => {
+            // ADR-018 · el área NETA se calculaba y persistía pero no se rendía en
+            // ninguna parte. Va junto a la bruta, que es donde la comparación es
+            // inmediata; separarlas obligaba a restar a mano desde otra sección.
+            const _an = MetricPresenter.areaNetaDerivados(metricas);
+            return `
+          <tr>
+            <td style="${estiloTd}; font-weight: 600;">Área neta</td>
+            <td style="${estiloTd}; font-weight: 700; color: ${_an.descontado > 0 ? '#d9534f' : '#6c757d'};">${_an.neta.toFixed(2)}</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">${_an.unidad} — ${MetricPresenter.notaAreaNeta(metricas)}</td>
+          </tr>` +
+            (_an.perimetroNeto != null ? `
+          <tr>
+            <td style="${estiloTd}; font-weight: 600;">Perímetro neto</td>
+            <td style="${estiloTd}; font-weight: 700;">${_an.perimetroNeto.toFixed(2)}</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm — incluye los bordes internos de las P/H confirmadas</td>
+          </tr>` : '') +
+            '';
+            // La porosidad NO se repite aquí: ya la rinde «XIX. Información Técnica
+            // — Distribución y Contexto P/H», que es su sección. Duplicarla en
+            // Dimensiones daba dos filas homónimas con formatos distintos.
+          })()}
           <tr>
             <td style="${estiloTd}; font-weight: 600;">Perímetro</td>
             <td style="${estiloTd}; font-weight: 700; font-size: 15px;">${perimetro.toFixed(2)}</td>
@@ -1586,7 +1608,7 @@ function generarSeccionEstadoConservacion(metricas, estiloTabla, estiloTh, estil
         </tbody>
       </table>
       <div style="margin-top: 15px; padding: 12px; background: ${solidez >= 0.95 ? '#d4edda' : solidez >= 0.85 ? '#fff3cd' : '#f8d7da'}; border-left: 4px solid ${solidez >= 0.95 ? '#28a745' : solidez >= 0.85 ? '#ffc107' : '#dc3545'}; border-radius: 4px;">
-        <strong>Evaluación:</strong>${solidez >= 0.95 ? 'Objeto en excelente estado de conservación': solidez >= 0.85 ? 'Objeto con fragmentación moderada': 'Objeto con fragmentación significativa'} • 
+        <strong>Lectura:</strong>${MetricPresenter.clasificarSolidez(solidez)} — la solidez mide el área frente a su envolvente convexa; la fragmentación real se consigna en «Estado de Conservación» • 
         Solidez: ${(solidez * 100).toFixed(1)}% • 
         Pérdida estimada: ${perdidaArea.toFixed(1)}% de área
       </div>

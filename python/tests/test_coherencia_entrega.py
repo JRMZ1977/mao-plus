@@ -151,6 +151,12 @@ def test_rotulos_clasificacion_fuente_unica():
         "Muy rugoso (contorno de alta variabilidad)",
         "Rugoso (muy irregular)",
         "Muy variable (alta variación de curvatura local)",
+        # ADR-018 — la solidez se suma al enforcement. Tenía TRES escaleras:
+        # metrics.py, analysis-core.js y mao-ia.js (esta última con umbrales
+        # propios 0.90/0.75/0.55), así que la misma pieza recibía rótulos
+        # distintos según la vía por la que se analizara.
+        "Sin concavidades (ocupa su envolvente)",
+        "Contorno muy entrante (área muy inferior a su envolvente)",
     ]
     offenders = []
     for jsfile in glob.glob(str(ROOT / "js" / "**" / "*.js"), recursive=True):
@@ -276,4 +282,160 @@ def test_ninguna_superficie_hardcodea_el_indice_romano():
     assert not offenders, (
         "Índice romano hardcodeado fuera de category-manifest.js (ADR-017). "
         "Usar `CategoryManifest.encabezadoDe(id)`:\n  " + "\n  ".join(offenders)
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADR-018 — rótulos que miden, y área neta publicada
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_los_rotulos_de_solidez_no_diagnostican_fragmentacion():
+    """
+    La solidez es A_real / A_hull: mide cuánto de su envolvente convexa ocupa la
+    pieza. Baja igual por una fractura que por una morfología naturalmente
+    cóncava, así que rotularla «fragmentado» emite un juicio tafonómico que la
+    medición no sostiene — y contradice a «XII. Estado de Conservación», que sí
+    mide fragmentación a partir del área perdida.
+
+    Es la misma corrección que ADR-016 #6 aplicó a la rugosidad; la solidez había
+    quedado fuera de aquella pasada.
+    """
+    import glob
+
+    fuentes = [ROOT / "python" / "modules" / "metrics.py"]
+    fuentes += [Path(f) for f in glob.glob(str(ROOT / "js" / "**" / "*.js"), recursive=True)
+                if "node_modules" not in f]
+
+    # Se busca una ASIGNACIÓN de un rótulo con «fragmentad», no una mención. La
+    # prosa que explica esta misma corrección —el glosario, este archivo— nombra
+    # los rótulos viejos legítimamente; marcarla sería ruido que acaba haciendo
+    # que se desactive la prueba.
+    asignacion = re.compile(
+        r"""solidity_class["']?\]?\s*[:=]\s*["'][^"']*fragmentad""",
+        re.IGNORECASE,
+    )
+    ofensores = []
+    for f in fuentes:
+        for i, linea in enumerate(f.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+            if asignacion.search(linea):
+                ofensores.append(f"{f.relative_to(ROOT)}:{i}  {linea.strip()[:90]}")
+
+    assert not ofensores, (
+        "`solidity_class` vuelve a diagnosticar fragmentación (ADR-018):\n  "
+        + "\n  ".join(ofensores)
+    )
+
+
+def test_paridad_textual_de_la_escalera_de_solidez():
+    """
+    El backend mantiene su copia en Python con el MISMO texto que el frontend
+    (la consolidación cross-lenguaje completa no es práctica; se mantiene
+    paridad). Si divergen, la misma pieza sale rotulada de dos maneras según qué
+    superficie la renderice.
+    """
+    py = (ROOT / "python" / "modules" / "metrics.py").read_text(encoding="utf-8")
+    js = (ROOT / "js" / "modules" / "metric-presenter.js").read_text(encoding="utf-8")
+
+    bloque_py = py[py.index('if solidez >= 0.95'):][:800]
+    etiquetas_py = re.findall(r'm\["solidity_class"\] = "([^"]+)"', bloque_py)
+
+    bloque_js = js[js.index('export function clasificarSolidez'):][:800]
+    etiquetas_js = re.findall(r"return '([^']+)'", bloque_js)
+
+    assert etiquetas_py, "No se pudo leer la escalera de solidez de metrics.py"
+    assert etiquetas_py == etiquetas_js, (
+        f"Escalera de solidez divergente.\n  Python: {etiquetas_py}\n  JS    : {etiquetas_js}"
+    )
+
+
+def test_el_area_neta_se_publica_junto_a_la_bruta():
+    """
+    `area_neta` se calculaba y persistía desde hacía tiempo, pero NINGUNA salida
+    de lectura la publicaba: el CSV daba el área bruta en «Dimensiones Básicas» y
+    los totales de P/H en otra sección, dejando al lector una resta que ni
+    siquiera era obviamente la correcta.
+
+    Se exige que vayan JUNTAS en la misma sección: separarlas es lo que hacía
+    invisible la distinción entre superficie ocupada y materia efectiva.
+    """
+    core = (ROOT / "js" / "analysis-core.js").read_text(encoding="utf-8")
+    tabla = (ROOT / "js" / "modules" / "tabla-metricas-completa.js").read_text(encoding="utf-8")
+
+    assert "Dimensiones Básicas,Área Neta" in core, (
+        "El CSV dejó de publicar el área neta en «Dimensiones Básicas» (ADR-018)"
+    )
+    assert "Dimensiones Básicas,Área Neta - Nota" in core, (
+        "Falta la nota del área neta. Sin ella, «neta = bruta» es ambiguo: no "
+        "distingue «la pieza no tiene huecos» de «los tiene sin confirmar»."
+    )
+    assert "areaNetaDerivados" in tabla, (
+        "La Tabla Completa dejó de rendir el área neta (ADR-018)"
+    )
+
+
+# Las SEIS superficies que muestran o exportan el área neta. Se listan explícitas
+# para que añadir una nueva obligue a decidir conscientemente si debe entrar aquí.
+SUPERFICIES_AREA_NETA = [
+    "js/analysis-core.js",                      # CSV monofacial + PDF integral
+    "js/modules/tabla-metricas-completa.js",    # Tabla Completa
+    "js/modules/visualization-export.js",       # panel de análisis (2 sitios)
+    "js/project-manager.js",                    # metricas.csv archivado por pieza
+]
+
+
+def test_el_area_neta_se_deriva_en_un_solo_sitio():
+    """
+    El derivado canónico es `MetricPresenter.areaNetaDerivados()`. Que cada
+    superficie decida por su cuenta cuándo un `area_neta` almacenado es fiable
+    reproduce la clase de deriva que ADR-016 vino a cerrar — y aquí importa
+    especialmente, porque el criterio de rechazo (neta > bruta ⇒ dato de otra
+    escala) es una decisión, no una obviedad.
+
+    Llegó a haber SEIS derivaciones independientes del mismo criterio: CSV, Tabla,
+    PDF, dos en el panel y la del propio motor.
+    """
+    faltan = [
+        a for a in SUPERFICIES_AREA_NETA
+        if "areaNetaDerivados" not in (ROOT / a).read_text(encoding="utf-8")
+    ]
+    assert not faltan, (
+        "Superficies que muestran área neta sin el derivado canónico:\n  "
+        + "\n  ".join(faltan)
+    )
+
+
+def test_el_area_neta_llega_a_todos_los_descargables():
+    """
+    El área neta se calculaba y persistía desde hacía tiempo; el defecto era de
+    PUBLICACIÓN. Cerrarlo en una salida y no en las demás deja al lector
+    comparando un informe que la trae con otro que no.
+
+    `metricas.csv` es el caso que más pesaba: lo escribe project-manager en la
+    carpeta de cada análisis, así que es el archivo que queda archivado por pieza.
+    """
+    core = (ROOT / "js" / "analysis-core.js").read_text(encoding="utf-8")
+    proy = (ROOT / "js" / "project-manager.js").read_text(encoding="utf-8")
+
+    assert "Dimensiones Básicas,Área Neta" in core, "El CSV monofacial dejó de publicar el área neta"
+    assert "02_Dimensiones,Area Neta" in proy, (
+        "`metricas.csv` (el archivado por pieza) dejó de publicar el área neta"
+    )
+    assert "Área neta (mm²) — P/H confirmadas descontadas" in core, (
+        "El PDF integral dejó de publicar el área neta en su sección de dimensiones"
+    )
+
+
+def test_el_derivado_consulta_los_dos_hogares_del_area_neta():
+    """
+    El área neta se guarda en `metricas.area_neta` (sincronización de P/H) o en
+    `obj.area_neta` (ruta de exportación), según qué código la escribiera. Una
+    superficie que consulte sólo uno muestra «sin P/H confirmados» en piezas que
+    sí los tienen — el panel leía únicamente `obj`, y el resto únicamente
+    `metricas`.
+    """
+    mp = (ROOT / "js" / "modules" / "metric-presenter.js").read_text(encoding="utf-8")
+    bloque = mp[mp.index("export function areaNetaDerivados"):][:900]
+    assert "m.area_neta" in bloque and "o.area_neta" in bloque, (
+        "`areaNetaDerivados` dejó de consultar los dos sitios donde puede vivir "
+        "el área neta (metricas.area_neta y obj.area_neta)"
     )

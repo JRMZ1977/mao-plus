@@ -19,7 +19,10 @@
 const METODO_LABEL = {
   automatic: 'Automático (núcleo OpenCV)',
   manual:    'Manual (área encuadrada por el operador)',
-  ia:        'IA (segmentación asistida)',
+  // ADR-018: la sigla se expande en el rótulo. En MAO, IA = Identificación
+  // Automatizada; sin desarrollarla, los informes se leían como «inteligencia
+  // artificial» y atribuían a un modelo lo que resuelve la umbralización clásica.
+  ia:        'IA — Identificación Automatizada (segmentación asistida)',
 };
 
 /** Rótulo humano del método, tolerante con los valores crudos legacy. */

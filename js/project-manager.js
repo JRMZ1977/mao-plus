@@ -1073,8 +1073,23 @@ class ProjectManager {
     // ========================================================================
     // D1 — procedencia de escala: advierte si las dimensiones están en px (sin calibrar).
     rows.push(`02_Dimensiones,Escala Calibrada,${metricas.sin_escala_calibrada ? 'NO - valores en px' : 'Si - valores en mm'},,Si las dimensiones estan calibradas a mm o quedaron en pixeles`);
-    rows.push(`02_Dimensiones,Area Total,${metricas.area || 0},mm²,Área total del objeto`);
+    rows.push(`02_Dimensiones,Area Total,${metricas.area || 0},mm²,Área total del objeto (BRUTA: incluye P/H)`);
     rows.push(`02_Dimensiones,Perimetro,${metricas.perimeter || 0},mm,Perímetro del contorno`);
+    // ADR-018 · metricas.csv es el archivo que queda ARCHIVADO por pieza, y era la
+    // salida donde más pesaba la omisión: publicaba sólo el área bruta, sin que
+    // nada indicase que podía haber P/H descontables. Se emite siempre (esqueleto
+    // estable): sin P/H confirmadas, neta y bruta coinciden y la nota lo dice.
+    const _an = (window.MetricPresenter && window.MetricPresenter.areaNetaDerivados)
+      ? window.MetricPresenter.areaNetaDerivados(metricas)
+      : { neta: parseFloat(metricas.area) || 0, unidad: 'mm²', perimetroNeto: null, porosidad: null };
+    const _anNota = (window.MetricPresenter && window.MetricPresenter.notaAreaNeta)
+      ? window.MetricPresenter.notaAreaNeta(metricas)
+      : 'Área neta no derivada (MetricPresenter no disponible)';
+    rows.push(`02_Dimensiones,Area Neta,${_an.neta},${_an.unidad},"${_anNota}"`);
+    if (_an.perimetroNeto != null) {
+      rows.push(`02_Dimensiones,Perimetro Neto,${_an.perimetroNeto},mm,Incluye los bordes internos de las P/H confirmadas`);
+    }
+    // La porosidad no se repite en 02_Dimensiones: ya la emite `11_ComparativoPH`.
     // ADR-016 #1 (Stage B): conversor px→mm del BB desde la fuente única (window.MetricPresenter,
     // expuesta por analysis-core.js). project-manager.js es script clásico → no puede import.
     const _bbMM = (window.MetricPresenter
