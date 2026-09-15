@@ -38,6 +38,16 @@ Tras corregir: disco 70 % → **70,17 %** por el botón · anillo → 60,33 % ·
 - **Guardas `typeof f === 'function'` sobre nombres que viven en OTRO script** son siempre falsas: la
   función nunca corre. Buscar con `node verif/undef_names` (TS2304) — ver método abajo.
 - **Versión única:** `js/mao-version.js` (`window.MAO_VERSION`), fijada contra `package.json`.
+- **`calcularEscala()` es procedimiento Y valor.** Hasta 1.3.0 no devolvía nada y `calcularEscala() || 1`
+  guardaba 1 mm/px en `geometria.json` y P/H en px. Para el factor de un análisis GUARDADO usar
+  `factorMmPxDeAnalisis()` (métricas primero): los `geometria.json` antiguos siguen con escala 1.
+- **Las escrituras IPC sólo se aceptan bajo `$HOME`** (`_assertSafePath` en `main.js`). Un proyecto de
+  prueba en `/tmp` falla en silencio para la UI (colección vacía); usar `~/Library/Caches/<algo>`.
+
+**Menú «Exportar colección…»** (Resultados, integrado desde el respaldo `ee0d38d`): un solo motor,
+`projectManager.enrichCollection(options)` — `objetos`, `formatos`, `exportDir`, `recalcular`. Con
+`options={}` es exactamente «Actualizar colección». Verificado en Electron: 2 piezas → 13 archivos
+(PDF, EFA, PNG×3, SVG, CSV) sin tocar `metricas.json`; selección de 1 + recálculo reescribe sólo esa.
 
 **Método reproducible de verificación en Electron sin pisar otra instancia:** copia con
 `git archive`, puerto del backend cambiado en los 7 archivos que lo citan (verificar que el diff sólo
@@ -923,7 +933,7 @@ en push y PR). Cada uno se puede lanzar suelto:
 | Script | Qué verifica | Estado al 2026-09-15 (1.3.0) |
 |---|---|---|
 | `npm run test:esm` | Parseo **como módulo** de los 16 `js/modules/` + `analysis-core.js`, vía `import()` real | 17/17 |
-| `npm run test:js` | Contratos `window.*` + `shape-classification` + 3 tests de exportación | 33/33 · 15/15 · 3/3 |
+| `npm run test:js` | Contratos `window.*` + `shape-classification` + exportación (3 + lote) + P/H + escala | 36/36 · 15/15 · 3/3 · 21/21 · 16 · 6 |
 | `npm run test:py` | Suite pytest completa (`tests/` + `python/tests/`) | **592 passed, 0 skipped** |
 
 **`test:esm` no es redundante con `node -c`.** `node -c` parsea en modo script clásico, que es más

@@ -34,6 +34,9 @@ encontró.
 | Contorno de objetos por la ruta Python | a veces sustituido por el polígono idealizado | siempre el contorno canónico | regresión corregida |
 | Perfil de lente sin intrínsecos | k₁ usado sin convención | sólo con `distorsion.k1_normalizacion`; si no, tabla FOV declarada | O-27 |
 | `versionMAO` / `mao_version` | `1.2.0` escrito a mano | `1.3.0` desde una fuente única | trazabilidad |
+| `geometria.json` → `escala.factorConversion` | siempre `1` (mm/px) | la escala real | `calcularEscala()` no devolvía valor |
+| `distanciaAlCentro` de cada P/H (`metricas.json`, Tabla §P/H, JSON `distancia_al_centro_mm`) | píxeles rotulados «mm» | mm | ídem |
+| Dimensiones del SVG exportado desde un análisis guardado | píxeles tomados por mm (261 mm para una pieza de 117) | mm reales, también con análisis ya guardados | el SVG toma el factor de las métricas |
 
 ## 3. Verificación
 
@@ -67,6 +70,13 @@ Integración: la ruta Python pisaba el contorno canónico con el polígono ideal
 confirmada no llegaba al PDF batch ni a los CSV; `null` del puente publicado como «sin forma ideal».
 Incluye además `be33986` (llegado a `fix/exportaciones` tras cerrar la versión): los candidatos P/H
 descartados ya no resucitan al reabrir el análisis (`metricas.json` guardaba la lista vieja).
+
+**Menú «Exportar colección…»** (pestaña Resultados; trabajo de agosto que estaba sin integrar):
+elegir objetos, formatos (PDF · CSV de colección · CSV EFA · PNG · SVG), carpeta de destino y, si se
+quiere, recalcular antes. Sin recalcular **no reescribe `metricas.json`**. «Actualizar colección»
+conserva su comportamiento. Probarlo en Electron destapó el defecto de escala de la tabla §2:
+`geometria.json` guardaba 1 mm/px desde siempre. Los análisis ya guardados conservan ese valor (y la
+`distanciaAlCentro` de sus P/H) hasta volver a guardarlos; el SVG ya sale bien con ellos.
 
 Ejecución (fallos silenciosos, presentes en todas las ramas): «Nuevo análisis» abortaba a mitad
 (escala y análisis previos sobrevivían); `window.toast` nunca existió (ningún aviso de los
