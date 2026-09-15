@@ -17,6 +17,22 @@ const path = require('path');
 
 const CORE_PATH = path.join(__dirname, '..', 'js', 'analysis-core.js');
 
+/**
+ * Fronteras de contrato de la EXPORTACIÓN POR LOTE.
+ *
+ * projectManager.enrichCollection gatea cada productor con
+ * `typeof window.X === 'function'`. Si el productor deja de ser global, el gate
+ * queda falso y el formato se omite EN SILENCIO — que es exactamente lo que pasó
+ * en ADR-019 F1: el refactor bc9cdc9 pasó `generarHTMLReporteParaBatch` de
+ * `window.…` a `const` local y el PDF del lote desapareció sin dejar rastro
+ * durante meses. Por eso estos nombres se verifican por archivo.
+ */
+const BATCH_EXPORT_CONTRACTS = [
+  { file: ['js', 'analysis-core.js'], names: ['generarHTMLReporteParaBatch'] },
+  { file: ['js', 'collection.js'],    names: ['generarSVGMorfologicoParaLote',
+                                              'construirGeometryDataMorfologico'] },
+];
+
 // --- contract definitions ---
 
 const TIER1 = [
@@ -118,6 +134,17 @@ function escapeRe(s) {
 const src = fs.readFileSync(CORE_PATH, 'utf8');
 const results = check(src);
 
+// Fronteras de la exportación por lote, en sus archivos respectivos.
+for (const { file, names } of BATCH_EXPORT_CONTRACTS) {
+  const rutaArchivo = path.join(__dirname, '..', ...file);
+  const fuente = fs.readFileSync(rutaArchivo, 'utf8');
+  const codigo = stripStrings(stripComments(fuente));
+  for (const name of names) {
+    const presente = new RegExp(`window\\.${escapeRe(name)}\\s*=[^=]`).test(codigo);
+    results.push({ name, category: `lote:${file[file.length - 1]}`, present: presente });
+  }
+}
+
 let pass = 0, fail = 0;
 const failures = [];
 
@@ -131,7 +158,7 @@ for (const r of results) {
 }
 
 const total = results.length;
-console.log(`\nMAO window.* contract check — analysis-core.js`);
+console.log(`\nMAO window.* contract check — analysis-core.js + fronteras de lote`);
 console.log('='.repeat(50));
 
 if (fail === 0) {
