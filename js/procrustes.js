@@ -2650,6 +2650,24 @@ const ProcrustesModule = (() => {
     // ─── Dibujar canvas GPA ─────────────────────────────────────────────────
     requestAnimationFrame(() => {
       try {
+        // Rotación/reflejo manual por objeto, alrededor del CENTRO DEL LIENZO donde se
+        // dibuja. Antes estos helpers se declaraban dentro de `if (canvas)` y el lienzo
+        // de dispersión (`if (dc)`) los usaba desde un bloque hermano: ReferenceError
+        // al dibujar los vectores de desplazamiento. Cada lienzo tiene su propio centro
+        // (CX,CY = 360 · DCX,DCY = 170): una fábrica evita rotar sobre el ajeno.
+        const _transformacionGPA = (cx0, cy0) => (canvPts, idx) => {
+          let r = canvPts;
+          const rad = _gpaManualRot.get(idx);
+          if (rad && r && r.length) {
+            const cos = Math.cos(rad), sin = Math.sin(rad);
+            r = r.map(p => {
+              const dx = p.x - cx0, dy = p.y - cy0;
+              return { x: cx0 + dx * cos - dy * sin, y: cy0 + dx * sin + dy * cos };
+            });
+          }
+          if (_gpaManualFlip.has(idx)) r = r.map(p => ({ x: 2 * cx0 - p.x, y: p.y }));
+          return r;
+        };
         // Validar datos antes de renderizar
         if (!consensus || consensus.length === 0 || !aligned || aligned.length === 0) {
           console.error(`❌ [PS-GPA] Datos vacíos: consensus=${consensus?.length || 0}, aligned=${aligned?.length || 0}`);
@@ -2663,21 +2681,7 @@ const ProcrustesModule = (() => {
         const zoomScale = getCanvasZoomScale(canvas);
         const zlw = (w, min = 0.35, max = 6) => zoomCompensatedLineWidth(w, zoomScale, min, max);
         // ── Helpers de transformación visual del canvas GPA ────────────────
-        const _rotGPA = (pts, rad) => {
-          if (!pts || !pts.length || !rad) return pts;
-          const cos = Math.cos(rad), sin = Math.sin(rad);
-          return pts.map(p => {
-            const dx = p.x - CX, dy = p.y - CY;
-            return { x: CX + dx * cos - dy * sin, y: CY + dx * sin + dy * cos };
-          });
-        };
-        const _flipGPA   = (pts) => pts.map(p => ({ x: 2 * CX - p.x, y: p.y }));
-        const _applyGPATr = (canvPts, idx) => {
-          let r = canvPts;
-          if (_gpaManualRot.has(idx))  r = _rotGPA(r, _gpaManualRot.get(idx));
-          if (_gpaManualFlip.has(idx)) r = _flipGPA(r);
-          return r;
-        };
+        const _applyGPATr = _transformacionGPA(CX, CY);
 
         // Auto-fit: escala óptima para que aligned+consensus llenen el canvas
         const _gpaAllProc = aligned.filter((a, i) => a && a.length > 0).concat(consensus ? [consensus] : []);
@@ -2759,6 +2763,7 @@ const ProcrustesModule = (() => {
         const zoomScale = getCanvasZoomScale(dc);
         const zlw = (w, min = 0.3, max = 4) => zoomCompensatedLineWidth(w, zoomScale, min, max);
         const DCX = 170, DCY = 170;
+        const _applyGPATr = _transformacionGPA(DCX, DCY);
         const _defAllProc = aligned.filter(a => a && a.length > 0).concat(consensus ? [consensus] : []);
         const sc = bestFitScale(_defAllProc, 148, 0.86);
         // Fondo con círculos de referencia (escala morfométrica)

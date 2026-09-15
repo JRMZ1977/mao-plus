@@ -2570,8 +2570,10 @@
 
       if (!toroideSevero || !tipNoReint) return false;
 
-      const pct = Number.isFinite(cp) ? Math.round(cp) : null;
-      const tip = pct != null ? `Fragmento Media Luna (${pct}% completo)` : 'Fragmento Media Luna';
+      // ADR-017 F0 retiró `cp` (= completitud_estimada) pero dejó aquí su lectura:
+      // ReferenceError en toda pieza que llegaba a esta rama. Sin completitud medida
+      // no se publica porcentaje — la completitud real la da /api/shape-match.
+      const tip = 'Fragmento Media Luna';
       m.forma_geometrica_observada = geoBase;
       m.forma_tipologica_inferida = tip;
       m.forma_detectada_tipologica = tip;

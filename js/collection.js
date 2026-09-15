@@ -3465,7 +3465,9 @@ async function abrirAnalisisMorfologicoDesdeGuardado() {
       metricas: metricasConPH, // Incluye P/H con todas sus métricas
       canvasData: canvasData,
       timestamp: analysis.timestamp,
-      escalaUsada: analysis.escala || scale,
+      // `scale` no existe en este script (vive en el IIFE de analysis-core): ReferenceError
+      // al reabrir un análisis guardado sin `escala`.
+      escalaUsada: analysis.escala || (window._maoGetScale ? window._maoGetScale() : null),
       escalaCorregida: false
     };
     

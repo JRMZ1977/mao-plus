@@ -29036,6 +29036,11 @@ if (typeof window !== 'undefined') {
    * 🎯 OPTIMIZADO: Solo genera hojas con datos existentes
    */
   function formatearParaExcel(datos) {
+    // Helpers de formato para TODAS las hojas. Estaban declarados dentro del bloque de
+    // monofaciales y las hojas bifaciales los usaban desde un bloque hermano:
+    // ReferenceError al exportar a Excel una colección con piezas bifaciales.
+    const n = (val, decimals = 2) => getNumSafe(val).toFixed(decimals);
+    const s = (val, def = '') => getStrSafe(val, def);
     console.log('📗 Formateando datos para Excel...');
     
     // 🔍 DETECCIÓN PREVIA DE TIPOS DE OBJETOS
@@ -29145,9 +29150,6 @@ if (typeof window !== 'undefined') {
       
       // Datos - OPCIÓN 3: 56 columnas esenciales
       datos.monofaciales.forEach(obj => {
-        // Helper para valores seguros
-        const n = (val, decimals = 2) => getNumSafe(val).toFixed(decimals);
-        const s = (val, def = '') => getStrSafe(val, def);
         
         filasMono.push([
           // === IDENTIFICACIÓN (3) ===
@@ -43902,13 +43904,17 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
     if (typeof actualizarEstadoProcesamiento === 'function') actualizarEstadoProcesamiento();
 
     // --- PASO 7: Resetear zoom y selección manual ---
-    offsetX = 0; offsetY = 0; zoomLevel = 1;
-    if (typeof resetView === 'function') UtilityHelpers.resetView();
+    // `zoomLevel` no existe (el zoom del lienzo es `zoom`, inicial 0,5): la asignación
+    // lanzaba ReferenceError y abortaba «Nuevo análisis» aquí. Y las guardas
+    // `typeof resetView`/`typeof clearContourCache` miraban nombres locales que no
+    // existen, así que las funciones del módulo no se llamaban nunca.
+    offsetX = 0; offsetY = 0; zoom = 0.5;
+    UtilityHelpers.resetView();
     isManualSelectionMode = false;
     isSelectingArea = false;
     manualSelectedArea = null;
     if (manualSelectionStatus) manualSelectionStatus.style.display = 'none';
-    if (typeof clearContourCache === 'function') UtilityHelpers.clearContourCache();
+    UtilityHelpers.clearContourCache();
 
     // --- PASO 8: Limpiar inputs de archivo (no los de datos de cámara / contexto) ---
     ['jpgInput','rawInput','complementarioInput',
@@ -44387,6 +44393,14 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
   // Necesarias para recuperación de análisis desde modal de colección
   window.mostrarAnalisisMorfologico = VisualizationExport.mostrarAnalisisMorfologico;
   window.restaurarCanvasDesdeCache = restaurarCanvasDesdeCache;
+  // Fronteras de contrato con collection.js (script clásico): estas tres funciones viven
+  // en el IIFE y collection.js las llama por nombre. Sin exponerlas, la exportación SVG
+  // del lote lanzaba ReferenceError con P/H, la migración de métricas P/H de proyectos
+  // v1.x no se ejecutaba nunca (guarda `typeof`) y «Exportar PDF» desde el visor decía
+  // siempre «Función de exportación PDF no disponible».
+  window.calcularCentroidePoligono = calcularCentroidePoligono;
+  window.calcularMetricasPerforacion = calcularMetricasPerforacion;
+  window.exportarPDFIntegralCaraActiva = exportarPDFIntegralCaraActiva;
   window.calcularEscala = calcularEscala; // Expuesto para exportarSVGMorfologicoActual
   // Getter vivo sobre la variable `scale` del closure — siempre refleja el valor actual
   Object.defineProperty(window, 'currentScale', { get: () => scale, configurable: true });
