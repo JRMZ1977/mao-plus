@@ -39487,10 +39487,26 @@ if (typeof window !== 'undefined') {
         detection_confidence: t._confidence,
         confidence_level: t._confidenceLvl,
       }));
-    if (selectedObjectForPerforation) selectedObjectForPerforation.phCandidatos = restantes;
-    if (currentAnalyzedObject && currentAnalyzedObject.obj) {
-      currentAnalyzedObject.obj.phCandidatos = restantes;
-    }
+    fijarCandidatosPH(restantes);
+  }
+
+  /**
+   * ADR-009 — Fija la lista de candidatos P/H en TODAS sus copias: el objeto del modal,
+   * el objeto analizado y su original en `objects`, sus métricas (lo que se escribe en
+   * metricas.json) y la caché del análisis. Antes solo se actualizaba obj.phCandidatos:
+   * el descarte se veía en memoria, pero el guardado copiaba `...obj.metricas` con la
+   * lista vieja y reabrir el análisis resucitaba candidatos ya decididos.
+   */
+  function fijarCandidatosPH(lista) {
+    const cao = currentAnalyzedObject;
+    const original = cao && cao.obj ? objects.find(o => o.id === cao.obj.id) : null;
+    [selectedObjectForPerforation, cao && cao.obj, original].forEach((o) => {
+      if (!o) return;
+      o.phCandidatos = lista;
+      if (o.metricas) o.metricas.phCandidatos = lista;
+      if (o.analisisCached && o.analisisCached.metricas) o.analisisCached.metricas.phCandidatos = lista;
+    });
+    if (cao && cao.metricas) cao.metricas.phCandidatos = lista;
   }
 
   /**
@@ -40477,7 +40493,7 @@ if (typeof window !== 'undefined') {
         selectedObjectForPerforation.horadaciones = [];
         // ADR-009: finalizar sin trazados = decisión humana «sin P/H» → limpiar
         // candidatos para que el chip deje de proponerlos (cae a «evaluado · sin P/H»).
-        selectedObjectForPerforation.phCandidatos = [];
+        fijarCandidatosPH([]);
 
         if (currentAnalyzedObject && currentAnalyzedObject.obj) {
           currentAnalyzedObject.obj.perforaciones = [];
@@ -40625,7 +40641,7 @@ if (typeof window !== 'undefined') {
     
     // ADR-009: al finalizar, los candidatos no confirmados se consideran revisados
     // y descartados → limpiar para que el chip refleje solo los P/H confirmados.
-    selectedObjectForPerforation.phCandidatos = [];
+    fijarCandidatosPH([]);
 
     // IMPORTANTE: Sincronizar con currentAnalyzedObject.obj
     if (currentAnalyzedObject && currentAnalyzedObject.obj) {
