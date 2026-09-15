@@ -322,8 +322,9 @@ def calculate(
                 sensor_h_mm=sensor_h_mm,
                 perfil=perfil_calibracion,
             )
-        except Exception:
-            # Si el perfil falla por algún motivo, caer al camino FOV
+        except Exception as exc:
+            # Si el perfil falla, caer al camino FOV — pero DICIÉNDOLO: un perfil
+            # importado que no se aplica en silencio se leería como calibrado.
             result["error_optico"] = _estimar_error_optico(
                 cx=cx, cy=cy,
                 img_w=img_w_px, img_h=img_h_px or img_w_px,
@@ -331,6 +332,7 @@ def calculate(
                 sensor_w_mm=sensor_w_mm,
                 sensor_h_mm=sensor_h_mm,
             )
+            result["error_optico"]["perfil_calibracion_error"] = f"{type(exc).__name__}: {exc}"
     else:
         result["error_optico"] = _estimar_error_optico(
             cx=cx, cy=cy,

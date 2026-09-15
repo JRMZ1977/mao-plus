@@ -4509,7 +4509,7 @@ const ComparadorMultiObjeto = (() => {
     // en vez de dejar el silencio, que se leería como «no hay atípicos».
     const outlierNoEval = pyPCA.outlier_status === 'no_evaluable_pocos_objetos';
     const outlierThr    = typeof pyPCA.outlier_threshold === 'number'
-      ? `d &gt; ${pyPCA.outlier_threshold.toFixed(2)} · χ² 97,5 % con ${pyPCA.mahalanobis_df ?? '—'} gl`
+      ? `d &gt; ${pyPCA.outlier_threshold.toFixed(2)} · Beta de Wilks 97,5 % con ${pyPCA.mahalanobis_df ?? '—'} gl`
       : '';
 
     // Quitar badge anterior si ya existía (re-comparación)
@@ -4751,47 +4751,97 @@ const ComparadorMultiObjeto = (() => {
       return { k: best.k, scores };
     }
     // Distancias de Mahalanobis al centroide global en el espacio completo de métricas
-    // estandarizadas (Z). Más preciso que operar solo en PC1+PC2 para colecciones
-    // donde componentes menores capturan varianza diagnóstica.
-    function mahalanobisDistancesZ(Z) {
+    // estandarizadas (Z), con la covarianza COMPLETA vía pseudo-inversa espectral:
+    // d² = Σ_k (z·v_k)² / λ_k sobre los autovalores no nulos. Es el mismo estadístico
+    // que calcula el backend (`comparator._mahalanobis_distances`, np.linalg.pinv).
+    // Antes se usaba la diagonal: con métricas correlacionadas —lo normal en MAO, donde
+    // compacidad ≡ circularidad— d² deja de seguir ninguna distribución conocida.
+    // Recibe la descomposición del PCA ya calculada para no repetir el Jacobi.
+    function mahalanobisDistancesZ(Z, eig) {
       const n = Z.length;
       if (n < 3 || !Z[0]?.length) return { d: Z.map(() => 0), df: 1 };
       const p = Z[0].length;
-      // Centroide
       const mu = Array.from({length: p}, (_, j) => Z.reduce((s, row) => s + row[j], 0) / n);
-      // Varianza por dimensión (ddof=1) como aproximación diagonal de la covarianza
-      // (la covarianza completa p×p es no invertible cuando n < p+1, situación frecuente
-      //  en MAO con 20-40 métricas y 3-10 objetos → usamos la diagonal regularizada)
-      let df = 0;
-      const variances = Array.from({length: p}, (_, j) => {
-        const v = Z.reduce((s, row) => s + (row[j] - mu[j]) ** 2, 0) / Math.max(n - 1, 1);
-        if (v > 1e-10) { df++; return v; }
-        return 1; // regularización: dimensiones constantes no penalizan (ni suman gl)
+      const { values, vectors } = eig || jacobiEigen(corrMatrix(Z));
+      const lmax = Math.max(0, ...values);
+      // Tolerancia relativa holgada: el Jacobi converge a 1e-12 en los elementos fuera
+      // de la diagonal, así que un autovalor «cero» de una colinealidad exacta sale del
+      // orden de 1e-13 — contarlo dividiría por él y dispararía las distancias.
+      const comps = values.map((l, k) => ({ l, v: vectors[k] })).filter(c => c.l > lmax * 1e-9);
+      const d = Z.map(row => {
+        const zc = row.map((z, j) => z - mu[j]);
+        const d2 = comps.reduce((acc, c) => {
+          const proj = zc.reduce((s, z, j) => s + z * c.v[j], 0);
+          return acc + proj * proj / c.l;
+        }, 0);
+        return Math.sqrt(Math.max(0, d2));
       });
-      const d = Z.map(row =>
-        Math.sqrt(row.reduce((s, z, j) => s + (z - mu[j]) ** 2 / variances[j], 0))
-      );
-      // Grados de libertad = dimensiones que realmente varían. Con covarianza
-      // diagonal d² ~ χ²_df de forma exacta si son independientes y aproximada si
-      // están correlacionadas; en cualquier caso el gl NO es 2 (ver _olThreshold).
-      return { d, df: Math.max(1, df) };
+      return { d, df: Math.max(1, comps.length) };
+    }
+
+    // ── Distribución Beta (sin dependencias) para el umbral de Wilks ──────
+    function _lnGamma(x) {                       // Lanczos, g=7
+      const c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+        771.32342877765313, -176.61502916214059, 12.507343278686905,
+        -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+      if (x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - _lnGamma(1 - x);
+      x -= 1;
+      let a = c[0];
+      const t = x + 7.5;
+      for (let i = 1; i < 9; i++) a += c[i] / (x + i);
+      return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+    }
+    function _betacf(a, b, x) {                  // fracción continua de Lentz
+      const FPMIN = 1e-300, qab = a + b, qap = a + 1, qam = a - 1;
+      let c = 1, d = 1 - qab * x / qap;
+      if (Math.abs(d) < FPMIN) d = FPMIN;
+      d = 1 / d;
+      let h = d;
+      for (let m = 1; m <= 300; m++) {
+        const m2 = 2 * m;
+        let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+        d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN;
+        c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN;
+        d = 1 / d; h *= d * c;
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+        d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN;
+        c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN;
+        d = 1 / d;
+        const del = d * c;
+        h *= del;
+        if (Math.abs(del - 1) < 3e-14) break;
+      }
+      return h;
+    }
+    function _betaInc(a, b, x) {                 // I_x(a, b) regularizada
+      if (x <= 0) return 0;
+      if (x >= 1) return 1;
+      const bt = Math.exp(_lnGamma(a + b) - _lnGamma(a) - _lnGamma(b) + a * Math.log(x) + b * Math.log(1 - x));
+      return x < (a + 1) / (a + b + 2) ? bt * _betacf(a, b, x) / a : 1 - bt * _betacf(b, a, 1 - x) / b;
+    }
+    function _betaInv(prob, a, b) {              // bisección: I_x es monótona en x
+      let lo = 0, hi = 1;
+      for (let i = 0; i < 80; i++) {
+        const mid = (lo + hi) / 2;
+        if (_betaInc(a, b, mid) < prob) lo = mid; else hi = mid;
+      }
+      return (lo + hi) / 2;
     }
 
     /**
-     * Umbral de Mahalanobis al percentil 97,5 % para `df` grados de libertad.
-     * d² ~ χ²_df bajo normalidad multivariante, así que el corte DEPENDE de df:
-     * 2,72 con df=2 pero 4,53 con df=10 y 6,85 con df=30. Antes había aquí una
-     * constante 2,716 (correcta solo en 2D, heredada de cuando la distancia se
-     * calculaba sobre PC1+PC2) aplicada a distancias de p dimensiones: marcaba
-     * como atípicos el 67-100 % de los objetos de una colección sin atípicos.
-     * Cuantil por la aproximación de Wilson-Hilferty (1931), error < 1 % para
-     * df ≥ 2 — suficiente para un corte de presentación y sin dependencias.
+     * Umbral de Mahalanobis al 97,5 % para `df` grados de libertad y `n` objetos.
+     * La distancia de cada objeto a la media y covarianza de SU PROPIA muestra sigue
+     * n·d²/(n−1)² ~ Beta(df/2, (n−df−1)/2) (Wilks 1963) y está acotada por (n−1)/√n.
+     * El cuantil χ²_df —que se usaba— es sólo su límite asintótico: con colecciones
+     * pequeñas quedaba por encima del máximo alcanzable (n=20, 10 gl: 4,53 > 4,25) y
+     * no podía marcar ningún atípico. Mismo criterio que `comparator._outlier_threshold`.
+     * Devuelve null si n ≤ df+1 (covarianza saturada: no evaluable).
      */
-    function _olThreshold(df) {
-      const k = Math.max(1, df);
-      const z = 1.959964;                       // percentil 97,5 % de la normal
-      const t = 1 - 2 / (9 * k) + z * Math.sqrt(2 / (9 * k));
-      return Math.sqrt(k * t * t * t);
+    function _olThreshold(df, n) {
+      const r = Math.max(1, df);
+      const bShape = (n - r - 1) / 2;
+      if (n < 3 || bShape <= 0) return null;
+      return Math.sqrt((n - 1) * (n - 1) / n * _betaInv(0.975, r / 2, bShape));
     }
 
     // ── Paleta de clusters (diferente a PALETA de objetos) ─────────────────
@@ -4912,12 +4962,13 @@ const ComparadorMultiObjeto = (() => {
       : _sil >= 0.5  ? { col:'#276749', bg:'#c6f6d5', cls:'status-ok',   kpiBg:'#f0fdf4', kpiCol:'#166534', sub:'Bien definidos'  }
       : _sil >= 0.25 ? { col:'#744210', bg:'#fefcbf', cls:'status-warn', kpiBg:'#fefce8', kpiCol:'#854d0e', sub:'Separación mod.' }
       :                { col:'#742a2a', bg:'#fed7d7', cls:'status-bad',  kpiBg:'#fff1f2', kpiCol:'#9f1239', sub:'Solapados'       };
-    // Outliers (Mahalanobis > umbral χ² al 97,5 % con los gl efectivos)
-    const _mah      = mahalanobisDistancesZ(Z);
+    // Outliers (Mahalanobis > umbral de Wilks al 97,5 % con los gl efectivos)
+    const _mah      = mahalanobisDistancesZ(Z, { values: eigenvals, vectors: eigenvecs });
     const _mdists   = _mah.d;
-    const _OL_THR   = _olThreshold(_mah.df);
-    const _OL_LBL   = `${_OL_THR.toFixed(2)} · χ² 97,5 % con ${_mah.df} gl`;
-    const _outliers = objs.filter((_, i) => _mdists[i] > _OL_THR);
+    const _OL_THR   = _olThreshold(_mah.df, objs.length);
+    const _OL_NOEVAL = _OL_THR === null;
+    const _OL_LBL   = _OL_NOEVAL ? 'sin evaluar' : `${_OL_THR.toFixed(2)} · Beta de Wilks 97,5 % con ${_mah.df} gl`;
+    const _outliers = _OL_NOEVAL ? [] : objs.filter((_, i) => _mdists[i] > _OL_THR);
     // Interpretación de ejes (hasta PC5)
     const _nPCs = Math.min(5, loadings.length);
     const _axAll = Array.from({length: _nPCs}, (_, i) => loadings[i] ? _axisType(loadings[i]) : null);
@@ -4970,7 +5021,13 @@ const ComparadorMultiObjeto = (() => {
       </div>`;
     }).filter(Boolean).join('');
     // ── Fila de outliers
-    const _outlierRow = _outliers.length > 0
+    const _outlierRow = _OL_NOEVAL
+      ? `<div class="cmo-pca-diag-row">
+          <span class="cmo-pca-diag-icon">·</span>
+          <span>Atípicos: sin evaluar</span>
+          <span style="color:#64748b;font-size:10px;">se necesitan más objetos que métricas (${objs.length} objetos / ${_mah.df} gl)</span>
+        </div>`
+      : _outliers.length > 0
       ? `<div class="cmo-pca-diag-row status-warn">
           <span class="cmo-pca-diag-icon">⚠️</span>
           <span>Outliers (d &gt; ${_OL_LBL}):</span>

@@ -165,6 +165,45 @@ class TestICCFunctions:
         assert _icc_interpretation(0.60) == "moderado"
         assert _icc_interpretation(0.30) == "pobre"
 
+    def test_icc_reproduce_la_tabla_2_de_shrout_y_fleiss(self):
+        """
+        Referencia publicada (Shrout & Fleiss 1979, Tabla 2: 6 sujetos × 4 jueces):
+        ICC(2,1) = 0,29 · ICC(3,1) = 0,71. El módulo devolvía 0,71 bajo el nombre
+        ICC(2,1): calculaba consistencia, no acuerdo absoluto.
+        """
+        sf = [[9, 2, 5, 8], [6, 1, 3, 2], [8, 4, 6, 8], [7, 1, 2, 6], [10, 5, 6, 9], [6, 2, 4, 7]]
+        r = icc(sf)
+        assert r["icc"] == pytest.approx(0.29, abs=0.005)
+        assert r["icc_absoluto"] == pytest.approx(0.2898, abs=1e-3)
+        assert r["icc_consistencia"] == pytest.approx(0.7148, abs=1e-3)
+        assert icc(sf, model="consistencia")["icc"] == pytest.approx(0.71, abs=0.005)
+
+    def test_icc_absoluto_penaliza_el_sesgo_entre_observadores(self):
+        """
+        Cuentas estandarizadas (CV ≈ 6 %) y un 2º observador que mide un 5 % más.
+        La consistencia sigue alta porque ambos ordenan igual; el acuerdo absoluto
+        tiene que caer. Es exactamente el fallo que A2 debe detectar.
+        """
+        rng = np.random.default_rng(7)
+        verdad = rng.normal(100, 6, 15)
+        obs1 = verdad + rng.normal(0, 1.0, 15)
+        obs2 = verdad * 1.05 + rng.normal(0, 1.0, 15)
+        r = icc([[a, b] for a, b in zip(obs1, obs2)])
+        assert r["icc_consistencia"] > 0.9
+        assert r["icc_absoluto"] < r["icc_consistencia"] - 0.15
+        assert r["interpretation"] != "excelente"
+
+    def test_ic_del_icc_absoluto_contiene_su_punto(self):
+        """El IC de McGraw & Wong 2A. Con la fórmula de consistencia, un sesgo entre
+        observadores dejaba el propio ICC(2,1) FUERA de su intervalo."""
+        rng = np.random.default_rng(11)
+        s_ = rng.normal(100, 6, 20)
+        a = s_ + rng.normal(0, 1.5, 20)
+        b = s_ + 4.0 + rng.normal(0, 1.5, 20)
+        r = icc([[x, y] for x, y in zip(a, b)])
+        assert r["ic"] is not None
+        assert r["ic"][0] <= r["icc"] <= r["ic"][1], r
+
     def test_icc_error_una_repeticion(self):
         with pytest.raises(ValueError):
             icc([[5.0], [6.0], [7.0]])

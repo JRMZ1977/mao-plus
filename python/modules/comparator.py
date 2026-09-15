@@ -33,21 +33,37 @@ from fastapi import HTTPException
 IMPLEMENTED = True
 
 # Nivel del criterio de atípicos por distancia de Mahalanobis.
-# El UMBRAL NO ES UNA CONSTANTE: bajo normalidad multivariante d² ~ χ²_r, con r
-# los grados de libertad efectivos (rango de la covarianza usada), así que se
-# deriva en tiempo de ejecución con `_outlier_threshold`.
+# El UMBRAL NO ES UNA CONSTANTE: depende de los grados de libertad efectivos r
+# (rango de la covarianza usada) y del número de objetos n, así que se deriva en
+# tiempo de ejecución con `_outlier_threshold`.
 #
-# Antes había aquí una constante 2.716 = sqrt(χ²(2, 0.975)), correcta SOLO en 2
-# dimensiones —venía del original JS `mahalanobisDistances2D`, que operaba sobre
-# PC1+PC2— pero se aplicaba a distancias calculadas sobre las p métricas
-# estandarizadas. Medido sobre datos gaussianos SIN atípicos, marcaba el 67 % de
-# los objetos con p=10 y el 100 % con p=30.
+# Historia del criterio:
+#  1. Constante 2.716 = sqrt(χ²(2, 0.975)), correcta sólo en 2D (heredada de
+#     `mahalanobisDistances2D` sobre PC1+PC2) y aplicada en p dimensiones: marcaba
+#     el 67 % de los objetos con p=10 y el 100 % con p=30 sobre datos sin atípicos.
+#  2. O-20 (2026-09-13): sqrt(χ²(0.975; r)). Correcto sólo ASINTÓTICAMENTE. La
+#     distancia de cada objeto a la media y la covarianza de SU PROPIA muestra está
+#     acotada: d² ≤ (n−1)²/n. Con colecciones de tamaño arqueológico el cuantil χ²
+#     queda por ENCIMA de ese máximo (n=20, p=10: d_max=4,25 < 4,53) y el criterio
+#     no podía marcar ningún atípico, por extremo que fuera (0 % bajo H0).
+#  3. Integración v1.3 (2026-09-15): distribución exacta de Wilks (1963),
+#     n·d²/(n−1)² ~ Beta(r/2, (n−r−1)/2). Medido bajo H0: 2,2–2,45 % para el 2,5 %
+#     nominal con n=12…200. Converge al χ² cuando n ≫ r.
 _OUTLIER_ALPHA = 0.975
 
 
-def _outlier_threshold(df: int) -> float:
-    """Umbral de Mahalanobis al nivel `_OUTLIER_ALPHA` para `df` grados de libertad."""
-    return float(math.sqrt(st.chi2.ppf(_OUTLIER_ALPHA, max(1, int(df)))))
+def _outlier_threshold(df: int, n: int) -> "float | None":
+    """
+    Umbral de Mahalanobis (distancia, no d²) al nivel `_OUTLIER_ALPHA` para `df`
+    grados de libertad efectivos y `n` objetos, por la distribución de Wilks (1963)
+    de la distancia intra-muestra. None si n ≤ df+1 (covarianza saturada).
+    """
+    r = max(1, int(df))
+    b_shape = (n - r - 1) / 2.0
+    if n < 3 or b_shape <= 0:
+        return None
+    q = float(st.beta.ppf(_OUTLIER_ALPHA, r / 2.0, b_shape))
+    return float(math.sqrt((n - 1) ** 2 / n * q))
 
 # ── Utilidades ──────────────────────────────────────────────────────────────
 
@@ -223,7 +239,7 @@ async def pca(
         outlier_idx: list[int] = []
         outlier_status = "no_evaluable_pocos_objetos"
     else:
-        mah_threshold  = _outlier_threshold(mah_df)
+        mah_threshold  = _outlier_threshold(mah_df, len(objects))
         outlier_idx    = [i for i, d in enumerate(mah_distances) if d > mah_threshold]
         outlier_status = "ok"
 
@@ -239,6 +255,7 @@ async def pca(
         "mahalanobis_df":     mah_df,
         "outliers":           outlier_idx,
         "outlier_threshold":  round(mah_threshold, 4) if mah_threshold is not None else None,
+        "outlier_criterio":   "Beta de Wilks (1963) al 97,5 %",
         "outlier_status":     outlier_status,
         "feature_names":      active_keys,
         "n_objects":          len(objects),

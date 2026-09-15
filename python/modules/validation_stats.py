@@ -10,26 +10,40 @@ A1 — Validación de exactitud (trueness)
     summary_accuracy(results)          → tabla resumen para VALIDACION-EXACTITUD.md
 
 A2 — Reproducibilidad (ICC)
-    icc(measurements)                  → ICC(2,1) modelo two-way mixed
+    icc(measurements)                  → ICC(2,1): dos vías, efectos aleatorios, ACUERDO
+                                         ABSOLUTO, medida individual — con IC (McGraw &
+                                         Wong 1996, caso 2A) y el ICC(3,1) de consistencia
+                                         como campo aparte
     reproducibility_summary(repeated)  → descomposición de varianza
 
-C3 — Estandarización (CV + bootstrap)
+C3 — Estandarización (CV + IC)
     coefficient_of_variation(values)   → CV (%)
-    bootstrap_ci(values, stat, n_boot) → IC bootstrap por percentil
+    cv_ci(values)                      → IC del CV por McKay modificado (Vangel 1996)
+    bootstrap_ci(values, stat, n_boot) → IC bootstrap por percentil (media, mediana…)
     standardization_report(groups)     → CV + IC por grupo morfotipo
 
-Todas las funciones son puras (sin I/O, sin side effects). No requieren
-sklearn ni scipy: solo numpy, para mantener la dependencia mínima.
+Todas las funciones son puras (sin I/O, sin side effects). Dependen de numpy y, para
+los cuantiles F y χ², de scipy (ya en requirements-runtime.txt).
+
+Correcciones de la verificación independiente (integración v1.3, 2026-09-15):
+  · `icc()` calculaba ICC(3,1) —consistencia— bajo el nombre ICC(2,1). Sobre la
+    Tabla 2 de Shrout & Fleiss (1979) devolvía 0,71 donde el acuerdo absoluto es
+    0,29; con un 2º observador que mide un 5 % más, informaba «excelente» (0,97)
+    en vez de «moderado» (0,71). La consistencia ignora los sesgos sistemáticos
+    entre observadores, que es justo lo que A2 debe detectar.
+  · El IC bootstrap percentil del CV cubría el 72–88 % (nominal 95 %) con n=8–30.
+    El de Vangel cubre el 92–97 %, también con datos log-normales.
+
 Referencias:
-  Bland & Altman 1986 (LoA); Shrout & Fleiss 1979 / McGraw & Wong 1996 (ICC);
-  Efron & Tibshirani 1993 (bootstrap percentil).
+  Bland & Altman 1986 (LoA); Shrout & Fleiss 1979; McGraw & Wong 1996 (ICC e IC);
+  Vangel 1996 (IC del CV); Efron & Tibshirani 1993 (bootstrap percentil).
 """
 
 from __future__ import annotations
 
 import math
 import random
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -151,70 +165,142 @@ def summary_accuracy(results: dict[str, dict]) -> list[dict]:
 
 def icc(
     measurements: list[list[float]],
-    model: str = "twoway_mixed_absolute",
+    model: str = "absoluto",
+    confidence: float = 0.95,
 ) -> dict[str, Any]:
     """
-    Coeficiente de Correlación Intraclase (ICC).
+    Coeficiente de Correlación Intraclase (ICC) para reproducibilidad.
 
     Parámetros
     ----------
     measurements : lista de listas; cada sublista = mediciones de UN sujeto/objeto
-                   (puede haber distinto número de repeticiones por sujeto)
-    model        : "twoway_mixed_absolute" (ICC(2,1) absoluta, Shrout & Fleiss tipo 2)
-                   Es el modelo estándar para reproducibilidad de un método específico.
+                   por cada observador/sesión (mismo orden de observadores en todas).
+                   Con número desigual de repeticiones se usa el mínimo común.
+    model        : "absoluto" (defecto) → ICC(2,1) = ICC(A,1): acuerdo absoluto. Penaliza
+                   que un observador mida sistemáticamente más que otro. Es el que
+                   corresponde a la reproducibilidad de un método de medida.
+                   "consistencia" → ICC(3,1) = ICC(C,1): sólo exige que los observadores
+                   ORDENEN igual. Se devuelve siempre como `icc_consistencia`.
+                   (Se acepta el alias antiguo "twoway_mixed_absolute" → "absoluto".)
+    confidence   : nivel del intervalo de confianza.
 
     Retorna
     -------
     {
-      "icc": float,        # valor ICC ∈ [-1, 1]
-      "interpretation": str, # "excelente" / "bueno" / "moderado" / "pobre"
-      "n_subjects": int,
-      "n_raters": int,     # media de repeticiones por sujeto
-      "ms_between": float, # cuadrado medio entre sujetos
-      "ms_within": float,  # cuadrado medio dentro del sujeto
-      "ms_error": float,   # cuadrado medio de error (two-way)
+      "icc": float,              # el del modelo pedido (defecto: acuerdo absoluto)
+      "icc_absoluto": float,     # ICC(2,1)
+      "icc_consistencia": float, # ICC(3,1)
+      "ic": [lo, hi] | None,     # IC del ICC pedido (None si no es calculable)
+      "modelo": str,
+      "interpretation": str,     # Koo & Li (2016): pobre/moderado/bueno/excelente
+      "n_subjects": int, "n_raters": int,
+      "ms_between": float,       # MS entre sujetos (filas)
+      "ms_raters": float,        # MS entre observadores (columnas)
+      "ms_error": float,         # MS residual
+      "ms_within": float,        # MS dentro del sujeto (columnas + residuo)
     }
     """
-    # Requiere mismo número de repeticiones (k) por sujeto para two-way ANOVA
-    # Si es variable, usar el mínimo
+    if model == "twoway_mixed_absolute":
+        model = "absoluto"
+    if model not in ("absoluto", "consistencia"):
+        raise ValueError("model debe ser 'absoluto' o 'consistencia'")
+
     k = min(len(row) for row in measurements)
     if k < 2:
         raise ValueError("Se necesitan ≥2 repeticiones por sujeto para ICC")
 
     data = np.array([row[:k] for row in measurements], dtype=float)
-    n, k = data.shape  # n sujetos, k repeticiones
+    n, k = data.shape  # n sujetos, k observadores
 
     grand_mean = data.mean()
-    row_means = data.mean(axis=1)   # media por sujeto
-    col_means = data.mean(axis=0)   # media por sesión/rater
+    row_means = data.mean(axis=1)
+    col_means = data.mean(axis=0)
 
-    # Suma de cuadrados (ANOVA two-way sin interacción)
-    ss_between = k * np.sum((row_means - grand_mean) ** 2)
-    ss_col = n * np.sum((col_means - grand_mean) ** 2)
+    # ANOVA de dos vías sin interacción (una observación por celda)
+    ss_rows = k * np.sum((row_means - grand_mean) ** 2)
+    ss_cols = n * np.sum((col_means - grand_mean) ** 2)
     ss_total = np.sum((data - grand_mean) ** 2)
-    ss_error = ss_total - ss_between - ss_col
+    ss_error = max(0.0, ss_total - ss_rows - ss_cols)
 
-    df_between = n - 1
-    df_col = k - 1
-    df_error = (n - 1) * (k - 1)
+    msr = ss_rows / (n - 1) if n > 1 else 0.0
+    msc = ss_cols / (k - 1)
+    mse = ss_error / ((n - 1) * (k - 1)) if n > 1 else 0.0
+    msw = (ss_cols + ss_error) / (n * (k - 1))
 
-    ms_between = ss_between / df_between if df_between > 0 else 0.0
-    ms_error = ss_error / df_error if df_error > 0 else 0.0
+    den_a = msr + (k - 1) * mse + k * (msc - mse) / n
+    den_c = msr + (k - 1) * mse
+    icc_a = (msr - mse) / den_a if den_a > 0 else 0.0
+    icc_c = (msr - mse) / den_c if den_c > 0 else 0.0
+    icc_a = max(-1.0, min(1.0, icc_a))
+    icc_c = max(-1.0, min(1.0, icc_c))
 
-    # ICC(2,1) absoluta: solo varianza del sujeto en numerador
-    denom = ms_between + (k - 1) * ms_error
-    icc_val = (ms_between - ms_error) / denom if denom > 0 else 0.0
-    icc_val = max(-1.0, min(1.0, icc_val))
+    elegido = icc_a if model == "absoluto" else icc_c
+    ic = _ic_icc(model, n, k, msr, msc, mse, elegido, confidence)
 
     return {
-        "icc": round(icc_val, 4),
-        "interpretation": _icc_interpretation(icc_val),
+        "icc": round(elegido, 4),
+        "icc_absoluto": round(icc_a, 4),
+        "icc_consistencia": round(icc_c, 4),
+        "ic": [round(ic[0], 4), round(ic[1], 4)] if ic else None,
+        "modelo": ("ICC(2,1) — dos vías aleatorio, acuerdo absoluto, medida individual"
+                   if model == "absoluto" else
+                   "ICC(3,1) — dos vías mixto, consistencia, medida individual"),
+        "interpretation": _icc_interpretation(elegido),
         "n_subjects": n,
         "n_raters": k,
-        "ms_between": round(float(ms_between), 6),
-        "ms_within": round(float(ss_error / max(1, n * (k - 1))), 6),
-        "ms_error": round(float(ms_error), 6),
+        "ms_between": round(float(msr), 6),
+        "ms_raters": round(float(msc), 6),
+        "ms_error": round(float(mse), 6),
+        "ms_within": round(float(msw), 6),
     }
+
+
+def _ic_icc(model: str, n: int, k: int, msr: float, msc: float, mse: float,
+            rho: float, confidence: float) -> Optional[tuple[float, float]]:
+    """
+    IC del ICC individual (McGraw & Wong 1996, tabla 7).
+
+    · Consistencia (caso 3A): intervalo por F exacto, F = MSR/MSE.
+    · Acuerdo absoluto (caso 2A): la varianza de los observadores entra en el
+      denominador, y el intervalo necesita la aproximación de Satterthwaite. Usar aquí
+      la fórmula de consistencia da un intervalo que ni siquiera contiene el ICC(2,1)
+      cuando hay sesgo entre observadores (cobertura medida: 14 %).
+
+    Devuelve None si no es calculable (acuerdo perfecto, n < 3, grados de libertad
+    degenerados).
+    """
+    try:
+        from scipy import stats
+    except ImportError:  # pragma: no cover — scipy está en requirements-runtime
+        return None
+    if n < 3 or mse <= 0 or msr <= 0:
+        return None
+    alpha = 1.0 - confidence
+    df1, df2 = n - 1, (n - 1) * (k - 1)
+    try:
+        if model == "consistencia":
+            f_obs = msr / mse
+            fl = f_obs / stats.f.ppf(1 - alpha / 2, df1, df2)
+            fu = f_obs * stats.f.ppf(1 - alpha / 2, df2, df1)
+            return ((fl - 1) / (fl + k - 1), (fu - 1) / (fu + k - 1))
+        if rho >= 1.0:
+            return None
+        a = k * rho / (n * (1 - rho))
+        b = 1 + k * rho * (n - 1) / (n * (1 - rho))
+        num = (a * msc + b * mse) ** 2
+        den = (a * msc) ** 2 / (k - 1) + (b * mse) ** 2 / df2
+        if den <= 0:
+            return None
+        v = num / den
+        fs = stats.f.ppf(1 - alpha / 2, df1, v)
+        fss = stats.f.ppf(1 - alpha / 2, v, df1)
+        lo = n * (msr - fs * mse) / (fs * (k * msc + (k * n - k - n) * mse) + n * msr)
+        hi = n * (fss * msr - mse) / (k * msc + (k * n - k - n) * mse + n * fss * msr)
+        if not (math.isfinite(lo) and math.isfinite(hi)):
+            return None
+        return (max(-1.0, lo), min(1.0, hi))
+    except (ValueError, ZeroDivisionError, FloatingPointError):
+        return None
 
 
 def reproducibility_summary(
@@ -271,6 +357,51 @@ def coefficient_of_variation(values: list[float]) -> dict[str, float]:
     return {"n": n, "mean": round(mean, 6), "std": round(std, 6), "cv_pct": round(cv, 3)}
 
 
+def cv_ci(values: list[float], confidence: float = 0.95) -> dict[str, Any]:
+    """
+    Intervalo de confianza del coeficiente de variación por el método de McKay
+    modificado (Vangel 1996, *The American Statistician* 50:21-26).
+
+    Con k = s/x̄, ν = n−1 y u = χ²(ν) en los cuantiles 1−α/2 (límite inferior) y α/2
+    (superior):  CV = k / sqrt( ((u+2)/n − 1)·k² + u/ν ).
+
+    Es el IC que usa el reporte de estandarización (C3). El bootstrap percentil del
+    CV —el que se usaba— subcubre con los tamaños de grupo habituales: 72–88 % de
+    cobertura real para un 95 % nominal con n=8–30; éste da 92–97 %, también con
+    datos log-normales (verificación independiente, integración v1.3).
+
+    Requiere media > 0 (magnitudes positivas: áreas, longitudes).
+    """
+    from scipy import stats
+
+    arr = np.asarray(values, dtype=float)
+    n = len(arr)
+    if n < 2:
+        raise ValueError("Se necesitan ≥2 valores para el IC del CV")
+    mean = float(arr.mean())
+    if mean <= 0:
+        return {"cv_pct": float("nan"), "ci_lower": float("nan"), "ci_upper": float("nan"),
+                "n": n, "confidence": confidence, "metodo": "McKay modificado (Vangel 1996)"}
+    k = float(arr.std(ddof=1)) / mean
+    nu = n - 1
+    alpha = 1.0 - confidence
+
+    def _limite(u: float) -> float:
+        rad = ((u + 2) / n - 1) * k * k + u / nu
+        return k / math.sqrt(rad) * 100 if rad > 0 else float("inf")
+
+    lo = _limite(float(stats.chi2.ppf(1 - alpha / 2, nu)))
+    hi = _limite(float(stats.chi2.ppf(alpha / 2, nu)))
+    return {
+        "cv_pct": round(k * 100, 3),
+        "ci_lower": round(lo, 4),
+        "ci_upper": round(hi, 4) if math.isfinite(hi) else hi,
+        "n": n,
+        "confidence": confidence,
+        "metodo": "McKay modificado (Vangel 1996)",
+    }
+
+
 def bootstrap_ci(
     values: list[float],
     stat: str = "mean",
@@ -280,6 +411,10 @@ def bootstrap_ci(
 ) -> dict[str, Any]:
     """
     Intervalo de confianza bootstrap por percentil.
+
+    ⚠ Para el CV (`stat="cv_pct"`) usar `cv_ci`: el percentil subcubre con muestras
+    pequeñas (72–88 % real para un 95 % nominal con n=8–30). Aquí se conserva para
+    la media, la mediana y como diagnóstico.
 
     Parámetros
     ----------
@@ -358,7 +493,7 @@ def standardization_report(
     for name, vals in groups.items():
         cv_res = coefficient_of_variation(vals)
         ci_mean = bootstrap_ci(vals, stat="mean", n_boot=n_boot, seed=seed)
-        ci_cv = bootstrap_ci(vals, stat="cv_pct", n_boot=n_boot, seed=seed)
+        ci_cv = cv_ci(vals)
         results[name] = {
             "n": cv_res["n"],
             "mean": cv_res["mean"],
@@ -368,6 +503,7 @@ def standardization_report(
             "ci_mean_upper": ci_mean["ci_upper"],
             "ci_cv_lower": ci_cv["ci_lower"],
             "ci_cv_upper": ci_cv["ci_upper"],
+            "metodo_ic_cv": ci_cv["metodo"],
         }
 
     # Interpretación global (CV promedio entre grupos)

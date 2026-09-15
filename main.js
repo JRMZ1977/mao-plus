@@ -111,6 +111,9 @@ const PYTHON_BIN  = app.isPackaged
 //          porque un subproceso no puede importar desde dentro de app.asar)
 const PY_CWD      = app.isPackaged ? process.resourcesPath : APP_DIR;
 const SERVER_HOST = '127.0.0.1';
+// Datos escribibles del backend (perfiles de lente, ADR-015 B1) en el directorio del
+// usuario: en la app empaquetada `python/` está dentro del bundle y no debe escribirse.
+const PY_ENV = { ...process.env, MAO_DATA_DIR: app.getPath('userData') };
 const SERVER_PORT = 8765;
 const HEALTH_URL  = `http://${SERVER_HOST}:${SERVER_PORT}/api/health`;
 
@@ -210,6 +213,7 @@ async function startPythonServer() {
         cwd: PY_CWD,
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: false,
+        env: PY_ENV,
       }
     );
 
@@ -242,6 +246,7 @@ async function startPythonServer() {
         cwd: PY_CWD,
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: false,
+        env: PY_ENV,
       }
     );
     pyServerManaged = true;

@@ -129,46 +129,23 @@ async def _emparejar(pts, repertorio):
 def icc21(a, b):
     """ICC(2,1) — acuerdo absoluto, medida individual. n sujetos × k=2 jueces.
 
-    Shrout & Fleiss (1979) caso 2; forma computacional de McGraw & Wong (1996).
-    Devuelve (icc, ic95) con el intervalo por F cuando scipy esté disponible.
+    Delega en `python.modules.validation_stats.icc` (fuente única, ADR-015 A2), que
+    calcula el punto de Shrout & Fleiss (1979) caso 2 y su IC por McGraw & Wong (1996)
+    caso 2A. Antes este arnés tenía su propio cálculo: el punto era correcto, pero el
+    IC usaba la fórmula F de CONSISTENCIA; con sesgo entre jueces el intervalo ni
+    siquiera contenía el propio ICC (cobertura medida: 14 % para un 95 % nominal).
+
+    Devuelve (icc, ic95); (None, None) con menos de 3 piezas o varianza degenerada.
     """
-    n, k = len(a), 2
-    if n < 3:
+    from python.modules.validation_stats import icc as _icc
+    n = len(a)
+    if n < 3 or len(b) != n:
         return None, None
-    filas = [(x, y) for x, y in zip(a, b)]
-    gran = sum(x + y for x, y in filas) / (n * k)
-    med_fila = [(x + y) / k for x, y in filas]
-    med_col = [sum(x for x, _ in filas) / n, sum(y for _, y in filas) / n]
-
-    ss_fila = k * sum((m - gran) ** 2 for m in med_fila)
-    ss_col = n * sum((m - gran) ** 2 for m in med_col)
-    ss_tot = sum((v - gran) ** 2 for f in filas for v in f)
-    ss_err = ss_tot - ss_fila - ss_col
-
-    ms_fila = ss_fila / (n - 1)
-    ms_col = ss_col / (k - 1)
-    ms_err = ss_err / ((n - 1) * (k - 1))
-
-    den = ms_fila + (k - 1) * ms_err + k * (ms_col - ms_err) / n
-    if den <= 0:
+    r = _icc([[x, y] for x, y in zip(a, b)], model="absoluto")
+    if r["ms_between"] <= 0 and r["ms_error"] <= 0 and r["ms_raters"] <= 0:
         return None, None
-    icc = (ms_fila - ms_err) / den
-
-    ic = None
-    try:
-        from scipy import stats
-        if ms_err <= 0:
-            # Acuerdo perfecto: F es infinito y el intervalo por F queda indefinido
-            # (sale 0/0). Se informa el punto sin intervalo en vez de un NaN.
-            raise ZeroDivisionError
-        fv = ms_fila / ms_err
-        df1, df2 = n - 1, (n - 1) * (k - 1)
-        fl = fv / stats.f.ppf(0.975, df1, df2)
-        fu = fv * stats.f.ppf(0.975, df2, df1)
-        ic = ((fl - 1) / (fl + k - 1), (fu - 1) / (fu + k - 1))
-    except Exception:
-        pass
-    return icc, ic
+    ic = tuple(r["ic"]) if r["ic"] else None
+    return r["icc_absoluto"], ic
 
 
 def bland_altman(maquina, observador):

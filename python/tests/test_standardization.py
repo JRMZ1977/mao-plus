@@ -113,6 +113,41 @@ class TestBootstrapCI:
 # Tests del contraste entre grupos
 # ────────────────────────────────────────────────────────────────────────────
 
+class TestICDelCV:
+    """IC del CV por McKay modificado (Vangel 1996). El bootstrap percentil que se
+    usaba cubría el 72–88 % real para un 95 % nominal con los tamaños de grupo de
+    una colección arqueológica."""
+
+    def test_cobertura_cercana_a_la_nominal_con_grupos_pequenos(self):
+        from python.modules.validation_stats import cv_ci
+        rng = np.random.default_rng(20260915)
+        for cv_real, n in ((6.0, 8), (6.0, 15), (25.0, 10)):
+            aciertos = 0
+            reps = 600
+            for _ in range(reps):
+                x = rng.normal(100, cv_real, n)
+                ci = cv_ci(list(x))
+                aciertos += ci["ci_lower"] <= cv_real <= ci["ci_upper"]
+            cobertura = aciertos / reps
+            assert 0.91 <= cobertura <= 0.99, f"CV={cv_real} n={n}: cobertura {cobertura:.3f}"
+
+    def test_el_percentil_bootstrap_subcubre_y_por_eso_no_se_usa(self):
+        """Documenta el motivo del cambio: con n=8 el percentil no llega al 85 %."""
+        rng = np.random.default_rng(3)
+        aciertos = 0
+        reps = 200
+        for i in range(reps):
+            x = rng.normal(100, 6.0, 8)
+            ci = bootstrap_ci(list(x), stat="cv_pct", n_boot=500, seed=i)
+            aciertos += ci["ci_lower"] <= 6.0 <= ci["ci_upper"]
+        assert aciertos / reps < 0.85
+
+    def test_el_reporte_declara_el_metodo(self):
+        rng = np.random.default_rng(4)
+        r = contrast_groups(list(rng.normal(10, 1, 20)), list(rng.normal(10, 3, 20)))
+        assert "Vangel" in r["metodo_ic_cv"]
+
+
 class TestContrastGroups:
 
     def test_grupos_iguales_overlap(self):

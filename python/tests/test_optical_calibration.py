@@ -184,38 +184,59 @@ class TestErrorOpticoCalibradc:
         )
         assert result_esquina["error_lineal_percent"] > result_centro["error_lineal_percent"]
 
-    def test_reconciliacion_convencion_k1(self):
+    def test_camino_zhang_reproduce_opencv(self):
         """
-        Crítico ADR-015 B1: k₁ de OpenCV usa r_n = r_px/fx, NO r_norm = r_px/(W/2).
-        Verificar que el camino zhang_intrinsics produce un error DIFERENTE al
-        camino fov_normalizado para el mismo k₁.
+        Gate de exactitud (no de «diferencia»): el desplazamiento relativo del camino
+        Zhang debe coincidir con el modelo de distorsión de OpenCV (cv2.projectPoints)
+        con los mismos intrínsecos, incluidos punto principal descentrado y tangencial.
+        """
+        import cv2
+        import numpy as np
+        fx = fy = 3600.0
+        cxp, cyp = 3012.0, 1990.0
+        perfil = _perfil_zhang(k1=-0.14, k2=0.02, p1=0.0004, p2=-0.0003)
+        perfil["parametros_intrinsicos"].update({"fx": fx, "fy": fy, "cx": cxp, "cy": cyp})
+        d = perfil["distorsion"]
+        K = np.array([[fx, 0, cxp], [0, fy, cyp], [0, 0, 1]])
+        D = np.array([d["k1"], d["k2"], d["p1"], d["p2"], d["k3"]])
+        for (u, v) in [(4500, 3000), (5600, 3700), (800, 400), (1500, 3500)]:
+            pn = np.array([[(u - cxp) / fx, (v - cyp) / fy, 1.0]])
+            proj, _ = cv2.projectPoints(pn, np.zeros(3), np.zeros(3), K, D)
+            verdad = math.hypot(proj[0, 0, 0] - u, proj[0, 0, 1] - v) / math.hypot(u - cxp, v - cyp) * 100
+            r = self._calcular(cx=u, cy=v, perfil=perfil)
+            assert r["error_distorsion_percent"] == pytest.approx(verdad, abs=0.01), (u, v, verdad, r)
+            assert "zhang_intrinsics" in r["nota_error_optico"]
 
-        En coords OpenCV: r_n = r_px / fx
-        En coords FOV:    r_norm = r_px / (W/2)
-        Con fx ≈ 3600 y W/2 = 3000 → r_n ≈ r_norm × (3000/3600) = r_norm × 0.833
-        Por tanto: error_zhang = k1 × r_n² ≈ k1 × (0.833)² × r_norm² ≈ 0.694 × error_fov
-        La diferencia es ~30% — exactamente el factor del ±30% que se quería eliminar.
+    def test_perfil_sin_normalizacion_declarada_no_usa_su_k1(self):
         """
+        Sin intrínsecos, un k₁ sólo tiene sentido con su normalización. El método
+        «línea recta» de calibracion_lente.html v1.0 exporta k₁ = −4δ/r² con δ y r en
+        píxeles (px⁻¹): leído como adimensional daba 0,011 % donde la distorsión real
+        era 5,3 %. Sin declaración → tabla FOV, y se dice.
+        """
+        from python.modules.scale import _estimar_error_optico
+        cx, cy = self.IMG_W * 0.93, self.IMG_H * 0.92
+        perfil = _perfil_plumb(k1=-1.02e-4)          # lo que exporta la herramienta real
+        r = self._calcular(cx=cx, cy=cy, perfil=perfil)
+        fov = _estimar_error_optico(cx, cy, self.IMG_W, self.IMG_H, self.FOCAL_MM, self.SENSOR_W, self.SENSOR_H)
+        assert r["k1_perfil_usado"] is False
+        assert r["metodo_calibracion"] == "tabla_fov"
+        assert r["error_distorsion_percent"] == pytest.approx(fov["error_distorsion_percent"], abs=1e-9)
+        assert "±30%" in r["incertidumbre_calibracion"]
+        assert "no declara normalización" in r["nota_error_optico"]
+
+    def test_normalizaciones_declaradas_se_aplican_con_su_convencion(self):
+        """«semiancho» → k1·(r/(W/2))²; «focal» → k1·(r/fx)² con fx = f·W/sensor."""
         k1 = -0.14
-        # Objeto a r_px ≈ 1800 px (30% del radio horizontal)
-        cx = self.IMG_W / 2 + 1800
-        cy = self.IMG_H / 2
-
-        # Camino Zhang (fx disponible)
-        r_zhang = self._calcular(cx=cx, cy=cy, perfil=_perfil_zhang(k1=k1))
-
-        # Camino plumb (sin fx → fallback r_norm)
-        r_plumb = self._calcular(cx=cx, cy=cy, perfil=_perfil_plumb(k1=k1))
-
-        # Los resultados DEBEN ser distintos (diferentes convenciones)
-        assert r_zhang["error_distorsion_percent"] != r_plumb["error_distorsion_percent"], (
-            "Los caminos zhang e plumb deben producir distorsiones distintas "
-            "(convenciones de normalización distintas)"
-        )
-
-        # La nota debe indicar el camino usado
-        assert "zhang_intrinsics" in r_zhang["nota_error_optico"]
-        assert "fov_normalizado" in r_plumb["nota_error_optico"]
+        cx, cy = self.IMG_W / 2 + 1800, self.IMG_H / 2
+        p_semi = _perfil_plumb(k1=k1); p_semi["distorsion"]["k1_normalizacion"] = "semiancho"
+        p_foc = _perfil_plumb(k1=k1); p_foc["distorsion"]["k1_normalizacion"] = "focal"
+        r_semi = self._calcular(cx=cx, cy=cy, perfil=p_semi)
+        r_foc = self._calcular(cx=cx, cy=cy, perfil=p_foc)
+        assert r_semi["error_distorsion_percent"] == pytest.approx(abs(k1) * (1800 / 3000) ** 2 * 100, abs=1e-3)
+        fx_eq = self.FOCAL_MM * self.IMG_W / self.SENSOR_W
+        assert r_foc["error_distorsion_percent"] == pytest.approx(abs(k1) * (1800 / fx_eq) ** 2 * 100, abs=1e-3)
+        assert r_semi["k1_perfil_usado"] and r_foc["k1_perfil_usado"]
 
     def test_error_finito_siempre(self):
         """Los errores deben ser siempre finitos (sin NaN ni inf)."""
@@ -243,9 +264,11 @@ class TestErrorOpticoCalibradc:
             cx=self.IMG_W / 2 + 500, cy=self.IMG_H / 2,
             perfil=_perfil_zhang(rms=0.30)  # ALTA calidad
         )
+        p_plumb = _perfil_plumb()
+        p_plumb["distorsion"]["k1_normalizacion"] = "semiancho"
         r_plumb = self._calcular(
             cx=self.IMG_W / 2 + 500, cy=self.IMG_H / 2,
-            perfil=_perfil_plumb()
+            perfil=p_plumb
         )
         # Zhang: ±2.5%; plumb: ±7.5%
         assert "7.5" in r_plumb["incertidumbre_calibracion"]
@@ -351,3 +374,14 @@ class TestPersistencia:
         p.write_text('{"sin_marca": true}', encoding="utf-8")
         with pytest.raises(ValueError):
             load_profile_from_file(p)
+
+
+def test_perfiles_se_guardan_en_el_directorio_de_datos_del_usuario(monkeypatch, tmp_path):
+    """En la app empaquetada `python/` está dentro del bundle: los perfiles deben ir al
+    directorio de datos del usuario que pasa main.js (MAO_DATA_DIR)."""
+    import importlib
+    from python.modules import optical_calibration as oc
+    monkeypatch.setenv("MAO_DATA_DIR", str(tmp_path))
+    assert oc._directorio_perfiles() == tmp_path / "lens_profiles"
+    monkeypatch.delenv("MAO_DATA_DIR")
+    assert "python" not in oc._directorio_perfiles().parts[-3:]

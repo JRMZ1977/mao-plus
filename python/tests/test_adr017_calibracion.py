@@ -48,6 +48,19 @@ def test_icc_castiga_el_sesgo_constante():
     assert icc < 0.95, f"un sesgo de 12 pp no puede dar ICC {icc:.3f}"
 
 
+def test_el_ic_del_icc_contiene_su_punto_con_sesgo_entre_jueces():
+    """Antes el IC era el de consistencia: con sesgo, ICC(2,1)=0,71 y el «IC95»
+    salía [0,91; 0,99]. Ahora es el de McGraw & Wong caso 2A."""
+    import random
+    rnd = random.Random(5)
+    verdad = [rnd.gauss(100, 6) for _ in range(15)]
+    obs = [v + rnd.gauss(0, 1.0) for v in verdad]
+    maq = [v * 1.05 + rnd.gauss(0, 1.0) for v in verdad]
+    icc, ic = cal.icc21(maq, obs)
+    assert ic is not None
+    assert ic[0] <= icc <= ic[1], (icc, ic)
+
+
 def test_icc_es_simetrico_entre_jueces():
     a = [12.0, 30.0, 48.0, 61.0, 77.0, 90.0]
     b = [15.0, 28.0, 52.0, 58.0, 80.0, 86.0]

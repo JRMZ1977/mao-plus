@@ -2,6 +2,7 @@
 Tests de regresión: endpoints /api/pca y /api/statistics (comparator)
 """
 import json
+import math
 import pytest
 
 
@@ -301,11 +302,28 @@ class TestUmbralAtipicos:
         )
 
     def test_umbral_escala_con_los_grados_de_libertad(self, client):
-        """sqrt(χ²(0,975; gl)): 4,53 con 10 gl — nunca el 2,716 de 2 gl."""
+        """Wilks (1963): d²_crit = (n−1)²/n · Beta⁻¹(0,975; gl/2, (n−gl−1)/2).
+        Con n=60 y 10 gl vale 4,42 — nunca el 2,716 de 2 gl."""
+        import scipy.stats as _st
         body = self._pca(client, self._gaussianos(60, 10))
         assert body["mahalanobis_df"] == 10, body["mahalanobis_df"]
-        assert abs(body["outlier_threshold"] - 4.5348) < 0.01, body["outlier_threshold"]
+        esperado = math.sqrt(59 ** 2 / 60 * _st.beta.ppf(0.975, 5, 24.5))
+        assert abs(body["outlier_threshold"] - esperado) < 0.01, (body["outlier_threshold"], esperado)
         assert body["outlier_status"] == "ok"
+
+    def test_con_coleccion_pequena_el_umbral_es_alcanzable(self, client):
+        """
+        La distancia intra-muestra está acotada por (n−1)/√n. Con el cuantil χ²
+        (asintótico) el umbral quedaba POR ENCIMA de ese máximo en colecciones de
+        tamaño arqueológico: n=20, p=10 → máximo 4,25 < umbral 4,53. Ninguna pieza
+        podía salir atípica. Con Wilks el umbral está siempre por debajo del máximo.
+        """
+        n, p = 20, 10
+        body = self._pca(client, self._gaussianos(n, p, seed=3, outlier_en=0, desvio=6.0))
+        d_max = (n - 1) / math.sqrt(n)
+        assert body["outlier_status"] == "ok"
+        assert body["outlier_threshold"] < d_max, (body["outlier_threshold"], d_max)
+        assert 0 in body["outliers"], (body["outliers"], body["mahalanobis"][:3], body["outlier_threshold"])
 
     def test_pocos_objetos_se_declara_no_evaluable(self, client):
         """

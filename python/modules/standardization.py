@@ -26,8 +26,8 @@ from typing import Any
 import numpy as np
 
 from python.modules.validation_stats import (
-    bootstrap_ci,
     coefficient_of_variation,
+    cv_ci,
     standardization_report,
 )
 
@@ -148,9 +148,13 @@ def contrast_groups(
     """
     Contraste de estandarización entre dos grupos.
 
-    Calcula el CV de cada grupo y compara sus IC bootstrap para determinar si
-    los IC se solapan (no conclusivo) o están separados (diferencia significativa
-    en términos de estandarización).
+    Calcula el CV de cada grupo y compara sus IC (McKay modificado, Vangel 1996)
+    para determinar si se solapan (no conclusivo) o están separados. La no-solapación
+    de dos IC al 95 % es un criterio CONSERVADOR (α efectivo ≈ 0,5 %): si separa, la
+    diferencia es firme; si solapa, no se descarta que exista.
+
+    `n_boot` y `seed` se conservan por compatibilidad de firma: el IC del CV ya no es
+    bootstrap (el percentil subcubría con grupos pequeños, ver `validation_stats.cv_ci`).
 
     Parámetros
     ----------
@@ -168,11 +172,11 @@ def contrast_groups(
       "interpretation": str,
     }
     """
-    ci_a = bootstrap_ci(group_a, stat="cv_pct", n_boot=n_boot, seed=seed)
-    ci_b = bootstrap_ci(group_b, stat="cv_pct", n_boot=n_boot, seed=seed + 1)
+    ci_a = cv_ci(group_a)
+    ci_b = cv_ci(group_b)
 
-    cv_a = ci_a["estimate"]
-    cv_b = ci_b["estimate"]
+    cv_a = ci_a["cv_pct"]
+    cv_b = ci_b["cv_pct"]
 
     # Solapamiento de IC
     overlap = not (ci_a["ci_upper"] < ci_b["ci_lower"] or
@@ -188,6 +192,7 @@ def contrast_groups(
 
     return {
         "metric": metric,
+        "metodo_ic_cv": ci_a["metodo"],
         "group_a": {
             "cv_pct": round(cv_a, 3),
             "ci_lower": ci_a["ci_lower"],
@@ -246,7 +251,7 @@ def estandarizacion_report(
         # CV + IC por grupo
         for group_name, vals in groups_vals.items():
             cv_r = coefficient_of_variation(vals)
-            ci = bootstrap_ci(vals, stat="cv_pct", n_boot=n_boot, seed=seed)
+            ci = cv_ci(vals)
             summary_rows.append({
                 "metric": metric,
                 "group": group_name,
@@ -256,6 +261,7 @@ def estandarizacion_report(
                 "cv_pct": cv_r["cv_pct"],
                 "ci_lower": ci["ci_lower"],
                 "ci_upper": ci["ci_upper"],
+                "metodo_ic_cv": ci["metodo"],
                 "interpretation": _cv_interpretation(cv_r["cv_pct"]),
             })
 
