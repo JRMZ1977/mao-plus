@@ -1105,23 +1105,8 @@ function renderGeometryCanvas(geometryData, options = {}) {
     ctx.lineWidth = 1;
     ctx.strokeRect(infoX - 5, infoY - 5, 160, 75);
     
-    // ── Factor mm/px: prioridad a las métricas guardadas (fuente más confiable),
-    //    fallback a geometria.json > escala.factorConversion / .factor
-    //    Rutas posibles del factor: analysis.metricas.* (disco), analysis.objeto.*, raíz
-    const _ad  = window.currentAnalysisData;
-    const _ejeMM = _ad?.metricas?.eje_mayor_real_longitud
-                || _ad?.objeto?.eje_mayor_real_longitud
-                || _ad?.eje_mayor_real_longitud
-                || 0;
-    const _ejePx = _ad?.metricas?.eje_mayor_real_longitud_px
-                || _ad?.objeto?.eje_mayor_real_longitud_px
-                || _ad?.eje_mayor_real_longitud_px
-                || 0;
-    const _factorMetricas = (_ejeMM > 0 && _ejePx > 0) ? _ejeMM / _ejePx : null;
-    const escalaInfo = geometryData.escala;
-    const _factorGeo = escalaInfo?.factorConversion || escalaInfo?.factor || null;
-    const factorMM = _factorMetricas || _factorGeo || null;
-    const unidades = escalaInfo?.unidades || 'mm';
+    const factorMM = factorMmPxDeAnalisis(window.currentAnalysisData, geometryData);
+    const unidades = geometryData.escala?.unidades || 'mm';
 
     // Caja de información (esquina superior izquierda)
     const infoLines = factorMM ? [
@@ -1194,6 +1179,33 @@ function renderGeometryCanvas(geometryData, options = {}) {
 }
 
 /**
+ * Factor mm/px de un análisis. Prioridad: métricas guardadas (eje mayor en mm y en px:
+ * es exactamente el factor con el que se midió) → escala de geometria.json → null.
+ *
+ * geometria.json NO sirve como primera fuente: hasta 1.3.0 `calcularEscala()` no
+ * devolvía valor y todos los análisis guardaron `factorConversion: 1`. Un SVG que se
+ * fiara de él tomaba los píxeles por milímetros (medido: 261 mm para una pieza de 117).
+ *
+ * @param {Object} analysisData - análisis con `metricas`/`objeto` (o las métricas en la raíz)
+ * @param {Object} geometryData - geometryData con `escala` opcional
+ * @returns {number|null} mm por píxel
+ */
+function factorMmPxDeAnalisis(analysisData, geometryData) {
+  const _ad = analysisData || {};
+  const ejeMM = _ad.metricas?.eje_mayor_real_longitud
+             || _ad.objeto?.eje_mayor_real_longitud
+             || _ad.eje_mayor_real_longitud
+             || 0;
+  const ejePx = _ad.metricas?.eje_mayor_real_longitud_px
+             || _ad.objeto?.eje_mayor_real_longitud_px
+             || _ad.eje_mayor_real_longitud_px
+             || 0;
+  if (ejeMM > 0 && ejePx > 0) return ejeMM / ejePx;
+  const escala = geometryData?.escala;
+  return escala?.factorConversion || escala?.factor || null;
+}
+
+/**
  * Exportar geometría a formato SVG vectorial
  */
 async function exportGeometryToSVG(opts = {}) {
@@ -1226,7 +1238,7 @@ async function exportGeometryToSVG(opts = {}) {
   // Estándar morfometría: representación 10:1 (dibujo = 10× tamaño real del objeto)
   const SCALE_RATIO = 10;                           // factor de representación 10:1
   const escala = geometryData.escala || {};
-  const factor = escala.factorConversion || escala.factor || 1; // mm/px
+  const factor = factorMmPxDeAnalisis(analysis, geometryData) || 1; // mm/px
   const unidades = escala.unidades || 'mm';
   // Dimensiones reales del objeto (usadas para barra de escala y etiquetas de ejes)
   const widthMM  = +(width  * factor).toFixed(3);   // mm reales
@@ -2894,7 +2906,9 @@ async function generarSVGMorfologicoParaLote(ref, metricasFinal, metricasDoc, ge
   const analysisData = {
     nombreObjeto: String(obj.nombre || obj.id || 'Objeto'),
     modo        : obj.tipo || 'monofacial',
-    cara        : obj.cara || null
+    cara        : obj.cara || null,
+    // exportGeometryToSVG toma el factor mm/px de aquí antes que de geometria.json
+    metricas    : metricasFinal || {}
   };
 
   // exportGeometryToSVG lee de window.current*Data; preservamos y restauramos el

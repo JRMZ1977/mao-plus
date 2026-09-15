@@ -181,6 +181,18 @@ function t(nombre, fn) {
     if (!/width="[\d.]+mm"/.test(svgGeo)) throw new Error('sin width en mm');
   });
 
+  // geometria.json tal como lo guardaba la app hasta 1.3.0: `factorConversion: 1`
+  // (calcularEscala() no devolvía valor). Medido en Electron: 261 mm declarados para
+  // una pieza de 117 mm. El factor válido es el de las métricas: 20 mm / 200 px.
+  const geometriaEscala1 = { ...geometria, escala: { factorConversion: 1, pixelesPorMM: 1, unidadMedida: 'mm' } };
+  const svgEsc1 = await win.generarSVGMorfologicoParaLote(ref, metricas, doc, geometriaEscala1);
+  t('con escala 1 guardada en geometria.json manda el factor de las métricas', () => {
+    const w = (svgEsc1.match(/width="([\d.]+)mm"/) || [])[1];
+    // 200 px × 0,1 mm/px = 20 mm reales → 200 mm en el documento 10:1 (no 2000)
+    if (Number(w) !== 200) throw new Error(`width=${w}mm, esperado 200mm`);
+    if (!/Objeto real: 20 × 16 mm/.test(svgEsc1)) throw new Error('la descripción no declara 20 × 16 mm');
+  });
+
   const svgRecon = await win.generarSVGMorfologicoParaLote(ref, metricas, doc, null);
   t('sin geometria.json reconstruye desde metricas.json', () => {
     // Regresión: al extraer construirGeometryDataMorfologico se perdieron las

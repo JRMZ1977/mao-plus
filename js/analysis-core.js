@@ -8607,7 +8607,7 @@ if (typeof window !== 'undefined') {
     // Usar análisis híbrido si tenemos archivos complementarios (solo en monofacial)
     if (modoAnalisis === 'monofacial' && archivosComplementarios.vinculados) {
       calcularEscalaHibrida();
-      return;
+      return scale;
     }
     
     const focal = parseFloat(focalInput.value);
@@ -8694,6 +8694,11 @@ if (typeof window !== 'undefined') {
         actualizarObjetosIndividuales();
       }, 50);
     }
+
+    // Devolver la escala: `calcularEscala() || 1` se usa como valor en geometria.json,
+    // en la distancia de cada P/H al centroide y en la exportación JSON. Sin este
+    // return valía `undefined` → todos los análisis guardaban 1 mm/px.
+    return scale;
   }
 
   /**

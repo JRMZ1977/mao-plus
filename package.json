@@ -10,7 +10,7 @@
     "launcher": "bash scripts/build-dev-launcher.sh",
     "test": "npm run test:esm && npm run test:js && npm run test:py",
     "test:esm": "node scripts/check-esm.mjs",
-    "test:js": "node tests/test_window_contracts.js && node tests/test_shape_classification.mjs && node tests/test_efa_tps_export.js && node tests/test_bifacial_export.js && node tests/test_export_destino.js && node tests/test_ph_candidatos_persistencia.js && node tests/test_export_lote.js",
+    "test:js": "node tests/test_window_contracts.js && node tests/test_shape_classification.mjs && node tests/test_efa_tps_export.js && node tests/test_bifacial_export.js && node tests/test_export_destino.js && node tests/test_ph_candidatos_persistencia.js && node tests/test_export_lote.js && node tests/test_escala_retorno.js",
     "test:py": "bash scripts/run-pytest.sh",
     "glosario": "node scripts/generar-glosario-html.mjs",
     "glosario:inventario": "python3 scripts/glosario_inventario.py --md docs/GLOSARIO-INVENTARIO-F0.md",

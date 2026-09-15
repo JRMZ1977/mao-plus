@@ -372,14 +372,18 @@
       cb.checked = true;
       cb.addEventListener('change', _excActualizarResumen);
 
+      // Rótulo = carpeta (ID arqueológico): es único y es el prefijo de los archivos
+      // exportados. `nombreObjeto` sale de la detección («Objeto_1») y se repite en
+      // cada foto de una sola pieza — verificado en Electron: dos filas idénticas.
       var nom = document.createElement('span');
       nom.className = 'exc-obj-name';
-      nom.textContent = o.nombreObjeto || o.carpeta;
+      nom.textContent = o.carpeta || o.nombreObjeto;
       nom.title = o.carpeta;
 
       var meta = document.createElement('span');
       meta.className = 'exc-obj-meta';
       var partes = [];
+      if (o.nombreObjeto && o.nombreObjeto !== o.carpeta) partes.push(o.nombreObjeto);
       if (o.cara && o.cara !== 'Mono') partes.push('cara ' + o.cara);
       if (o.timestamp) partes.push(String(o.timestamp).slice(0, 10));
       meta.textContent = partes.join(' · ');
