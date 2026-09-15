@@ -1,15 +1,20 @@
 // MAO Plus — Motor de análisis morfométrico (IIFE principal)
 // ============================================================================
 
+// Sin `?v=` en los especificadores: en ESM la query forma parte de la identidad del
+// módulo, y `utility-helpers.js?v=…` aquí frente a `./utility-helpers.js` en otros
+// módulos creaba DOS instancias — la de visualization-export con `viewState` sin
+// inicializar (sus avisos de «Análisis guardado» nunca llegaban a la barra de
+// estado). La frescura la garantiza el protocolo app:// (Cache-Control: no-cache).
 import * as GeometryPrimitives from './modules/geometry-primitives.js';
 import * as ContourQuality from './modules/contour-quality.js';
-import * as MorphometricMetrics from './modules/morphometric-metrics.js?v=20260912a';
-import * as ShapeClassification from './modules/shape-classification.js?v=20260912a';
+import * as MorphometricMetrics from './modules/morphometric-metrics.js';
+import * as ShapeClassification from './modules/shape-classification.js';
 import * as ContourExtraction from './modules/contour-extraction.js';
-import * as ClassificationEngine from './modules/classification-engine.js?v=20260912a';
-import * as UtilityHelpers from './modules/utility-helpers.js?v=20260614e';
+import * as ClassificationEngine from './modules/classification-engine.js';
+import * as UtilityHelpers from './modules/utility-helpers.js';
 import * as MetricsOrchestrator from './modules/metrics-orchestrator.js';
-import * as VisualizationExport from './modules/visualization-export.js?v=20260912a';
+import * as VisualizationExport from './modules/visualization-export.js';
 import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 import * as MetricPresenter from './modules/metric-presenter.js';  // fuente única de rótulos (ADR-016)
 import * as CategoryManifest from './modules/category-manifest.js'; // fuente única de orden/índice (ADR-011/019)
@@ -15625,7 +15630,7 @@ if (typeof window !== 'undefined') {
 
     <h2>Reporte Morfométrico MAO Plus</h2>
     <p style="color:#64748b;font-size:10px;margin-top:2px;">
-      Generado: ${fecha} &nbsp;·&nbsp; MAO ${m.mao_version || '1.2'}
+      Generado: ${fecha} &nbsp;·&nbsp; MAO ${m.mao_version || window.MAO_VERSION}
       &nbsp;·&nbsp; Enriquecido: ${m.enriched_at ? m.enriched_at.slice(0,10) : 'N/A'}
     </p>
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:8px 0 12px;"/>
@@ -20263,10 +20268,10 @@ if (typeof window !== 'undefined') {
           </div>
           <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#718096;margin-bottom:14px;">Análisis bifacial comparativo</div>
           <div style="font-size:30px;font-weight:800;line-height:1.1;margin-bottom:10px;color:#1a202c;letter-spacing:-0.5px;">Reporte Comparativo Bifacial</div>
-          <div style="font-size:13px;color:#4a5568;margin-bottom:22px;">Análisis morfométrico bilateral — MAO Plus v1.2.0</div>
+          <div style="font-size:13px;color:#4a5568;margin-bottom:22px;">Análisis morfométrico bilateral — MAO Plus v${window.MAO_VERSION}</div>
           <div style="display:inline-block;background:#f7fafc;border:1px solid #cbd5e0;border-radius:4px;padding:4px 12px;font-size:10px;letter-spacing:0.8px;color:#4a5568;margin-bottom:26px;text-transform:uppercase;">${nombreObjeto ? `${nombreObjeto} &middot; ` : ''}Objeto N.° ${numeroObjeto} &middot; Cara A + Cara B</div>
           <div style="display:flex;gap:30px;flex-wrap:wrap;padding-top:18px;border-top:1px solid #e2e8f0;">
-            <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#718096;">Versión</div><div style="font-size:12px;color:#1a202c;font-weight:700;">MAO Plus v1.2.0</div></div>
+            <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#718096;">Versión</div><div style="font-size:12px;color:#1a202c;font-weight:700;">MAO Plus v${window.MAO_VERSION}</div></div>
             <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#718096;">Fecha</div><div style="font-size:12px;color:#1a202c;font-weight:700;">${fecha}</div></div>
             <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#718096;">ID Cara A</div><div style="font-size:12px;color:#1a202c;font-weight:700;">${caraA.id || 'N/A'}</div></div>
             <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#718096;">ID Cara B</div><div style="font-size:12px;color:#1a202c;font-weight:700;">${caraB.id || 'N/A'}</div></div>
@@ -28105,7 +28110,7 @@ if (typeof window !== 'undefined') {
       metadata: {
         escala: scale || 1,
         unidades: 'mm',
-        versionMAO: '1.2.0',
+        versionMAO: window.MAO_VERSION,
         calculadoEn: comparacion.calculadoEn
       }
     };

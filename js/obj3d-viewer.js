@@ -2599,7 +2599,7 @@
         parametros_captura: {},
       },
       procesamiento: {
-        versionMAO: '1.2.0',
+        versionMAO: window.MAO_VERSION,
         fecha: analysisTimestamp,
         homologationMethod: metricsSource,
       },

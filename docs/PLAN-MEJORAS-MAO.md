@@ -18,9 +18,9 @@ métricas). El plan ataca ambas de forma aditiva y gated por tests.
 | # | Mejora | Brecha / optimización | Prioridad | Fase | Estado |
 |---|--------|-----------------------|-----------|------|--------|
 | A1 | Validación de exactitud (Bland‑Altman, LoA) | Certificación (Eje 2) | 🔴 Crítico | F1 | ✅ Implementado (`test_validation_accuracy.py`, `validation_stats.py`) |
-| A2 | Reproducibilidad inter/intra‑observador (ICC) | Certificación (Eje 2) | 🔴 Crítico | F1 | ✅ Implementado (`test_reproducibility.py`, ICC(2,1) en `validation_stats.py`) |
-| C3 | Cuantificar estandarización (CV + bootstrap) | Aporte del paper | 🔴 Paper | F1 | ✅ Implementado (`standardization.py`, `test_standardization.py`) |
-| B1 | Calibrar modelo óptico (Zhang → sin ±30%) | Optimiza diferenciador estrella | 🟠 Alto | F2 | ✅ Implementado (`optical_calibration.py` + 19 tests, commit `217aaba`) |
+| A2 | Reproducibilidad inter/intra‑observador (ICC) | Certificación (Eje 2) | 🔴 Crítico | F1 | ✅ Implementado · **1.3.0:** calculaba ICC(3,1) con el nombre ICC(2,1) — corregido y verificado con Shrout & Fleiss; falta 2º observador real |
+| C3 | Cuantificar estandarización (CV + IC) | Aporte del paper | 🔴 Paper | F1 | ✅ Implementado · **1.3.0:** IC de Vangel (el bootstrap percentil cubría 72–88 %) |
+| B1 | Calibrar modelo óptico (Zhang → sin ±30%) | Optimiza diferenciador estrella | 🟠 Alto | F2 | 🟡 Backend ✅ (= OpenCV ≤ 0,01 pp) · **sin pantalla de importación**; perfiles sin intrínsecos exigen `k1_normalizacion` (1.3.0) |
 | B2 | Término de relieve/paralaje | 3ª fuente del budget | 🟠 Alto | F2 | ⬜ Pendiente |
 | B3 | Propagar incertidumbre de escala | Budget completo (RSS 3 fuentes) | 🟠 Alto | F2 | ⬜ Pendiente |
 | D1 | Simetría bilateral formal (Klingenberg) | Upgrade bifacial | 🟠 Alto | F2 | ⬜ Pendiente |

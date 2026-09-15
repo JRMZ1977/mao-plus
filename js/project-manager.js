@@ -495,7 +495,7 @@ class ProjectManager {
           parametros_captura: analysis.data?.parametros_captura || {}
         },
         procesamiento: {
-          versionMAO: '1.2.0',
+          versionMAO: window.MAO_VERSION,
           fecha: analysis.timestamp
         },
         // ADR-019 — procedencia de detección. Vive también en metricas.json (dentro
@@ -2517,7 +2517,7 @@ class ProjectManager {
   //         mao:enrich:error     { message }
   // ============================================================================
   async enrichCollection(projectId, options = {}, overrideFolderPath = null) {
-    const MAO_VERSION = '1.2.0';
+    const MAO_VERSION = window.MAO_VERSION;
     const _emit = (nombre, detail) =>
       document.dispatchEvent(new CustomEvent(nombre, { detail }));
 

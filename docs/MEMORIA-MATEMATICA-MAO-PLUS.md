@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Software | MAO Plus (Morfometría Arqueológica Objetiva) — aplicación Electron + backend FastAPI/Python |
-| Versión documentada | rama `main` al 2026-09-13: ADR-017 F0-F3 (`4c2e261`) más las correcciones de O-16 y O-20 que acompañan a este documento |
+| Versión documentada | rama `main` al 2026-09-13: ADR-017 F0-F3 (`4c2e261`) más las correcciones de O-16 y O-20 que acompañan a este documento. **Actualizada para MAO Plus 1.3.0 (2026-09-15)**: O-20 completada (distribución de Wilks), observaciones O-23 a O-27 añadidas en §13 |
 | Fecha del documento | 2026-09-13 |
 | Autoría del análisis matemático | J. F. Ruiz Rodríguez (LAAR) · asistencia de documentación: Claude Code |
 | Estado de verificación | Suite de pruebas del motor: **398 pasadas / 2 omitidas** (ejecución del 2026-09-13, ver §12) |
@@ -238,6 +238,18 @@ $$\varepsilon_{\text{dist}}(\rho) \;=\; |k_1|\,\rho^{2}\times 100\;[\%],
 
 es decir, se evalúa **en el centroide del objeto**, no globalmente: dos objetos del mismo fotograma
 reciben incertidumbres distintas según su posición. Este es el aporte metrológico propio de MAO.
+
+> **⚠ Observación O-23 (nueva, 1.3.0) — $|k_1|\rho^2$ es el desplazamiento de la POSICIÓN, no el error
+> de una LONGITUD en cualquier dirección.** Con $r_d = r(1+k_1r^2)$ el factor de escala local es
+> $r_d/r = 1+k_1r^2$ en dirección **tangencial**, pero $dr_d/dr = 1+3k_1r^2$ en dirección **radial**,
+> y el jacobiano de área vale $\approx 1+4k_1r^2$. El presupuesto publica $|k_1|\rho^2$ como error
+> lineal y $2|k_1|\rho^2$ como error de área: subestima **3×** una longitud radial y **2×** el área.
+> *Medido en la aplicación* (1.3.0, perfil de Zhang, verdad con `cv2.projectPoints`, $f_x=4000$,
+> $k_1=-0{,}10$, punto a $(5600, 3700)$ de un fotograma $6000\times4000$): desplazamiento relativo
+> $5{,}30\,\%$ —que MAO reproduce exactamente— frente a $14{,}4\,\%$ de error en una longitud
+> radial corta en ese punto. **No se ha corregido**: cambia los valores de la Sección IX ya
+> exportados y exige decidir si el campo quiere expresar incertidumbre posicional o dimensional;
+> corresponde a un ADR con nota de versión (mismo criterio que O-1).
 
 Sin calibración de lente, $k_1$ se toma de una **tabla empírica por FOV** (⚠ Heurística,
 `scale.py:347-361`):
@@ -2057,7 +2069,10 @@ $$d_i=\sqrt{(\mathbf{z}_i-\bar{\mathbf{z}})^{\!\top}\,\hat{\mathbf{\Sigma}}^{+}\
 
 [Mahalanobis 1936], con pseudo-inversa de Moore–Penrose para tolerar covarianzas singulares
 (`comparator.py:222-239`). Bajo normalidad multivariante, $d_i^2\sim\chi^2_p$ con $p$ el número de
-variables, lo que da el corte natural $d>\sqrt{\chi^2_{0{,}975,\,p}}$.
+variables, lo que da el corte natural $d>\sqrt{\chi^2_{0{,}975,\,p}}$ — **pero sólo para un punto
+externo a la muestra con la que se estimaron media y covarianza**. Para cada objeto de la propia
+colección la ley exacta es la de Wilks (1963), $n\,d_i^2/(n-1)^2\sim\mathrm{Beta}\big(p/2,\,(n-p-1)/2\big)$,
+acotada por $d_i\le(n-1)/\sqrt n$; el $\chi^2$ es su límite cuando $n\gg p$ (ver la segunda corrección de O-20).
 
 > **✔ Observación O-20 — el umbral de atípicos estaba fijado para $p=2$ y se aplicaba en dimensión
 > $p$; corregido el 2026-09-13.**
@@ -2096,6 +2111,28 @@ variables, lo que da el corte natural $d>\sqrt{\chi^2_{0{,}975,\,p}}$.
 > (`js/comparator.js:4745`) tenía el mismo defecto con estimador diagonal y se corrigió en
 > paralelo, con el cuantil por la aproximación de Wilson-Hilferty. Gate:
 > `tests/test_comparator.py::TestUmbralAtipicos` (4 pruebas).
+>
+> **✔ Segunda corrección de O-20 (MAO Plus 1.3.0, 2026-09-15) — el cuantil $\chi^2$ es asintótico.**
+> Verificación independiente sobre el módulo corregido: la distancia de cada objeto a la media y
+> covarianza **de su propia colección** está acotada por $(n-1)/\sqrt n$, y con tamaños de colección
+> arqueológicos ese máximo queda **por debajo** de $\sqrt{\chi^2_{0{,}975,\,r}}$: con $n=20$, $r=10$,
+> $d_{\max}=4{,}25<4{,}53$, de modo que **ninguna pieza podía salir atípica, por extrema que fuese**.
+> Fracción marcada bajo $H_0$ (400 réplicas gaussianas; nominal $2{,}5\,\%$):
+>
+> | $n$ | $r$ | $\chi^2$ (13-09) | Wilks (1.3.0) |
+> |---|---|---|---|
+> | 12 | 5 | 0,00 % | 2,25 % |
+> | 20 | 10 | 0,00 % | 2,20 % |
+> | 30 | 20 | 0,00 % | 2,38 % |
+> | 40 | 10 | 0,44 % | 2,43 % |
+> | 200 | 10 | 2,05 % | 2,45 % |
+>
+> El umbral pasa a $d_{\text{crit}}=\sqrt{(n-1)^2/n\cdot \mathrm{Beta}^{-1}_{0{,}975}\big(r/2,(n-r-1)/2\big)}$
+> (`comparator._outlier_threshold(df, n)`). El espejo JS abandona el estimador diagonal —con
+> métricas correlacionadas $d^2$ no sigue ninguna ley conocida— y usa la pseudo-inversa espectral de la
+> covarianza completa, con la Beta incompleta implementada sin dependencias (diferencia con scipy
+> $4\cdot10^{-14}$; con el backend $4\cdot10^{-13}$, también con colinealidad exacta). En la aplicación,
+> 20 objetos × 10 métricas con uno desplazado: umbral 3,84 < máximo 4,25, y el desplazado sale.
 >
 > **Pendiente relacionado, no abordado:** con $n<3p$ la covarianza muestral sigue siendo pobre
 > aunque el umbral ya sea correcto; el refuerzo natural es un estimador robusto —MCD
@@ -2351,12 +2388,15 @@ llevan demostración numérica se reprodujeron con el módulo real el 2026-09-13
 | Id | Asunto | Efecto | Remedio | Seguimiento |
 |---|---|---|---|---|
 | **O-1** | Escala fotogramétrica en aproximación de campo lejano: $s=p\,d/f$ en vez de $p\,(d-f)/f$ | sesgo **sistemático multiplicativo** $f/(d-f)$ en toda magnitud en mm: 25 % a $d=500$ mm con $f=100$ mm. **No afecta a adimensionales.** | usar siempre la calibración por longitud conocida (§2.5), que lo absorbe; y añadir el término exacto | **nueva** |
-| **O-20** | Umbral de atípicos de Mahalanobis fijado a $\sqrt{\chi^2_{0{,}975,2}}=2{,}716$ pero aplicado en dimensión $p$ | 67–100 % de objetos marcados como atípicos sobre datos **sin** atípicos; con $n\lesssim p$ todas las distancias colapsan | ✔ **corregido** (2026-09-13, Python y espejo JS): umbral por $r=\operatorname{rank}$ + caso degenerado declarado «sin evaluar». Queda el estimador robusto para $n<3p$ | nueva · resuelta |
+| **O-20** | Umbral de atípicos de Mahalanobis fijado a $\sqrt{\chi^2_{0{,}975,2}}=2{,}716$ pero aplicado en dimensión $p$ | 67–100 % de objetos marcados como atípicos sobre datos **sin** atípicos; con $n\lesssim p$ todas las distancias colapsan; **con el $\chi^2$ de 13-09, 0 % marcados para $n\le30$ (umbral inalcanzable)** | ✔ **corregido** en dos pasos: gl por $r=\operatorname{rank}$ (13-09) y distribución exacta de Wilks (1.3.0), Python y espejo JS. Queda el estimador robusto para $n<3p$ | nueva · resuelta |
+| **O-23** | Presupuesto óptico: $|k_1|\rho^2$ es desplazamiento de posición, no error de longitud radial ($3|k_1|\rho^2$) ni de área ($4|k_1|\rho^2$) | subestima la incertidumbre de la Sección IX: 5,3 % publicado frente a 14,4 % en una longitud radial (medido en la app contra OpenCV) | decidir el significado del campo (posicional vs dimensional) y, si es dimensional, jacobiano del modelo; nota de versión | **nueva (1.3.0)** · pendiente de ADR |
+| **O-24** | `validation_stats.icc` calculaba ICC(3,1) (consistencia) con el nombre ICC(2,1) | Shrout & Fleiss Tabla 2: 0,71 publicado donde el acuerdo absoluto es 0,29; un 2º observador +5 % salía «excelente» (0,97) en vez de «moderado» (0,71). El IC del arnés F4 era el de consistencia (cobertura 14 %) | ✔ **corregido** (1.3.0): ICC(2,1) real + IC de McGraw & Wong caso 2A; arnés delega en la fuente única | **nueva (1.3.0)** · resuelta |
+| **O-26** | `/api/shape-match` fijaba $\min$ arco 0,30/0,45 como valor por defecto y lo pasaba siempre | la app nunca usó los umbrales calibrados en ADR-017 F4 (0,40/0,50/0,60), sólo los tests del módulo | ✔ **corregido** (1.3.0): el endpoint no pisa los valores del módulo | **nueva (1.3.0)** · resuelta |
+| — | Ausencia de validación de exactitud y de reproducibilidad | sin sesgo por métrica ni ICC publicados | Bland-Altman + ICC implementados y verificados (ADR-015 A1/A2, 1.3.0); **falta el corpus de patrones y el segundo observador** | ADR-015 **A1/A2** |
 | **O-19** | Multicolinealidad exacta en el *pool* métrico (§5.5, §5.6, §5.8, §7.2) | PCA con varianza inflada en PC1 y cargas no interpretables | marcar derivadas en el registro; filtro VIF $<10$ | ADR-015 **C2** |
 | **O-16** | Convenio de los coeficientes EFD desfasado 90° respecto de Kuhl-Giardina | descriptor y distancias **correctos** (espacio isométrico); **contorno reconstruido erróneo** (más redondeado) y coeficientes no intercambiables con Momocs/pyefd | ✔ **corregido** (2026-09-13): síntesis arreglada + gate de fidelidad. Queda abierto adoptar el convenio canónico en los coeficientes (exige recalcular el banco EFA) | nueva · resuelta |
 | **O-10** | `rugosidad_contorno` mide variabilidad del muestreo, no rugosidad física | clasificaba como «fracturada/erosionada» una cuenta intacta | redefinir como desviación radial respecto de la reconstrucción EFA de bajo orden | ADR-016 #6 (diferido) |
 | — | Replicabilidad del contorno ante cambio de ROI/modo | variación de hasta $\pm20\,\%$; el color de fondo se estima desde el recorte | estimar el fondo siempre desde la imagen completa; gate de invariancia $\le2\,\%$ | ADR-013 **F2** |
-| — | Ausencia de validación de exactitud y de reproducibilidad | sin sesgo por métrica ni ICC publicados | Bland-Altman + ICC sobre corpus de patrones | ADR-015 **A1/A2** |
 
 ### 13.2 Severidad media — afectan a la interpretación o a la comparabilidad
 
@@ -2376,7 +2416,8 @@ llevan demostración numérica se reprodujeron con el módulo real el 2026-09-13
 | **O-22** | La cascada de clasificación no expone la segunda clase ni el margen | veredicto categórico en fronteras arbitrariamente próximas | emitir clase alternativa y margen | **nueva** |
 | — | Simetría bilateral por desajuste de contorno, no descomposición formal | sin prueba de significación de la asimetría | descomposición de Klingenberg + ANOVA de Procrustes | ADR-015 **D1** |
 | — | Morfoespacio multivariante externalizado a R/Momocs | flujo partido; sin elipses de confianza in-app | módulo `morphospace.py` con PCA/CVA | ADR-015 **C1** |
-| — | CV de estandarización sin intervalos de confianza | no permite contrastar morfotipos | *bootstrap* de percentiles | ADR-015 **C3** |
+| **O-25** | CV de estandarización con IC *bootstrap* de percentiles | cobertura real 72–88 % para un 95 % nominal con $n=8$–$30$: IC demasiado estrechos, contrastes entre morfotipos optimistas | ✔ **corregido** (1.3.0): IC de McKay modificado [Vangel 1996], cobertura 92–97 % también con datos log-normales | ADR-015 **C3** · resuelta |
+| **O-27** | Perfil «línea recta» de `calibracion_lente.html` v1.0: $k_1=-4\delta/r^2$ con $\delta,r$ en **píxeles** (px$^{-1}$) | leído como adimensional: 0,011 % de distorsión donde la real es 5,3 % — peor que sin perfil | ✔ en MAO (1.3.0): sin `k1_normalizacion` declarada el $k_1$ no se usa y se declara; ✗ la fórmula de la herramienta sigue sin corregir | **nueva (1.3.0)** |
 
 ### 13.3 Severidad baja — higiene documental y precisión terminológica
 
@@ -2407,6 +2448,13 @@ un parche de dos líneas: cambia valores ya exportados a CSV/PDF y exige fijar a
 operativamente «distancia» en el protocolo de campo, de modo que corresponde a un ADR con su nota de
 versión, como se hizo con ADR-017 F0. Su comprobación previa es barata y no toca código: si los
 proyectos guardados registran factores de corrección de escala, deben agruparse en torno a $1-f/d$.
+
+**Estado en MAO Plus 1.3.0 (2026-09-15).** Una verificación independiente de las mejoras de
+ADR-015 y ADR-017 contra referencias externas (tabla publicada de Shrout & Fleiss, OpenCV, scipy,
+simulación de cobertura, fragmentos generados con otro generador) cerró **O-20** con la distribución
+de Wilks y corrigió **O-24, O-25 y O-26**. Quedan pendientes de decisión, por cambiar valores ya
+exportados, **O-1** (término $-f$ de la escala, ADR-020 reservado) y **O-23** (significado dimensional
+del presupuesto óptico).
 
 ---
 <a id="14-bibliografia"></a>
@@ -2801,7 +2849,7 @@ Referencias verificadas contra `main` al 2026-09-13 (base `3a43f92` + correccion
 | Métricas de P/H | `python/modules/ph.py:182-333` |
 | Área efectiva y contención | `python/modules/ph.py:336-430` |
 | PCA + K-means + silueta | `python/modules/comparator.py:118-246` |
-| Mahalanobis + umbral por grados de libertad | `python/modules/comparator.py:48-52, 249-270` |
+| Mahalanobis + umbral de Wilks por gl y $n$ (1.3.0) | `python/modules/comparator.py` · `_outlier_threshold(df, n)`, `_mahalanobis_distances` |
 | Estadística descriptiva y correlación | `python/modules/comparator.py:275-352` |
 | Comparación bifacial, CI/CMS | `python/modules/comparator.py:371-731` |
 | Tipología y fusión EFA | `python/modules/classifier.py:108-245` |

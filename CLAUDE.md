@@ -4,6 +4,47 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-09-15 — MAO Plus 1.3.0: consolidación + verificación independiente del motor
+
+**Nota de versión (léase antes de comparar exportaciones con 1.2):** `docs/NOTA-VERSION-1.3.0.md`.
+
+Las mejoras vivían en **tres líneas divergentes** (`main` local `3043246`, `limpieza`/`fix/exportaciones`
+`7b79cef` —la única que arrancaba el lanzador— y `origin/main` `450fc41` —sólo verificada en Linux—) más
+el respaldo del glosario `e51632c`. Consolidadas en `claude/mao-plus-math-engine-verify-c8c8fd`
+(`a0a8eb7` glosario · `8cab990` limpieza · `476f1fa` origin/main). **Numeración:** ADR-017 = plantillas
+(publicado) · ADR-018 = glosario · **ADR-019 = procedencia de detección** (antes «ADR-017» local) ·
+ADR-020 reservado para O-1. El `/Applications/MAO Plus.app` es del **2026-06-03**: no contiene nada de esto.
+
+**Verificación contra referencias externas, no contra los tests del autor** — halló y corrigió:
+O-24 ICC(3,1) publicado como ICC(2,1) (Shrout & Fleiss Tabla 2) · IC del arnés F4 de consistencia
+(cobertura 14 %) · O-25 IC bootstrap del CV al 72–88 % → Vangel · O-20 incompleto: el χ² es asintótico y con
+n ≤ 30 no marcaba nada → Beta de Wilks (Python + JS con pseudo-inversa) · O-27 k₁ «línea recta» en px⁻¹ ·
+O-26 el endpoint `/api/shape-match` pisaba los umbrales calibrados de F4. **Pendiente de ADR: O-23** — el
+presupuesto óptico es desplazamiento de posición; una longitud radial yerra 3× más y el área 2× (memoria §2.2).
+
+**Conduciendo la app Electron real (CDP)** se destaparon fallos que ningún test veía: la ruta Python
+sustituía el contorno canónico por el polígono idealizado (713 → 101 pts) y el botón de plantilla decía
+«sin forma ideal» por un `null`; y 12 ReferenceError silenciosos (Nuevo análisis abortaba a mitad,
+`window.toast` inexistente, GPA de Procrustes, Excel bifacial, SVG con P/H, PDF desde el visor…).
+Tras corregir: disco 70 % → **70,17 %** por el botón · anillo → 60,33 % · Zhang = OpenCV · 0 excepciones.
+
+⚠️ **Gotchas nuevos:**
+- **ESM: la query forma parte de la identidad del módulo.** `utility-helpers.js?v=…` en un import y
+  `./utility-helpers.js` en otro = dos instancias con estado separado. Sin `?v=` en los `import`
+  (el protocolo `app://` ya sirve `no-cache`); `test_version_unica.py` lo vigila. En `index.html` sí.
+- **`const X` en script clásico no crea `window.X`.** Quien lea `window.toast` no lo encuentra.
+- **`calcularMetricasMorfologicas(obj)` MUTA `obj`** (puede reemplazar `contour_points` por la forma
+  idealizada). Para cosechar `_forma_idealizada` desde otra ruta, usar `metricasJSSinPisarContorno`.
+- **Guardas `typeof f === 'function'` sobre nombres que viven en OTRO script** son siempre falsas: la
+  función nunca corre. Buscar con `node verif/undef_names` (TS2304) — ver método abajo.
+- **Versión única:** `js/mao-version.js` (`window.MAO_VERSION`), fijada contra `package.json`.
+
+**Método reproducible de verificación en Electron sin pisar otra instancia:** copia con
+`git archive`, puerto del backend cambiado en los 7 archivos que lo citan (verificar que el diff sólo
+toca el número), `--user-data-dir` propio y `--remote-debugging-port`; conducir con el `WebSocket`
+nativo de Node 24 y los ganchos `__maoE2E`/`__maoForma`. ⚠ `main.js` **reutiliza cualquier backend MAO
+que ya escuche en 8765**: una segunda copia en el mismo puerto habla con el backend de la primera.
+
 ## 🎯 Sesión 2026-09-13 (d) — Memoria matemática para revisión externa + O-16/O-20
 
 Encargo: un documento que explique la matemática del motor a un **revisor externo**, con
@@ -879,11 +920,11 @@ npm test                                     # Verificación completa → ver ab
 `npm test` encadena los tres escalones, y es lo mismo que corre CI (`.github/workflows/ci.yml`,
 en push y PR). Cada uno se puede lanzar suelto:
 
-| Script | Qué verifica | Estado al 2026-08-14 |
+| Script | Qué verifica | Estado al 2026-09-15 (1.3.0) |
 |---|---|---|
-| `npm run test:esm` | Parseo **como módulo** de los 14 `js/modules/` + `analysis-core.js`, vía `import()` real | 15/15 |
-| `npm run test:js` | Contratos `window.*` + comportamiento de `shape-classification` | 33/33 y 15/15 |
-| `npm run test:py` | Suite pytest completa (`tests/` + `python/tests/`) | **369 passed, 2 skipped** |
+| `npm run test:esm` | Parseo **como módulo** de los 16 `js/modules/` + `analysis-core.js`, vía `import()` real | 17/17 |
+| `npm run test:js` | Contratos `window.*` + `shape-classification` + 3 tests de exportación | 33/33 · 15/15 · 3/3 |
+| `npm run test:py` | Suite pytest completa (`tests/` + `python/tests/`) | **592 passed, 0 skipped** |
 
 **`test:esm` no es redundante con `node -c`.** `node -c` parsea en modo script clásico, que es más
 permisivo: dos `function f(){}` homónimas **pasan** ahí y son un `SyntaxError` como módulo — que es
