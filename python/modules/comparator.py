@@ -32,10 +32,22 @@ from fastapi import HTTPException
 
 IMPLEMENTED = True
 
-# Umbral de distancia de Mahalanobis para considerar outlier.
-# sqrt(chi²(2, 0.95)) = 2.448 → percentil 95% (nivel operativo)
-# sqrt(chi²(2, 0.975)) = 2.716 → percentil 97.5% (nivel estricto)
-_OUTLIER_THRESHOLD = 2.716  # percentil 97.5%, consistente con el nivel declarado
+# Nivel del criterio de atípicos por distancia de Mahalanobis.
+# El UMBRAL NO ES UNA CONSTANTE: bajo normalidad multivariante d² ~ χ²_r, con r
+# los grados de libertad efectivos (rango de la covarianza usada), así que se
+# deriva en tiempo de ejecución con `_outlier_threshold`.
+#
+# Antes había aquí una constante 2.716 = sqrt(χ²(2, 0.975)), correcta SOLO en 2
+# dimensiones —venía del original JS `mahalanobisDistances2D`, que operaba sobre
+# PC1+PC2— pero se aplicaba a distancias calculadas sobre las p métricas
+# estandarizadas. Medido sobre datos gaussianos SIN atípicos, marcaba el 67 % de
+# los objetos con p=10 y el 100 % con p=30.
+_OUTLIER_ALPHA = 0.975
+
+
+def _outlier_threshold(df: int) -> float:
+    """Umbral de Mahalanobis al nivel `_OUTLIER_ALPHA` para `df` grados de libertad."""
+    return float(math.sqrt(st.chi2.ppf(_OUTLIER_ALPHA, max(1, int(df)))))
 
 # ── Utilidades ──────────────────────────────────────────────────────────────
 
@@ -199,9 +211,21 @@ async def pca(
         if len(set(labels_out)) > 1:
             sil_score = float(silhouette_score(work_data, labels_out))
 
-    # 4. Distancias de Mahalanobis — equivale a mahalanobisDistances2D() JS
-    mah_distances = _mahalanobis_distances(Z)
-    outlier_idx   = [i for i, d in enumerate(mah_distances) if d > _OUTLIER_THRESHOLD]
+    # 4. Distancias de Mahalanobis + criterio de atípicos con los GRADOS DE
+    #    LIBERTAD correctos (ver `_outlier_threshold`).
+    mah_distances, mah_df = _mahalanobis_distances(Z)
+    if mah_df >= len(objects) - 1:
+        # Covarianza saturada (n ≤ p+1): con pseudo-inversa TODAS las distancias
+        # colapsan al mismo valor (n−1)/√n y el estadístico no discrimina nada.
+        # No se fabrican atípicos — se declara no evaluable (doctrina ADR-017 F0:
+        # donde no hay dato se dice «sin evaluar», nunca un resultado inventado).
+        mah_threshold: "float | None" = None
+        outlier_idx: list[int] = []
+        outlier_status = "no_evaluable_pocos_objetos"
+    else:
+        mah_threshold  = _outlier_threshold(mah_df)
+        outlier_idx    = [i for i, d in enumerate(mah_distances) if d > mah_threshold]
+        outlier_status = "ok"
 
     return {
         "status":             "ok",
@@ -212,31 +236,38 @@ async def pca(
         "n_clusters":         final_k,
         "silhouette":         round(sil_score, 4),
         "mahalanobis":        [round(d, 4) for d in mah_distances],
+        "mahalanobis_df":     mah_df,
         "outliers":           outlier_idx,
+        "outlier_threshold":  round(mah_threshold, 4) if mah_threshold is not None else None,
+        "outlier_status":     outlier_status,
         "feature_names":      active_keys,
         "n_objects":          len(objects),
         "n_features":         len(active_keys),
     }
 
 
-def _mahalanobis_distances(Z: np.ndarray) -> list[float]:
+def _mahalanobis_distances(Z: np.ndarray) -> tuple[list[float], int]:
     """
-    Calcula distancias de Mahalanobis de cada punto respecto a la media del conjunto.
+    Distancias de Mahalanobis de cada punto respecto a la media del conjunto.
     Usa pseudo-inversa para robustez ante matrices singulares.
-    Replica mahalanobisDistances2D() — comparator.js ~L69476.
+
+    Devuelve (distancias, grados_de_libertad_efectivos), donde los grados de
+    libertad son el RANGO de la covarianza realmente empleada — el parámetro que
+    fija el umbral de atípicos (`_outlier_threshold`).
     """
-    mean = Z.mean(axis=0)
+    mean  = Z.mean(axis=0)
+    diffs = Z - mean
     try:
-        cov    = np.cov(Z.T)
+        cov    = np.atleast_2d(np.cov(Z.T))
         inv_c  = np.linalg.pinv(cov)
-        diffs  = Z - mean
         # d²_i = (z_i - mu)^T Σ^{-1} (z_i - mu)
         d2     = np.einsum("ij,jk,ik->i", diffs, inv_c, diffs)
-        return [float(math.sqrt(max(0.0, v))) for v in d2]
+        df     = int(np.linalg.matrix_rank(cov))
+        return [float(math.sqrt(max(0.0, v))) for v in d2], max(df, 1)
     except np.linalg.LinAlgError:
         # Fallback: distancia euclídea normalizada
-        norms = np.linalg.norm(Z - mean, axis=1)
-        return norms.tolist()
+        norms = np.linalg.norm(diffs, axis=1)
+        return norms.tolist(), max(int(Z.shape[1]), 1)
 
 
 # ── Estadísticos y correlación ───────────────────────────────────────────────

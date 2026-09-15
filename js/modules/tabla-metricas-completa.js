@@ -386,14 +386,20 @@ function generarSeccionDimensiones(obj, metricas, estiloTabla, estiloTh, estiloT
   /**
    * 3. FRAGMENTACIÓN
    */
-function generarSeccionFragmentacion(metricas, estiloTabla, estiloTh, estiloTd) {
+export function generarSeccionFragmentacion(metricas, estiloTabla, estiloTh, estiloTd) {
     const areaFragmentada = parseFloat(metricas.area_fragmentada) || 0;
     const perimetroFragmentado = parseFloat(metricas.perimeter_fragmentado) || 0;
-    const perdidaArea = parseFloat(metricas.perdida_area_fragmentacion_percent) || 0;
-    const perdidaPerimetro = parseFloat(metricas.perdida_perimetro_fragmentacion_percent) || 0;
-    const completitud = parseFloat(metricas.completitud_estimada) || 100;
-    const tipoFragmento = metricas.tipo_fragmento || 'Completo';
-    const coberturaAngular = parseFloat(metricas.cobertura_angular) || 360;
+    const perdidaArea = parseFloat(metricas.concavidad_area_percent ?? metricas.perdida_area_fragmentacion_percent) || 0;
+    const perdidaPerimetro = parseFloat(metricas.concavidad_perimetro_percent) || 0;
+    // ADR-017 F0 — sin dato de completitud hasta el ajuste de plantilla (F1).
+    // Antes: `|| 100` y `|| 'Completo'` fabricaban «pieza completa» por defecto.
+    // ADR-017 F3: si el usuario confirmó una plantilla, el dato existe.
+    const _plantilla = MetricPresenter.completitudPlantilla(metricas);
+    const completitud = _plantilla ? _plantilla.completitud : null;
+    const tipoFragmento = _plantilla
+      ? `${_plantilla.tipo} · ${_plantilla.completitud.toFixed(0)} % preservado`
+      : 'Sin evaluar';
+    const coberturaAngular = null;
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #dc3545;">
@@ -419,29 +425,19 @@ function generarSeccionFragmentacion(metricas, estiloTabla, estiloTh, estiloTd) 
             <td style="${estiloTd}; font-size: 12px; color: #6c757d;">mm</td>
           </tr>
           <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Pérdida Área (%)</td>
+            <td style="${estiloTd}; font-weight: 600;">Concavidad de área (%)</td>
             <td style="${estiloTd}; font-weight: 700; color: ${perdidaArea > 20 ? '#dc3545' : perdidaArea > 10 ? '#ffc107' : '#28a745'};">${perdidaArea.toFixed(2)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Porcentaje de área perdida</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Déficit de área respecto al hull = (1 − solidez)</td>
           </tr>
           <tr>
-            <td style="${estiloTd}; font-weight: 600;">Variación Perímetro (%)</td>
-            <td style="${estiloTd}; font-weight: 700; color: ${Math.abs(perdidaPerimetro) > 20 ? '#dc3545' : Math.abs(perdidaPerimetro) > 10 ? '#ffc107' : '#28a745'};">${perdidaPerimetro.toFixed(2)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Variación vs perímetro convexo (neg. = contorno sinuoso)</td>
+            <td style="${estiloTd}; font-weight: 600;">Exceso de perímetro sobre el hull (%)</td>
+            <td style="${estiloTd}; font-weight: 700; color: ${perdidaPerimetro > 20 ? '#dc3545' : perdidaPerimetro > 10 ? '#ffc107' : '#28a745'};">${perdidaPerimetro.toFixed(2)}%</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Sinuosidad del contorno frente a su envolvente convexa</td>
           </tr>
           <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Completitud Estimada</td>
-            <td style="${estiloTd}; font-weight: 700; color: ${completitud >= 90 ? '#28a745' : completitud >= 70 ? '#ffc107' : '#dc3545'}; font-size: 15px;">${completitud.toFixed(1)}%</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Estimación de integridad</td>
-          </tr>
-          <tr>
-            <td style="${estiloTd}; font-weight: 600;">Tipo de Fragmento</td>
-            <td style="${estiloTd}; font-weight: 700; color: #0066cc;">${tipoFragmento}</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Categoría de fragmentación</td>
-          </tr>
-          <tr style="background: #f8f9fa;">
-            <td style="${estiloTd}; font-weight: 600;">Cobertura Angular</td>
-            <td style="${estiloTd}; font-weight: 600;">${coberturaAngular.toFixed(1)}°</td>
-            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">Ángulo cubierto del objeto</td>
+            <td style="${estiloTd}; font-weight: 600;">Completitud</td>
+            <td style="${estiloTd}; font-weight: 700; color: #6c757d; font-size: 15px;">${tipoFragmento}</td>
+            <td style="${estiloTd}; font-size: 12px; color: #6c757d;">${completitud != null ? 'Plantilla ideal confirmada por el usuario (ADR-017)' : 'Requiere emparejar plantilla y confirmarla (ADR-017 F3)'}</td>
           </tr>
         </tbody>
       </table>
@@ -1539,8 +1535,8 @@ function generarSeccionEstadoConservacion(metricas, estiloTabla, estiloTh, estil
     // Convertir a número para evitar errores de toFixed()
     const solidez = parseFloat(metricas.solidity) || 0;
     const areaDefecto = parseFloat(metricas.area_defecto || metricas.defect_area) || 0;
-    const perdidaArea = parseFloat(metricas.perdida_area_fragmentacion_percent) || 0;
-    const perdidaPerimetro = parseFloat(metricas.perdida_perimetro_fragmentacion_percent) || 0;
+    const perdidaArea = parseFloat(metricas.concavidad_area_percent ?? metricas.perdida_area_fragmentacion_percent) || 0;
+    const perdidaPerimetro = parseFloat(metricas.concavidad_perimetro_percent) || 0;
     const areaFragmentada = parseFloat(metricas.area_fragmentada) || 0;
     const perimetroFragmentado = parseFloat(metricas.perimeter_fragmentado) || 0;
     const circularidadFragmentada = parseFloat(metricas.circularity_fragmentada) || 0;
@@ -2943,7 +2939,7 @@ function generarSeccionClasificaciones(metricas, estiloTabla, estiloTh, estiloTd
     const claseSolidez = metricas.shape_class_solidity || metricas.solidity_class || 'No clasificada';
     const claseComplejidad = metricas.shape_class_complexity || 'No clasificada';
     const claseConvexidad = metricas.convexity_class || 'No clasificada';
-    const claseFragmentacion = metricas.tipo_fragmento || 'No clasificado';
+    const claseFragmentacion = 'Sin evaluar';   // ADR-017 F0 (vuelve en F1)
     
     return `
       <h3 style="color: #495057; margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 3px solid #3f51b5;">

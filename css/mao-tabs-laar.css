@@ -1706,3 +1706,24 @@ html.mao-debug .dev-only { display: revert !important; }
   from { transform: rotate(0deg);   }
   to   { transform: rotate(360deg); }
 }
+
+
+/* ── ADR-017 F3 — completitud por plantilla ideal ──────────────────────────
+   La tarjeta reusa `.adr2-ph-card` (misma caja que P/H, ADR-005 D2); aquí sólo
+   lo específico: dos botones en fila y el chip de la cabecera. */
+.adr2-forma-card { margin-top: 8px; }
+.adr2-forma-card .adr2-btn-ph + .adr2-btn-ph { margin-left: 6px; }
+.adr2-h-plantilla { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
+#adr2Header .adr2-h-plantilla .laar-chip { white-space: nowrap; }
+
+/* Superposición en el lienzo (ADR-017 F5). La muestra de color repite el violeta
+   de `PLANTILLA_COLOR` en analysis-core.js: si uno cambia, cambiar el otro —
+   son el mismo convenio visual leído en dos sitios. */
+.adr2-forma-overlay { margin-top: 10px; padding-top: 8px; border-top: 0.5px solid var(--laar-line, #d8d8d8); }
+.adr2-forma-overlay > label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.adr2-forma-overlay > label input { margin: 0; }
+.adr2-forma-overlay > p { margin: 4px 0 0 22px; }
+.adr2-forma-overlay > p::before {
+  content: ''; display: inline-block; width: 14px; height: 0;
+  border-top: 2px solid #7c3aed; vertical-align: middle; margin-right: 6px;
+}

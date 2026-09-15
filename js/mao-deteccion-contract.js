@@ -346,6 +346,16 @@
       ph_candidatos_detectados: Array.isArray(obj.phCandidatos) ? obj.phCandidatos.length : 0,
       ph_confirmados: (Array.isArray(obj.perforaciones) ? obj.perforaciones.length : 0) +
                       (Array.isArray(obj.horadaciones) ? obj.horadaciones.length : 0),
+      // ADR-017 F3: emparejamiento con plantilla ideal. Mismo principio que P/H —
+      // distinguir la hipótesis del hecho. `plantilla_confirmada` sólo es true si
+      // un humano lo ratificó; el candidato por sí solo no altera ninguna métrica.
+      plantilla_evaluada:   !!obj.plantillaEvaluada,
+      plantilla_tipo:       (obj.plantillaConfirmada && obj.plantillaConfirmada.tipo) ||
+                            (obj.plantillaCandidata && obj.plantillaCandidata.plantilla_tipo) || null,
+      plantilla_completitud: (obj.plantillaConfirmada && obj.plantillaConfirmada.completitud) != null
+                            ? obj.plantillaConfirmada.completitud
+                            : (obj.plantillaCandidata ? obj.plantillaCandidata.plantilla_completitud : null),
+      plantilla_confirmada: !!obj.plantillaConfirmada,
       timestamp: new Date().toISOString(),
     };
   }

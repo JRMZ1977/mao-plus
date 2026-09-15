@@ -4,6 +4,475 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-09-13 (d) — Memoria matemática para revisión externa + O-16/O-20
+
+Encargo: un documento que explique la matemática del motor a un **revisor externo**, con
+glosario de métricas y fuentes citadas. Escribirlo obligó a leer cada fórmula contra su
+implementación, y de ahí salieron tres defectos. **Dos corregidos aquí** (commit `c0e9ca6`).
+
+**`docs/MEMORIA-MATEMATICA-MAO-PLUS.md`** — 14 secciones + 2 anexos. Página publicada para
+el revisor: https://claude.ai/code/artifact/e1d888e8-99b8-469a-8d51-0fade4904eef
+
+Tres decisiones de forma que conviene mantener si se amplía:
+- **Cada fórmula lleva su `archivo:línea`** (Anexo B). La doc es contrastable contra el
+  código, no contra la intención. Al tocar `metrics.py`/`efa.py`/`comparator.py`, revisar
+  el Anexo B — ya se desfasó una vez con ADR-017 F0.
+- **Tres etiquetas explícitas**: método canónico de la literatura · **⚙ convención MAO**
+  (cambia el número respecto de la práctica estándar) · **⚠ heurística calibrada** (nunca
+  presentada como probabilidad).
+- **§13 = 22 observaciones** con severidad, remedio y el ADR que las sigue. Es el índice de
+  deuda matemática; al cerrar una, marcarla ahí.
+
+### Los tres hallazgos
+
+| | Qué | Estado |
+|---|---|---|
+| **O-16** | Los coeficientes EFD están **desfasados 90°** respecto de Kuhl & Giardina | ✅ corregido |
+| **O-20** | Umbral de atípicos de Mahalanobis fijado para `p=2`, aplicado en dimensión `p` | ✅ corregido |
+| **O-1** | La escala usa `s = p·d/f` (campo lejano) en vez de `p·(d−f)/f` | ⏸ requiere ADR-018 |
+| (O-7) | Signo invertido de la pérdida de perímetro | ✅ lo arregló ADR-017 F0 en paralelo, mismo remedio |
+
+### O-16 · síntesis EFA — `python/modules/efa.py`
+
+**El descriptor SIEMPRE fue correcto y no se ha tocado.** `_efd_raw` almacena
+`a_k(MAO)=b_k(K&G)`, `b_k(MAO)=−a_k(K&G)` (ídem c,d). Tras normalizar, el desfase residual
+del armónico k es **(1−k)·π/2**: una transformación **ortogonal fija** ⇒ el morfoespacio es
+**isométrico** al canónico. Medido: distancias `d_EFD` idénticas entre convenios (máx 1,7e-16
+sobre 15 pares), espectros idénticos, invariancias a ~5e-15.
+
+Lo que fallaba era la **síntesis**: `_reconstruct_contour` aplicaba la fórmula canónica
+`x=Σ(a·cos+b·sin)` sobre coeficientes que no están en ese convenio → curva sistemáticamente
+**más redondeada**. Sobre una forma de tres lóbulos: circularidad **0,8586 vs 0,7061** real
+(21,6 % de error); tras el arreglo, 0,15 %.
+
+- **El convenio queda documentado en la cabecera del módulo.** Leerlo antes de tocar nada
+  ahí, y antes de exportar coeficientes: **no son intercambiables con Momocs/pyefd** sin
+  convertirlos con esas igualdades.
+- **Alcance real, mayor de lo que parecía:** además de la superposición visual y del
+  «contorno típico» 3D, **ADR-017 F2 publicó `efa.reconstruct()` —que delega en esta misma
+  función— como generador del repertorio de plantillas** (`shape_template.py:791`). Las
+  formas ideales del banco se generaban más redondeadas que la forma que codifican sus
+  coeficientes.
+- **NO afecta a `js/procrustes.js`**, que compara contornos reconstruidos: verificado
+  Δ ≤ 3,3e-16 sobre seis pares. Es demostrable — `Φᵀ Φ = (n/2)·I` deja invariante la matriz
+  de productos cruzados ante una rotación de fase fija.
+- **Por qué no se detectó:** `test_efa.py` cubría exhaustivamente el descriptor pero **nadie
+  contrastaba la curva sintetizada contra la forma de entrada**. Añadido `TestReconstruccion`
+  (3) con magnitudes invariantes a semejanza —circularidad 2 %, ratio de Feret 5 %— porque
+  `contour_reconstructed` viene de los coeficientes normalizados.
+- **Abierto:** adoptar el convenio canónico en `_efd_raw` exigiría **recalcular el banco EFA
+  entero** (viejos y nuevos no se mezclan). Sólo si se publica la matriz de coeficientes.
+
+### O-20 · umbral de atípicos — `comparator.py` + espejo `js/comparator.js`
+
+El umbral era la constante **2,716 = √χ²(2; 0,975)** — correcta sólo en 2D, heredada de
+cuando la distancia se calculaba sobre PC1+PC2 (`mahalanobisDistances2D`) — aplicada a
+distancias de **p** dimensiones. Sobre gaussianas **sin ningún atípico**: marcaba el **67 %**
+con p=10 y el **100 %** con p=30.
+
+- Ahora se deriva en ejecución: `√χ²(0,975; r)` con **r = rango de la covarianza empleada**
+  (`_outlier_threshold`; `_mahalanobis_distances` devuelve los gl efectivos). Fracción
+  marcada **70 % → 2 %** (nominal 2,5 %).
+- **Segundo defecto del mismo bloque:** con `n ≤ p+1` la covarianza se satura y, con
+  pseudo-inversa, **todas las distancias colapsan a (n−1)/√n** — el estadístico no discrimina.
+  Se declara: `outlier_status="no_evaluable_pocos_objetos"`, lista vacía, umbral `null`
+  (**doctrina ADR-017 F0**). La respuesta expone `mahalanobis_df` y `outlier_threshold` para
+  que el criterio quede auditable en el informe.
+- **Gotcha de duplicados, otra vez:** `mahalanobisDistancesZ` (js) arrastraba el mismo 2,716
+  con estimador diagonal. Corregido con cuantil por **Wilson-Hilferty** (error < 1 % para
+  df ≥ 2, sin dependencias). Los rótulos dejan de decir «>2.716σ» —que además no eran
+  sigmas— y el badge dice «sin evaluar» en vez de callar. Cache-bust `comparator.js?v=20260913a`.
+
+### O-1 · escala en campo lejano — **NO tocado a propósito**
+
+Sesgo sistemático multiplicativo **f/(d−f)**: 20 % con f=50/d=300 (el propio caso de
+`test_scale_px_mm_formula`), 25 % con f=100/d=500, 100 % en macro 1:1.
+
+- **No contamina el estudio de estandarización:** el CV es invariante a un factor
+  multiplicativo constante, y **nada adimensional cambia**. Sólo se desplazan las medias en
+  mm. ⚠ Salvedad: si las piezas se fotografiaron a distancias distintas, el factor deja de
+  ser constante y sí contamina el CV.
+- **Comprobación empírica sin tocar código:** los proyectos con verificación de escala
+  guardan `correction_factor` y `original_error_percent`. Si O-1 es real deben agruparse en
+  **1 − f/d** (0,80 para 100/500) y **f/(d−f)** (25 %), siempre **por debajo de 1**.
+- **Por qué ADR-018 y no un parche:** hay que fijar antes qué significa «distancia» en el
+  protocolo (objetivo→objeto ⇒ `d−f`; plano del sensor→objeto ⇒ `d−2f`) y **cambia valores ya
+  exportados a CSV/PDF**. Toca `scale.py:278`, los dos espejos JS (`analysis-core.js:13156`
+  y `:13434`) y el test que fija la fórmula. Mismo patrón que la nota de versión de F0.
+
+### Otras convenciones que la memoria dejó por escrito (§5)
+
+- **⚙ La forma canónica es la envolvente convexa:** `area`/`perimeter` son **del hull**, no
+  del contorno. `area_real` ↔ `regionprops.area`. Declararlo en cualquier publicación.
+- **Redundancia algebraica exacta** (§5.5, O-6/O-19): `compactness ≡ circularity`,
+  `shape_factor = 1/c`, `indice_lobularidad = c^(−1/2)`, `ICI = c_frag^(−1/2)`,
+  `concavidad_area = 100(1−solidez)`, `bounding_box_efficiency ≡ rectangularity`,
+  `anisotropy = 1 − circularity_proxy`, `compactness_3d = Ψ_Wadell³`. **Meterlas juntas en un
+  PCA infla PC1** — es la brecha C2 de ADR-015.
+
+- **Verificado:** **suite 398 passed / 2 skipped** (antes de esta sesión, 391/2 en este mismo
+  contenedor) · `node --check` en `comparator.js` + los 11 módulos ES · los dos gates muerden
+  sobre el código anterior (21,6 % y 70 %) · Procrustes sin regresión.
+- ⚠ **Los conteos de suite NO son comparables entre contenedores**: aquí 398/2 (los 2 omitidos
+  son los módulos de paridad `MAO_A`), mientras la entrada (c) reporta 372/4 desde otro
+  contenedor con distintas dependencias opcionales. **Comparar deltas, no absolutos.**
+- **Pendiente:** verificación visual en Electron de los rótulos del comparador (`node --check`
+  no ve layout) · ADR-018 para O-1 · estimador robusto (MCD / Ledoit-Wolf) para `n < 3p`.
+## 🎯 Sesión 2026-09-14 (b) — ADR-017 F6: plantilla ANILLO (corona circular)
+
+**La primera plantilla que no sale del banco sino del material**: dos fotos reales de La Draga
+—una cuenta discoidal perforada íntegra y un fragmento de cuenta anular roto por el orificio—.
+El segundo caso el círculo NO puede explicarlo: se queda con el margen exterior y manda el
+borde de la perforación al saco de la fractura, hundiendo el soporte bajo el umbral.
+
+- **Modelo:** dos circunferencias **concéntricas**, `R` y `r`. La concentricidad es deliberada
+  (es la forma ideal); dejar el 2º centro suelto le permitiría amoldarse a cualquier fractura.
+  Una perforación descentrada de verdad sale con más residuo y menos inliers — como debe verse.
+- **NO va por el repertorio ICP, y es la decisión de fondo:** el ICP sólo tiene una **semejanza**
+  (Umeyama: rotación, escala, traslación) y `r/R` es un parámetro de **FORMA**, no de escala.
+  Una plantilla anular fija sólo emparejaría piezas con esa razón exacta → habría que registrar
+  una por proporción. Por la vía analítica `r/R` se **estima del contorno**: 0,42 medido sobre
+  0,423 real, y bien también en 120/30 y 140/95.
+- **El 2º círculo se busca por la distancia radial al centro ya ajustado**: histograma de ancho
+  = tolerancia, y las cimas se juzgan por **CONTIGÜIDAD**, no por nº de puntos — mismo criterio
+  E1: el borde de una perforación es un arco contiguo; la fractura se reparte por toda la banda.
+- **Anillo vs círculo se decide por SOPORTE, no por residuo.** El anillo no ajusta mejor cada
+  punto: explica más puntos. Gana sólo si da cuenta de ≥15 pp más de contorno; si empata, se
+  queda la forma simple (Occam sobre el eje donde este modelo aporta).
+- **Medido:** 75 → **75,5** · 60 → **60,5** · 50 → **50,6** · 40 → **40,8** · 30 → **30,8** %.
+  Rechaza disco íntegro, sector de disco, medio disco y rectángulo.
+- **Umbral 0,60 del BANCO, no mío:** puse 0,55 por criterio y el banco mostró que aceptaba el
+  **11 %** de las formas bajo el 15 % de completitud, y que 0,60 lo lleva a cero **sin coste**
+  (misma cobertura 92 %, mismo MAE 0,96, mismo peor 6,3). Segundo umbral que el banco corrige.
+- **Obligó a tocar el lienzo:** un anillo son **dos curvas cerradas**; sin separarlas la capa de
+  F5 uniría el final de una con el principio de la otra y dibujaría un **radio inexistente**. De
+  ahí `plantilla_contorno_componente` y el recorrido por componentes (cada una envuelve dentro
+  de su propio rango). Gate ampliado a 25 comprobaciones, 5 de ellas del anillo.
+- ⚠ **Gotcha de muestreo que costó una hora:** mi primer generador de anillos usaba el **mismo
+  nº de puntos** en los dos arcos → el interior quedaba a 0,57 px de paso, más fino que el ruido
+  (1,2 px), su polilínea se inflaba al doble y el ajuste elegía el círculo **INTERIOR** creyéndolo
+  el exterior. Era fallo del fixture (`findContours` da paso uniforme), pero la lección general
+  es: **un contorno sobremuestreado por debajo del ruido falsea cualquier criterio de longitud
+  de arco** — y los de este módulo lo son.
+- **Verificado en Electron real** con fixture nuevo `sintetico_anillo_fragmento.png` (60 % sobre
+  fondo oscuro): medido **60,37 %**, soporte 0,854, 154/256 puntos respaldados, elegido `anillo`
+  sobre círculo y elipse, 0 errores. Confirma lo que ningún test de puntos podía: que
+  `contour.extract` **conserva el arco de la perforación** en un fragmento abierto (el
+  `MORPH_CLOSE` no sella la boca de la C).
+- **Verificado:** suite **431 passed / 4 skipped** (antes 416/4) · gate 25/25 · `node --check` ·
+  py3.9 · cache-bust `?v=20260914c`. `anillo` añadida al repertorio del botón (es analítica:
+  cuesta lo mismo que un círculo) y a `plantillas_disponibles()`, que hasta ahora **omitía las
+  analíticas** — un selector construido desde esa lista no ofrecía ni círculo ni elipse.
+
+## 🎯 Sesión 2026-09-14 — ADR-017 F5: la plantilla, sobre el lienzo
+
+F3 la anotó como «lo primero de F4»; F4 acabó siendo la calibración, así que la capa visual
+recibe número propio. Detalle en ADR-017 §6.6.
+
+- **El fallo que la bloqueaba, y que no se veía:** `plantilla_contorno` lo publicaba **sólo la
+  vía ICP**. Círculo y elipse —las dos que el botón usa por defecto— devolvían `None`, así que
+  la capa habría quedado **muda**: nada dibujado y ningún error en consola. F5 empieza
+  publicando la polilínea también desde la vía analítica (`_contorno_con_presencia`).
+- **No se dibuja el contorno ideal a secas**, sino partido en dos regímenes: **continuo** donde
+  el margen preservado lo respalda, **discontinuo** donde la plantilla lo reconstruye. Sin esa
+  distinción, el lienzo mostraría lo medido y lo inferido con el mismo trazo — el vicio que F0
+  vino a retirar, en píxeles en vez de en una columna del CSV. Convenio heredado de los
+  candidatos de P/H (ADR-009): **discontinuo = hipótesis**.
+- **Nueva clave paralela** `plantilla_contorno_presente: [bool,…]`, punto a punto con
+  `plantilla_contorno`. Se calcula en **Python**, en cada rama con su propio parámetro (ángulo
+  en la analítica, longitud de arco en el ICP) en vez de reconstruirla en JS desde los huecos
+  ya redondeados: duplicar geometría en dos lenguajes es como empezó el lío de los cuatro
+  estimadores de F0. **No entra al registro ADR-006**: es geometría para dibujar, no una medida.
+- **Frontera:** un tramo cuenta como medido sólo si **sus dos extremos** lo están → en la
+  frontera gana el trazo de hipótesis, que es el que no afirma de más.
+- **Capa aislada:** pasada propia tras el bucle de objetos de `redraw()`, no dentro de sus
+  ramas (`contornoReal` vs `has_real_contour`). Quitarla es borrar una línea. Color violeta
+  `#7c3aed`, sin reutilizar ninguna capa existente (verde = contorno real · naranja =
+  envolvente · azul = bbox · magenta = verificación de escala).
+- **Casilla + leyenda** en la tarjeta §6; organizer y lienzo se hablan por evento
+  (`mao:plantilla-overlay:toggle`), el mismo camino que `mao:batch-analyze:request`. Lo
+  confirmado guarda **su propia copia** del contorno: leerlo del candidato vivo haría que una
+  reevaluación con otro repertorio dibujara la decisión humana con otra plantilla.
+- **Gate funcional propio** (`tools/adr017_gate_overlay.mjs`, 20/20): extrae el código **real**
+  de `analysis-core.js` —no una copia— y lo corre contra un `ctx` de mentira que registra cada
+  llamada de dibujo. `node --check` no ve si el polígono cierra ni qué tramo sale discontinuo.
+- **Lo que el gate encontró:** dos expectativas **mías** mal calculadas, no del código — el
+  tramo discontinuo abarca 18 puntos y no 19, y la parte respaldada sale en **dos** trazos
+  porque el hueco no toca la costura del array. Anotado en el gate para que no se lea como bug.
+- **Verificado:** suite **+15 tests** (401 → **416 passed / 4 skipped**) · gate 20/20 ·
+  `node --check` · sintaxis 3.9 · cache-bust `?v=20260914b`.
+
+### ✅ VERIFICACIÓN VISUAL EN ELECTRON — hecha, y ya no es «imposible»
+
+**Se puede correr Electron en estos contenedores.** `xvfb-run` + `--remote-debugging-port` +
+Playwright `connectOverCDP` + el hook `__maoE2E` de ADR-010. Receta completa, escollos y
+límites honestos en **`docs/VERIFICACION-VISUAL-ELECTRON.md`**. Esto desbloquea las ~6
+entradas de este archivo que terminan en «pendiente de verificación visual».
+
+Fixture nuevo `assets/fixtures/sintetico_fragmento_disco.png`: disco al **70 % exacto** (la
+cuenta circular fracturada de ADR-016 #6). Por el pipeline completo el programa midió
+**70,17 %** (0,17 pp), arco 0,704, **90/128** puntos marcados como respaldados. En el lienzo:
+arco discontinuo violeta cerrando el 30 % ausente, continuo sobre el margen conservado,
+distinguible del verde y del naranja; la casilla lo quita sin residuo; confirmada más gruesa
+que candidata. **Cero errores de consola.**
+
+**Dos defectos ANTERIORES a F5 que sólo aparecieron al pulsar los botones de verdad:**
+1. ⚠ **Las tarjetas §P/H y §6 se construían UNA sola vez.** `partition()` reparte los `<h5>`
+   por las secciones en la 1ª pasada; desde entonces `findRoot()` —que los exige hermanos—
+   devolvía `null` y `organize()` no volvía a llamar a los constructores. Pulsar «Evaluar
+   completitud» cambiaba el chip de la cabecera (se construye ANTES de esa compuerta) y la
+   tarjeta seguía ofreciendo «Evaluar»: **el botón «Confirmar» no llegaba a existir**, o sea
+   que el flujo de ratificación de F3 era **inalcanzable desde la interfaz**. Arreglado con
+   el marcador `.adr2-root` que deja la primera pasada.
+2. **La fila «Completitud» de la tabla estaba CLAVADA** en «Sin evaluar» desde F0, y nadie
+   volvió a ella al cablear F3: la tarjeta decía «70 %» y la tabla, en la misma pantalla,
+   «sin evaluar». Ahora lee `metricas.plantilla_completitud` en los **dos** productores
+   (duplicado IIFE de `analysis-core.js` incluido — sin él sobrevive por la ruta legacy).
+
+**Herramienta:** `npm run verificar:visual -- --imagen <ruta>` — arranca la app, la conduce
+entera (cargar → escala → identificar → detectar → analizar → emparejar), imprime los números
+y deja 4 capturas. `--focal/--sensor/--apertura` para imágenes sin EXIF legible (CR3);
+`--objeto N` cuando la foto trae escala o carta de color; `--mantener` deja la ventana abierta.
+Única dependencia nueva: `playwright-core` (no descarga navegadores: se conecta al Electron
+que ya está corriendo).
+
+- **Pendiente:** mirarlo con una **fotografía real** (el fixture es sintético: bordes limpios,
+  fondo uniforme) y en **macOS** (esto es Linux+Xvfb: no valida `hiddenInset` ni semáforos).
+  Las fotos del corpus llegan al chat como imagen, no como archivo: la corrida con material
+  real se hace en el Mac del usuario con la orden de arriba.
+
+## 🎯 Sesión 2026-09-13 (e) — ADR-017 F4: los umbrales dejan de ser criterio
+
+F1-F3 construyeron, conectaron y expusieron la completitud. F4 pregunta lo único que faltaba:
+**¿los números son defendibles?** Protocolo y tablas: `docs/VALIDACION-PLANTILLAS.md`.
+
+- **Banco de umbrales** (`tools/adr017_banco_umbrales.py`): 87 formas de completitud EXACTA
+  (2 familias × 12 niveles × 3 ruidos) + 15 controles negativos. Barrido **exacto, no
+  aproximado**: los umbrales se aplican *después* del ajuste → se ajusta una vez por forma y
+  se reevalúa la rejilla post-hoc. Ruido determinista ⇒ reproducible.
+- **Recalibrado: círculo 0,30 → 0,40 · elipse 0,45 → 0,50.** Cuesta 11 pp de cobertura y
+  **ninguno de los 5 casos que deja de aceptar estaba bien medido** (errores 5,4 · 10,0 ·
+  11,3 · 15,8 · **31,6 pp**). No se cambia exactitud por cobertura: se retira el **modo
+  degenerado** —un círculo *pequeño* encajado en un trozo del arco— que los producía. Falsos
+  positivos de forma y aceptaciones por debajo del 15 % caen **a cero**.
+
+| ruido de contorno | 0,35/0,50 (cob · MAE · peor) | **0,40/0,50** |
+|---|---|---|
+| 0,5 px | 100 % · 1,73 · 10,0 | 94 % · 1,48 · 10,0 |
+| 1,2 px | 100 % · 2,09 · 13,1 | 100 % · 2,09 · 13,1 |
+| 2,5 px | 81 % · **5,79** · **31,6** | 62 % · **0,84** · **3,4** |
+
+  Con segmentación pobre, el umbral bajo no cubre más: **inventa** más.
+
+- **Hallazgo de método: el MAE ocultaba el fallo grave.** 0,35/0,50 parecía bueno (MAE 3,03)
+  mientras publicaba **18 % sobre una pieza que conservaba el 50 %**. El error **máximo** es la
+  columna que lo delata y se añadió al banco a mitad de fase. El residuo NO sirve para
+  detectarlo (es el mismo que el de un ajuste bueno con ese ruido); sólo lo delata la fracción
+  de arco, que es justo lo que filtra el umbral.
+- **Corrección a lo ya escrito** (3 documentos): «rechaza por debajo de ~15 %» era **falso** con
+  los umbrales de F1 — se aceptaba el **22 %** de esas formas. La medición del prototipo no era
+  incorrecta; la generalización desde contornos poco ruidosos sí. Corregido en ADR-017 §4,
+  `MEMORIA-MATEMATICA` §5.6 (el doc que va al revisor) y la cabecera del gate de F1.
+- **Sesgo documentado:** la elipse fragmentaria se **sobreestima** cuanto menos arco queda
+  (30 % → 40-43 %), por razón mecánica. Por debajo del 50 %, léase como **cota superior**.
+- **Arnés para el corpus real** (`tools/adr017_calibracion_draga.py`), dos pasadas:
+  `--inventario` emite la hoja de registro; `--evaluar` corre el pipeline REAL
+  (`detect` → `contour.extract` → `match`) y emite **ICC(2,1) de acuerdo absoluto**,
+  **Bland-Altman** + sesgo proporcional, **κ de Cohen** y la tasa de rechazo con forma visible.
+  **El inventario NO escribe la respuesta de la máquina, a propósito**: si el observador la ve
+  antes de anotar, lo medido deja de ser concordancia y pasa a ser anclaje.
+- **Dos bugs propios en el arnés**, ambos encontrados por los tests: (1) con ajuste PERFECTO
+  `se_pendiente = 0` → el contraste dividía por cero y declaraba «no significativo» el caso más
+  significativo posible; (2) con acuerdo perfecto `MS_error = 0` → el IC del ICC salía `NaN`.
+  Y una falsa alarma corregida: con 5 pares y residuos diminutos marcaba «sesgo proporcional
+  significativo» una pendiente de −0,026 pp/pp → ahora exige ≥ 10 pares **y** deriva ≥ 5 pp.
+- **Verificado:** suite **+22 tests** (+19 del arnés, +3 del módulo). Aislado: 372→394. Tras
+  rebasar sobre (d): **401 passed / 4 skipped** en este contenedor — comparar el **delta**, no el
+  absoluto, según el aviso de la entrada (d) ·
+  banco corrido contra los nuevos defectos («ningún juego domina») · arnés probado end-to-end
+  sobre corpus sintético **renderizado** (imágenes, no listas de puntos): 100,0 / 75,1 / 51,5 /
+  100,0 / 51,0 con rectángulo y blob rechazados · `ast.parse(feature_version=(3,9))` en los 5
+  archivos Python tocados.
+- **NO hecho / bloqueado:** la corrida sobre **DRG_19-15** — el corpus vive en el Mac del
+  usuario (`/Users/…/ANALISIS AGOSTO/DRG_19-15`) y estos contenedores son Linux sin acceso a él.
+  Los criterios de éxito quedan declarados **antes** de ver los datos (VALIDACION §4), que es la
+  única forma de que signifiquen algo. Sigue pendiente la superposición de `plantilla_contorno`
+  en el lienzo (exige verificación visual en Electron) y un **segundo observador humano**, sin
+  el cual no se puede separar el error del método de la variabilidad entre arqueólogos (ADR-015 A2).
+
+## 🎯 Sesión 2026-09-13 (c) — ADR-017 F3: el cable
+
+Antes de F3 el backend sabía calcular completitud y **nadie se la pedía**: las únicas
+apariciones de `plantilla_completitud` en `js/` eran comentarios de F0. F3 conecta.
+
+- **Registro canónico ADR-006**: 5 claves `plantilla_*` con `fuente_2d` prefijada
+  `shape_match.` — mismo convenio que `texture.` para GLCM, porque **no viven en
+  `/api/metrics`** (el emparejamiento se pide bajo demanda, ~200 ms por plantilla).
+- **`PythonBridge.shapeTemplate.match()`** → `/api/shape-match`, con guard
+  `isModuleActive('shape_template')`.
+- **Tarjeta en §6** con los cuatro estados, calcados de P/H (ADR-009):
+
+| estado | chip | significado |
+|---|---|---|
+| `sin-evaluar` | `--wa` | no se pidió el emparejamiento |
+| `candidata` | `--wa` | hipótesis sin ratificar |
+| `confirmada` | `--ok` | ratificada por un humano — **sólo esto va al CSV** |
+| `sin-plantilla` | `--none` | se evaluó y no hay forma ideal: **resultado, no fallo** |
+
+- **Persistencia**: los 4 campos (`plantillaEvaluada/Candidata/Confirmada/Descartada`)
+  se escriben y releen del caché de análisis, como `phCandidatos` en ADR-009. Sin eso la
+  confirmación se perdía en el siguiente render y había que volver a pagar el cálculo.
+- **Repertorio del botón ACOTADO** a propósito (`circulo`, `elipse`, `triangulo`,
+  `cuadrado`, `hexagono`): pedir la biblioteca entera multiplica los 200 ms por plantilla.
+
+**Tres bugs encontrados, los tres MUDOS** — la clase propia de una fase de cableado:
+código que nadie ejecuta hasta que un humano pulsa un botón.
+1. **Los tres nombres de campo del contorno que escribí eran inventados**
+   (`obj.contorno.points`, `obj.contourPoints`, `obj.puntos_contorno`). Los canónicos son
+   `obj.contour_data.points` (real) y `obj.contour_points` (puede venir simplificado para
+   dibujo). El botón habría dicho siempre «sin contorno suficiente».
+2. **Argumentos de `toast` invertidos.** `MaoOrganizer.toast(kind, msg)` hace
+   `window.toast[kind](msg)`; al revés evalúa `window.toast['El emparejamiento…']`, que no
+   es función → **ningún aviso se habría mostrado jamás**, sin error en consola.
+3. **Colisión de selector**: `set()` usa `querySelector`, y al añadir el segundo
+   `.laar-chip` a la cabecera el selector sin acotar habría escrito siempre en el primero
+   (el chip de P/H mostrando el estado de la forma). Ambos acotados ahora.
+
+Los tres con test estático, más un cuarto contrato verificado end-to-end: si
+`shape_template` no se anunciara en `/api/capabilities`, el guard del bridge devolvería
+`null` siempre y el botón quedaría muerto sin error visible.
+
+- **Verificado:** 15 tests de cableado · **suite 372 passed / 4 skipped** (antes 357/4) ·
+  `node --check` en los 7 JS tocados · contratos window 33/33 · cache-bust `?v=20260913a`.
+- **NO hecho:** superponer `plantilla_contorno` en el lienzo. El backend ya lo publica en
+  coords absolutas, pero exige tocar el pipeline de render y **verificación visual en
+  Electron**, imposible en estos contenedores. Es lo primero de F4.
+
+## 🎯 Sesión 2026-09-13 (b) — ADR-017 F2: repertorio arbitrario + ICP recortado
+
+Cierra la pregunta original: **el repertorio EFA sí sirve — como biblioteca de plantillas, no
+como espacio de comparación**. `registrar_plantilla_efa()` convierte un banco de coeficientes en
+plantillas vía `efa.reconstruct()`, y el **ICP recortado** hace el encaje parcial que la distancia
+EFA no puede hacer.
+
+- **TrICP** (Chetverikov et al. 2002): mínimos cuadrados recortados en todas las fases; el artículo
+  lo declara aplicable a solapamientos **por debajo del 50 %**, que es justo el caso fragmento.
+- **Umeyama (1991)** para la similitud en forma cerrada. Su aporte sobre Arun/Horn es no devolver
+  una **reflexión** con datos corrompidos → control explícito de quiralidad (`permitir_reflexion`,
+  por defecto `False`: una forma y su espejo no son la misma pieza).
+- Repertorio: `circulo_icp`, `elipse_2_1`, `triangulo`, `cuadrado`, `rectangulo_2_1`, `pentagono`,
+  `hexagono` + las registradas desde EFA. Endpoint `GET /api/shape-match/templates`.
+
+**Gate del ADR — paridad analítica ↔ ICP ≤ 0,3 pp** (círculo íntegro 0,0 · disco 75 % 0,0 ·
+disco 50 % 0,5 · elipse íntegra 0,0). Triángulo/cuadrado/hexágono íntegros → su plantilla al 100 %.
+Un círculo **no** se acepta como triángulo.
+
+- **Hallazgo: `efa.reconstruct()` no existía.** La cabecera de `efa.py` la declaraba exportada desde
+  siempre, pero sólo estaba la privada `_reconstruct_contour`. Publicada en F2, con validación y test.
+- **Dos correcciones que obligó el banco:** (1) los inliers **publicados** salen de la tolerancia
+  absoluta, no del recorte ξ — ξ es interno del TrICP y escoge los *k* globalmente más cercanos, que
+  quedan entreverados: el tramo contiguo salía 0,11 en un disco al 75 % bien ajustado, y con ξ alto
+  el borde de fractura entraba en el residuo (10,5 px). Con la tolerancia el criterio es además el
+  MISMO que el de la vía analítica, que es lo que hace comparables las rutas. (2) El recorte entra
+  **desde el rastreo grueso**: sin él, un sector de hexágono al 50 % rechazaba su propia plantilla.
+- **Ambigüedad de forma, medida:** medio hexágono regular **es** un triángulo equilátero truncado
+  (4r de sus 5r yacen sobre un triángulo de lado 2r). El módulo lo reporta bien por partida doble
+  —50 % de hexágono · 67 % de triángulo, verdades 50,0 % y 66,7 %— y por eso publica **todos** los
+  candidatos. La ambigüedad es de la forma, no del método: refuerza el invariante ADR-009.
+- **Coste:** ~200 ms por plantilla ICP (~640 ms para cuatro). **F3 debe invocarlo bajo demanda y con
+  el repertorio acotado**, no con la biblioteca entera en cada análisis.
+- **Verificado:** 14 tests nuevos · **suite 357 passed / 4 skipped** (antes 343/4) · sintaxis 3.9.
+- **Pendiente:** F3 (registro canónico + chip LAAR + modal de confirmación) · F4 (calibración con
+  corpus real) · verificación visual en Electron.
+
+## 🎯 Sesión 2026-09-13 — ADR-017 F1: `shape_template.py` + `/api/shape-match`
+
+Vuelve la completitud, esta vez midiendo lo que dice medir. **Nuevo módulo canónico**
+`python/modules/shape_template.py` y endpoint `POST /api/shape-match`.
+
+Las tres etapas del ADR §3, todas en el módulo:
+- **E1 · margen original vs borde de fractura** — por **CONTIGÜIDAD** del arco de inliers,
+  no por umbral de rectitud (probado y descartado: frágil ante el ruido de contorno).
+- **E2 · ajuste robusto** — círculo por Kåsa (1976), elipse por **Halíř & Flusser (1998)**
+  (variante estable de Fitzgibbon et al. 1999). Se prefirió a `cv2.fitEllipse` porque su
+  algoritmo exacto varía entre versiones de OpenCV y hay un requisito de replicabilidad
+  abierto (ADR-013 F2). RANSAC con **semilla fija** → determinista, con test que lo verifica.
+- **E3 · completitud** = fracción de la **longitud de arco** de la plantilla cubierta,
+  medida alrededor del **CENTRO AJUSTADO** — no del centroide del fragmento. Ese error de
+  referencia era exactamente el defecto que F0 retiró.
+
+| forma sintética | verdad | medido | veredicto |
+|---|---|---|---|
+| círculo íntegro | 100 % | **100,0 %** | completo |
+| disco 75 / 50 / 25 % | 75 / 50 / 25 | **75,3 / 50,5 / 25,8** | fragmento |
+| disco 12,5 % | 12,5 % | — | **rechazada** (fuera de envolvente) |
+| elipse íntegra / media | 100 / 50 | **100,0 / 51,0** | completo / fragmento |
+| rectángulo 2:1 | n/a | — | **rechazada** (plantilla errónea) |
+
+- **Tres cosas que la implementación obligó a añadir**, ninguna prevista en el diseño:
+  (1) **tope de elongación de la elipse** `b/a ≥ 0,15` — una elipse con `b/a → 0` **es** un
+  segmento de recta y ajusta cualquier borde de fractura (análogo elíptico del «círculo
+  gigante ≈ recta» que ya acotaba `r_max`); sin él, un rectángulo y un sector de 45° se
+  aceptaban como plantillas. (2) **soporte mínimo distinto por plantilla** (círculo 0,30 ·
+  elipse 0,45): la elipse tiene 5 grados de libertad frente a 3. (3) **Un bug propio**: el
+  refinamiento actualizaba el modelo sin su tramo → el «arco de inliers» quedaba medido
+  contra otro modelo y contenía puntos fuera de tolerancia. Ahora se actualizan juntos.
+- **Coste:** ~320 ms/objeto con las dos plantillas (contorno ~430 pts); el bucle de tramos
+  contiguos se vectorizó (era 504 ms). **Relevante para F3**: conviene invocarlo bajo
+  demanda, no en cada análisis.
+- **Invariante ADR-009 respetado:** el endpoint emite `es_fragmento_candidato` — sugerencia
+  a confirmar, nunca veredicto — y `None` cuando no hay plantilla. No toca ninguna métrica.
+- **Verificado:** 19 tests nuevos · **suite completa 343 passed / 4 skipped** (antes 324/4) ·
+  sintaxis Python 3.9 comprobada con `ast.parse(feature_version=(3,9))`.
+  **Esta sesión también cerró la verificación pendiente de F0**: la suite pasa con F0 dentro.
+- **Pendiente:** F2 (ICP contra repertorio arbitrario vía `efa.reconstruct()`), F3 (registro
+  canónico + chip LAAR + modal de confirmación), F4 (calibración con corpus real). Y la
+  verificación visual en Electron, que este contenedor no puede correr.
+
+## 🎯 Sesión 2026-09-12 — ADR-017 F0: retirada del estimador de completitud
+
+**ADR-017** (`docs/ADR-017-emparejamiento-plantillas-completitud.md`): ¿puede MAO inferir «pieza
+completa vs. fragmento» emparejando el contorno contra formas ideales? Sí, pero la EFA **no** resuelve
+el encaje parcial (descriptor global de curva cerrada, normalizado al 1er armónico *del fragmento*);
+el repertorio entra como **biblioteca de plantillas** vía `efa.reconstruct()` y el motor es ajuste
+robusto → **ICP** (Wilczek et al. 2021). Arquitectura E1-E4 + prototipo verificado (exacto hasta 25 %
+de forma preservada; rechaza por debajo del 15 % en vez de inventar).
+
+**F0 implementada** — retirada de los estimadores que no medían lo que decían. Nota de versión:
+`docs/NOTA-VERSION-ADR017-F0.md` (🟠 **cambia valores ya exportados a CSV/PDF**).
+
+| Clave anterior | Ahora | Valor |
+|---|---|---|
+| `completitud_estimada` (JS: cobertura angular + extent) | **retirada** | señal degenerada |
+| `completitud_metodo_convexidad` (= `A/A_bbox`) | `extent` | mismo número |
+| `completitud_estimada` (PY: `0,4·conv + 0,6·solidez`) | `indice_convexidad_percent` | **mismo número** |
+| `perdida_area_fragmentacion_percent` | `concavidad_area_percent` | mismo número + alias deprecado |
+| `perdida_perimetro_fragmentacion_percent` | `concavidad_perimetro_percent` | **signo corregido** |
+
+- **El defecto:** la cobertura angular se medía alrededor del centroide **del propio fragmento**, y
+  todo contorno cerrado de `findContours` rodea 360° por construcción → disco entero / medio / cuarto
+  daban **91,3 / 91,3 / 91,0 %**, los tres «casi completo». Y `metodo_convexidad` era el **extent**
+  (π/4 = 78,5 % para un círculo) → **toda pieza redonda íntegra salía «fragmento»**. **Causa raíz de
+  ADR-016 #6** (cuenta circular de La Draga rotulada «fracturada»).
+- **Lo más consecuente:** dos rutas (flujo IA `analysis-core.js` y flujo manual) **inyectaban** la
+  etiqueta `Fragmento X (N% completo)` cuando `perdida_area > 1 %` —o sea, con casi cualquier contorno
+  real— derivando el porcentaje como `100 − concavidad`. Ambas retiradas.
+- **Cuarto estimador descubierto al implementar:** Python tenía su propio `completitud_estimada`
+  (`metrics.py` §33), **distinto** del de JS y sin término angular → medición fiel, rótulo equivocado
+  → renombrada sin tocar coeficientes. Su compañera `completitud_metodo_convexidad` duplicaba
+  `convexity` (§28) ×100 → retirada.
+- **Signo invertido confirmado desde el propio repo:** el comentario de `metrics.py` §28 dice «nunca
+  >1 (hull ≤ real)», lo que prueba que `(hull_perim − perim_real)/hull_perim` era ≤ 0 por construcción.
+- **Doctrina aplicada** (precedente JFRR 2026-07-02, ADR-016 #6): conservar la medición fiel, retirar
+  el rótulo que diagnostica de más. Donde no hay dato → «Sin evaluar», nunca un 100 % fabricado.
+- **Inerte hasta F1** (compuerta era el flag fabricado): reinterpretación «zona curvilínea frontera»
+  y resaltado crítico de la columna de completitud. La lógica se conserva comentada en su sitio.
+- **Gotcha confirmado otra vez:** los duplicados IIFE de `analysis-core.js` replicaban los 3
+  productores; sin tocarlos el defecto sobrevive por la ruta legacy.
+- **Verificado:** gate `node tools/adr017_gate_f0.mjs` 13/13 · `node --check` 11/11 · `py_compile` 2/2
+  · enforcement nuevo en `python/tests/test_coherencia_entrega.py` (lógica reproducida a mano).
+  Cache-bust `?v=20260912a`. **Pendiente: suite Python completa y verificación visual en Electron**
+  (el cambio se preparó en un contenedor sin numpy/cv2/pytest).
 ## 📖 Glosario canónico de métricas — ADR-018 (F0-F2 ✅, 2026-09-03)
 
 `js/modules/glossary.js` es la fuente ÚNICA de **qué significa cada número** que publica MAO.

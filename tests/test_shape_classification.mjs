@@ -139,21 +139,26 @@ for (const caso of CASOS) {
     else fallos.push(`  ✗ ${c.nombre}: la radial se impuso → "${final}"`);
   }
 
-  // La señal de fragmento se conserva, pero la familia la pone la evidencia fina:
-  // antes el rótulo entero venía de la radial («Fragmento Circular» sobre una
-  // pieza rectangular).
+  // La familia la pone la evidencia fina: antes el rótulo entero venía de la radial
+  // («Fragmento Circular» sobre una pieza rectangular).
+  // ADR-017 F0: la clasificación tampoco publica «Fragmento … (N% completo)». Esa
+  // completitud salía de una cobertura angular degenerada (disco entero, medio y
+  // cuarto daban ~91 %); sin ajuste de plantilla, es_fragmento/completitud quedan
+  // DESCONOCIDOS (null), nunca fabricados. La completitud real la da /api/shape-match.
   const mFrag = {
     forma_detectada: 'Rectangular', circularity: 0.76, solidity: 0.88, excentricidad: 0.71,
     aspect_ratio_tight: 1.43, num_angulos_rectos: 4, convexidad: 0.95, completitud_estimada: 81,
     _forma_idealizada: { nombre: 'Fragmento Circular (81% completo)', distribucionRadialAngular: { geometriaInferida: 'Circular', confianzaGeometria: 0.85, esFragmento: true } },
   };
-  let finalFrag = '';
-  try { finalFrag = CE.metaClasificarForma(mFrag, {}).clasificacion_final || ''; }
-  catch (e) { finalFrag = 'ERROR: ' + e.message; }
-  if (/fragmento/i.test(finalFrag) && !/circular/i.test(finalFrag)) {
-    pasan++; console.log(`  ✓ ${'fragmento conserva la familia fina'.padEnd(30)} → ${finalFrag}`);
+  let resFrag = {};
+  try { resFrag = CE.metaClasificarForma(mFrag, {}) || {}; }
+  catch (e) { resFrag = { clasificacion_final: 'ERROR: ' + e.message }; }
+  const finalFrag = resFrag.clasificacion_final || '';
+  if (/rectang/i.test(finalFrag) && !/circular/i.test(finalFrag) && !/% completo/i.test(finalFrag)
+      && resFrag.es_fragmento === null && resFrag.completitud === null) {
+    pasan++; console.log(`  ✓ ${'fragmento: familia fina, sin % fabricado'.padEnd(30)} → ${finalFrag}`);
   } else {
-    fallos.push(`  ✗ fragmento: debía conservar la familia del backend → "${finalFrag}"`);
+    fallos.push(`  ✗ fragmento: debía dar la familia del backend sin completitud fabricada → "${finalFrag}" (es_fragmento=${resFrag.es_fragmento}, completitud=${resFrag.completitud})`);
   }
 }
 

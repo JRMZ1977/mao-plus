@@ -2093,6 +2093,113 @@ async def efa_compare(
     return await modules.efa.compare(ca, cb)
 
 
+@app.post(f"{API_PREFIX}/shape-match")
+async def shape_match(
+    contour_json:      str   = Form(...),          # JSON: [[x,y], ...] absolutos
+    templates_json:    str   = Form(default=""),   # JSON: ["circulo","elipse"]; "" = todas
+    scale_px_mm:       float = Form(default=1.0),
+    gap_min_deg:       float = Form(default=8.0),
+    min_arco_circulo:  float = Form(default=0.30),
+    min_arco_elipse:   float = Form(default=0.45),
+    forzar_icp:        bool  = Form(default=False),
+    permitir_reflexion: bool = Form(default=False),
+):
+    """
+    Empareja un contorno con plantillas de forma ideal y estima su COMPLETITUD
+    (ADR-017 F1). Responde a: ¿es una pieza completa o el fragmento de una mayor?
+
+    Tres etapas (ADR-017 §3):
+      E1  segmentar margen original vs borde de fractura — por CONTIGÜIDAD del
+          arco de inliers, no por umbral de rectitud.
+      E2  ajuste robusto de la plantilla SOLO al margen original (RANSAC con
+          tolerancia absoluta y cota de tamaño; determinista por semilla fija).
+      E3  completitud = fracción de la longitud de arco de la plantilla cubierta,
+          medida alrededor del CENTRO AJUSTADO — no del centroide del fragmento,
+          que es el error que ADR-017 F0 retiró.
+
+    Envolvente operativa MEDIDA (ADR-017 §4, gate `test_shape_template.py`):
+    exacto (≤ 3 puntos porcentuales) entre el 25 % y el 100 % preservado; por
+    debajo de ~15 % RECHAZA la plantilla en vez de inventar; rechaza también la
+    plantilla equivocada.
+
+    Entrada:
+      contour_json      JSON [[x1,y1],...] en píxeles absolutos
+      templates_json    JSON con nombres de plantilla; vacío = ["circulo","elipse"].
+                        Además de las analíticas, cualquiera del repertorio F2
+                        (ver GET /api/shape-match/templates): triangulo, cuadrado,
+                        rectangulo_2_1, pentagono, hexagono… y las registradas
+                        desde coeficientes EFA.
+      scale_px_mm       factor px→mm (añade el residuo en mm a los parámetros)
+      gap_min_deg       hueco angular mínimo que cuenta como ausencia
+      min_arco_*        soporte mínimo del perímetro por plantilla. La elipse
+                        exige más: 5 grados de libertad frente a 3 del círculo.
+      forzar_icp        encamina también círculo y elipse por el ICP genérico
+                        (gate de paridad analítica↔ICP del ADR)
+      permitir_reflexion  permite que el emparejamiento use una reflexión; por
+                        defecto NO, porque una forma y su espejo no son la misma
+                        pieza (Umeyama 1991 da el control explícito del signo)
+
+    Salida — contrato ADR-017 §5:
+      {
+        "plantilla_tipo": "circulo"|"elipse"|"ninguna",
+        "plantilla_completitud": float 0-100 | None,
+        "plantilla_arco_fraccion": float | None,
+        "plantilla_residuo_rms": float | None,
+        "plantilla_parametros": {cx, cy, r | a, b, theta} | None,   # ABSOLUTAS
+        "plantilla_confianza": float, "plantilla_confianza_nivel": "alta|media|baja",
+        "es_fragmento_candidato": bool | None,
+        "huecos": [...], "candidatos": [...], "motivo_rechazo": str | None,
+      }
+
+    INVARIANTE (ADR-017 §7): `es_fragmento_candidato` es una SUGERENCIA a
+    confirmar por el usuario, nunca un veredicto — en lítica la fractura se
+    diagnostica por atributos de la cara ventral, no por la silueta. No altera
+    ninguna métrica por sí sola (mismo patrón que los candidatos P/H de ADR-009).
+
+    Estado: IMPLEMENTADO (shape_template.py, IMPLEMENTED=True).
+    """
+    import json
+    try:
+        pts = json.loads(contour_json)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=422, detail=f"contour_json inválido: {e}")
+
+    templates = None
+    if templates_json.strip():
+        try:
+            templates = json.loads(templates_json)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=422, detail=f"templates_json inválido: {e}")
+        if not isinstance(templates, list):
+            raise HTTPException(status_code=422, detail="templates_json debe ser una lista")
+
+    return await modules.shape_template.match(
+        contour_points=pts,
+        templates=templates,
+        scale_px_mm=scale_px_mm,
+        gap_min_deg=gap_min_deg,
+        min_arco_fraccion={"circulo": min_arco_circulo, "elipse": min_arco_elipse},
+        forzar_icp=forzar_icp,
+        permitir_reflexion=permitir_reflexion,
+    )
+
+
+@app.get(f"{API_PREFIX}/shape-match/templates")
+async def shape_match_templates():
+    """
+    Repertorio de plantillas disponibles para `/api/shape-match` (ADR-017 F2).
+
+    Incluye las paramétricas incorporadas y las registradas en caliente desde
+    coeficientes EFA. Las analíticas `circulo` y `elipse` (vía F1, ajuste en
+    forma cerrada) se aceptan siempre aunque no figuren aquí.
+    """
+    return {
+        "status": "ok",
+        "analiticas": ["circulo", "elipse"],
+        "repertorio": modules.shape_template.plantillas_disponibles(),
+    }
+
+
 # ============================================================================
 # DATASET EXPORT — ADR-014
 # ============================================================================

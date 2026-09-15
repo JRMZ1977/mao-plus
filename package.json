@@ -13,7 +13,8 @@
     "test:js": "node tests/test_window_contracts.js && node tests/test_shape_classification.mjs && node tests/test_efa_tps_export.js && node tests/test_bifacial_export.js && node tests/test_export_destino.js",
     "test:py": "bash scripts/run-pytest.sh",
     "glosario": "node scripts/generar-glosario-html.mjs",
-    "glosario:inventario": "python3 scripts/glosario_inventario.py --md docs/GLOSARIO-INVENTARIO-F0.md"
+    "glosario:inventario": "python3 scripts/glosario_inventario.py --md docs/GLOSARIO-INVENTARIO-F0.md",
+    "verificar:visual": "node tools/verificacion_visual_electron.mjs"
   },
   "keywords": [
     "electron",
@@ -26,7 +27,8 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^41.1.1",
-    "electron-builder": "^24.9.1"
+    "electron-builder": "^24.9.1",
+    "playwright-core": "^1.63.0"
   },
   "build": {
     "appId": "com.maoplus.desktop",

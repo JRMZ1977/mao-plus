@@ -52,7 +52,7 @@ export const CATEGORIAS = [
   { id: 'centroide',        titulo: 'Centroide y Posición Espacial',                  orden: 13, indice: 'IX-c',   tipo: 'estructural' },
   { id: 'vertices_angulos', titulo: 'Geometría de Vértices',                          orden: 14, indice: 'X',      tipo: 'estructural' },
   { id: 'forma_3d',         titulo: 'Forma 3D Inferida',                              orden: 15, indice: 'XI',     tipo: 'estructural' },
-  { id: 'conservacion',     titulo: 'Estado de Conservación y Fragmentación',         orden: 16, indice: 'XII',    tipo: 'estructural' },
+  { id: 'conservacion',     titulo: 'Concavidad del Contorno y Estado de Conservación', orden: 16, indice: 'XII',    tipo: 'estructural' },
   { id: 'textura',          titulo: 'Textura Óptica (GLCM)',                          orden: 17, indice: 'XIII',   tipo: 'estructural' },
   { id: 'depuracion',       titulo: 'Depuración Estadística de Contorno',             orden: 18, indice: 'XIV',    tipo: 'estructural' },
   { id: 'perforaciones',    titulo: 'Perforaciones',                                  orden: 19, indice: 'XV',     tipo: 'factual' },

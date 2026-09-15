@@ -54,7 +54,28 @@ CONTRACT = {
     "feret_angulo_max":   {"canonical": "feret_angulo_max",   "forbidden": ["feret_max_angle"]},
     "feret_angulo_min":   {"canonical": "feret_angulo_min",   "forbidden": ["feret_min_angle"]},
     "feret_clasificacion":{"canonical": "feret_clasificacion","forbidden": ["clasificacion_feret"]},
+    # Concavidad frente al hull (ADR-017 F0 — antes rotulada «pérdida por
+    # fragmentación»). El nombre viejo sigue emitiéndose como alias deprecado,
+    # así que sólo puede leerse ACOMPAÑADO de la clave canónica.
+    "concavidad_area":    {"canonical": "concavidad_area_percent",
+                           "forbidden": ["perdida_area_fragmentacion_percent"]},
+    "concavidad_perim":   {"canonical": "concavidad_perimetro_percent", "forbidden": []},
+    "indice_convexidad":  {"canonical": "indice_convexidad_percent",    "forbidden": []},
 }
+
+# ADR-017 F0 — claves RETIRADAS: medían cobertura angular degenerada (≈360° en
+# todo contorno cerrado) o extent rebautizado, no completitud. Ninguna superficie
+# debe volver a leerlas ni el backend a emitirlas. Vuelven en F1 bajo
+# `plantilla_completitud`, calculada por ajuste de plantilla al margen original.
+RETIRADAS_F0 = [
+    "completitud_estimada",
+    "completitud_es_fragmento",
+    "completitud_metodo_angular",
+    "completitud_metodo_convexidad",
+    "completitud_tipo_fragmento",
+    "completitud_cobertura_grados",
+    "perdida_perimetro_fragmentacion_percent",
+]
 
 
 def _backend_emitted_keys():
@@ -438,4 +459,37 @@ def test_el_derivado_consulta_los_dos_hogares_del_area_neta():
     assert "m.area_neta" in bloque and "o.area_neta" in bloque, (
         "`areaNetaDerivados` dejó de consultar los dos sitios donde puede vivir "
         "el área neta (metricas.area_neta y obj.area_neta)"
+    )
+
+
+def test_claves_retiradas_en_f0_no_regresan():
+    """
+    ADR-017 F0: las claves de «completitud» medían otra cosa (cobertura angular
+    degenerada + extent), y toda pieza redonda íntegra salía «fragmento» — causa
+    raíz de ADR-016 #6. Este test impide que vuelvan, al backend o a cualquier
+    superficie de entrega.
+
+    Se permite el alias de lectura `perdida_area_fragmentacion_percent` (mismo
+    número que `concavidad_area_percent`, deprecado para no romper proyectos ya
+    guardados); ese caso lo cubre el contrato de arriba, no esta lista.
+    """
+    emitidas = _backend_emitted_keys()
+    regresadas = sorted(set(RETIRADAS_F0) & emitidas)
+    assert not regresadas, (
+        f"metrics.py volvió a emitir claves retiradas en ADR-017 F0: {regresadas}"
+    )
+
+    violaciones = []
+    for sname, spath in SURFACES.items():
+        if not spath.exists():
+            continue
+        for i, line in enumerate(spath.read_text(encoding="utf-8").splitlines(), 1):
+            desnuda = line.strip()
+            if desnuda.startswith("//") or desnuda.startswith("*"):
+                continue   # comentarios explicativos del propio ADR
+            for clave in RETIRADAS_F0:
+                if re.search(r"(?:metricas|m)\." + re.escape(clave) + r"\b", line):
+                    violaciones.append(f"{sname} ({spath.name}:{i}): lee '{clave}'")
+    assert not violaciones, (
+        "Superficies que leen claves retiradas en ADR-017 F0:\n  " + "\n  ".join(violaciones)
     )

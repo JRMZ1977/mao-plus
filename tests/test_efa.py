@@ -209,3 +209,88 @@ class TestEFACompare:
         c_long, _  = _coeffs(client, _ellipse(a=160, b=40))  # muy alargada
         body = self._compare(client, c_round, c_long)
         assert body["similarity"] < 0.95
+
+
+# ── Fidelidad de la reconstrucción (gate del convenio de fase) ───────────────
+
+class TestReconstruccion:
+    """
+    El descriptor estaba blindado por las clases de arriba, pero NADIE
+    contrastaba la curva sintetizada contra la forma de entrada — y ahí vivía el
+    defecto: `_reconstruct_contour` aplicaba la síntesis canónica de Kuhl &
+    Giardina sobre coeficientes que están desfasados 90° respecto de ese
+    convenio (ver cabecera de efa.py), de modo que dibujaba una curva
+    sistemáticamente MÁS REDONDEADA que el contorno medido.
+
+    Se comparan magnitudes invariantes a semejanza (circularidad y ratio de
+    Feret), porque `contour_reconstructed` viene de los coeficientes
+    NORMALIZADOS y por tanto está centrado, escalado y rotado a la forma
+    canónica: la posición y el tamaño no son comparables, la forma sí.
+    """
+
+    @staticmethod
+    def _trilobulado(n=240, r0=100.0, cx=300.0, cy=300.0):
+        """Forma de tres lóbulos: circularidad ≈ 0,85, lejos de un círculo."""
+        pts = []
+        for i in range(n):
+            t = 2 * math.pi * i / n
+            r = r0 * (1 + 0.30 * math.cos(3 * t) + 0.12 * math.sin(4 * t))
+            pts.append([cx + r * math.cos(t), cy + r * math.sin(t)])
+        return pts
+
+    @staticmethod
+    def _circularidad(pts):
+        p = np.asarray(pts, dtype=np.float64)
+        x, y = p[:, 0], p[:, 1]
+        area = 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(np.roll(x, -1), y)))
+        cerr = np.vstack([p, p[:1]])
+        perim = float(np.sum(np.linalg.norm(np.diff(cerr, axis=0), axis=1)))
+        return 4 * math.pi * area / perim ** 2 if perim > 0 else 0.0
+
+    @staticmethod
+    def _feret_ratio(pts):
+        p = np.asarray(pts, dtype=np.float64)
+        anchos = []
+        for i in range(90):
+            a = math.pi * i / 90
+            proy = p[:, 0] * math.cos(a) + p[:, 1] * math.sin(a)
+            anchos.append(float(proy.max() - proy.min()))
+        return min(anchos) / max(anchos) if max(anchos) > 0 else 0.0
+
+    def _reconstruido(self, client, contour, n_harmonics=20):
+        body = _post_efa(client, contour, n_harmonics=n_harmonics).json()
+        assert body.get("status") == "ok", body
+        rec = body["contour_reconstructed"]
+        assert len(rec) >= 64, f"reconstrucción demasiado corta: {len(rec)}"
+        return rec
+
+    def test_reconstruccion_conserva_la_circularidad(self, client):
+        """Con 20 armónicos la curva sintetizada es la MISMA forma que entró."""
+        original = self._trilobulado()
+        rec = self._reconstruido(client, original)
+        c_ori = self._circularidad(original)
+        c_rec = self._circularidad(rec)
+        assert abs(c_rec - c_ori) / c_ori < 0.02, (
+            f"circularidad original={c_ori:.4f} reconstruida={c_rec:.4f} "
+            "— la síntesis no respeta el convenio de fase de los coeficientes"
+        )
+
+    def test_reconstruccion_conserva_el_ratio_de_feret(self, client):
+        """Segundo invariante de semejanza, independiente del perímetro."""
+        original = self._trilobulado()
+        rec = self._reconstruido(client, original)
+        f_ori = self._feret_ratio(original)
+        f_rec = self._feret_ratio(rec)
+        assert abs(f_rec - f_ori) / f_ori < 0.05, (
+            f"feret_ratio original={f_ori:.4f} reconstruido={f_rec:.4f}"
+        )
+
+    def test_reconstruccion_de_la_elipse(self, client):
+        """Caso convexo simple: la elipse debe reconstruirse casi exacta."""
+        original = _ellipse(a=150, b=75, n=240)
+        rec = self._reconstruido(client, original)
+        c_ori = self._circularidad(original)
+        c_rec = self._circularidad(rec)
+        assert abs(c_rec - c_ori) / c_ori < 0.01, (
+            f"circularidad original={c_ori:.4f} reconstruida={c_rec:.4f}"
+        )

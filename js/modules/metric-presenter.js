@@ -160,6 +160,25 @@ export function conversorBBaMm(metricas) {
 }
 
 /**
+ * Completitud por plantilla CONFIRMADA (ADR-017 F3) — lector ÚNICO para toda superficie.
+ *
+ * Sólo lee `metricas.plantilla_*`, que escribe la ratificación humana
+ * (`mao-analysis-organizer.js::sincronizarMetricasPlantilla`); el candidato vive en
+ * `obj.plantillaCandidata` y no llega nunca aquí (invariante ADR-009: la tabla es
+ * registro, no conjetura). Sin confirmación → `null`, que cada superficie rinde como
+ * «Sin evaluar»: jamás un 100 % fabricado (ADR-017 F0).
+ *
+ * @returns {{tipo:string, completitud:number}|null}
+ */
+export function completitudPlantilla(metricas) {
+  const m = metricas || {};
+  if (m.plantilla_completitud === null || m.plantilla_completitud === undefined || m.plantilla_completitud === '') return null;
+  const pct = Number(m.plantilla_completitud);
+  if (!Number.isFinite(pct)) return null;
+  return { tipo: m.plantilla_tipo || 'plantilla', completitud: pct };
+}
+
+/**
  * Derivados del convex hull que el backend no siempre emite (ADR-016 #4/#7):
  *  - circularidad = 4π·A/P² (invariante a escala → calculado en px) si falta hull_circularity.
  *  - aspectRatio  = AR tight como sustituto.
@@ -176,7 +195,7 @@ export function hullDerivados(metricas) {
   return {
     circularidad: circ,
     aspectRatio: ar,
-    difAreaPct: Number.isFinite(dA) ? dA : (parseFloat(metricas.perdida_area_fragmentacion_percent) || 0),
-    difPerimetroPct: Number.isFinite(dP) ? dP : (parseFloat(metricas.perdida_perimetro_fragmentacion_percent) || 0),
+    difAreaPct: Number.isFinite(dA) ? dA : (parseFloat(metricas.concavidad_area_percent ?? metricas.perdida_area_fragmentacion_percent) || 0),
+    difPerimetroPct: Number.isFinite(dP) ? dP : (parseFloat(metricas.concavidad_perimetro_percent) || 0),
   };
 }

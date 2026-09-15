@@ -192,8 +192,6 @@ export function extraerContextoMorfologico(metrics, formaIdealizada = null) {
   const categoriasCurvilineas = new Set(["Circular", "Elipsoidal", "Oval", "Lanceolada", "Amigdaloide", "Laminar", "Lunar"]);
   const categoriasAngulares = new Set(["Triangular", "Cuadrangular", "Pentagonal", "Hexagonal", "Poligonal", "Trapezoidal", "Romboidal"]);
   const categoriasTopologicas = new Set(["Lunar", "Lobulado", "Estrellado", "Anular"]);
-  const completitud = parseFloat(metrics.completitud_estimada);
-
   const contexto = {
     solidez,
     circularidad,
@@ -201,7 +199,13 @@ export function extraerContextoMorfologico(metrics, formaIdealizada = null) {
     arNorm,
     categoriaRadial,
     clasificacionRadial,
-    esFragmento: !!radialAngular?.esFragmento || (!isNaN(completitud) && completitud < 95 && solidez < 0.92),
+    // ADR-017 F0 — `esFragmento` pasa a DESCONOCIDO (null), no a `false`.
+    // Sus dos entradas se retiraron por fabricadas: `radialAngular.esFragmento`
+    // derivaba de la cobertura angular degenerada, y `completitud_estimada` de
+    // un extent rebautizado que penalizaba a toda pieza redonda íntegra.
+    // La maquinaria que lo consume se conserva intacta: ADR-017 F1 la alimentará
+    // con `es_fragmento_candidato`, obtenido por ajuste de plantilla.
+    esFragmento: null,
     esCurvilinea: categoriasCurvilineas.has(categoriaRadial),
     esAngular: categoriasAngulares.has(categoriaRadial),
     esTopologica: categoriasTopologicas.has(categoriaRadial),
@@ -763,24 +767,16 @@ export function metaClasificarForma(metrics, obj = null) {
   }
 
   let clasificacion_final = categoria_ganadora;
-  let es_fragmento = false;
-  let completitud = 100;
+  // ADR-017 F0 — `null` = DESCONOCIDO, no «100 % completo».
+  // Antes se inicializaba a `false`/`100` y se sobrescribía parseando la etiqueta
+  // «Fragmento X (N% completo)» del análisis radial-angular. Esa etiqueta ya no se
+  // emite (la cobertura angular era degenerada), así que la rama de parseo se
+  // retira: sin ajuste de plantilla no hay dato de completitud, y un 100 por
+  // defecto sería fabricarlo. F1 rellenará ambos campos desde la plantilla.
+  let es_fragmento = null;
+  let completitud = null;
 
-  const nombreRadial = evidencias.radial_angular.clasificacion;
-  if (nombreRadial && nombreRadial.includes("Fragmento")) {
-    es_fragmento = true;
-    const match = nombreRadial.match(/(\d+)% completo/);
-    if (match) {
-      completitud = parseInt(match[1]);
-    }
-    // Se conserva la SEÑAL de fragmento, pero el nombre de la familia lo pone la
-    // categoría ganadora: antes el rótulo entero venía de la radial, así que un
-    // fragmento de pieza rectangular se publicaba como «Fragmento Circular».
-    const _base = convertirCategoriaANombre(categoria_ganadora, metrics);
-    clasificacion_final = `Fragmento ${_base.replace(/^Forma\s+/i, '')} (${completitud}% completo)`;
-  } else {
-    clasificacion_final = convertirCategoriaANombre(categoria_ganadora, metrics);
-  }
+  clasificacion_final = convertirCategoriaANombre(categoria_ganadora, metrics);
 
   if (categoria_ganadora === "Cuadrangular") {
     const num_rectos = parseInt(metrics.num_angulos_rectos) || 0;
@@ -808,7 +804,12 @@ export function metaClasificarForma(metrics, obj = null) {
     const _circ6 = parseFloat(metrics.circularity || metrics.circularidad);
     const _sol6 = parseFloat(metrics.solidity || metrics.solidez);
     const _arNorm6 = contextoMorfologico.arNorm;
-    const _frag6 = es_fragmento || (!isNaN(parseFloat(metrics.completitud_estimada)) && parseFloat(metrics.completitud_estimada) < 95);
+    // ADR-017 F0 — rama INERTE hasta F1. Su compuerta era `es_fragmento` (ahora
+    // desconocido) o `completitud_estimada < 95` (clave retirada por fabricada).
+    // Era justo esta regla la que reinterpretaba una cuenta circular íntegra como
+    // «Fragmento Oval (N% completo)» — ADR-016 #6. Se conserva la lógica para que
+    // F1 la re-active con `es_fragmento_candidato` del ajuste de plantilla.
+    const _frag6 = es_fragmento === true;
 
     const _zonaCurvilineaFrontera =
       _frag6 &&

@@ -684,17 +684,13 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
           <span class="value" style="color: #1565c0; font-weight: bold; font-size: 1.1em;">${metricas.solidity} → <strong>${metricas.solidity_class}</strong></span>
         </div>`;
         
-      if (metricas.perdida_area_fragmentacion_percent) {
+      // ADR-017 F0 — concavidad respecto al hull, no «pérdida por fragmentación».
+      const _concA = metricas.concavidad_area_percent ?? metricas.perdida_area_fragmentacion_percent;
+      if (_concA != null) {
         metricsHTML += `
         <div class="morphological-metric">
-          <span class="label">Pérdida por Fragmentación:</span>
-          <span class="value">Área: ${metricas.perdida_area_fragmentacion_percent}% | Perímetro: ${metricas.perdida_perimetro_fragmentacion_percent}%</span>
-        </div>`;
-      } else {
-        metricsHTML += `
-        <div class="morphological-metric">
-          <span class="label">Pérdida por Fragmentación:</span>
-          <span class="value" style="color:#6c757d;">Sin pérdida estimada (pieza completa)</span>
+          <span class="label">Concavidad frente al hull:</span>
+          <span class="value">Área: ${_concA}% | Perímetro: ${metricas.concavidad_perimetro_percent ?? 'n/d'}%</span>
         </div>`;
       }
       
@@ -709,19 +705,23 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
           <span class="value">${metricas.perimeter_fragmentado} ${metricas.perimeter_unit}</span>
         </div>`;
       
-      if (metricas.completitud_estimada) {
-        metricsHTML += `
+      // ADR-017 F0 — «Pieza completa (sin fragmentación detectada)» era una
+      // afirmación fabricada: se emitía por AUSENCIA de dato, no por evidencia.
+      // F5 — el texto quedó CLAVADO en «Sin evaluar» mientras F1 no existía, y
+      // nadie volvió a esta fila al cablear F3: la tarjeta §6 decía «70 %» y dos
+      // centímetros más abajo la tabla seguía diciendo «sin evaluar». Ahora lee
+      // el dato. `metricas.plantilla_*` sólo lo escribe la confirmación humana
+      // (`sincronizarMetricasPlantilla`), así que un candidato sin ratificar
+      // sigue mostrándose «Sin evaluar»: la fila no adelanta ninguna decisión.
+      const _pl = MetricPresenter.completitudPlantilla(metricas);
+      const _plTxt = _pl
+        ? `${_pl.completitud.toFixed(1)} % de ${_pl.tipo} (confirmado)`
+        : 'Sin evaluar — requiere ajuste de plantilla (ADR-017)';
+      metricsHTML += `
         <div class="morphological-metric" style="background: #f3e5f5; padding: 8px; border-radius: 4px; margin: 5px 0;">
-          <span class="label">Completitud Estimada:</span>
-          <span class="value" style="color: #6a1b9a; font-weight: bold;">${metricas.completitud_estimada}% → ${metricas.completitud_tipo_fragmento}</span>
+          <span class="label">Completitud:</span>
+          <span class="value" style="color: #6a1b9a;">${_plTxt}</span>
         </div>`;
-      } else {
-        metricsHTML += `
-        <div class="morphological-metric" style="background: #f3e5f5; padding: 8px; border-radius: 4px; margin: 5px 0;">
-          <span class="label">Completitud Estimada:</span>
-          <span class="value" style="color: #6a1b9a;">${metricas.completitud_tipo_fragmento || 'Pieza completa'} (sin fragmentación detectada)</span>
-        </div>`;
-      }
 
       // Resolver campos mostrados con regla canónica compartida.
       const _canonRender = ClassificationEngine.aplicarReglaCanonicaInterpretacion(metricas);
