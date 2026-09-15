@@ -250,7 +250,7 @@ npm start                                    # Launch Electron app + Python serv
 .venv/bin/python -m pytest tests/ python/tests/   # Suite completa → 257 passed, 2 skipped
 ```
 
-**Gotcha — aislamiento del event-loop asyncio (2026-06-12):** los tests sync que ejecutan corrutinas deben usar un **loop propio por llamada** (`asyncio.new_event_loop()` + `close()` en `finally`), nunca `asyncio.get_event_loop().run_until_complete()`. Otros archivos usan `asyncio.run()`, que al salir hace `set_event_loop(None)` y rompe `get_event_loop()` en Py3.9 (`RuntimeError: There is no current event loop` + `coroutine ... was never awaited`) — falla solo en la suite completa, no aislado. Patrón ya aplicado en `python/tests/test_phase4.py` y `test_bajo_contraste.py`. Los `test_bifacial_parity{,_v2}.py` hacen `pytest.skip(allow_module_level=True)` si falta la checkout externa `MAO_A`.
+**Gotcha — aislamiento del event-loop asyncio (2026-06-12):** los tests sync que ejecutan corrutinas deben usar un **loop propio por llamada** (`asyncio.new_event_loop()` + `close()` en `finally`), nunca `asyncio.get_event_loop().run_until_complete()`. Otros archivos usan `asyncio.run()`, que al salir hace `set_event_loop(None)` y rompe `get_event_loop()` en Py3.9 (`RuntimeError: There is no current event loop` + `coroutine ... was never awaited`) — falla solo en la suite completa, no aislado. Patrón ya aplicado en `python/tests/test_phase4.py` y `test_bajo_contraste.py`.
 
 ## Modal de detección IA — confianza por objeto + análisis cancelable (2026-06-13)
 

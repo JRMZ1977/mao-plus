@@ -272,7 +272,6 @@ MAO PLUS_PY_01/
 │       └── ...
 ├── tests/                  # Pytest suite
 │   ├── test_metrics.py
-│   ├── test_bifacial_parity_v2.py  # Parity validation (v1)
 │   └── ...
 ├── docs/
 │   ├── ESTADO-ADRS.md      ⭐ ADR implementation status
