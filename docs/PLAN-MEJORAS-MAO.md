@@ -49,3 +49,26 @@ Leyenda estado: ⬜ Pendiente · 🟡 En curso · ✅ Implementado · ⏸ Diferi
 Casi todo es **aditivo sobre lo ya existente**: `variance_explained` ya está (D3), el pool métrico
 ya está (C1/C2), el módulo óptico ya está (B1/B2/B3). No hay reescrituras de riesgo; es
 profundización. Registrar avances aquí **y** en `docs/ESTADO-ADRS.md` (fila ADR-015).
+
+## Backlog del análisis Procrustes (sin priorizar)
+
+Ideas propuestas el 2026-04-13 para `js/procrustes.js` que no se implementaron y no forman parte de
+ADR-015. De aquella lista ya están en el código el filtrado de outliers, la puntuación del
+alineamiento, la exportación CSV/JSON, la energía de flexión TPS y el PCA de formas. Origen:
+`artefactos/MEJORAS_ANALISIS_PS.md` (retirado; el detalle queda en el respaldo físico de la carpeta).
+
+| Idea | Qué aportaría |
+|------|---------------|
+| Semilandmarks con resolución adaptativa | Elegir N según la complejidad del contorno: remuestrear a 16, 32, 64… y parar cuando la varianza explicada deja de crecer |
+| Vectores de deformación | Flechas A→B por semilandmark (magnitud y ángulo) para ver en qué regiones difieren las formas |
+| Rejilla de deformación TPS | Interpolar la deformación a todo el plano y dibujarla como rejilla deformada (hoy la TPS solo da la energía de flexión) |
+| Intervalo bootstrap de la distancia de Procrustes | ρ con intervalo al 95 % por remuestreo con reemplazo, para distinguir diferencia real de azar |
+| Matriz de rotación visualizada | Ejes rotados en el lienzo con ángulo, reflexión y det(R) del alineamiento |
+| Histograma de residuos | Distribución de los errores de alineamiento: media, desviación, asimetría y curtosis |
+| Tabla comparativa del par | ρ, ISB, tamaño relativo, rotación, reflexión, calidad y solapamiento, lado a lado |
+| Guardar el estado del análisis | Versión, parámetros (N, normalización), semilla y entradas, para repetir el análisis exacto |
+| Caché de cálculos intermedios | No recalcular remuestreo y normalización si los puntos y N no cambiaron |
+| GPA en un Web Worker | Que las iteraciones del GPA no bloqueen la interfaz |
+
+`D1` (Klingenberg) y `E1` (GM por landmarks) también trabajan sobre superposición Procrustes:
+conviene revisar este backlog al abordarlos.
