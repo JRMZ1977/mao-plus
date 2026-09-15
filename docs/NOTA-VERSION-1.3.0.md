@@ -65,6 +65,8 @@ sin convención), IC del arnés de calibración de ADR-017 F4.
 
 Integración: la ruta Python pisaba el contorno canónico con el polígono idealizado; la completitud
 confirmada no llegaba al PDF batch ni a los CSV; `null` del puente publicado como «sin forma ideal».
+Incluye además `be33986` (llegado a `fix/exportaciones` tras cerrar la versión): los candidatos P/H
+descartados ya no resucitan al reabrir el análisis (`metricas.json` guardaba la lista vieja).
 
 Ejecución (fallos silenciosos, presentes en todas las ramas): «Nuevo análisis» abortaba a mitad
 (escala y análisis previos sobrevivían); `window.toast` nunca existió (ningún aviso de los
