@@ -438,7 +438,7 @@ function calcularMetricasConBoundingBox(obj, escalaFactor = null) {
     metrics.shape_class_circularity = 'Alargada (aprox)';
   }
 
-  // ADR-017 — procedencia de detección por el escritor único del contrato
+  // ADR-019 — procedencia de detección por el escritor único del contrato
   // (método + confianza + parámetros del modo). Fallback si el contrato no cargó.
   if (typeof window !== 'undefined' && window.MaoDeteccion?.aplicarProcedencia) {
     window.MaoDeteccion.aplicarProcedencia(metrics, obj);

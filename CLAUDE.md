@@ -29,7 +29,7 @@ Tres decisiones de forma que conviene mantener si se amplía:
 |---|---|---|
 | **O-16** | Los coeficientes EFD están **desfasados 90°** respecto de Kuhl & Giardina | ✅ corregido |
 | **O-20** | Umbral de atípicos de Mahalanobis fijado para `p=2`, aplicado en dimensión `p` | ✅ corregido |
-| **O-1** | La escala usa `s = p·d/f` (campo lejano) en vez de `p·(d−f)/f` | ⏸ requiere ADR-018 |
+| **O-1** | La escala usa `s = p·d/f` (campo lejano) en vez de `p·(d−f)/f` | ⏸ requiere ADR-020 |
 | (O-7) | Signo invertido de la pérdida de perímetro | ✅ lo arregló ADR-017 F0 en paralelo, mismo remedio |
 
 ### O-16 · síntesis EFA — `python/modules/efa.py`
@@ -95,7 +95,7 @@ Sesgo sistemático multiplicativo **f/(d−f)**: 20 % con f=50/d=300 (el propio 
 - **Comprobación empírica sin tocar código:** los proyectos con verificación de escala
   guardan `correction_factor` y `original_error_percent`. Si O-1 es real deben agruparse en
   **1 − f/d** (0,80 para 100/500) y **f/(d−f)** (25 %), siempre **por debajo de 1**.
-- **Por qué ADR-018 y no un parche:** hay que fijar antes qué significa «distancia» en el
+- **Por qué ADR-020 y no un parche:** hay que fijar antes qué significa «distancia» en el
   protocolo (objetivo→objeto ⇒ `d−f`; plano del sensor→objeto ⇒ `d−2f`) y **cambia valores ya
   exportados a CSV/PDF**. Toca `scale.py:278`, los dos espejos JS (`analysis-core.js:13156`
   y `:13434`) y el test que fija la fórmula. Mismo patrón que la nota de versión de F0.
@@ -117,7 +117,7 @@ Sesgo sistemático multiplicativo **f/(d−f)**: 20 % con f=50/d=300 (el propio 
   son los módulos de paridad `MAO_A`), mientras la entrada (c) reporta 372/4 desde otro
   contenedor con distintas dependencias opcionales. **Comparar deltas, no absolutos.**
 - **Pendiente:** verificación visual en Electron de los rótulos del comparador (`node --check`
-  no ve layout) · ADR-018 para O-1 · estimador robusto (MCD / Ledoit-Wolf) para `n < 3p`.
+  no ve layout) · ADR-020 para O-1 · estimador robusto (MCD / Ledoit-Wolf) para `n < 3p`.
 ## 🎯 Sesión 2026-09-14 (b) — ADR-017 F6: plantilla ANILLO (corona circular)
 
 **La primera plantilla que no sale del banco sino del material**: dos fotos reales de La Draga
@@ -562,7 +562,7 @@ salida del informe y exigen verificación visual en Electron):
 1. `XIV. Depuración` está en el manifiesto pero **ninguna función de la Tabla la rinde** (son
    25 secciones, no las 26 que declaró ADR-011); el CSV sí emite sus 3 filas.
 2. `XX. Comparación Bifacial` y `XX-b` tampoco: `generarSeccionComparacionBifacial()` rotula
-   «22. COMPARACIÓN BIFACIAL» **en arábigo y a mano**. El test de ADR-017 no lo ve porque
+   «22. COMPARACIÓN BIFACIAL» **en arábigo y a mano**. El test de ADR-019 no lo ve porque
    solo persigue numerales romanos.
 3. `generarTablaComparativa{Dimensiones,Forma,PH}()` rotulan sin `encabezadoDe()`.
 4. `generarSeccionIncertidumbrePropagada` (II-b + II) y `generarSeccionPropiedadesContorno`

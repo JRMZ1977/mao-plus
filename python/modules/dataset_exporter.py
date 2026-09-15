@@ -169,7 +169,7 @@ def export_object_to_dataset(
         "iscrowd": 0,
         "mao_attributes": {
             # None (no null-coerción a 0.0/1.0): «no medida» es un estado propio y
-            # debe poder distinguirse de «medida como baja» aguas abajo. ADR-017.
+            # debe poder distinguirse de «medida como baja» aguas abajo. ADR-019.
             "detection_confidence": (
                 float(obj_data["detection_confidence"])
                 if obj_data.get("detection_confidence") is not None
@@ -218,7 +218,7 @@ def build_coco_dataset(
     png_files: list[tuple[str, bytes]] = []
 
     for obj in objects_list:
-        # ADR-017: la confianza puede ser desconocida (None). Antes el default era
+        # ADR-019: la confianza puede ser desconocida (None). Antes el default era
         # 1.0, así que un objeto sin medir se colaba como si fuera perfecto. Ahora
         # lo desconocido sólo pasa cuando no se está filtrando por confianza.
         raw_conf = obj.get("detection_confidence")

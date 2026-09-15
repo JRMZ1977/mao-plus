@@ -194,7 +194,7 @@ def test_rotulos_clasificacion_fuente_unica():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ADR-017 — el índice canónico vive en el manifiesto, y sólo ahí
+# ADR-019 — el índice canónico vive en el manifiesto, y sólo ahí
 # ═══════════════════════════════════════════════════════════════════════════════
 
 MANIFEST = ROOT / "js" / "modules" / "category-manifest.js"
@@ -218,7 +218,7 @@ def _manifest_entries():
 
 def test_manifiesto_indice_contiguo_y_unico():
     """
-    ADR-017: el manifiesto es la fuente ÚNICA de orden e índice. Ids únicos, `orden`
+    ADR-019: el manifiesto es la fuente ÚNICA de orden e índice. Ids únicos, `orden`
     contiguo desde 1 (el array ES el orden de render) e `indice` romano único y no
     vacío. Sin esto reaparecen las colisiones que motivaron el ADR: `XII-a` rotulando
     dos secciones distintas y la Tabla emitiendo II → VIII → III.
@@ -246,7 +246,7 @@ def test_manifiesto_indice_contiguo_y_unico():
 
 def test_manifiesto_abre_con_procedencia():
     """
-    ADR-017 (decisión JFRR): el informe declara sus condiciones de producción antes que
+    ADR-019 (decisión JFRR): el informe declara sus condiciones de producción antes que
     sus resultados. Detección primero, error óptico e incertidumbre inmediatamente
     después, y sólo entonces las métricas morfométricas.
     """
@@ -301,7 +301,7 @@ def test_ninguna_superficie_hardcodea_el_indice_romano():
             offenders.append(f"{name}:{linea} → '{m.group('num')}. {m.group('tit').strip()}'")
 
     assert not offenders, (
-        "Índice romano hardcodeado fuera de category-manifest.js (ADR-017). "
+        "Índice romano hardcodeado fuera de category-manifest.js (ADR-019). "
         "Usar `CategoryManifest.encabezadoDe(id)`:\n  " + "\n  ".join(offenders)
     )
 

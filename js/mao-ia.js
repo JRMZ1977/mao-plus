@@ -116,7 +116,7 @@
   // ── Estado interno ───────────────────────────────────────────────────────
   let maoIaVisible       = new Set();
   let maoIaLastObjects   = [];
-  let maoIaLastParams    = null;             // ADR-017: `params_used` de la última respuesta
+  let maoIaLastParams    = null;             // ADR-019: `params_used` de la última respuesta
   let maoIaObjectsByFace = { A: [], B: [] };  // resultados persistentes por cara
   let selectedFace       = 'A';
   let serverHealthy      = false;            // flag de salud del servidor
@@ -1987,7 +1987,7 @@
       // marca para que analizarObjetoMorfologicamente NO lo re-extraiga con /api/contour.
       _samSegmented:   true,
 
-      // ── ADR-017 · procedencia de detección ────────────────────────────────
+      // ── ADR-019 · procedencia de detección ────────────────────────────────
       // Este objeto se construye de cero para el renderer y NO atraviesa el choke
       // point del contrato (`individualizarObjetos` → normalizarLista). Sin estos
       // campos, la ficha IA llegaba al informe sin método ni confianza —el
@@ -2466,13 +2466,13 @@
               ? pyM.convex_hull_points.length
               : (pyM.convex_hull_points || null),
 
-            // ADR-017: el segundo bloque de preservación de `error_optico_*` que vivía
+            // ADR-019: el segundo bloque de preservación de `error_optico_*` que vivía
             // aquí era una copia literal del de arriba (claves duplicadas en el mismo
             // object literal). Eliminado: la copia de arriba es la que manda, y la red
             // de seguridad `aplicarErrorOpticoPosicional` la recalcula si falta.
           };
 
-          // ── ADR-017 · procedencia de detección ────────────────────────────
+          // ── ADR-019 · procedencia de detección ────────────────────────────
           // La fusión `{...pyM}` descarta todo lo no listado, y /api/metrics no
           // devuelve método ni confianza → sin esto, la ficha IA sale del merge sin
           // procedencia y así se persiste en metricas.json. Escritor único del
@@ -2721,7 +2721,7 @@
     if (_cf) _cf.checked = false;
     _updateSortIndicators();
 
-    // ── ADR-017 · parámetros del modo IA ────────────────────────────────────
+    // ── ADR-019 · parámetros del modo IA ────────────────────────────────────
     // El backend los devuelve en `params_used` a nivel de RESPUESTA, no por objeto,
     // y hasta ahora se descartaban por completo (nada en js/ leía `params_used`).
     // Se proyectan sobre cada objeto para que viajen con él hasta el informe: sin

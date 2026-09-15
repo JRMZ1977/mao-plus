@@ -1,4 +1,4 @@
-# ADR-017 — Procedencia de detección y error óptico en todas las salidas, con índice canónico
+# ADR-019 — Procedencia de detección y error óptico en todas las salidas, con índice canónico
 
 **Estado:** ✅ Implementado (F0–F7) · 2026-07-31
 **Contexto previo:** ADR-008 (contrato de salida de captura), ADR-011 (taxonomía canónica de

@@ -41,8 +41,8 @@
  */
 
 import * as MetricPresenter from './metric-presenter.js';  // fuente única de derivados/rótulos (ADR-016 Stage B)
-import { encabezadoDe, indiceDe } from './category-manifest.js'; // fuente única de orden/índice (ADR-017)
-import { filasDeteccion } from './detection-section.js';   // fuente única de la sección de detección (ADR-017)
+import { encabezadoDe, indiceDe } from './category-manifest.js'; // fuente única de orden/índice (ADR-019)
+import { filasDeteccion } from './detection-section.js';   // fuente única de la sección de detección (ADR-019)
 
 /**
  * Confianza global de la clasificación, normalizada a un porcentaje 0–100.
@@ -113,7 +113,7 @@ export function generarTablaMetricasCompleta(obj, metricas) {
     </div>
   `;
 
-  // ── ADR-017 · I. DETECCIÓN DEL OBJETO ────────────────────────────────────
+  // ── ADR-019 · I. DETECCIÓN DEL OBJETO ────────────────────────────────────
   // El informe declara sus condiciones de producción antes que sus resultados:
   // cómo se detectó el objeto y con qué confianza, antes de cualquier métrica.
   // Categoría `estructural` → se rinde SIEMPRE, con «Sin datos» cuando falte.
@@ -159,7 +159,7 @@ export function generarTablaMetricasCompleta(obj, metricas) {
           <td style="${estiloTd}; font-weight: 600; color: #667eea;">${metricas.forma_detectada || 'No clasificada'}</td>
         </tr>
         <tr>
-          <!-- ADR-017: se explicita que ésta es la confianza de CLASIFICACIÓN de
+          <!-- ADR-019: se explicita que ésta es la confianza de CLASIFICACIÓN de
                forma. Rotulada sólo «Confianza Global» convivía mal con la nueva
                confianza de DETECCIÓN de la sección I; son medidas distintas. -->
           <td style="${estiloTd}; font-weight: 600;">Confianza de Clasificación</td>
@@ -169,7 +169,7 @@ export function generarTablaMetricasCompleta(obj, metricas) {
     </table>
   `;
 
-  // ── ADR-017 · secciones en el ORDEN CANÓNICO del manifiesto ───────────────
+  // ── ADR-019 · secciones en el ORDEN CANÓNICO del manifiesto ───────────────
   // Antes esta secuencia no guardaba relación con los romanos escritos a mano en
   // cada sección: se emitía II → VIII → III → … El orden de aquí abajo sigue
   // ahora el campo `orden` de category-manifest.js, y cada `<h3>` toma su numeral
@@ -250,7 +250,7 @@ export function contarMetricas(metricas, obj) {
   return count;
 }
 /**
- * I. DETECCIÓN DEL OBJETO — ADR-017
+ * I. DETECCIÓN DEL OBJETO — ADR-019
  *
  * Procedencia del dato: con qué método se aisló el objeto de la imagen y con qué
  * confianza. Cierra el hallazgo #5 de ADR-016 (las fichas IA llegaban al PDF con
@@ -1627,7 +1627,7 @@ function generarSeccionErrorOptico(metricas, estiloTabla, estiloTh, estiloTd) {
     const notaErrorOptico = metricas.nota_error_optico || 'No disponible';
     
     const errorTotal = Math.sqrt(errorLineal ** 2 + errorArea ** 2);
-    // ADR-017: la categoría intermedia que emite el cálculo es «Moderada (< 3%)»,
+    // ADR-019: la categoría intermedia que emite el cálculo es «Moderada (< 3%)»,
     // no «Media» — el semáforo pintaba de rojo todo lo que no fuera «Alta».
     const confianzaColor = confianzaOptica.includes('Alta') ? '#28a745'
                          : (confianzaOptica.includes('Moderada') || confianzaOptica.includes('Media')) ? '#ffc107'
@@ -1720,7 +1720,7 @@ function generarSeccionIncertidumbrePropagada(metricas, estiloTabla, estiloTh, e
   const ejMajAbs = parseFloat(metricas.eje_mayor_incertidumbre_abs);
   const ejMinAbs = parseFloat(metricas.eje_menor_incertidumbre_abs);
 
-  // ADR-017: la categoría es `estructural` en el manifiesto → se rinde SIEMPRE.
+  // ADR-019: la categoría es `estructural` en el manifiesto → se rinde SIEMPRE.
   // Antes desaparecía por completo sin datos, y el lector no podía distinguir
   // «no se propagó incertidumbre» de «la sección no existe en este informe».
   if (isNaN(areaAbs) && isNaN(periAbs) && isNaN(ejMajAbs) && isNaN(ejMinAbs)) {

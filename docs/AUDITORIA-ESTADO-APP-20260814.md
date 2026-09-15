@@ -121,13 +121,13 @@ Los 2 `skipped` son `test_bifacial_parity{,_v2}.py`, que se saltan a propósito 
 | Rama | Commits | Qué aporta | Solape |
 |---|---|---|---|
 | `fix/exportaciones-fuente-unica-estado` | 5 (hasta 2026-07-31) | Reconocimiento de forma invariante a la rotación, ponderación de evidencias por poder discriminante, restauración del fallback JS de métricas, fuente única de `currentAnalyzedObject`, 2 suites nuevas (`test_clasificacion_formas.py`, `test_shape_classification.mjs`) | — |
-| `claude/detection-optical-error-improvements-3618a6` | 1 (`b7f069d`, ADR-017) | Procedencia de detección + error óptico en todas las salidas, índice canónico, **cableado de `category-manifest.js`** (+109 líneas), −803 líneas de `analysis-core.js`, `js/modules/detection-section.js` | — |
+| `claude/detection-optical-error-improvements-3618a6` | 1 (`b7f069d`, ADR-019) | Procedencia de detección + error óptico en todas las salidas, índice canónico, **cableado de `category-manifest.js`** (+109 líneas), −803 líneas de `analysis-core.js`, `js/modules/detection-section.js` | — |
 
 Las dos tocan **5 archivos en común**: `index.html`, `js/analysis-core.js`, `js/modules/metrics-orchestrator.js`, `js/modules/visualization-export.js`, `js/project-manager.js`. Ambas modifican fuertemente `analysis-core.js` (una +127/−…, la otra +803/−681 sobre el mismo monolito).
 
 **Riesgo:** cuanto más se tarde en integrar, más caro y más arriesgado es el merge sobre un archivo de 51 778 líneas. Además, «el estado de la aplicación» hoy es ambiguo: hay tres respuestas distintas según la rama.
 
-**Acción:** decidir el orden de integración y ejecutarlo antes de cualquier trabajo nuevo. Sugerido: ADR-017 primero (es 1 commit y *reduce* `analysis-core`), luego `fix/exportaciones` sobre esa base.
+**Acción:** decidir el orden de integración y ejecutarlo antes de cualquier trabajo nuevo. Sugerido: ADR-019 primero (es 1 commit y *reduce* `analysis-core`), luego `fix/exportaciones` sobre esa base.
 
 ### 🔴 H2 — 72 funciones duplicadas muertas en `analysis-core.js` (~4 478 líneas)
 
@@ -188,7 +188,7 @@ Con dos ramas pendientes de merge sobre un monolito de 51 K líneas, la ausencia
 
 Esto no es un detalle cosmético: la causa raíz de los 11 hallazgos de ADR-016 sobre un PDF real fue precisamente «deriva ADR-011 no migrada al reporte». El manifiesto es el antídoto y está desconectado.
 
-**Nota:** ADR-017 (rama sin integrar, H1) añade +109 líneas a este archivo y lo cablea. **Integrar H1 cierra parcialmente H5** — razón adicional para priorizar el merge.
+**Nota:** ADR-019 (rama sin integrar, H1) añade +109 líneas a este archivo y lo cablea. **Integrar H1 cierra parcialmente H5** — razón adicional para priorizar el merge.
 
 ### 🟡 H6 — Documentación de arquitectura desalineada con el código
 
@@ -239,7 +239,7 @@ No es un defecto de código: es un paso de build. Pero conviene notar la discrep
 
 El orden importa: varios puntos se estorban si se hacen al revés.
 
-1. **H1 — integrar las dos ramas.** Primero `b7f069d` (ADR-017: 1 commit y *reduce* `analysis-core.js`), luego `fix/exportaciones`. Nada más debe tocar `analysis-core.js` hasta cerrar este punto.
+1. **H1 — integrar las dos ramas.** Primero `b7f069d` (ADR-019: 1 commit y *reduce* `analysis-core.js`), luego `fix/exportaciones`. Nada más debe tocar `analysis-core.js` hasta cerrar este punto.
 2. **H4 — cablear la verificación.** `npm test` + un workflow de GitHub Actions. Es la red de seguridad de todo lo que sigue, y cuesta una tarde.
 3. **H2 — borrar las 72 copias muertas** (~4 478 líneas). Mecánico, cero llamadas, pero solo con (1) y (2) hechos. Antes de tocar las 8 sombras, **arreglar la guarda de `metaClasificarForma`** en `analysis-core.js:11741`.
 4. **H5 — cablear `category-manifest.js`** en las 4 salidas (F2–F6 de ADR-011). Parcialmente resuelto por (1); completar el resto cierra la causa raíz de ADR-016.
@@ -256,7 +256,7 @@ El paso 1 del orden recomendado se ejecutó el mismo día, en la rama `claude/ap
 
 | # | Merge | Commit | Conflictos |
 |---|---|---|---|
-| 1 | `claude/detection-optical-error-improvements-3618a6` (ADR-017) | `10eec4b` | ninguno |
+| 1 | `claude/detection-optical-error-improvements-3618a6` (ADR-019) | `10eec4b` | ninguno |
 | 2 | `fix/exportaciones-fuente-unica-estado` (5 commits) | `ec12dd0` | **1**, trivial |
 
 El único conflicto fue el `?v=` de `analysis-core.js` en `index.html`: ambas ramas lo habían
@@ -267,7 +267,7 @@ cache-busting del proyecto. `js/analysis-core.js`, `metrics-orchestrator.js`,
 
 **Verificación posterior a cada merge:**
 
-| Métrica | Antes | Tras ADR-017 | Tras ambos |
+| Métrica | Antes | Tras ADR-019 | Tras ambos |
 |---|---|---|---|
 | Suite pytest | 342 / 2 | 347 / 2 | ✅ **369 passed, 2 skipped** |
 | Contratos `window.*` | 33/33 | 33/33 | ✅ 33/33 |
@@ -278,7 +278,7 @@ cache-busting del proyecto. `js/analysis-core.js`, `metrics-orchestrator.js`,
 | Marcadores de conflicto residuales | — | — | ✅ 0 |
 
 Se comprobó además que sobrevivieron las aportaciones de **ambas** ramas en el archivo que las dos
-reescribían: `detection-section` y `category-manifest` importados (ADR-017), fallback JS de métricas
+reescribían: `detection-section` y `category-manifest` importados (ADR-019), fallback JS de métricas
 e importación de `shape-classification` (`fix/exportaciones`).
 
 **Efectos sobre el resto del diagnóstico:**
@@ -290,7 +290,7 @@ e importación de `shape-classification` (`fix/exportaciones`).
   (15 casos) ejercita el módulo de verdad, no por regex — es el primer contrapeso al 0 % de
   cobertura de comportamiento señalado en H4. H4 sigue abierto: no hay CI ni `npm test`.
 - **H2 no se movió.** `analysis-core.js` bajó de 51 778 a **51 514** líneas, pero las −803 de
-  ADR-017 estaban en el código de reporte y detección, no en los duplicados: siguen siendo
+  ADR-019 estaban en el código de reporte y detección, no en los duplicados: siguen siendo
   **72 copias muertas (~4 478 líneas), 8 sombras vivas y 2 expuestas**. Los globales subieron de
   83 a **86**. La guarda de `metaClasificarForma` sigue viva, ahora en
   `js/analysis-core.js:11816` (antes `:11741`) — **ese es el número a usar en el punto 3**.

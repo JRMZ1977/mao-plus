@@ -12,8 +12,8 @@ import * as MetricsOrchestrator from './modules/metrics-orchestrator.js';
 import * as VisualizationExport from './modules/visualization-export.js?v=20260912a';
 import * as BifacialAnalysis from './modules/bifacial-analysis.js';
 import * as MetricPresenter from './modules/metric-presenter.js';  // fuente única de rótulos (ADR-016)
-import * as CategoryManifest from './modules/category-manifest.js'; // fuente única de orden/índice (ADR-011/017)
-import * as DetectionSection from './modules/detection-section.js'; // fuente única de la sección de detección (ADR-017)
+import * as CategoryManifest from './modules/category-manifest.js'; // fuente única de orden/índice (ADR-011/019)
+import * as DetectionSection from './modules/detection-section.js'; // fuente única de la sección de detección (ADR-019)
 // ADR-017 F3: la sección de conservación del PDF batch sale del módulo (antes, copia IIFE con
 // «Sin evaluar» fijo que ignoraba la plantilla confirmada).
 import { generarSeccionFragmentacion } from './modules/tabla-metricas-completa.js';
@@ -5496,7 +5496,7 @@ if (typeof window !== 'undefined') {
     // desde detect() Python (_confianza_objeto). Se hace campo de primera clase
     // de metricas para que viaje a CSV/JSON/viewer/colección. null si el objeto
     // vino de detección JS/manual/3D (sin score).
-    // ADR-017: la proyección la hace el escritor único `aplicarProcedencia` al
+    // ADR-019: la proyección la hace el escritor único `aplicarProcedencia` al
     // cierre de la función (junto al resto de metadatos de detección). Aquí sólo
     // se deja el valor temprano por si algún cálculo intermedio lo consulta.
     metrics.detection_confidence = (typeof obj?._confidence === 'number') ? obj._confidence : null;
@@ -6242,7 +6242,7 @@ if (typeof window !== 'undefined') {
     
     // === INFORMACIÓN ADICIONAL DEL CONTORNO REAL ===
     metrics.object_id = obj.id;
-    // ADR-017 — procedencia de detección por el escritor único (método + confianza
+    // ADR-019 — procedencia de detección por el escritor único (método + confianza
     // + parámetros del modo). Sustituye la escritura suelta de `detection_method`.
     if (window.MaoDeteccion && window.MaoDeteccion.aplicarProcedencia) {
       window.MaoDeteccion.aplicarProcedencia(metrics, obj);
@@ -7178,7 +7178,7 @@ if (typeof window !== 'undefined') {
             // fuente que detect()/IA (_confianza_objeto). Alias legacy
             // (_confidence/_confidenceLvl) para el triage y el export existentes.
             //
-            // ADR-017: este bloque estaba DENTRO del gate `!obj._samSegmented`, así
+            // ADR-019: este bloque estaba DENTRO del gate `!obj._samSegmented`, así
             // que los objetos IA —que nacen con `_samSegmented:true`— nunca recibían
             // confianza y salían con «N/A» en el informe. El gate protege el CONTORNO
             // de la red neuronal, no la confianza; son cosas distintas. Fuera del gate,
@@ -8454,7 +8454,7 @@ if (typeof window !== 'undefined') {
    * @param {'A'|'B'|null} [cara]  cara del objeto en modo bifacial. La posición radial
    *        se normaliza contra las dimensiones de SU propia foto: si las dos caras se
    *        fotografiaron a distinta resolución, usar las de la cara A para la B falsea
-   *        el ángulo y la posición radial (ADR-017).
+   *        el ángulo y la posición radial (ADR-019).
    */
   function aplicarErrorOpticoPosicional(metricas, centroide, cara) {
     try {
@@ -8599,7 +8599,7 @@ if (typeof window !== 'undefined') {
       focalMM: focal, sensorW: sensorWidth,
       sensorH: parseFloat(sensorHeightInput.value) || sensorWidth,
       distanciaObjMM: distancia, imgW: anchoImagen, imgH: altoImagen,
-      // ADR-017 — dimensiones POR CARA. La escala es una sola para ambas (misma
+      // ADR-019 — dimensiones POR CARA. La escala es una sola para ambas (misma
       // toma, misma óptica), pero la posición radial del objeto se normaliza contra
       // su propia foto. `imgW/imgH` de arriba vienen de la cara A; sin este mapa, un
       // objeto de la cara B se evaluaba contra las dimensiones de la A.
@@ -8889,7 +8889,7 @@ if (typeof window !== 'undefined') {
       focalMM: focalRAW, sensorW: sensorWidth,
       sensorH: parseFloat(sensorHeightInput.value) || sensorWidth,
       distanciaObjMM: distancia, imgW: imageWidth, imgH: imageHeight,
-      // ADR-017 — igual que en la escala directa. Aquí el sesgo era mayor: el camino
+      // ADR-019 — igual que en la escala directa. Aquí el sesgo era mayor: el camino
       // híbrido usa los globales MONOFACIALES `imageWidth/imageHeight` sin ramificar
       // por cara, así que en bifacial ambas caras se evaluaban contra la misma foto.
       porCara: {
@@ -15499,7 +15499,7 @@ if (typeof window !== 'undefined') {
     const objProxy = { metricas: m, perforaciones: perfs, horadaciones: horas,
       id: ref.carpeta, numeroObjeto: ref.nombreObjeto, cara: ref.cara };
 
-    // ── Secciones — ORDEN CANÓNICO del manifiesto (ADR-017) ────────────────────
+    // ── Secciones — ORDEN CANÓNICO del manifiesto (ADR-019) ────────────────────
     // El numeral de cada sección lo pone su propio generador vía `encabezadoDe(id)`;
     // aquí sólo se fija la SECUENCIA, que debe seguir el campo `orden` del manifiesto.
     // (I — Detección — se emite arriba, en la cabecera, junto a la identificación.)
@@ -15620,7 +15620,7 @@ if (typeof window !== 'undefined') {
     </body></html>`;
   };
 
-  // ADR-017 F1 · El consumidor (project-manager.js → enrichCollection) gatea con
+  // ADR-019 F1 · El consumidor (project-manager.js → enrichCollection) gatea con
   // `typeof window.generarHTMLReporteParaBatch === 'function'`. El refactor C2b
   // (commit bc9cdc9) pasó esta función de `window.…` a `const` local, y el gate
   // quedó siempre falso: el PDF batch —el único informe con el índice romano
@@ -18252,7 +18252,7 @@ if (typeof window !== 'undefined') {
     let csv = 'Categoría,Métrica,Valor,Unidad,Descripción\n';
 
     // ============================================================================
-    // 0. DETECCIÓN + ERROR ÓPTICO — ADR-017
+    // 0. DETECCIÓN + ERROR ÓPTICO — ADR-019
     // ============================================================================
     // Esta función REESCRIBE metricas.csv desde el visor de colección. No emitía ni
     // procedencia ni error óptico, así que regenerar el CSV de un análisis ya
@@ -21038,7 +21038,7 @@ if (typeof window !== 'undefined') {
       };
 
       const _seccionesMetricas = [
-        // ADR-017 — la procedencia encabeza también el informe bifacial, y se rinde
+        // ADR-019 — la procedencia encabeza también el informe bifacial, y se rinde
         // POR CARA: cada cara pudo detectarse con un método distinto (p. ej. la A con
         // IA y la B en manual), así que un único bloque global sería engañoso.
         { titulo: CategoryManifest.encabezadoDe('deteccion'), claves: [['Método de detección','detection_method'],['Confianza de detección  [0–1]','detection_confidence'],['Nivel de confianza','confidence_level'],['Segmentador / motor','ia_segmentador'],['Umbralización (modo IA)','ia_threshold_method']] },
@@ -22487,7 +22487,7 @@ if (typeof window !== 'undefined') {
 
           const seccionesMetricas = [
             {
-              // ADR-017 — procedencia del dato antes que el dato. Es el hallazgo #5
+              // ADR-019 — procedencia del dato antes que el dato. Es el hallazgo #5
               // de ADR-016: el PDF de un objeto IA no declaraba cómo se detectó.
               titulo: CategoryManifest.encabezadoDe('deteccion'),
               metricas: [
@@ -24819,7 +24819,7 @@ if (typeof window !== 'undefined') {
    * 🆕 OPCIÓN 2: Exportar objeto bifacial completo (ambas caras) desde datos
    * Genera CSV con ambas caras del objeto en formato estructurado
    */
-  // ADR-017: aquí vivían `exportarObjetoBifacialCompletoUnificado` y su extractor
+  // ADR-019: aquí vivían `exportarObjetoBifacialCompletoUnificado` y su extractor
   // `extraerMetricasCompletasConPH` (~400 líneas). Ninguna tenía llamadores: eran
   // una cuarta copia de la lógica de export, ya divergida (sin error óptico ni
   // detección). La ruta viva del CSV bifacial es
@@ -24860,7 +24860,7 @@ if (typeof window !== 'undefined') {
       // Crear CSV con formato: Cara,Categoría,Métrica,Valor,Unidad
       let csvContent = 'Cara,Categoría,Métrica,Valor,Unidad\n';
       
-      // ── ADR-017 · una sola fuente para monofacial y bifacial ─────────────
+      // ── ADR-019 · una sola fuente para monofacial y bifacial ─────────────
       // Antes esto era una lista blanca de ~10 claves con su propia cadena de
       // if/else: sin error óptico, sin detección, sin GLCM, y con el área en cm²
       // cuando el resto de la app trabaja en mm². Por eso NINGÚN CSV bifacial
@@ -26000,7 +26000,7 @@ if (typeof window !== 'undefined') {
     };
     
     // ==========================================================================
-    // CATEGORÍA: Detección — ADR-017 (procedencia antes que resultados)
+    // CATEGORÍA: Detección — ADR-019 (procedencia antes que resultados)
     // ==========================================================================
     // Antes sólo había un `Identificación,Método de Detección` suelto, sin confianza
     // y sin los parámetros del modo IA. La procedencia es su propia categoría.
@@ -26212,7 +26212,7 @@ if (typeof window !== 'undefined') {
     csvLines += `Error e Incertidumbre Óptica,FOV Diagonal,${fmt(m.fov_diagonal_deg, 2)},grados\n`;
     csvLines += `Error e Incertidumbre Óptica,k1 Estimado,${m.k1_estimado != null ? fmt(m.k1_estimado, 6) : 'N/A'},-\n`;
     csvLines += `Error e Incertidumbre Óptica,Confianza Óptica,${m.confianza_optica || 'Sin datos'},-\n`;
-    // ADR-017: los dos campos que faltaban para completar los 11 del cálculo.
+    // ADR-019: los dos campos que faltaban para completar los 11 del cálculo.
     // `posicion_radial_px` se calculaba y no se exportaba en NINGÚN CSV ni PDF.
     csvLines += `Error e Incertidumbre Óptica,Posición Radial,${fmt(m.posicion_radial_px, 1)},px\n`;
     csvLines += `Error e Incertidumbre Óptica,Nota,${(m.nota_error_optico || 'N/A').replace(/,/g, ';')},-\n`;

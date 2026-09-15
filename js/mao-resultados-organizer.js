@@ -314,7 +314,7 @@
           id: String(o.id || o.numeroObjeto || ''),
           bbox: { x: o.minX || 0, y: o.minY || 0, width: o.width || 0, height: o.height || 0 },
           contour_points: o.contour_points || [],
-          // ADR-017: el default 1.0 marcaba como PERFECTO todo objeto sin confianza
+          // ADR-019: el default 1.0 marcaba como PERFECTO todo objeto sin confianza
           // medida, y el filtro `min_confidence` del exportador los dejaba pasar
           // siempre. Un dato ausente se declara ausente, no se inventa.
           detection_confidence: o.detectionConfidence ?? o.detection_confidence ?? null,

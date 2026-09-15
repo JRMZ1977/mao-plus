@@ -174,7 +174,7 @@ def test_confidence_filter():
 
 def test_confianza_desconocida_no_se_asume_perfecta():
     """
-    ADR-017: antes el default de `detection_confidence` era 1.0, así que un objeto
+    ADR-019: antes el default de `detection_confidence` era 1.0, así que un objeto
     sin confianza medida se exportaba como si fuera una detección perfecta y el
     filtro `min_confidence` lo dejaba pasar SIEMPRE. «No medida» debe ser un estado
     propio: se conserva como null y no supera un filtro de confianza.

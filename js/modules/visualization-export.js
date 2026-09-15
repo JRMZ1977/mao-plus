@@ -90,7 +90,7 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
         (!metricas.confianza_optica || metricas.confianza_optica === 'Sin datos')) {
       const _cx = (metricas.centroide_x != null) ? metricas.centroide_x : ((obj?.minX || 0) + (obj?.width  || 0) / 2);
       const _cy = (metricas.centroide_y != null) ? metricas.centroide_y : ((obj?.minY || 0) + (obj?.height || 0) / 2);
-      // ADR-017: se pasa la cara para que la posición radial se normalice contra las
+      // ADR-019: se pasa la cara para que la posición radial se normalice contra las
       // dimensiones de SU foto (relevante si A y B se tomaron a distinta resolución).
       window.aplicarErrorOpticoPosicional(metricas, { x: _cx, y: _cy }, obj?.cara || null);
     }
@@ -561,7 +561,7 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
     // 🆕 GENERAR HTML REORGANIZADO - CARACTERIZACIÓN MORFOMÉTRICA LÓGICA
     // Estructura sin duplicaciones y secuencia coherente
     // ============================================================================
-    // ADR-017 — «I. Detección del Objeto» abre también el panel, para que panel,
+    // ADR-019 — «I. Detección del Objeto» abre también el panel, para que panel,
     // Tabla Completa, CSV y PDF declaren lo mismo y en el mismo orden (gate ADR-016).
     // Las filas llevan la clase `morphological-metric` a propósito: es la que barre
     // `exportarMetricasDesdeUI` para construir su CSV.
@@ -2060,7 +2060,7 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
         </div>
       </div>`;
 
-      // ADR-017 — los valores en forma de filas `.morphological-metric`. La tarjeta
+      // ADR-019 — los valores en forma de filas `.morphological-metric`. La tarjeta
       // de arriba es una síntesis visual maquetada con grid; `exportarMetricasDesdeUI`
       // construye su CSV barriendo `.morphological-metric`, así que sin estas filas la
       // Sección IX no llegaba a ese export. Mismos datos, no un cálculo aparte.

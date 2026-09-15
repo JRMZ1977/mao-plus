@@ -498,7 +498,7 @@ class ProjectManager {
           versionMAO: '1.2.0',
           fecha: analysis.timestamp
         },
-        // ADR-017 — procedencia de detección. Vive también en metricas.json (dentro
+        // ADR-019 — procedencia de detección. Vive también en metricas.json (dentro
         // del objeto de métricas), pero aquí queda legible sin abrir el bloque de
         // ~130 indicadores: cómo se detectó el objeto es metadato de la pieza, no
         // una métrica morfológica más.
@@ -2804,7 +2804,7 @@ class ProjectManager {
               console.warn(`[enrichCollection] PDF error ${nombreObj}:`, _pdfErr.message, _pdfErr.stack);
             }
           } else {
-            // ADR-017 F1: este gate estuvo siempre falso desde bc9cdc9 y el PDF se
+            // ADR-019 F1: este gate estuvo siempre falso desde bc9cdc9 y el PDF se
             // saltaba sin dejar rastro. Que se note cuál de las dos piezas falta.
             console.warn(
               `[enrichCollection] PDF omitido para ${nombreObj} — falta: ` +
@@ -2898,7 +2898,7 @@ function _buildEnrichCsvRow(ref, m) {
     // ADR-016 #5: detection_method puede venir como detectionMethod en objetos IA legacy.
     _csvVal(m.detection_method || m.detectionMethod || m.detection_mode),
     _f(m.detection_confidence, 4),
-    // ADR-017: los análisis anteriores en disco sólo tienen `detection_confidence_level`;
+    // ADR-019: los análisis anteriores en disco sólo tienen `detection_confidence_level`;
     // esta columna salía vacía SIEMPRE por leer únicamente la clave canónica.
     _csvVal(m.confidence_level || m.detection_confidence_level),
     // — Error óptico (campos nuevos) —
@@ -2908,7 +2908,7 @@ function _buildEnrichCsvRow(ref, m) {
     _f(m.error_distorsion_percent, 4),
     _f(m.posicion_radial_norm, 4),
     _f(m.angulo_optico_deg, 2),
-    // ADR-017: `confianza_optica` es una CATEGORÍA de texto («Alta (< 1.5%)»), no un
+    // ADR-019: `confianza_optica` es una CATEGORÍA de texto («Alta (< 1.5%)»), no un
     // número. Con `_f` (parseFloat) la columna salía vacía siempre.
     _csvVal(m.confianza_optica),
     _csvVal(m.nota_error_optico),

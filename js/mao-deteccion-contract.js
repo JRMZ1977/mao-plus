@@ -222,7 +222,7 @@
     return null;
   }
 
-  // ── ADR-017 · procedencia de detección → objeto de métricas ────────────────
+  // ── ADR-019 · procedencia de detección → objeto de métricas ────────────────
   // ESCRITOR ÚNICO. Antes cada modo proyectaba la procedencia por su cuenta:
   // auto/manual escribían `detection_method` suelto (analysis-core.js ×2,
   // metrics-orchestrator.js) y el modo IA no escribía NADA, porque su

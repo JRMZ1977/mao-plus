@@ -23,7 +23,7 @@
 /** @typedef {{id:string, titulo:string, orden:number, indice:string, tipo:'estructural'|'factual'|'comparativa', desc?:string}} CategoriaSpec */
 
 /**
- * ADR-017 · El campo `indice` es el numeral romano CANÓNICO de la sección. Antes
+ * ADR-019 · El campo `indice` es el numeral romano CANÓNICO de la sección. Antes
  * estaba escrito a mano dentro del HTML de cada generador, en cinco superficies
  * distintas y con cuatro numeraciones divergentes: la Tabla emitía II → VIII → III,
  * `XII-a` rotulaba dos secciones distintas, Simetría era `VI-b` en el módulo y
@@ -97,7 +97,7 @@ export function indiceDe(id) {
  * Encabezado canónico listo para renderizar: `"II. Error Óptico Posicional"`.
  * Es la única forma en que una superficie debe construir el rótulo de una sección;
  * escribir el romano a mano es lo que produjo las cuatro numeraciones divergentes
- * que ADR-017 vino a unificar.
+ * que ADR-019 vino a unificar.
  */
 export function encabezadoDe(id) {
   const c = porId(id);

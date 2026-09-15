@@ -1,7 +1,7 @@
 /**
  * DETECTION SECTION — contenido canónico de la sección «I. Detección del Objeto»
  * ============================================================================
- * ADR-017. Fuente ÚNICA de QUÉ filas componen la sección de procedencia de
+ * ADR-019. Fuente ÚNICA de QUÉ filas componen la sección de procedencia de
  * detección. Las superficies (panel, Tabla Completa → PDF, CSV, PDF batch, PDF
  * integral, PDF bifacial) piden aquí los pares etiqueta/valor y los pintan cada
  * una con su propio estilo.

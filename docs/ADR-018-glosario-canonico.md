@@ -13,7 +13,7 @@ Lo que sí existía:
 
 | Artefacto | Qué fija | Alcance |
 |---|---|---|
-| `js/modules/category-manifest.js` (ADR-011/017) | qué secciones hay y en qué orden (I → XX-b) | 26 categorías |
+| `js/modules/category-manifest.js` (ADR-011/019) | qué secciones hay y en qué orden (I → XX-b) | 26 categorías |
 | `python/modules/morphometric_registry.py` (ADR-006) | qué métricas son homólogas 2D↔3D, con fórmula y unidad | 31 métricas |
 | `GLOSARIO_TERMINOS_MAO.html` | guía de nomenclatura, índice propio I–VI | ~40 términos, sin relación con el índice del informe |
 
@@ -32,7 +32,7 @@ al índice canónico. Las dos no mapean 1:1:
   MORFOLÓGICA», que no existen en el manifiesto.
 
 Un glosario escrito a mano contra una de las dos sería la **tercera taxonomía
-divergente** — exactamente el fallo que ADR-016 y ADR-017 vinieron a corregir.
+divergente** — exactamente el fallo que ADR-016 y ADR-019 vinieron a corregir.
 
 ## Decisión
 
@@ -299,7 +299,7 @@ El inventario no era el objetivo, pero al construirlo salieron cuatro defectos r
    pese a estar en el manifiesto y a que el CSV sí emite sus 3 filas. ADR-011 dio la Tabla
    por «26 secciones siempre»; son 25.
 2. **`XX. Comparación Bifacial` y `XX-b` tampoco.** `generarSeccionComparacionBifacial()`
-   rotula «22. COMPARACIÓN BIFACIAL» en **arábigo y a mano**. El test de ADR-017 no lo
+   rotula «22. COMPARACIÓN BIFACIAL» en **arábigo y a mano**. El test de ADR-019 no lo
    detecta porque solo persigue numerales romanos.
 3. **Tres funciones comparativas** (`generarTablaComparativaDimensiones`, `…Forma`, `…PH`)
    leen métricas y rotulan sin pasar por `encabezadoDe()`.

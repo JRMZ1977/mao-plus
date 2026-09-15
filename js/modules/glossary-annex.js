@@ -14,7 +14,7 @@
  *
  * El numeral romano de cada sección NO se escribe aquí: se pide a
  * `category-manifest.js` con `encabezadoDe()`, que es la única fuente del índice
- * (ADR-017, y hay un test que lo hace cumplir).
+ * (ADR-019, y hay un test que lo hace cumplir).
  * ==========================================================================
  */
 
