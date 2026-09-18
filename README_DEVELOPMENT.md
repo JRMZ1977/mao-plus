@@ -340,7 +340,7 @@ Before changing a metric or the analysis flow, check [docs/ESTADO-ADRS.md](docs/
 
 ## License
 
-[Your License Here]
+MIT — ver [LICENSE](LICENSE).
 
 ---
 
