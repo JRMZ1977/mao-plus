@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Software | MAO Plus (Morfometría Arqueológica Objetiva) — aplicación Electron + backend FastAPI/Python |
-| Versión documentada | rama `main` al 2026-09-13: ADR-017 F0-F3 (`4c2e261`) más las correcciones de O-16 y O-20 que acompañan a este documento. **Actualizada para MAO Plus 1.3.0 (2026-09-15)**: O-20 completada (distribución de Wilks), observaciones O-23 a O-27 añadidas en §13 |
+| Versión documentada | rama `main` al 2026-09-13: ADR-017 F0-F3 (`4c2e261`) más las correcciones de O-16 y O-20 que acompañan a este documento. **Actualizada para MAO Plus 1.3.0 (2026-09-15)**: O-20 completada (distribución de Wilks), observaciones O-23 a O-27 añadidas en §13 · **Actualizada para MAO Plus 1.3.1 (2026-09-18, ADR-021)**: exportación EFA en el convenio de Kuhl & Giardina, corrección de la «isometría» de O-16 (§6.2) y observación **O-28** (§6.3, §13.2) |
 | Fecha del documento | 2026-09-13 |
 | Autoría del análisis matemático | J. F. Ruiz Rodríguez (LAAR) · asistencia de documentación: Claude Code |
 | Estado de verificación | Suite de pruebas del motor: **398 pasadas / 2 omitidas** (ejecución del 2026-09-13, ver §12) |
@@ -1422,7 +1422,7 @@ H=-\sum_{i,j}P_{ij}\log_2 P_{ij}$$
 
 ## §6. Descriptores elípticos de Fourier (EFA)
 
-> **Módulo:** `python/modules/efa.py` (383 líneas), endpoint `/api/efa`.
+> **Módulo:** `python/modules/efa.py` (540 líneas en 1.3.1), endpoint `/api/efa`.
 > Es el **descriptor de forma completo** del sistema: mientras las métricas de §5 resumen la forma
 > en escalares, el EFA la representa íntegramente en una base ortogonal, permitiendo reconstruirla,
 > compararla y proyectarla en un morfoespacio.
@@ -1447,12 +1447,12 @@ $$a_k=\frac{2}{T}\int_0^T\! x(t)\cos\tfrac{2\pi kt}{T}dt
 
 $$b_k=\frac{T}{2k^2\pi^2}\sum_p \frac{\Delta x_p}{\Delta t_p}\Big[\sin\tfrac{2\pi k t_p}{T}-\sin\tfrac{2\pi k t_{p-1}}{T}\Big]$$
 
-y análogamente $c_k,d_k$ con $\Delta y_p$. El término DC (`efa.py:212-233`) es la media ponderada por
+y análogamente $c_k,d_k$ con $\Delta y_p$. El término DC (`efa.py:301-325`) es la media ponderada por
 arco, $A_0=\frac1T\oint x\,ds$, $C_0=\frac1T\oint y\,ds$ — el **centroide del perímetro**, no el del
 área (distinción correcta: es el coeficiente de orden cero de la serie de $x(t)$).
 
 Parámetros por defecto: $K=20$ armónicos (estándar en morfometría arqueológica, $\gtrsim99\,\%$ de
-varianza), mínimo 8 puntos, y saturación a Nyquist $K\le N/2$ (`efa.py:34, 287-288`).
+varianza), mínimo 8 puntos, y saturación a Nyquist $K\le N/2$ (`efa.py:78, 425-426`).
 
 ### 6.2 Convención de los coeficientes implementada — hallazgo verificado
 
@@ -1478,20 +1478,23 @@ varianza), mínimo 8 puntos, y saturación a Nyquist $K\le N/2$ (`efa.py:34, 287
 >
 > | Uso | ¿Afectado? | Evidencia |
 > |---|---|---|
-> | Coeficientes **normalizados** e invariancias | **No** | invariancia a traslación, escala, rotación y punto de inicio verificada a $\sim5\times10^{-15}$ |
+> | Coeficientes **normalizados** e invariancias | **No** para traslación, escala y rotación ($\sim5\times10^{-15}$). **Punto de inicio: sólo módulo 180°** | ⚠ *Corrección 2026-09-18 (ADR-021):* la prueba de invariancia al punto de inicio usaba una elipse, sin armónicos pares; en formas con ellos los normalizados cambian de signo según el inicio (**O-28**, §6.3) — en los dos convenios |
 > | Espectro de potencia y varianza explicada | **No** | idénticos entre convenios (son sumas de cuadrados por armónico) |
-> | Distancia $d_{\text{EFD}}$ entre objetos | **No** | $\max\lvert d_{\text{MAO}}-d_{\text{KG}}\rvert=1{,}7\times10^{-16}$ sobre 15 pares |
+> | Distancia $d_{\text{EFD}}$ entre objetos | ⚠ **Sí, en general** | *Corrección 2026-09-18:* el residuo no es fijo (véase abajo); hasta $0{,}31$ de diferencia entre convenios. La medición original ($1{,}7\times10^{-16}$ sobre 15 pares) cayó en formas con la misma rama de $\theta_1$ |
 > | Procrustes sobre contornos reconstruidos (`js/procrustes.js:1559`) | **No** | idéntico a 4+ decimales; Spearman $=1{,}00$ |
 > | **Contorno reconstruido** (`contour_reconstructed`, `mean_reconstructed`) | **Sí** | circularidad de la curva sintetizada $0{,}947$ frente a $0{,}850$ del contorno real; con el convenio corregido, $0{,}850$ |
-> | Intercambio de tablas de coeficientes con Momocs / pyefd | **Sí** | desfase determinista de $(1-k)\pi/2$ en el armónico $k$ |
+> | Intercambio de tablas de coeficientes con Momocs / pyefd | **Sí** — ✔ resuelto en la exportación (ADR-021) | los CSV exportan `*_kg` (= pyefd/Momocs a $\sim10^{-13}$); en 1.3.0 un CSV cargado en pyefd daba circularidad $0{,}856$ frente a $0{,}706$ real |
 >
 > **Por qué las invariancias se salvan.** La normalización (§6.3) fija el primer armónico a la forma
 > canónica $(1,0,0,d_1)$ mediante una rotación de fase $\theta_1$ y una rotación espacial $\psi_1$;
-> ambas absorben el desfase en $k=1$. Para $k\ge2$ queda un desfase residual **fijo y determinista**
-> de $(1-k)\pi/2$, que es una transformación **ortogonal** del vector descriptor. Como toda isometría
-> preserva distancias euclídeas y normas, el espacio de formas resultante es **isométrico** al
-> canónico: mismas distancias, mismo espectro, misma estructura de PCA. En términos prácticos, MAO
-> trabaja en un sistema de coordenadas rotado del morfoespacio de Kuhl-Giardina.
+> ambas absorben el desfase en $k=1$. Para $k\ge2$ queda un desfase residual de $(1-k)\pi/2$
+> **cuando** $\theta_1^{\text{MAO}}=\theta_1^{\text{KG}}-\pi/2$; cuando es $+\pi/2$ —la otra rama del
+> $\arctan$, que depende de la forma y del punto de inicio— los armónicos **pares** cambian además de
+> signo. ⚠ *Corrección 2026-09-18 (ADR-021):* la versión anterior de este párrafo afirmaba un residuo
+> «fijo y determinista» y un morfoespacio **isométrico** al canónico. Es cierto armónico a armónico en
+> norma (espectro y varianza idénticos) pero **no** como transformación única del vector: dos formas
+> con ramas distintas se relacionan con K&G por matrices distintas, y las distancias difieren (hasta
+> $0{,}31$ medido). La raíz es la ambigüedad de 180° de $\theta_1$ (**O-28**, §6.3).
 >
 > **Por qué la reconstrucción sí falla.** La síntesis `efa.py:171-188` aplica la fórmula canónica
 > $x(t)=\sum[a\cos+b\sin]$ a coeficientes que no están en ese convenio, con lo que dibuja una curva
@@ -1518,7 +1521,10 @@ varianza), mínimo 8 puntos, y saturación a Nyquist $K\le N/2$ (`efa.py:34, 287
 >    plantillas** contra las que se empareja un fragmento (`shape_template.py:804`). Con la
 >    síntesis anterior, las formas ideales del banco se habrían generado más redondeadas que la
 >    forma que codifican sus coeficientes.
-> 2. ⏸ *Canónico, con recálculo* (abierto) — adoptar el convenio de Kuhl-Giardina en `_efd_raw`.
+> 2. ◐ *Canónico* — ✔ **en la exportación** desde MAO Plus 1.3.1 (ADR-021): `/api/efa` publica
+>    `coefficients_kg`/`coefficients_raw_kg` con `coefficient_convention`, y los tres CSV exportan esas
+>    columnas; el descriptor interno sigue en el convenio MAO. Lo que sigue ⏸ abierto es adoptarlo
+>    en `_efd_raw`:
 >    Ninguna conclusión analítica cambia (el espacio es isométrico), pero **las tablas de
 >    coeficientes ya almacenadas quedan en otro sistema de coordenadas y no deben mezclarse con las
 >    nuevas**: exige recalcular el banco EFA completo. A cambio, los coeficientes pasan a ser
@@ -1531,7 +1537,7 @@ varianza), mínimo 8 puntos, y saturación a Nyquist $K\le N/2$ (`efa.py:34, 287
 
 ### 6.3 Normalización canónica: las cuatro invariancias
 
-`efa.py:98-168`. Es la parte que convierte una descripción dependiente de la toma en un
+`efa.py:160-235`. Es la parte que convierte una descripción dependiente de la toma en un
 **descriptor de forma**, y está implementada correctamente:
 
 **(1) Rotación de fase $\theta_1$ — invariancia al punto de inicio.** El punto donde comienza el
@@ -1547,6 +1553,17 @@ $$\theta_1=\frac12\arctan\!\left(\frac{2(a_1b_1+c_1d_1)}{a_1^2-b_1^2+c_1^2-d_1^2
 
 Equivale a la matriz $V$ de la descomposición en valores singulares de
 $M_1=\begin{pmatrix}a_1&b_1\\c_1&d_1\end{pmatrix}$.
+
+> **⚠ Observación O-28 — ambigüedad de 180° (2026-09-18).** $\theta_1$ sólo está definido módulo
+> $\pi$: $\theta_1$ y $\theta_1+\pi$ alinean el inicio con los **dos** extremos del semieje mayor, y
+> el $\arctan$ escoge uno según dónde empiece el contorno. Cambiar de extremo multiplica el armónico
+> $k$ por $(-1)^{k+1}$ tras el paso (2): los armónicos **pares** cambian de signo. La misma forma
+> trilobulada con otro punto de inicio sale a $d_{\text{EFD}}=0{,}589$ (similitud $0{,}629$, «formas
+> moderadamente distintas»). Es propia de la normalización de Kuhl & Giardina —pyefd y Momocs la
+> comparten— y la prueba de invariancia al punto de inicio no podía verla porque usa una elipse, que
+> sólo tiene armónicos impares. No afecta al espectro ni a la varianza explicada. El TPS de
+> semilandmarks de ADR-021 la resuelve eligiendo el extremo por la **asimetría** del contorno; aplicar
+> lo mismo al descriptor exige recalcular los bancos (§13.2).
 
 **(2) Rotación espacial $\psi_1$ — invariancia a la orientación de la pieza.** Tras (1), el semieje
 mayor del primer armónico apunta en la dirección $\psi_1=\operatorname{atan2}(c_1',a_1')$ **en el
@@ -1584,12 +1601,12 @@ $$\text{PS}_k=\sqrt{a_k^2+b_k^2+c_k^2+d_k^2},
 
 El espectro de potencia es invariante a rotación por construcción (norma de cada bloque armónico) y
 se usa para decidir el **truncamiento**: los campos `harmonics_for_95pct` y `harmonics_for_99pct`
-indican cuántos armónicos capturan el 95 % y el 99 % de la potencia acumulada (`efa.py:308-314`).
+indican cuántos armónicos capturan el 95 % y el 99 % de la potencia acumulada (`efa.py:456-462`).
 Es el criterio recomendado en la literatura para fijar $K$ [Crampton 1995, §3; Caple, Byrd &
 Stephan 2017, §4], y ADR-015 D3 plantea formalizarlo como parámetro reportado del análisis en vez de
 como dato informativo. Para un círculo, `harmonics_for_99pct = 1` (verificado en la suite).
 
-**Distancias entre formas** (`efa.py:336-383`):
+**Distancias entre formas** (`efa.py:493-540`):
 
 $$d_{\text{EFD}}(\mathbf{A},\mathbf{B})=\sqrt{\sum_{k}\sum_{\xi\in\{a,b,c,d\}}(\xi_k^A-\xi_k^B)^2},
 \qquad
@@ -2394,7 +2411,7 @@ llevan demostración numérica se reprodujeron con el módulo real el 2026-09-13
 | **O-26** | `/api/shape-match` fijaba $\min$ arco 0,30/0,45 como valor por defecto y lo pasaba siempre | la app nunca usó los umbrales calibrados en ADR-017 F4 (0,40/0,50/0,60), sólo los tests del módulo | ✔ **corregido** (1.3.0): el endpoint no pisa los valores del módulo | **nueva (1.3.0)** · resuelta |
 | — | Ausencia de validación de exactitud y de reproducibilidad | sin sesgo por métrica ni ICC publicados | Bland-Altman + ICC implementados y verificados (ADR-015 A1/A2, 1.3.0); **falta el corpus de patrones y el segundo observador** | ADR-015 **A1/A2** |
 | **O-19** | Multicolinealidad exacta en el *pool* métrico (§5.5, §5.6, §5.8, §7.2) | PCA con varianza inflada en PC1 y cargas no interpretables | marcar derivadas en el registro; filtro VIF $<10$ | ADR-015 **C2** |
-| **O-16** | Convenio de los coeficientes EFD desfasado 90° respecto de Kuhl-Giardina | descriptor y distancias **correctos** (espacio isométrico); **contorno reconstruido erróneo** (más redondeado) y coeficientes no intercambiables con Momocs/pyefd | ✔ **corregido** (2026-09-13): síntesis arreglada + gate de fidelidad. Queda abierto adoptar el convenio canónico en los coeficientes (exige recalcular el banco EFA) | nueva · resuelta |
+| **O-16** | Convenio de los coeficientes EFD desfasado 90° respecto de Kuhl-Giardina | **contorno reconstruido erróneo** (más redondeado) y coeficientes no intercambiables con Momocs/pyefd. ⚠ *No* es un espacio isométrico al canónico en general (corrección 2026-09-18, §6.2) | ✔ **corregido** (2026-09-13): síntesis arreglada + gate de fidelidad · ✔ **exportación en K&G** (1.3.1, ADR-021). Queda abierto adoptar el convenio en el descriptor interno (exige recalcular el banco EFA) | nueva · resuelta |
 | **O-10** | `rugosidad_contorno` mide variabilidad del muestreo, no rugosidad física | clasificaba como «fracturada/erosionada» una cuenta intacta | redefinir como desviación radial respecto de la reconstrucción EFA de bajo orden | ADR-016 #6 (diferido) |
 | — | Replicabilidad del contorno ante cambio de ROI/modo | variación de hasta $\pm20\,\%$; el color de fondo se estima desde el recorte | estimar el fondo siempre desde la imagen completa; gate de invariancia $\le2\,\%$ | ADR-013 **F2** |
 
@@ -2408,6 +2425,7 @@ llevan demostración numérica se reprodujeron con el módulo real el 2026-09-13
 | **O-8** | Rectangularidad con caja alineada a los ejes, no con rectángulo de área mínima | depende de la orientación de la toma; no es la rectangularidad de Rosin | usar `minAreaRect`, o renombrar a *extent* | **nueva** |
 | **O-14** | Entropía GLCM sumada sobre las 12 matrices $(d,\vartheta)$ mientras el resto se promedia | rango $[0,96]$ en vez de $[0,8]$; la regla «entropía $>5$» se dispara casi siempre | dividir por el número de pares | **nueva** |
 | **O-15** | Píxeles fuera de máscara entran en la GLCM como nivel 0 | contraste inflado, homogeneidad deprimida, tanto más cuanto menor el objeto | enmascarar pares o recortar al rectángulo interior | **nueva** |
+| **O-28** | Ambigüedad de 180° de la normalización EFA ($\theta_1$ módulo $\pi$, §6.3): el extremo del eje mayor depende del punto de inicio del contorno | los armónicos pares normalizados cambian de signo: la misma pieza con otro inicio da $d_{\text{EFD}}=0{,}589$; afecta a `efa.compare` (APS/Procrustes), a los coeficientes medios de secciones 3D y a cualquier PCA sobre normalizados; **no** al espectro ni a la varianza | elegir el extremo por un criterio intrínseco —la asimetría, como ya hace el TPS de ADR-021— y recalcular los bancos; o comparar con alineación del inicio | **nueva (1.3.1)** · pendiente de ADR |
 | **O-7** | «Pérdida de perímetro por fragmentación» era $\le0$ por construcción | signo contraintuitivo en el informe | ✔ **resuelto** en `3a43f92`: signo corregido y renombrado `concavidad_perimetro_percent` | ADR-017 **F0** |
 | **O-11** | Normalización anisótropa (por rangos independientes) antes del box-counting | $D$ depende ligeramente de la relación de aspecto | normalizar por el lado mayor | **nueva** |
 | **O-17** | Coherencia 2D↔3D imputa $0{,}5$ a los componentes ausentes | no distingue «media» de «sin datos» | reportar el número de componentes efectivos | **nueva** |
@@ -2455,6 +2473,11 @@ simulación de cobertura, fragmentos generados con otro generador) cerró **O-20
 de Wilks y corrigió **O-24, O-25 y O-26**. Quedan pendientes de decisión, por cambiar valores ya
 exportados, **O-1** (término $-f$ de la escala, ADR-020 reservado) y **O-23** (significado dimensional
 del presupuesto óptico).
+
+**Estado en MAO Plus 1.3.1 (2026-09-18, ADR-021).** Contrastar la exportación contra una implementación
+de Kuhl & Giardina escrita aparte llevó a exportar los coeficientes en ese convenio, a corregir la
+afirmación de isometría de O-16 (§6.2) y a registrar **O-28**, la ambigüedad de 180° de la
+normalización, que queda pendiente de ADR porque su corrección cambia el descriptor interno.
 
 ---
 <a id="14-bibliografia"></a>
@@ -2836,11 +2859,15 @@ Referencias verificadas contra `main` al 2026-09-13 (base `3a43f92` + correccion
 | Ensamblado del repertorio (~55 claves) | `python/modules/metrics.py:496-1082` |
 | Cascada de clasificación de forma (22 reglas) | `python/modules/metrics.py:821-965` |
 | GLCM / textura | `python/modules/metrics.py:1087-1149` |
-| Coeficientes EFD | `python/modules/efa.py:61-116` |
-| Normalización EFA (θ₁, ψ₁, escala, quiralidad) | `python/modules/efa.py:119-189` |
-| Reconstrucción EFA (convenio de fase) | `python/modules/efa.py:192-221` |
-| Espectro y varianza explicada | `python/modules/efa.py:224-242` |
-| Distancias EFD | `python/modules/efa.py:369-416` |
+| Coeficientes EFD | `python/modules/efa.py:89-144` |
+| Conversión MAO → Kuhl & Giardina (crudos) | `python/modules/efa.py:147-157` |
+| Normalización EFA (θ₁, ψ₁, escala, quiralidad) | `python/modules/efa.py:160-235` |
+| Reconstrucción EFA (convenio de fase; `convenio` MAO o K&G) | `python/modules/efa.py:238-277` |
+| Espectro y varianza explicada | `python/modules/efa.py:280-298` |
+| Componentes DC ($A_0$, $C_0$) | `python/modules/efa.py:301-325` |
+| Coeficientes en el convenio K&G publicados por `/api/efa` | `python/modules/efa.py:441-449, 474-484` |
+| Distancias EFD | `python/modules/efa.py:493-540` |
+| Semilandmarks del TPS (inicio θ₁ + asimetría, sentido) | `js/mao-interop-gmm.js` · `semilandmarksContorno` |
 | Registro canónico (contrato ADR-006) | `python/modules/morphometric_registry.py` |
 | Métricas 3D (Wadell, compacidad, hull) | `python/modules/obj3d_v2.py:682-760` |
 | Descriptores por autovalores 3D | `python/modules/obj3d_v2.py:620-654` |

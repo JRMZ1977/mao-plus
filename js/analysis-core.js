@@ -18555,110 +18555,17 @@ if (typeof window !== 'undefined') {
     return [];
   }
 
-  function _resampleByArcEFA(pts, nSamples) {
-    if (!Array.isArray(pts) || pts.length < 3) return [];
-    const n = pts.length;
-    const arc = [0];
-    for (let i = 1; i < n; i++) {
-      const dx = pts[i][0] - pts[i - 1][0];
-      const dy = pts[i][1] - pts[i - 1][1];
-      arc.push(arc[i - 1] + Math.hypot(dx, dy));
-    }
-    const dx0 = pts[0][0] - pts[n - 1][0];
-    const dy0 = pts[0][1] - pts[n - 1][1];
-    const totalLen = arc[n - 1] + Math.hypot(dx0, dy0);
-    if (totalLen <= 0) return [];
-
-    const step = totalLen / nSamples;
-    const out = [];
-    let j = 0;
-    for (let i = 0; i < nSamples; i++) {
-      const target = i * step;
-      while (j < n - 1 && arc[j + 1] < target) j++;
-      const a0 = arc[j];
-      const a1 = j + 1 < n ? arc[j + 1] : totalLen;
-      const t = a1 > a0 ? (target - a0) / (a1 - a0) : 0;
-      const p0 = pts[j];
-      const p1 = pts[(j + 1) % n];
-      out.push([
-        p0[0] + t * (p1[0] - p0[0]),
-        p0[1] + t * (p1[1] - p0[1]),
-      ]);
-    }
-    return out;
-  }
-
-  function _curvaturaMengerAbs(p0, p1, p2) {
-    const area2 = Math.abs((p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1]));
-    const d01 = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
-    const d12 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
-    const d20 = Math.hypot(p0[0] - p2[0], p0[1] - p2[1]);
-    const den = d01 * d12 * d20;
-    if (den <= 1e-12) return 0;
-    return (2 * area2) / den;
-  }
-
-  function _generarLandmarksSemiAutomaticos(contourPoints, nLandmarks = 32, nCurvatura = 10) {
-    const pts = _normalizarPuntosEFA(contourPoints);
-    if (pts.length < 8) {
-      return { landmarks: [], usedCurvature: 0, total: 0 };
-    }
-
-    const n = pts.length;
-    const kCurv = Math.max(0, Math.min(nCurvatura, nLandmarks - 4));
-    const kUni = Math.max(4, nLandmarks - kCurv);
-
-    const uniform = _resampleByArcEFA(pts, kUni);
-
-    const scores = [];
-    const salto = Math.max(1, Math.floor(n / 120));
-    for (let i = 0; i < n; i++) {
-      const i0 = (i - salto + n) % n;
-      const i2 = (i + salto) % n;
-      scores.push({ i, k: _curvaturaMengerAbs(pts[i0], pts[i], pts[i2]) });
-    }
-    scores.sort((a, b) => b.k - a.k);
-
-    const minSep = Math.max(3, Math.floor(n / Math.max(12, kCurv * 2)));
-    const selectedIdx = [];
-    for (const s of scores) {
-      if (selectedIdx.length >= kCurv) break;
-      const tooClose = selectedIdx.some((idx) => {
-        const d = Math.abs(s.i - idx);
-        return Math.min(d, n - d) < minSep;
-      });
-      if (!tooClose) selectedIdx.push(s.i);
-    }
-    selectedIdx.sort((a, b) => a - b);
-
-    const curvPts = selectedIdx.map((i) => pts[i]);
-    const merged = [...uniform, ...curvPts];
-
-    if (merged.length < nLandmarks) {
-      const extra = _resampleByArcEFA(pts, nLandmarks * 2);
-      for (const p of extra) {
-        merged.push(p);
-        if (merged.length >= nLandmarks) break;
-      }
-    }
-
-    // Deduplicación estable por cuantización suave y trim final
-    const seen = new Set();
-    const dedup = [];
-    for (const p of merged) {
-      const key = `${Math.round(p[0] * 10)}:${Math.round(p[1] * 10)}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        dedup.push(p);
-      }
-      if (dedup.length >= nLandmarks) break;
-    }
-
-    return {
-      landmarks: dedup,
-      usedCurvature: selectedIdx.length,
-      total: dedup.length,
-    };
+  // ── Semilandmarks de contorno para TPS (ADR-021) ──────────────────────────
+  // Hasta 1.3.0 los «landmarks semi-automáticos» eran puntos equidistantes desde
+  // pts[0] con los de curvatura máxima AÑADIDOS AL FINAL: el punto i de un
+  // espécimen no correspondía al punto i de otro, y un GPA emparejaba puntos no
+  // homólogos. El generador vive en js/mao-interop-gmm.js —fuente única para el
+  // panel, el lote, la colección y el modal IA—; la curvatura queda como ayuda
+  // visual opcional (`csvCurvaturaVisual`), fuera del TPS.
+  function _semilandmarksTPS(contourPoints) {
+    const G = window.MaoInteropGMM;
+    if (!G) return { puntos: [], n: 0, motivo: 'js/mao-interop-gmm.js no cargado' };
+    return G.semilandmarksContorno(_normalizarPuntosEFA(contourPoints), G.N_SEMILANDMARKS);
   }
 
   /**
@@ -18683,149 +18590,94 @@ if (typeof window !== 'undefined') {
   }
 
   /**
-   * Genera un bloque TPS (Rohlf) de un espécimen.
-   * Orden de campos conforme al formato: LM= · coordenadas · IMAGE= · ID= · SCALE= · COMMENT=
+   * Genera un bloque TPS (Rohlf) de un espécimen: LM= · coordenadas · IMAGE= ·
+   * ID= · SCALE= · COMMENT=. El formato lo escribe `MaoInteropGMM.bloqueTPS`.
    *
    * Las coordenadas van en PÍXELES de imagen, que es la convención del formato
-   * (tpsDig las guarda así); `SCALE=` es el multiplicador a unidades reales, y
-   * es lo que leen tpsRelw y geomorph::readland.tps(..., scale = TRUE).
+   * (tpsDig las guarda así); `SCALE=` es el multiplicador a unidades reales que
+   * aplican tpsRelw y geomorph::readland.tps() (éste sin argumento para ello, y
+   * sólo si todos los especímenes del archivo la traen).
    * Si no hay escala configurada NO se emite SCALE= (emitir 1.0 afirmaría
    * falsamente 1 mm/px); en su lugar se deja constancia explícita en COMMENT=.
+   *
+   * @param {Object|Array} landmarks resultado de `_semilandmarksTPS` (documenta
+   *        inicio, sentido y deslizamiento en COMMENT=) o una lista de puntos
+   * @param {{curveslide?: string}} [opciones] archivo de deslizamiento a citar
    */
-  function _generarTextoTPSLandmarks(landmarks, obj = {}, metricas = {}) {
+  function _generarTextoTPSLandmarks(landmarks, obj = {}, metricas = {}, opciones = {}) {
     const id = String(obj?.id || `OBJ_${obj?.numeroObjeto || 'X'}`);
-    const lines = [];
-    lines.push(`LM=${landmarks.length}`);
-    landmarks.forEach((p) => {
-      lines.push(`${Number(p[0]).toFixed(6)} ${Number(p[1]).toFixed(6)}`);
-    });
-
     const imagen = (typeof resolverNombreFotografia === 'function')
       ? (resolverNombreFotografia(obj) || '')
       : '';
-    if (imagen) lines.push(`IMAGE=${imagen}`);
-
-    lines.push(`ID=${id}`);
-
-    const mmPx = _resolverEscalaMmPx(metricas);
-    if (mmPx !== null) {
-      lines.push(`SCALE=${mmPx.toFixed(8)}`);
-    } else {
-      lines.push('COMMENT=SIN ESCALA — coordenadas en pixeles de imagen, no convertibles a mm');
-    }
-
-    lines.push('COMMENT=MAO Plus semi-landmarks (curvatura + arco)');
-    return lines.join('\n') + '\n';
+    return window.MaoInteropGMM.bloqueTPS(landmarks, {
+      id,
+      imagen,
+      escalaMmPx: _resolverEscalaMmPx(metricas),
+      curveslide: opciones.curveslide,
+    });
   }
 
-  function _descargarLandmarksTPS(landmarks, obj = {}, metricas = {}, fileBaseOverride = null) {
-    const tps = _generarTextoTPSLandmarks(landmarks, obj, metricas);
-    const fileBase = String(fileBaseOverride || obj?.id || `obj_${obj?.numeroObjeto || 'x'}`).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const blob = new Blob([tps], { type: 'text/plain;charset=utf-8' });
+  function _descargarTexto(texto, nombre, tipo) {
+    const blob = new Blob([texto], { type: tipo });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `${fileBase}_landmarks.tps`;
+    link.download = nombre;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(link.href);
   }
 
+  function _baseArchivo(fileBaseOverride, obj) {
+    return String(fileBaseOverride || obj?.id || `obj_${obj?.numeroObjeto || 'x'}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+  }
+
+  function _descargarLandmarksTPS(semilandmarks, obj = {}, metricas = {}, fileBaseOverride = null) {
+    const tps = _generarTextoTPSLandmarks(semilandmarks, obj, metricas);
+    _descargarTexto(tps, `${_baseArchivo(fileBaseOverride, obj)}_semilandmarks.tps`, 'text/plain;charset=utf-8');
+  }
+
+  /** Ayuda visual opcional: puntos de curvatura máxima. NO es un TPS a propósito. */
+  function _descargarCurvaturaVisual(contourPoints, obj = {}, fileBaseOverride = null) {
+    const csv = window.MaoInteropGMM.csvCurvaturaVisual(_normalizarPuntosEFA(contourPoints), 10);
+    _descargarTexto(csv, `${_baseArchivo(fileBaseOverride, obj)}_curvatura_ayuda_visual.csv`, 'text/csv;charset=utf-8');
+  }
+
   /**
-   * Genera el CSV completo de un análisis EFA.
+   * Genera el CSV completo de un análisis EFA (`MaoInteropGMM.csvEFA`).
    *
-   * Estructura (misma convención que exportarAnalisisMorfologico: tabla primero,
-   * bloque de metadatos después de una línea en blanco) para que `read.csv(...)`
-   * / `pandas.read_csv(..., nrows=n)` puedan leer la tabla directamente.
+   * Desde ADR-021 las columnas intercambiables van en el convenio de Kuhl &
+   * Giardina (`*_kg`, las de Momocs y pyefd) y las del descriptor interno de MAO
+   * quedan rotuladas `*_mao`. Estructura: tabla primero, bloque de metadatos
+   * después de una línea en blanco (`read.csv(..., nrows = n)`).
    *
-   * Incluye los coeficientes CRUDOS y `normalization.scale_factor`, sin los
-   * cuales la normalización es irreversible: `coefficients` sale con |1er
-   * armónico| = 1 para toda forma, de modo que el tamaño desaparece. Verificado
-   * contra python/modules/efa.py: `scale_factor` es el semieje mayor del primer
-   * armónico tras la alineación (NO el del objeto — la razón entre ambos varía
-   * con la elongación) y es la variable de tamaño para alometría.
+   * Incluye los coeficientes CRUDOS y `scale_factor`, sin los cuales la
+   * normalización es irreversible (el tamaño desaparece). `scale_factor` es el
+   * semieje mayor del primer armónico tras la alineación, NO el del objeto.
    *
-   * @param {Object} efaData respuesta de /api/efa
+   * @param {Object} efaData respuesta de /api/efa o `_efa_data` guardado
    * @param {string} fuente  etiqueta identificadora de la fuente (contorno, P1, H1…)
    * @returns {string} contenido CSV
    */
   function _generarCsvEFA(efaData, fuente = '') {
-    const coeffs = Array.isArray(efaData?.coefficients) ? efaData.coefficients : [];
-    const raw    = Array.isArray(efaData?.coefficients_raw) ? efaData.coefficients_raw : [];
-    const ps     = Array.isArray(efaData?.power_spectrum) ? efaData.power_spectrum : [];
-    const varAc  = Array.isArray(efaData?.variance_explained) ? efaData.variance_explained : [];
-
-    const num = (v) => (v === null || v === undefined || Number.isNaN(Number(v))) ? '' : String(v);
-    const txt = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-
-    // ── Tabla principal: un armónico por fila ────────────────────────────────
-    const lines = [
-      'harmonic,a_norm,b_norm,c_norm,d_norm,a_raw,b_raw,c_raw,d_raw,power_spectrum,variance_acum_pct'
-    ];
-    coeffs.forEach((c, idx) => {
-      if (!Array.isArray(c) || c.length < 4) return;
-      const r = Array.isArray(raw[idx]) ? raw[idx] : [];
-      lines.push([
-        idx + 1,
-        num(c[0]), num(c[1]), num(c[2]), num(c[3]),
-        num(r[0]), num(r[1]), num(r[2]), num(r[3]),
-        num(ps[idx]), num(varAc[idx]),
-      ].join(','));
-    });
-
-    // ── Bloque de metadatos ──────────────────────────────────────────────────
-    const n = efaData?.normalization || {};
-    const dc = Array.isArray(efaData?.dc) ? efaData.dc : [];
-    const esc = Number(efaData?.scale_px_mm);
-    // `fila` cita Valor y Nota: varias notas llevan comas y ':' — sin comillas
-    // desalinearían las columnas del bloque (mismo fallo que ADR-008 corrigió en
-    // el CSV morfológico).
-    const fila = (seccion, campo, valor, nota) =>
-      `${seccion},${campo},${txt(valor)},${txt(nota)}`;
-
-    const meta = [
-      'Seccion,Campo,Valor,Nota',
-      fila('EFA_Metadatos', 'Fuente', fuente,
-        'Contorno al que corresponden los coeficientes'),
-      fila('EFA_Metadatos', 'Armonicos', num(efaData?.n_harmonics),
-        'Numero de armonicos calculados'),
-      fila('EFA_Metadatos', 'Puntos_contorno', num(efaData?.n_points_input),
-        'Puntos de entrada del contorno'),
-      fila('EFA_Metadatos', 'Armonicos_95pct', num(efaData?.harmonics_for_95pct),
-        'Armonicos necesarios para explicar el 95% de la varianza'),
-      fila('EFA_Metadatos', 'Armonicos_99pct', num(efaData?.harmonics_for_99pct),
-        'Armonicos necesarios para explicar el 99% de la varianza'),
-      fila('EFA_Metadatos', 'Escala_mm_px', (Number.isFinite(esc) && esc > 0) ? esc : '',
-        'mm/px aplicados al contorno ANTES del EFD; vacio = sin escala configurada'),
-      fila('EFA_Normalizacion', 'scale_factor', num(n.scale_factor),
-        'TAMANO: semieje mayor del PRIMER ARMONICO tras alinear la orientacion, en las unidades del contorno (mm si Escala_mm_px no esta vacio). Multiplicar los coeficientes normalizados por el restituye la magnitud. NO es el semieje mayor del objeto: la razon entre ambos varia con la elongacion'),
-      fila('EFA_Normalizacion', 'theta_1_deg', num(n.theta_1_deg),
-        'Rotacion de alineacion al semieje mayor eliminada (grados)'),
-      fila('EFA_Normalizacion', 'psi_1_deg', num(n.psi_1_deg),
-        'Rotacion de fase en el plano eliminada (grados)'),
-      fila('EFA_Normalizacion', 'convenio_quiralidad', 'd1>=0',
-        'Reflexion canonizada: si d1<0 se niegan cn y dn de todos los armonicos. Se aplica DESPUES del escalado, de modo que coef_norm x scale_factor puede diferir en el signo de las componentes-y'),
-      fila('EFA_DC', 'dc_a', num(dc[0]), 'Componente DC en X: centroide del contorno'),
-      fila('EFA_DC', 'dc_c', num(dc[1]), 'Componente DC en Y: centroide del contorno'),
-    ];
-
-    return `${lines.join('\n')}\n\n${meta.join('\n')}\n`;
+    return window.MaoInteropGMM.csvEFA(efaData, fuente);
   }
 
   function _descargarCoeficientesEFA(efaData, obj = {}, fileBaseOverride = null) {
-    const fileBase = String(fileBaseOverride || obj?.id || `obj_${obj?.numeroObjeto || 'x'}`).replace(/[^a-zA-Z0-9_-]/g, '_');
     const csv = _generarCsvEFA(efaData, fileBaseOverride || obj?.id || '');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${fileBase}_efa_coeffs.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
+    _descargarTexto(csv, `${_baseArchivo(fileBaseOverride, obj)}_efa_coeffs.csv`, 'text/csv;charset=utf-8');
   }
 
-  function _renderEfaPanelContenido(panel, obj, metricas, efaData, lmInfo, fuente = 'calculado', options = {}) {
+  /** Descripción legible del inicio de los semilandmarks (panel y lista de fuentes). */
+  function _textoInicioSemilandmarks(slm) {
+    const ini = slm?.inicio || {};
+    const criterio = { eje_mayor: 'asimetría a lo largo del eje mayor',
+                       eje_menor: 'asimetría a lo largo del eje menor',
+                       simetrica: 'forma simétrica: extremo indistinto' }[ini.criterio] || '—';
+    return `extremo del eje mayor del 1.er armónico (θ₁ de la EFA), elegido por ${criterio}`;
+  }
+
+  function _renderEfaPanelContenido(panel, obj, metricas, efaData, slm, fuente = 'calculado', options = {}) {
     const ps = Array.isArray(efaData?.power_spectrum) ? efaData.power_spectrum.slice(0, 5) : [];
     const psText = ps.length ? ps.map(v => Number(v).toFixed(4)).join(', ') : 'N/A';
     const enableExports = options.enableExports !== false;
@@ -18838,7 +18690,7 @@ if (typeof window !== 'undefined') {
       ? `
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="${btnTpsId}" style="padding: 6px 10px; border: 1px solid #0d6efd; background: #ffffff; color: #0d6efd; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">
-            Exportar landmarks TPS
+            Exportar semilandmarks TPS
           </button>
           <button id="${btnCoeffId}" style="padding: 6px 10px; border: 1px solid #198754; background: #ffffff; color: #198754; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">
             Exportar coeficientes EFA CSV
@@ -18864,9 +18716,13 @@ if (typeof window !== 'undefined') {
           <div style="font-family: monospace; font-size: 10px; color: #334155; line-height: 1.5; word-break: break-all;">${psText}</div>
         </div>
         <div style="background: rgba(255,255,255,0.65); border: 1px solid #cfe3ff; border-radius: 6px; padding: 8px; margin-bottom: 8px;">
-          <div style="font-weight: 600; color: #0d4f9a; margin-bottom: 4px;">Landmarks semi-automaticos</div>
+          <div style="font-weight: 600; color: #0d4f9a; margin-bottom: 4px;">Semilandmarks del TPS</div>
           <div style="font-size: 10px; color: #334155; line-height: 1.45;">
-            Total: <strong>${lmInfo.total}</strong> · Curvatura maxima: <strong>${lmInfo.usedCurvature}</strong> · Resto por arco equidistante
+            ${slm?.n ? `<strong>${slm.n}</strong> deslizantes, equidistantes en longitud de arco · sentido antihorario<br>
+            Inicio: ${_textoInicioSemilandmarks(slm)}` : `No disponibles: ${slm?.motivo || 'contorno insuficiente'}`}
+            ${slm?.inicio && slm.inicio.estable === false
+              ? `<div style="margin-top:4px; color:#92400e;">⚠ Inicio poco determinado: ${(slm.inicio.avisos || []).join('; ')}</div>` : ''}
+            <div style="margin-top:4px; color:#475569;">Coeficientes EFA exportados en el convenio de Kuhl &amp; Giardina (Momocs, pyefd).</div>
           </div>
         </div>
         ${exportButtonsHtml}
@@ -18876,7 +18732,7 @@ if (typeof window !== 'undefined') {
     const exportTpsBtn = enableExports ? document.getElementById(btnTpsId) : null;
     if (exportTpsBtn) {
       exportTpsBtn.onclick = () => {
-        _descargarLandmarksTPS(lmInfo.landmarks, obj, metricas);
+        _descargarLandmarksTPS(slm, obj, metricas);
       };
     }
 
@@ -18888,7 +18744,13 @@ if (typeof window !== 'undefined') {
     }
   }
 
-  function _colectarFuentesEFAConfirmadas(obj, metricas, efaDataPrincipal, lmInfoPrincipal) {
+  /**
+   * Fuentes exportables (contorno principal + cada P/H confirmada con EFA). Cada
+   * una lleva su CONTORNO: los semilandmarks del TPS se generan de él al exportar
+   * (`_semilandmarksDeFuente`), no se leen de un caché — los `_landmarks_semiauto`
+   * guardados por versiones anteriores no se correspondían entre especímenes.
+   */
+  function _colectarFuentesEFAConfirmadas(obj, metricas, efaDataPrincipal, puntosPrincipal) {
     const fuentes = [];
 
     if (efaDataPrincipal) {
@@ -18901,7 +18763,7 @@ if (typeof window !== 'undefined') {
         etiqueta: 'Contorno principal',
         tipo: 'contorno',
         efaData: efaDataPrincipal,
-        landmarks: Array.isArray(lmInfoPrincipal?.landmarks) ? lmInfoPrincipal.landmarks : [],
+        puntos: _normalizarPuntosEFA(puntosPrincipal),
         area: Number.isFinite(areaContorno) ? areaContorno : null,
       });
     }
@@ -18917,7 +18779,7 @@ if (typeof window !== 'undefined') {
           etiqueta: `${prefijo}${item?.id ?? index + 1}`,
           tipo,
           efaData: metricasPH._efa_data,
-          landmarks: Array.isArray(metricasPH._landmarks_semiauto) ? metricasPH._landmarks_semiauto : [],
+          puntos: _normalizarPuntosEFA(item?.puntos || item?.contorno || item?.poligonoTrazado),
           area: Number(metricasPH?.area),
           objRef: { id: `${obj?.id || 'obj'}_${prefijo}${item?.id ?? index + 1}` },
           metricasRef: metricasPH,
@@ -18929,6 +18791,12 @@ if (typeof window !== 'undefined') {
     agregarPH(obj?.horadaciones, 'H', 'horadacion');
 
     return fuentes;
+  }
+
+  /** Semilandmarks del TPS de una fuente, calculados una vez por fuente. */
+  function _semilandmarksDeFuente(fuente) {
+    if (!fuente._slm) fuente._slm = _semilandmarksTPS(fuente.puntos);
+    return fuente._slm;
   }
 
   async function _hidratarEFAConfirmadoPH(obj) {
@@ -18944,9 +18812,7 @@ if (typeof window !== 'undefined') {
         const metricasPH = item?.metricas || null;
         if (!metricasPH) continue;
 
-        if (metricasPH._efa_data && Array.isArray(metricasPH._landmarks_semiauto)) {
-          continue;
-        }
+        if (metricasPH._efa_data) continue;
 
         const contourPoints = _normalizarPuntosEFA(item?.puntos || item?.contorno || item?.poligonoTrazado);
         if (contourPoints.length < 8) continue;
@@ -18966,16 +18832,12 @@ if (typeof window !== 'undefined') {
           }
         }
 
-        if (!Array.isArray(metricasPH._landmarks_semiauto) && metricasPH._efa_data) {
-          const lmInfo = _generarLandmarksSemiAutomaticos(contourPoints, 32, 10);
-          metricasPH._landmarks_semiauto = lmInfo.landmarks;
-        }
       }
     }
   }
 
-  function _renderResumenFuentesEFA(panel, obj, metricas, efaDataPrincipal, lmInfoPrincipal) {
-    const fuentes = _colectarFuentesEFAConfirmadas(obj, metricas, efaDataPrincipal, lmInfoPrincipal);
+  function _renderResumenFuentesEFA(panel, obj, metricas, efaDataPrincipal, puntosPrincipal) {
+    const fuentes = _colectarFuentesEFAConfirmadas(obj, metricas, efaDataPrincipal, puntosPrincipal);
     const resumenPanel = panel.querySelector('[data-efa-fuentes]');
     if (!resumenPanel) return;
 
@@ -18993,8 +18855,13 @@ if (typeof window !== 'undefined') {
     const filas = fuentes.map((fuente) => {
       const exportTpsId = `efaFuenteTps_${fuente.key}_${Math.floor(Math.random() * 10000)}`;
       const exportCsvId = `efaFuenteCsv_${fuente.key}_${Math.floor(Math.random() * 10000)}`;
+      const exportCurvId = `efaFuenteCurv_${fuente.key}_${Math.floor(Math.random() * 10000)}`;
       fuente._exportTpsId = exportTpsId;
       fuente._exportCsvId = exportCsvId;
+      fuente._exportCurvId = exportCurvId;
+      const slm = _semilandmarksDeFuente(fuente);
+      const slmTxt = slm.n ? `${slm.n} semilandmarks` : 'sin semilandmarks';
+      const slmAviso = slm.inicio && slm.inicio.estable === false ? ' · ⚠ inicio poco determinado' : '';
       const arm = fuente.efaData?.n_harmonics ?? 'N/A';
       const h95 = fuente.efaData?.harmonics_for_95pct ? `h${fuente.efaData.harmonics_for_95pct}` : 'N/A';
       const h99 = fuente.efaData?.harmonics_for_99pct ? `h${fuente.efaData.harmonics_for_99pct}` : 'N/A';
@@ -19003,14 +18870,15 @@ if (typeof window !== 'undefined') {
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:7px 8px; background:rgba(255,255,255,0.7); border:1px solid #dbeafe; border-left:4px solid ${colorTipo(fuente.tipo)}; border-radius:6px;">
           <div>
             <div style="font-weight:700; color:#0f172a;">${fuente.etiqueta}</div>
-            <div style="font-size:10px; color:#475569;">${fuente.landmarks.length} landmarks${areaTxt}</div>
+            <div style="font-size:10px; color:#475569;" title="${slm.inicio ? _textoInicioSemilandmarks(slm) : ''}">${slmTxt}${slmAviso}${areaTxt}</div>
           </div>
           <div style="text-align:right; font-size:10px; color:#334155; line-height:1.45; white-space:nowrap;">
             <div><strong>${arm}</strong> armónicos</div>
             <div>95%: ${h95} · 99%: ${h99}</div>
             <div style="display:flex; gap:6px; justify-content:flex-end; margin-top:6px;">
               <button id="${exportTpsId}" style="padding:4px 7px; border:1px solid #0d6efd; background:#fff; color:#0d6efd; border-radius:5px; cursor:pointer; font-size:10px; font-weight:600;">TPS</button>
-              <button id="${exportCsvId}" style="padding:4px 7px; border:1px solid #198754; background:#fff; color:#198754; border-radius:5px; cursor:pointer; font-size:10px; font-weight:600;">CSV EFA</button>
+              <button id="${exportCsvId}" title="Coeficientes en el convenio de Kuhl & Giardina (Momocs, pyefd)" style="padding:4px 7px; border:1px solid #198754; background:#fff; color:#198754; border-radius:5px; cursor:pointer; font-size:10px; font-weight:600;">CSV EFA</button>
+              <button id="${exportCurvId}" title="Ayuda visual: puntos de curvatura máxima. NO son landmarks: no usar en GPA" style="padding:4px 7px; border:1px dashed #94a3b8; background:#fff; color:#64748b; border-radius:5px; cursor:pointer; font-size:10px;">Curvatura (visual)</button>
             </div>
           </div>
         </div>
@@ -19029,7 +18897,7 @@ if (typeof window !== 'undefined') {
       if (btnTps) {
         btnTps.onclick = () => {
           _descargarLandmarksTPS(
-            fuente.landmarks,
+            _semilandmarksDeFuente(fuente),
             fuente.objRef || obj,
             fuente.metricasRef || metricas,
             `${obj?.id || 'obj'}_${fuente.clave}`
@@ -19047,10 +18915,17 @@ if (typeof window !== 'undefined') {
           );
         };
       }
+
+      const btnCurv = document.getElementById(fuente._exportCurvId);
+      if (btnCurv) {
+        btnCurv.onclick = () => {
+          _descargarCurvaturaVisual(fuente.puntos, fuente.objRef || obj, `${obj?.id || 'obj'}_${fuente.clave}`);
+        };
+      }
     });
   }
 
-  function _renderPanelEFAIntegrado(panel, obj, metricas, efaData, lmInfo, fuente = 'calculado') {
+  function _renderPanelEFAIntegrado(panel, obj, metricas, efaData, contourPoints, fuente = 'calculado') {
     panel.innerHTML = `
       <div data-efa-principal></div>
       <div data-efa-fuentes></div>
@@ -19059,8 +18934,9 @@ if (typeof window !== 'undefined') {
     const principal = panel.querySelector('[data-efa-principal]');
     if (!principal) return;
 
-    _renderEfaPanelContenido(principal, obj, metricas, efaData, lmInfo, fuente, { enableExports: false });
-    _renderResumenFuentesEFA(panel, obj, metricas, efaData, lmInfo);
+    _renderEfaPanelContenido(principal, obj, metricas, efaData, _semilandmarksTPS(contourPoints), fuente,
+      { enableExports: false });
+    _renderResumenFuentesEFA(panel, obj, metricas, efaData, contourPoints);
   }
 
   async function renderPanelEFA(obj, metricas) {
@@ -19077,27 +18953,17 @@ if (typeof window !== 'undefined') {
 
     const contourPoints = _obtenerPuntosContornoEFA(obj, metricas);
     const cachedEfaData = metricas?._efa_data || obj?._efa_data || null;
-    let cachedLandmarks = Array.isArray(metricas?._landmarks_semiauto) ? metricas._landmarks_semiauto : null;
-    if (!cachedLandmarks && Array.isArray(obj?._landmarks_semiauto)) {
-      cachedLandmarks = obj._landmarks_semiauto;
-    }
+    // ADR-021: los landmarks de versiones anteriores (arco + curvatura al final)
+    // no se correspondían entre especímenes. Nadie los lee ya; se retiran para
+    // que no vuelvan a guardarse en metricas.json.
+    delete metricas._landmarks_semiauto;
+    delete obj._landmarks_semiauto;
 
     if (cachedEfaData) {
-      const lmInfo = cachedLandmarks && cachedLandmarks.length
-        ? {
-            landmarks: cachedLandmarks,
-            usedCurvature: Number.isFinite(Number(cachedEfaData.used_curvature_landmarks))
-              ? Number(cachedEfaData.used_curvature_landmarks)
-              : 0,
-            total: cachedLandmarks.length,
-          }
-        : _generarLandmarksSemiAutomaticos(contourPoints, 32, 10);
       metricas._efa_data = cachedEfaData;
       obj._efa_data = cachedEfaData;
-      metricas._landmarks_semiauto = lmInfo.landmarks;
-      obj._landmarks_semiauto = lmInfo.landmarks;
       await _hidratarEFAConfirmadoPH(obj);
-      _renderPanelEFAIntegrado(panel, obj, metricas, cachedEfaData, lmInfo, 'cache');
+      _renderPanelEFAIntegrado(panel, obj, metricas, cachedEfaData, contourPoints, 'cache');
       return;
     }
 
@@ -19137,11 +19003,8 @@ if (typeof window !== 'undefined') {
       metricas._efa_data = efaData;
       obj._efa_data = efaData;
 
-      const lmInfo = _generarLandmarksSemiAutomaticos(contourPoints, 32, 10);
-      metricas._landmarks_semiauto = lmInfo.landmarks;
-      obj._landmarks_semiauto = lmInfo.landmarks;
       await _hidratarEFAConfirmadoPH(obj);
-      _renderPanelEFAIntegrado(panel, obj, metricas, efaData, lmInfo, 'calculado');
+      _renderPanelEFAIntegrado(panel, obj, metricas, efaData, contourPoints, 'calculado');
     } catch (err) {
       panel.innerHTML = `
         <div style="background: #fff5f5; border: 1px solid #fecaca; border-left: 5px solid #dc2626; border-radius: 8px; padding: 10px; font-size: 11px; color: #7f1d1d;">
@@ -25004,26 +24867,22 @@ if (typeof window !== 'undefined') {
   }
 
   /**
-   * TPS multi-espécimen: contorno + cada P/H confirmada en UN archivo.
-   * TPS es un formato multi-espécimen; un archivo por contorno obliga al
-   * investigador a concatenarlos a mano antes de poder usar tpsRelw o
-   * geomorph::readland.tps(). Generarlo es concatenar bloques que ya existen.
-   */
-  function _generarTpsMultiEspecimen(fuentes, obj, metricas) {
-    return fuentes
-      .filter(f => Array.isArray(f.landmarks) && f.landmarks.length)
-      .map(f => _generarTextoTPSLandmarks(f.landmarks, f.objRef || obj, f.metricasRef || metricas))
-      .join('');
-  }
-
-  /**
-   * Escribe TPS + CSV EFA de cada fuente confirmada (contorno + P/H) y el TPS
-   * agregado. Registra en el manifiesto lo que NO pudo generarse y por qué:
-   * una carpeta incompleta en silencio es peor que un error (§9.7).
+   * Escribe, por cada fuente confirmada (contorno + P/H), su TPS de semilandmarks
+   * y su CSV EFA, más la matriz de deslizamiento `curveslide.csv` (geomorph).
+   * Registra en el manifiesto lo que NO pudo generarse y por qué: una carpeta
+   * incompleta en silencio es peor que un error (§9.7).
+   *
+   * ADR-021: ya NO se escribe `landmarks.tps` con el contorno y las P/H como
+   * especímenes de un mismo archivo. Los especímenes de un TPS deben ser la MISMA
+   * estructura en individuos distintos: tpsRelw o geomorph::readland.tps() los
+   * habrían superpuesto en un GPA —una perforación contra el contorno de la
+   * pieza— y, con el número de puntos ahora fijo, sin avisar. El TPS con varios
+   * especímenes es el de la colección (contornos de todas las piezas: «Exportar
+   * colección…» → TPS). Un TPS se concatena con `cat` si hace falta.
    */
   async function _exportarLandmarksLote(obj, metricas, destino) {
     const fuentes = _colectarFuentesEFAConfirmadas(
-      obj, metricas, metricas._efa_data, { landmarks: metricas._landmarks_semiauto }
+      obj, metricas, metricas._efa_data, _obtenerPuntosContornoEFA(obj, metricas)
     );
 
     if (!fuentes.length) {
@@ -25034,11 +24893,19 @@ if (typeof window !== 'undefined') {
       return 0;
     }
 
+    let tpsEscritos = 0;
     for (const f of fuentes) {
       const clave = f.clave || 'fuente';
       const etiquetaArchivo = `${obj?.id || 'obj'}_${clave}`;
-      await destino.escribir(`landmarks/${clave}.tps`,
-        _generarTextoTPSLandmarks(f.landmarks, f.objRef || obj, f.metricasRef || metricas), 'tps');
+      const slm = _semilandmarksDeFuente(f);
+      if (slm.n) {
+        await destino.escribir(`landmarks/${clave}.tps`,
+          _generarTextoTPSLandmarks(slm, f.objRef || obj, f.metricasRef || metricas,
+            { curveslide: 'curveslide.csv (geomorph::gpagen curves=)' }), 'tps');
+        tpsEscritos++;
+      } else {
+        destino.omitir(`landmarks/${clave}.tps`, slm.motivo || 'contorno insuficiente para semilandmarks');
+      }
       await destino.escribir(`landmarks/${clave}_efa.csv`,
         _generarCsvEFA(f.efaData, etiquetaArchivo), 'csv');
     }
@@ -25051,8 +24918,11 @@ if (typeof window !== 'undefined') {
         `${confirmadas - conEfa} P/H confirmadas sin EFA hidratado — no exportadas`);
     }
 
-    await destino.escribir('landmarks/landmarks.tps',
-      _generarTpsMultiEspecimen(fuentes, obj, metricas), 'tps');
+    // Todas las fuentes tienen el mismo número de semilandmarks: una sola matriz.
+    if (tpsEscritos) {
+      await destino.escribir('landmarks/curveslide.csv',
+        window.MaoInteropGMM.curveslideCerrado(window.MaoInteropGMM.N_SEMILANDMARKS), 'csv');
+    }
     return fuentes.length;
   }
 
@@ -26954,8 +26824,13 @@ if (typeof window !== 'undefined') {
           }, 0) / obj.horadaciones.length) / (obj.metricas.area || 1)) : 0
       },
       
-      // EFA — coeficientes y espectro del contorno principal (si fue calculado)
-      _efa_data: obj.metricas._efa_data || obj._efa_data || null,
+      // EFA — coeficientes y espectro del contorno principal (si fue calculado).
+      // ADR-021: con los coeficientes también en el convenio de Kuhl & Giardina y
+      // `coefficient_convention` declarado campo a campo (derivados si el
+      // análisis es anterior y sólo trae los del convenio interno de MAO).
+      _efa_data: window.MaoInteropGMM
+        ? window.MaoInteropGMM.efaConConvenio(obj.metricas._efa_data || obj._efa_data || null)
+        : (obj.metricas._efa_data || obj._efa_data || null),
 
       // Clasificación de forma
       clasificacionForma: obj.metricas.forma_detectada || obj.metricas.shape_classification || 'no_clasificada',

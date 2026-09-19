@@ -1596,6 +1596,10 @@ const ProcrustesModule = (() => {
       objetos: conPuntos.map((o, idx) => ({
         nombre: o.nombre, cara: o.cara || null, id: o.id || null,
         efaCoeficientes: _efaMap.get(idx)?.coefficients ?? null,
+        // ADR-021: `efaCoeficientes` es el descriptor interno de MAO (el de d_EFD).
+        // Para Momocs/pyefd, el mismo EFA en el convenio de Kuhl & Giardina.
+        efaCoeficientesConvenio: _efaMap.get(idx)?.coefficients ? 'mao' : null,
+        efaCoeficientesKG: window.MaoInteropGMM?.efaKuhlGiardina(_efaMap.get(idx))?.normalizados ?? null,
         efaVarianza95: _efaMap.get(idx)?.harmonics_for_95pct ?? null,
         efaContornoReconstruido: _efaMap.get(idx)?.contour_reconstructed ?? null
       })),
@@ -3508,6 +3512,8 @@ const ProcrustesModule = (() => {
         cara: o.cara,
         id: o.id,
         efaCoeficientes: o.efaCoeficientes ?? null,
+        efaCoeficientesConvenio: o.efaCoeficientesConvenio ?? (o.efaCoeficientes ? 'mao' : null),
+        efaCoeficientesKG: o.efaCoeficientesKG ?? null,
         efaVarianza95: o.efaVarianza95 ?? null,
         efaContornoReconstruido: o.efaContornoReconstruido ?? null
       })) ?? []

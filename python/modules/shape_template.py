@@ -1048,7 +1048,8 @@ _REPERTORIO: "dict[str, Any]" = {
 
 
 def registrar_plantilla_efa(nombre: str, coeficientes: list,
-                            n_points: int = _N_PLANTILLA) -> None:
+                            n_points: int = _N_PLANTILLA,
+                            convenio: str = "mao") -> None:
     """
     Añade al repertorio una plantilla reconstruida desde coeficientes EFA.
 
@@ -1056,9 +1057,15 @@ def registrar_plantilla_efa(nombre: str, coeficientes: list,
     «repertorio de formas ideales» de la pregunta original— se convierte en las
     plantillas contra las que el ICP empareja fragmentos. La EFA aporta las
     formas; el ICP hace el encaje parcial que la EFA no puede hacer.
+
+    `convenio` (ADR-021): "mao" para coeficientes de `/api/efa`
+    (`coefficients`), "kuhl_giardina_1982" para `coefficients_kg` o un banco
+    exportado desde Momocs / pyefd. Con el convenio equivocado la plantilla es
+    otra curva, más redondeada (O-16).
     """
     from python.modules import efa as _efa
-    contorno = np.asarray(_efa.reconstruct(coeficientes, n_points=n_points),
+    contorno = np.asarray(_efa.reconstruct(coeficientes, n_points=n_points,
+                                           convenio=convenio),
                           dtype=np.float64)
     _REPERTORIO[nombre] = lambda c=contorno: c.copy()
 

@@ -25,23 +25,46 @@ Salida por armónico k:
       a_k(MAO) =  b_k(K&G)        c_k(MAO) =  d_k(K&G)
       b_k(MAO) = −a_k(K&G)        d_k(MAO) = −c_k(K&G)
 
-  Consecuencias, verificadas numéricamente (2026-09-13):
-  · El DESCRIPTOR es correcto. Tras la normalización el desfase residual del
-    armónico k es (1−k)·π/2, una transformación ORTOGONAL fija del vector de
-    coeficientes: el morfoespacio es isométrico al canónico, y por tanto las
-    distancias d_EFD, el espectro de potencia, la varianza explicada y el
-    Procrustes sobre contornos reconstruidos son IDÉNTICOS al convenio K&G.
-    Las invariancias (traslación, escala, rotación, punto de inicio, reflexión)
-    se cumplen a precisión de máquina — ver tests/test_efa.py.
+  En forma matricial, M_k(MAO) = M_k(K&G)·R(π/2) con M_k = [[a,b],[c,d]]: una
+  rotación de fase de 90° IGUAL en todos los armónicos, que no equivale a mover
+  el punto de inicio (eso rotaría k·δ el armónico k).
+
+  Consecuencias (2026-09-13, corregidas y ampliadas en ADR-021, 2026-09-18):
+  · CRUDOS: la conversión es exacta, una permutación con signo por armónico
+    (`_mao_a_kuhl_giardina`). Desde ADR-021 `calculate` publica también los
+    coeficientes en el convenio de Kuhl & Giardina, que son los que se exportan:
+      coefficients_raw_kg = pyefd.elliptic_fourier_descriptors(contorno
+                            cerrado, t=0 en el primer punto), a ~1e-13
+      coefficients_kg     = su normalización de K&G §4 tal como la hacen
+                            pyefd.normalize_efd y Momocs efourier_norm
+                            (θ₁, ψ₁, escala) — SIN canonizar la quiralidad.
+  · NORMALIZADOS: MAO normaliza los suyos con el mismo procedimiento, pero partir
+    de M·R(π/2) cambia la rama de θ₁ (θ₁ MAO = θ₁ K&G ± 90°). El residuo del
+    armónico k respecto de K&G es R((1−k)·π/2) cuando θ₁ MAO = θ₁ K&G − 90°, y
+    además cambia de signo en los armónicos PARES cuando es + 90°. Qué caso toca
+    depende de la forma y del punto de inicio: NO es una isometría fija. La
+    afirmación de 2026-09-13 («distancias d_EFD idénticas entre convenios») sólo
+    se verificó sobre formas en que la rama coincidía — ver O-28.
+  · O-28 · AMBIGÜEDAD DE 180° (anterior a este convenio y compartida con pyefd y
+    Momocs): θ₁ sólo está definido módulo π, y cuál de los dos extremos del eje
+    mayor se toma depende del PUNTO DE INICIO del contorno. En formas con
+    armónicos pares, los coeficientes normalizados de esos armónicos cambian de
+    signo según dónde empiece el contorno (medido: hasta 0,42 en un coeficiente
+    de una forma trilobulada). tests/test_efa.py prueba la invariancia al punto
+    de inicio con una ELIPSE, que no tiene armónicos pares, y no puede verlo.
+    NO se corrige aquí: cambiaría el descriptor interno y las distancias.
+    Espectro de potencia y varianza explicada NO se ven afectados.
   · La SÍNTESIS debe deshacer el desfase (ver `_reconstruct_contour`). Aplicar
-    la fórmula canónica x=Σ(a·cos+b·sin) sobre estos coeficientes dibuja una
-    curva distinta, sistemáticamente MÁS REDONDEADA que el contorno medido.
-  · Los coeficientes NO son intercambiables con Momocs / pyefd sin convertirlos
-    con las igualdades de arriba.
+    la fórmula canónica x=Σ(a·cos+b·sin) sobre coeficientes MAO dibuja una curva
+    distinta, sistemáticamente MÁS REDONDEADA que el contorno medido.
+    `reconstruct(..., convenio="kg")` sintetiza coeficientes de Kuhl & Giardina
+    (p. ej. un banco exportado desde Momocs o pyefd).
+  · `coefficients` y `coefficients_raw` NO son intercambiables con Momocs /
+    pyefd: para eso están `coefficients_kg` y `coefficients_raw_kg`.
 
 Funciones exportadas:
   calculate(contour_points, n_harmonics, scale_px_mm, normalize)
-  reconstruct(coeffs, n_points)   — inversa: coeficientes → contorno (ADR-017 F2)
+  reconstruct(coeffs, n_points, dc, convenio)  — inversa: coeficientes → contorno
   compare(coeffs_a, coeffs_b)
 """
 
@@ -54,6 +77,11 @@ IMPLEMENTED = True
 # ── Constantes ─────────────────────────────────────────────────────────────
 _DEFAULT_HARMONICS = 20   # Estándar para morfometría arqueológica (≈ 99% de varianza)
 _MIN_POINTS        = 8    # Mínimo de puntos para un EFA estable
+
+# Convenios de coeficientes (ADR-021). Cada campo de coeficientes de la respuesta
+# de `calculate` declara el suyo en `coefficient_convention`.
+CONVENIO_MAO = "mao"                  # interno: M_k(MAO) = M_k(K&G)·R(π/2)
+CONVENIO_KG  = "kuhl_giardina_1982"   # canónico: el de pyefd y Momocs
 
 
 # ── Función núcleo: coeficientes EFD ────────────────────────────────────────
@@ -116,10 +144,28 @@ def _efd_raw(pts: np.ndarray, n_harmonics: int) -> np.ndarray:
     return coeffs
 
 
-def _normalize_coeffs(coeffs: np.ndarray) -> tuple[np.ndarray, dict]:
+def _mao_a_kuhl_giardina(coeffs: np.ndarray) -> np.ndarray:
+    """
+    Convierte coeficientes CRUDOS del convenio MAO al de Kuhl & Giardina (1982).
+
+    Inversa de las igualdades de la cabecera: a_KG = −b_MAO, b_KG = a_MAO,
+    c_KG = −d_MAO, d_KG = c_MAO. Es exacta (permutación con signo, sin
+    aritmética) y vale para cualquier juego NO normalizado. Para los normalizados
+    no basta: la rama de θ₁ difiere entre convenios — se renormaliza desde aquí.
+    """
+    c = np.asarray(coeffs, dtype=np.float64)
+    return np.stack([-c[:, 1], c[:, 0], -c[:, 3], c[:, 2]], axis=1) + 0.0
+
+
+def _normalize_coeffs(coeffs: np.ndarray,
+                      canonizar_quiralidad: bool = True) -> tuple[np.ndarray, dict]:
     """
     Normaliza EFD para invariancia a escala, rotación y reflexión
     siguiendo el procedimiento estándar (Kuhl & Giardina 1982, sec. 4).
+
+    Con `canonizar_quiralidad=False` (ADR-021) omite el paso 4 y, aplicada a
+    coeficientes en el convenio de K&G, reproduce exactamente
+    `pyefd.normalize_efd(size_invariant=True)` y `Momocs::efourier_norm`.
 
     Parámetros de normalización devueltos para trazabilidad:
       theta_1  : ángulo de alineación al semieje mayor del 1er armónico
@@ -178,7 +224,7 @@ def _normalize_coeffs(coeffs: np.ndarray) -> tuple[np.ndarray, dict]:
     # contorno) cambia el signo de d1. Forzar d1 ≥ 0 colapsa ambos casos en una
     # forma canónica única. (Sustituye al antiguo criterio c1≥0, que tras la
     # rotación espacial ψ₁ quedaba siempre en c1≈0 y no discriminaba nada.)
-    if c[0][3] < 0:
+    if canonizar_quiralidad and c[0][3] < 0:
         c[:, 2] *= -1.0   # negar componentes-y (cn, dn) de todos los armónicos
         c[:, 3] *= -1.0
 
@@ -190,12 +236,13 @@ def _normalize_coeffs(coeffs: np.ndarray) -> tuple[np.ndarray, dict]:
 
 
 def _reconstruct_contour(coeffs: np.ndarray, n_points: int = 256,
-                         dc: tuple[float, float] = (0.0, 0.0)) -> list[list[float]]:
+                         dc: tuple[float, float] = (0.0, 0.0),
+                         convenio: str = CONVENIO_MAO) -> list[list[float]]:
     """
     Reconstruye contorno a partir de coeficientes EFD.
     dc: offset DC (centroide) para posicionar correctamente el contorno.
 
-    Síntesis en el CONVENIO DE FASE del módulo (ver cabecera). Como
+    Por defecto, síntesis en el CONVENIO DE FASE del módulo (ver cabecera). Como
     a_k(MAO)=b_k(K&G) y b_k(MAO)=−a_k(K&G), la serie de Kuhl & Giardina
     x(t)=Σ[a·cos+b·sin] se escribe aquí:
 
@@ -206,7 +253,12 @@ def _reconstruct_contour(coeffs: np.ndarray, n_points: int = 256,
     curva más redondeada que el contorno de entrada (circularidad 0,947 frente a
     0,850 real en la forma de prueba de tres lóbulos). El gate está en
     tests/test_efa.py::TestReconstruccion.
+
+    Con `convenio=CONVENIO_KG` los coeficientes se leen en el convenio de Kuhl &
+    Giardina y se sintetizan con la serie canónica (ADR-021).
     """
+    if convenio not in (CONVENIO_MAO, CONVENIO_KG):
+        raise ValueError(f"convenio desconocido: {convenio!r}")
     t = np.linspace(0, 1, n_points, endpoint=False)
     x = np.full(n_points, dc[0])
     y = np.full(n_points, dc[1])
@@ -215,8 +267,12 @@ def _reconstruct_contour(coeffs: np.ndarray, n_points: int = 256,
     for k in range(1, n + 1):
         a, b, c_, d = coeffs[k - 1]
         angle = 2.0 * math.pi * k * t
-        x += -b * np.cos(angle) + a * np.sin(angle)
-        y += -d * np.cos(angle) + c_ * np.sin(angle)
+        if convenio == CONVENIO_KG:
+            x += a * np.cos(angle) + b * np.sin(angle)
+            y += c_ * np.cos(angle) + d * np.sin(angle)
+        else:
+            x += -b * np.cos(angle) + a * np.sin(angle)
+            y += -d * np.cos(angle) + c_ * np.sin(angle)
 
     return [[round(float(xi), 4), round(float(yi), 4)] for xi, yi in zip(x, y)]
 
@@ -272,6 +328,7 @@ def reconstruct(
     coeffs: list,
     n_points: int = 256,
     dc: tuple = (0.0, 0.0),
+    convenio: str = CONVENIO_MAO,
 ) -> list[list[float]]:
     """
     Reconstruye el contorno correspondiente a un conjunto de coeficientes EFD.
@@ -288,6 +345,9 @@ def reconstruct(
     coeffs    lista [[an, bn, cn, dn], ...] — normalizados o crudos
     n_points  número de puntos del contorno resultante
     dc        offset DC (centroide) para posicionar la curva
+    convenio  CONVENIO_MAO (por defecto: `coefficients`/`coefficients_raw` de
+              `calculate`) o CONVENIO_KG (`coefficients_kg`, o un banco
+              exportado desde Momocs / pyefd)
 
     Retorno
     -------
@@ -300,7 +360,8 @@ def reconstruct(
     if n_points < 3:
         raise ValueError("n_points debe ser >= 3")
     return _reconstruct_contour(arr, n_points=int(n_points),
-                                dc=(float(dc[0]), float(dc[1])))
+                                dc=(float(dc[0]), float(dc[1])),
+                                convenio=convenio)
 
 
 
@@ -327,10 +388,14 @@ async def calculate(
       "status": "ok",
       "n_harmonics": int,
       "n_points_input": int,
-      "coefficients": [[an, bn, cn, dn], ...],   # shape (n_harmonics, 4)
-      "coefficients_raw": [[...], ...],           # sin normalizar (para debug)
+      "coefficients": [[an, bn, cn, dn], ...],   # MAO, normalizados — descriptor interno
+      "coefficients_raw": [[...], ...],           # MAO, sin normalizar
       "normalization": {theta_1_deg, psi_1_deg, scale_factor},
-      "power_spectrum": [float, ...],             # por armónico
+      "coefficients_kg": [[an, bn, cn, dn], ...],     # Kuhl & Giardina, normalizados
+      "coefficients_raw_kg": [[...], ...],            # Kuhl & Giardina, sin normalizar
+      "normalization_kg": {theta_1_deg, psi_1_deg, scale_factor},
+      "coefficient_convention": {campo: CONVENIO_MAO | CONVENIO_KG},
+      "power_spectrum": [float, ...],             # por armónico (igual en ambos convenios)
       "variance_explained": [float, ...],         # % acumulado por armónico
       "harmonics_for_95pct": int,                 # armónicos para ≥ 95% varianza
       "harmonics_for_99pct": int,
@@ -338,6 +403,10 @@ async def calculate(
       "dc": [a0, c0],                             # offset centroide
       "scale_px_mm": float,
     }
+
+    Los campos `*_kg` (ADR-021) son los que se exportan: coinciden con pyefd /
+    Momocs sobre el mismo contorno (t=0 en su primer punto) y van SIN redondear,
+    para que la comparación con otra implementación no la limite el formato.
     """
     pts = np.array(contour_points, dtype=np.float64)
     if pts.ndim != 2 or pts.shape[1] != 2:
@@ -369,6 +438,16 @@ async def calculate(
         norm_coeffs = raw_coeffs.copy()
         norm_params = {"theta_1_deg": 0.0, "psi_1_deg": 0.0, "scale_factor": 1.0}
 
+    # Mismos coeficientes en el convenio de Kuhl & Giardina (ADR-021). Los
+    # normalizados se RENORMALIZAN desde los crudos convertidos: convertir los
+    # normalizados de MAO no basta, porque la rama de θ₁ difiere entre convenios.
+    raw_kg = _mao_a_kuhl_giardina(raw_coeffs)
+    if normalize:
+        norm_kg, norm_params_kg = _normalize_coeffs(raw_kg, canonizar_quiralidad=False)
+    else:
+        norm_kg = raw_kg.copy()
+        norm_params_kg = dict(norm_params)
+
     # Espectro y varianza
     ps  = _power_spectrum(norm_coeffs)
     var = _variance_explained(norm_coeffs)
@@ -392,6 +471,15 @@ async def calculate(
         "coefficients":     [[round(float(v), 8) for v in row] for row in norm_coeffs],
         "coefficients_raw": [[round(float(v), 8) for v in row] for row in raw_coeffs],
         "normalization":    norm_params,
+        "coefficients_kg":     [[float(v) for v in row] for row in norm_kg],
+        "coefficients_raw_kg": [[float(v) for v in row] for row in raw_kg],
+        "normalization_kg":    norm_params_kg,
+        "coefficient_convention": {
+            "coefficients":        CONVENIO_MAO,
+            "coefficients_raw":    CONVENIO_MAO,
+            "coefficients_kg":     CONVENIO_KG,
+            "coefficients_raw_kg": CONVENIO_KG,
+        },
         "power_spectrum":   ps,
         "variance_explained": var,
         "harmonics_for_95pct": h95,

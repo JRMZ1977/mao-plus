@@ -52,6 +52,8 @@ function sembrarProyecto(base, objetos) {
         _contour_data: { points: CUADRADO, metrics: { convex_hull: CUADRADO } },
         _efa_data: {
           coefficients: [[1, 0, 0, 1], [0.1, 0, 0, 0.1]],
+          // crudos del convenio interno de MAO (análisis anterior a ADR-021)
+          coefficients_raw: [[0, -100, 80, 0], [0, -10, 8, 0]],
           power_spectrum: [1, 0.01], n_harmonics: 2,
         },
       },
@@ -124,7 +126,10 @@ function crearSandbox() {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
 
-  for (const rel of ['js/collection.js', 'js/project-manager.js']) {
+  // mao-interop-gmm.js (ADR-021) se carga antes, como en index.html. Si falta
+  // (código anterior) se sigue: los casos fallan por lo que escriben, no por esto.
+  for (const rel of ['js/mao-interop-gmm.js', 'js/collection.js', 'js/project-manager.js']) {
+    if (!fs.existsSync(path.join(RAIZ, rel))) { console.log('  (falta ' + rel + ')'); continue; }
     const src = fs.readFileSync(path.join(RAIZ, rel), 'utf8');
     vm.runInContext(src, sandbox, { filename: rel });
   }
@@ -244,10 +249,22 @@ function t(nombre, fn) {
     if (!hay('_efa_contorno.csv')) throw new Error('sin EFA');
     if (!hay('_enriquecido_'))     throw new Error('sin CSV colección');
   });
-  t('options={} NO activa PNG ni SVG (comportamiento previo intacto)', () => {
-    if (hay('_morfologico.png') || hay('_geometria.svg')) {
+  t('options={} NO activa PNG, SVG ni TPS (comportamiento previo intacto)', () => {
+    if (hay('_morfologico.png') || hay('_geometria.svg') || hay('.tps')) {
       throw new Error('un formato nuevo se activó por defecto');
     }
+  });
+  t('el CSV EFA de la colección sale en el convenio de Kuhl & Giardina (ADR-021)', () => {
+    const k = rutas().find(p => p.endsWith('OBJ_001_efa_contorno.csv'));
+    const c = FS.get(k) || '';
+    if (!c.startsWith('harmonic,a_norm_kg,b_norm_kg,c_norm_kg,d_norm_kg,a_raw_kg')) {
+      throw new Error('cabecera: ' + c.split('\n')[0]);
+    }
+    // crudos MAO (0,−100,80,0) → K&G (−b, a, −d, c) = (100, 0, 0, 80)
+    const f1 = c.split('\n')[1].split(',');
+    if (f1.slice(5, 9).join('|') !== '100|0|0|80') throw new Error('crudos K&G: ' + f1.slice(5, 9).join('|'));
+    if (!/Kuhl & Giardina \(1982\)/.test(c)) throw new Error('sin convenio declarado');
+    if (/Método: Kuhl/.test(c)) throw new Error('sigue el rótulo viejo sobre coeficientes MAO');
   });
   t('options={} recalcula y sella metricas.json', () => {
     const d = JSON.parse(FS.get(`${BASE}/OBJ_001/metricas.json`));
@@ -319,6 +336,62 @@ function t(nombre, fn) {
       throw new Error('formatos=' + JSON.stringify(r.formatos));
     }
   });
+
+  // B6 — TPS de colección (ADR-021): un espécimen (contorno) por pieza
+  reset();
+  r = await pm.enrichCollection('p1', {
+    recalcular: false, formatos: { pdf: false, csvColeccion: false, efa: false, tps: true },
+  });
+  const rutaTps = rutas().find(p => p.endsWith('_contornos_semilandmarks.tps'));
+  t('formatos {tps} escribe el TPS de colección y curveslide.csv', () => {
+    if (!rutaTps) throw new Error('sin TPS de colección: ' + rutas().join(', '));
+    if (!hay('curveslide.csv')) throw new Error('sin curveslide.csv');
+  });
+  t('el TPS de colección tiene un espécimen por pieza, todos con el mismo N', () => {
+    const tps = FS.get(rutaTps) || '';
+    const lms = [...tps.matchAll(/^LM=(\d+)$/gm)].map(m => m[1]);
+    if (lms.length !== 2) throw new Error('especímenes=' + lms.length);
+    if (new Set(lms).size !== 1 || lms[0] !== String(win.MaoInteropGMM.N_SEMILANDMARKS)) throw new Error('LM=' + lms.join('/'));
+    if (!/ID=OBJ_001/.test(tps) || !/ID=OBJ_002/.test(tps)) throw new Error('faltan ID=');
+  });
+  t('SCALE= sale de las métricas (20 mm / 200 px), no del 1 de geometria.json', () => {
+    const tps = FS.get(rutaTps) || '';
+    if ((tps.match(/^SCALE=0\.10000000$/gm) || []).length !== 2) throw new Error('SCALE: ' + (tps.match(/^SCALE=.*$/gm) || []).join(' '));
+  });
+  t('curveslide.csv describe una curva cerrada de N puntos (el 1 fijo, como geomorph)', () => {
+    const cs = (FS.get(rutas().find(p => p.endsWith('curveslide.csv'))) || '').trim().split('\n');
+    const N = win.MaoInteropGMM.N_SEMILANDMARKS;
+    if (cs[0] !== 'before,slide,after' || cs.length !== N || cs[1] !== '1,2,3' || cs[N - 1] !== `${N - 1},${N},1`) {
+      throw new Error(cs.slice(0, 2).join(' / ') + ' … ' + cs[cs.length - 1]);
+    }
+  });
+
+  // B7 — EFA retroactivo: las opciones del puente se llaman nHarmonics/scalePxMm
+  const BASE2 = '/proy/Sitio Y';
+  sembrarProyecto(BASE2, [{ carpeta: 'OBJ_SIN_EFA', nombreObjeto: 'Lasca' }]);
+  const docSinEfa = JSON.parse(FS.get(`${BASE2}/OBJ_SIN_EFA/metricas.json`));
+  delete docSinEfa.objeto._efa_data;
+  // el EFA retroactivo exige ≥ 8 puntos: dodecágono en vez del cuadrado del fixture
+  docSinEfa.objeto._contour_data.points = Array.from({ length: 12 }, (_, i) =>
+    [200 + 80 * Math.cos(Math.PI * i / 6), 180 + 80 * Math.sin(Math.PI * i / 6)]);
+  FS.set(`${BASE2}/OBJ_SIN_EFA/metricas.json`, JSON.stringify(docSinEfa));
+  const project2 = { id: 'p2', name: 'Sitio Y', folderPath: BASE2 };
+  pm.projects = [project, project2];
+  pm.getProject = (id) => ({ p1: project, p2: project2 })[id] || null;
+  pm.loadProjectCollection = async (id) => (id === 'p2'
+    ? { nombre: 'Sitio Y', folderPath: BASE2,
+        objetos: [{ carpeta: 'OBJ_SIN_EFA', nombreObjeto: 'Lasca', cara: 'Mono', modo: 'monofacial', timestamp: '2026-08-01T10:00:00Z' }] }
+    : { nombre: 'Sitio X', folderPath: BASE,
+        objetos: OBJS.map(o => ({ ...o, cara: 'Mono', modo: 'monofacial', timestamp: '2026-08-01T10:00:00Z' })) });
+  const opcionesEfa = [];
+  win.PythonBridge = { efa: { calculate: async (pts, op) => { opcionesEfa.push(op); return { status: 'ok', coefficients: [[1, 0, 0, 1]] }; } } };
+  await pm.enrichCollection('p2', { formatos: { pdf: false, csvColeccion: false, efa: true } });
+  t('EFA retroactivo con 20 armónicos y la escala del análisis (antes: opciones ignoradas → px y «1 mm/px»)', () => {
+    const op = opcionesEfa[0];
+    if (!op) throw new Error('no se pidió el EFA retroactivo');
+    if (op.nHarmonics !== 20 || op.scalePxMm !== 0.1) throw new Error('opciones=' + JSON.stringify(op));
+  });
+  delete win.PythonBridge;
 
   // ── Resultado ─────────────────────────────────────────────────────────────
   const total = ok + ko;

@@ -2881,19 +2881,22 @@
   <!-- ================================================================
        MAO Plus — Módulos JavaScript (Fase 1 - Modularización)
        ================================================================ -->
-  <script src="js/mao-version.js?v=20260915a"></script>
+  <script src="js/mao-version.js?v=20260918a"></script>
+  <!-- ADR-021: convenio K&G de los coeficientes EFA y semilandmarks del TPS. Antes
+       que sus consumidores (project-manager, analysis-core, comparator, mao-ia). -->
+  <script src="js/mao-interop-gmm.js?v=20260918a"></script>
   <script src="js/toast.js"></script>
   <script src="js/python-bridge.js?v=20260915a"></script>
   <script src="js/backend-status-badge.js"></script>
   <script src="js/sam-status-ui.js?v=20260915a" defer></script>
   <script src="js/progress.js"></script>
-  <script src="js/project-manager.js?v=20260915a"></script>
+  <script src="js/project-manager.js?v=20260918a"></script>
   <script src="js/file-io.js"></script>
   <script src="js/projects-ui.js"></script>
   <script src="js/collection.js?v=20260915a"></script>
   <script src="js/mao-export-destino.js?v=20260915a"></script>
   <script src="js/tooltips.js"></script>
-  <script type="module" src="js/analysis-core.js?v=20260915a"></script>
+  <script type="module" src="js/analysis-core.js?v=20260918a"></script>
   <script src="js/obj3d-canonical-raster.js"></script>
   <script src="js/obj3d-export.js"></script>
   <script src="js/obj3d-morph-canvas.js"></script>
@@ -3481,7 +3484,7 @@
 
   <script src="js/canvas-zoom.js"></script>
   <script src="js/object-dimension-mode.js"></script>
-  <script src="js/comparator.js?v=20260915a"></script>
+  <script src="js/comparator.js?v=20260918a"></script>
 
 
 <!-- ============================================================== -->
@@ -3979,7 +3982,7 @@
   </div>
 
   <!-- ── MAO IA: controlador JS externo ── -->
-  <script src="js/mao-ia.js?v=20260915a"></script>
+  <script src="js/mao-ia.js?v=20260918a"></script>
   <script src="js/procrustes.js"></script>
   <script src="js/aps-save.js"></script>
   <!-- ── Controles de ventana unificados (último, tras todos los módulos) ── -->
@@ -4064,7 +4067,14 @@
               <input type="checkbox" id="excFmtEfa" checked>
               <span class="exc-fmt-txt">
                 <span class="exc-fmt-nom">CSV — EFA</span>
-                <span class="exc-fmt-desc">Coeficientes de contorno y de cada P/H</span>
+                <span class="exc-fmt-desc">Coeficientes de contorno y de cada P/H, convenio de Kuhl &amp; Giardina (Momocs, pyefd)</span>
+              </span>
+            </label>
+            <label class="exc-fmt">
+              <input type="checkbox" id="excFmtTps">
+              <span class="exc-fmt-txt">
+                <span class="exc-fmt-nom">TPS — Contornos de la colección</span>
+                <span class="exc-fmt-desc">Un espécimen por pieza: 64 semilandmarks + curveslide.csv (geomorph, tpsRelw)</span>
               </span>
             </label>
             <label class="exc-fmt">
@@ -4732,7 +4742,7 @@
   <!-- ADR-004 Fase 2 — Organizador de la pestaña Captura (chips de estado) -->
   <script src="js/mao-captura-organizer.js?v=20260915a" defer></script>
   <!-- ADR-005 Resultados — Organizador de la pestaña Resultados (chips de estado) -->
-  <script src="js/mao-resultados-organizer.js?v=20260915a" defer></script>
+  <script src="js/mao-resultados-organizer.js?v=20260918a" defer></script>
 
 </body>
 </html>

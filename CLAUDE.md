@@ -4,6 +4,47 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-09-18 — MAO Plus 1.3.1: ADR-021, exportaciones TPS y EFA interoperables
+
+**Nota de versión:** `docs/NOTA-VERSION-1.3.1.md` (🟠 cambian valores exportados) · **ADR:**
+`docs/ADR-021-interoperabilidad-tps-efa.md` · rama `claude/interop-tps-efa` sobre `fe84b9d`.
+
+Dos defectos que abrían sin error en el programa de destino y daban resultados equivocados:
+- **TPS sin correspondencia.** Los «semi-landmarks» eran equidistantes desde `pts[0]` + curvatura
+  máxima AÑADIDA AL FINAL: copias exactas de la misma forma daban Procrustes 0,38–1,41 y `LM=` 30–32
+  (geomorph no lee eso). Ahora **64 semilandmarks** equidistantes en orden de contorno, inicio en el
+  extremo del eje mayor del 1er armónico (θ₁ de la EFA) elegido por **asimetría** (eje menor si la
+  forma es una «D»: disco partido), sentido antihorario, `curveslide.csv` con el convenio de geomorph
+  (punto 1 fijo). Retirado `landmarks.tps` (contorno + P/H como especímenes del MISMO archivo); nuevo
+  «TPS — Contornos de la colección». Curvatura = ayuda visual en CSV, nunca TPS.
+- **EFA en el convenio interno.** Los 3 CSV exportaban coeficientes MAO (desfasados 90°), uno rotulado
+  «Kuhl & Giardina». Ahora `/api/efa` añade `coefficients_kg`/`coefficients_raw_kg`/
+  `coefficient_convention` (= pyefd/Momocs a ~1e-13) y los CSV exportan `*_kg` + `*_mao`.
+  **Descriptor interno intacto** (guardia con valores de 1.3.0).
+
+**Fuente única nueva:** `js/mao-interop-gmm.js` (`window.MaoInteropGMM`, script clásico cargado antes
+de project-manager/analysis-core). Tres generadores de TPS y tres de CSV EFA pasaban por caminos
+distintos; ahora todos por aquí.
+
+⚠️ **Hallazgos:**
+- **O-28 · ambigüedad de 180° de θ₁** (también en pyefd/Momocs): la misma pieza con otro punto de
+  inicio da `d_EFD` 0,589 («moderadamente distintas»). `test_invariance_start_point` usa una ELIPSE
+  (sin armónicos pares) y no podía verlo. Afecta a `efa.compare`/APS y a los coeficientes medios 3D;
+  no al espectro. **Pendiente de ADR** (cambia el descriptor → recalcular bancos).
+- **La «isometría» de O-16 era falsa en general**: el residuo MAO↔K&G depende de la rama de θ₁
+  (hasta 0,31 en `d_EFD`). Corregido en `efa.py`, memoria §6.2 y aquí abajo.
+- `enrichCollection` pedía el EFA retroactivo con `{ n_harmonics: 40 }`: el puente espera
+  `nHarmonics`/`scalePxMm` → salía en píxeles y el CSV decía «1 mm/px». Corregido.
+- `geomorph::readland.tps` sólo aplica `SCALE=` si **todos** los especímenes la traen, y no tiene
+  argumento `scale` (un comentario del código lo citaba). El TPS de colección avisa si hay mezcla.
+
+**Verificado:** pytest **592 → 649 / 0 skipped** (línea base re-ejecutada en el mismo entorno) ·
+`npm run test:js` verde · ESM 17/17 · cada test nuevo falla contra `fe84b9d` por contenido. Referencia
+K&G escrita aparte en los tests; `pyefd` NO está en el `.venv` (el test lo usa si se instala).
+Contornos reales de OpenCV a 24 rotaciones: d ≤ 0,012 (lisas), ≤ 0,031 (fragmentos en «D»).
+**Pendiente:** verificación visual en Electron de la casilla TPS del modal y del panel EFA; eje y del
+TPS frente a tpsDig (origen abajo-izquierda); O-28.
+
 ## 🎯 Sesión 2026-09-15 — MAO Plus 1.3.0: consolidación + verificación independiente del motor
 
 **Nota de versión (léase antes de comparar exportaciones con 1.2):** `docs/NOTA-VERSION-1.3.0.md`.
@@ -85,11 +126,12 @@ Tres decisiones de forma que conviene mantener si se amplía:
 
 ### O-16 · síntesis EFA — `python/modules/efa.py`
 
-**El descriptor SIEMPRE fue correcto y no se ha tocado.** `_efd_raw` almacena
-`a_k(MAO)=b_k(K&G)`, `b_k(MAO)=−a_k(K&G)` (ídem c,d). Tras normalizar, el desfase residual
-del armónico k es **(1−k)·π/2**: una transformación **ortogonal fija** ⇒ el morfoespacio es
-**isométrico** al canónico. Medido: distancias `d_EFD` idénticas entre convenios (máx 1,7e-16
-sobre 15 pares), espectros idénticos, invariancias a ~5e-15.
+**El descriptor no se ha tocado.** `_efd_raw` almacena `a_k(MAO)=b_k(K&G)`, `b_k(MAO)=−a_k(K&G)`
+(ídem c,d). ⚠ **Corregido el 2026-09-18 (ADR-021):** lo que sigue decía que tras normalizar el
+residuo era una transformación ortogonal FIJA y el morfoespacio isométrico al canónico (medido
+1,7e-16 sobre 15 pares). Es falso en general: el residuo depende de la rama de θ₁ y las `d_EFD`
+difieren hasta 0,31; la medición cayó en formas con la misma rama. Espectros sí idénticos. Y la
+invariancia al punto de inicio sólo vale módulo 180° (O-28).
 
 Lo que fallaba era la **síntesis**: `_reconstruct_contour` aplicaba la fórmula canónica
 `x=Σ(a·cos+b·sin)` sobre coeficientes que no están en ese convenio → curva sistemáticamente
@@ -97,8 +139,8 @@ Lo que fallaba era la **síntesis**: `_reconstruct_contour` aplicaba la fórmula
 (21,6 % de error); tras el arreglo, 0,15 %.
 
 - **El convenio queda documentado en la cabecera del módulo.** Leerlo antes de tocar nada
-  ahí, y antes de exportar coeficientes: **no son intercambiables con Momocs/pyefd** sin
-  convertirlos con esas igualdades.
+  ahí. `coefficients` **no es intercambiable con Momocs/pyefd**; desde 1.3.1 para eso están
+  `coefficients_kg`/`coefficients_raw_kg`, que es lo que exportan los CSV (ADR-021).
 - **Alcance real, mayor de lo que parecía:** además de la superposición visual y del
   «contorno típico» 3D, **ADR-017 F2 publicó `efa.reconstruct()` —que delega en esta misma
   función— como generador del repertorio de plantillas** (`shape_template.py:791`). Las
@@ -930,11 +972,11 @@ npm test                                     # Verificación completa → ver ab
 `npm test` encadena los tres escalones, y es lo mismo que corre CI (`.github/workflows/ci.yml`,
 en push y PR). Cada uno se puede lanzar suelto:
 
-| Script | Qué verifica | Estado al 2026-09-15 (1.3.0) |
+| Script | Qué verifica | Estado al 2026-09-18 (1.3.1) |
 |---|---|---|
 | `npm run test:esm` | Parseo **como módulo** de los 16 `js/modules/` + `analysis-core.js`, vía `import()` real | 17/17 |
-| `npm run test:js` | Contratos `window.*` + `shape-classification` + exportación (3 + lote) + P/H + escala | 36/36 · 15/15 · 3/3 · 21/21 · 16 · 6 |
-| `npm run test:py` | Suite pytest completa (`tests/` + `python/tests/`) | **592 passed, 0 skipped** |
+| `npm run test:js` | Contratos `window.*` + `shape-classification` + exportación (TPS/EFA, semilandmarks, bifacial, destino, lote) + P/H + escala | 36/36 · 15/15 · verde (lote 27/27) |
+| `npm run test:py` | Suite pytest completa (`tests/` + `python/tests/`) | **649 passed, 0 skipped** |
 
 **`test:esm` no es redundante con `node -c`.** `node -c` parsea en modo script clásico, que es más
 permisivo: dos `function f(){}` homónimas **pasan** ahí y son un `SyntaxError` como módulo — que es
