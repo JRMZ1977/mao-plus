@@ -31,7 +31,7 @@ const MaoWindowControls = (() => {
       expand:   true,
       collapse: false,
     },
-    // ── MAO IA ──────────────────────────────────────────────────────────
+    // ── Detección asistida (ids históricos maoIa*, ADR-022) ─────────────
     {
       id:             'maoIaModal',
       closeId:        'maoIaModalClose',

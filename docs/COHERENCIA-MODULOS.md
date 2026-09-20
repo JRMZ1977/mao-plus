@@ -57,7 +57,7 @@ Asignados en `analysis-core.js`, leídos/escritos desde otros archivos JS. Requi
 
 ```
 window._maoGetIdentificacion    ← mao-ia.js, obj3d-viewer.js
-window._maoGetImage             ← mao-ia.js (gate de habilitar el modal IA)
+window._maoGetImage             ← mao-ia.js (gate de habilitar la ventana de detección asistida)
 window._maoGetImageCaraA        ← mao-ia.js
 window._maoGetImageCaraB        ← mao-ia.js
 window._maoGetModo              ← mao-ia.js

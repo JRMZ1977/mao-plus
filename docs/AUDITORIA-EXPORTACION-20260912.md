@@ -1,5 +1,7 @@
 # Auditoría de los módulos de exportación — MAO Plus
 
+> **Nota terminológica (ADR-022, 2026-09-19).** En este documento, «IA» —también «MAO IA», «AIA», «modal IA», «flujo IA» u «objetos IA»— es el nombre histórico del modo que hoy se llama **detección asistida**. No designa inteligencia artificial: ningún modo de detección de MAO Plus usa un modelo entrenado. El texto se conserva como registro de lo que se decidió y de cómo se nombraba entonces.
+
 > Fecha: 2026-09-12 · Rama: `claude/audit-export-modules-b320d2`
 > Pregunta que motiva la auditoría: **¿es posible exportar de una sola acción todos los
 > formatos descargables de un análisis, y depositarlos en una carpeta hermana de la del

@@ -1,5 +1,7 @@
 # ADR-017 — Emparejamiento con plantillas de forma ideal e inferencia de completitud (fragmento vs. pieza completa)
 
+> **Nota terminológica (ADR-022, 2026-09-19).** En este documento, «IA» —también «MAO IA», «AIA», «modal IA», «flujo IA» u «objetos IA»— es el nombre histórico del modo que hoy se llama **detección asistida**. No designa inteligencia artificial: ningún modo de detección de MAO Plus usa un modelo entrenado. El texto se conserva como registro de lo que se decidió y de cómo se nombraba entonces.
+
 **Estado:** 🟡 **F0-F3, F5 y F6 implementadas · F4 parcial (2026-09-12/14)** — umbrales recalibrados con
 evidencia, plantilla superpuesta en el lienzo y plantilla anular en el repertorio; la corrida
 sobre el corpus real la ejecuta el observador

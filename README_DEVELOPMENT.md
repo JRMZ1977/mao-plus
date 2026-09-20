@@ -268,7 +268,7 @@ MAO PLUS_PY_01/
 │       ├── morphology.py       # Morphological operations
 │       ├── scale.py            # Scaling & calibration
 │       ├── ph.py               # Perforation/horadación analysis
-│       ├── mao_ia_analyzer.py  # IA artifact detection
+│       ├── mao_ia_analyzer.py  # Detección asistida (OpenCV; nombre de archivo histórico)
 │       └── ...
 ├── tests/                  # Pytest suite
 │   ├── test_metrics.py

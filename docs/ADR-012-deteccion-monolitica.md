@@ -1,5 +1,7 @@
 # ADR-012 — Detección monolítica (núcleo de segmentación canónico)
 
+> **Nota terminológica (ADR-022, 2026-09-19).** En este documento, «IA» —también «MAO IA», «AIA», «modal IA», «flujo IA» u «objetos IA»— es el nombre histórico del modo que hoy se llama **detección asistida**. No designa inteligencia artificial: ningún modo de detección de MAO Plus usa un modelo entrenado. El texto se conserva como registro de lo que se decidió y de cómo se nombraba entonces. Donde se habla de SAM como *prior* neuronal del modo: el segmentador MobileSAM existe en el backend, pero ningún modo de detección lo invoca.
+
 - **Estado:** 🟡 **Fase 1 implementada (2026-06-24) — modos manuales** · pendiente verificación
   visual en Electron. `node -c` limpio. Fases 2-3 (automático, IA) diferidas a iteraciones siguientes.
 - **Decisión JFRR:** núcleo canónico = pipeline OpenCV `detection.detect()`; motor JS degradado a

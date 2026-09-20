@@ -5726,7 +5726,10 @@ const ComparadorMultiObjeto = (() => {
     function metodoLabel(m) {
       if (!m) return '—';
       const t = m.toLowerCase();
-      if (t.includes('ia') || t.includes('sam') || t.includes('mao_ia')) return 'IA / SAM';
+      // Enum `ia` = nombre histórico de la detección asistida (ADR-022). Se compara
+      // por token, no por subcadena «ia», que aparece en cualquier palabra.
+      if (t === 'ia' || t.includes('mao_ia') || t.includes('mao ia') ||
+          t.includes('asistid') || t.includes('sam'))                     return 'Detección asistida';
       if (t.includes('manual_area') || t.includes('manual area'))        return 'Manual área';
       if (t.includes('manual'))                                            return 'Manual';
       if (t.includes('auto') || t.includes('zscan'))                      return 'Automático';

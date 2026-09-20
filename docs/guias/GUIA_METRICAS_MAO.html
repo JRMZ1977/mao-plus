@@ -423,7 +423,7 @@
   <div class="cover-super">Documentación técnica</div>
   <h1>Guía de Métricas</h1>
   <div class="cover-subtitle">Morphological Analysis &amp; Objects — Análisis morfométrico arqueológico</div>
-  <div class="cover-badge">Referencia completa · 21 categorías · 125+ métricas · Textura · Coherencia bifacial · Módulo MAO IA</div>
+  <div class="cover-badge">Referencia completa · 21 categorías · 125+ métricas · Textura · Coherencia bifacial · Detección asistida</div>
   <div class="cover-meta">
     <div class="cover-meta-item">
       <div class="label">Versión</div>
@@ -448,7 +448,7 @@
   <div class="toc-grid">
     <a class="toc-entry" href="#sec-intro"><span class="toc-num">1</span>Qué es MAO y qué mide<span class="toc-dots"></span></a>
     <a class="toc-entry" href="#sec-method"><span class="toc-num">2</span>Cómo se obtienen las métricas<span class="toc-dots"></span></a>
-    <a class="toc-entry" href="#sec-mao-ia"><span class="toc-num">3</span>Módulo MAO IA — Detección AIA<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-mao-ia"><span class="toc-num">3</span>Detección asistida<span class="toc-dots"></span></a>
     <a class="toc-entry" href="#sec-id"><span class="toc-num">Portada</span>Identificación y trazabilidad<span class="toc-dots"></span></a>
     <a class="toc-entry" href="#sec-I"><span class="toc-num">I</span>Clasificación Morfológica<span class="toc-dots"></span></a>
     <a class="toc-entry" href="#sec-II"><span class="toc-num">II</span>Dimensiones Métricas del Objeto<span class="toc-dots"></span></a>
@@ -483,7 +483,7 @@
   </div>
   <p>MAO Plus es una aplicación de análisis morfométrico para objetos arqueológicos (líticos, cerámicos, metálicos, óseos, etc.). A partir de una fotografía del objeto sobre fondo neutro, el sistema:</p>
   <div class="col2">
-    <div class="card"><h5>① Detecta el contorno</h5><p>Umbralización adaptativa, delimitación manual o detección automatizada (módulo <strong>MAO IA</strong>, <em>Identificación Automatizada</em>): extrae el polígono exacto del borde del objeto.</p></div>
+    <div class="card"><h5>① Detecta el contorno</h5><p>Detección automática, <strong>asistida</strong> (el operador fija los parámetros y revisa cada objeto) o manual: extrae el polígono exacto del borde del objeto.</p></div>
     <div class="card"><h5>② Extrae geometría</h5><p>Calcula el contorno real y el Convex Hull con precisión subpíxel.</p></div>
     <div class="card"><h5>③ Calcula métricas</h5><p>Más de 120 métricas morfológicas cuantitativas organizadas según el mismo orden del informe exportado.</p></div>
     <div class="card"><h5>④ Clasifica la forma</h5><p>Votación ponderada entre 6 métodos independientes produce una forma detectada con nivel de confianza.</p></div>
@@ -492,7 +492,7 @@
     <strong>Nota sobre escala:</strong> Todas las métricas de longitud (mm, mm²) requieren escala calibrada. Sin escala, los valores se expresan en píxeles. Los índices adimensionales no requieren escala — son ratios y se cancelan.
   </div>
   <div class="callout callout-tip">
-    <strong>Módulo MAO IA:</strong> Además de la detección automática y manual, MAO Plus incluye el módulo <strong>MAO IA</strong> — <em>Identificación Automatizada</em>, no «inteligencia artificial» — de análisis asistido. Permite detectar múltiples objetos simultáneamente mediante segmentación AIA. Los objetos detectados se integran en el flujo morfométrico estándar con las mismas 125+ métricas. En modo bifacial, los objetos de cara A y cara B se gestionan de forma independiente y quedan disponibles simultáneamente en el panel de análisis. El campo <code>analysis_method</code> de estos objetos es <code>MAO IA — Detección automática</code>.
+    <strong>Detección asistida:</strong> Además de la detección automática y la manual, MAO Plus ofrece la <strong>detección asistida</strong> (§3): el operador fija los parámetros de umbralización, revisa cada objeto por su confianza de detección y decide cuáles pasan al análisis. Detecta varios objetos a la vez y los integra en el flujo morfométrico estándar con las mismas 125+ métricas. No usa ningún modelo entrenado: es visión computacional clásica. En modo bifacial, los objetos de cara A y cara B se gestionan de forma independiente y quedan disponibles simultáneamente en el panel de análisis. El campo <code>analysis_method</code> de estos objetos es <code>Detección asistida</code>.
   </div>
 </div>
 
@@ -527,37 +527,48 @@
 <div class="section" id="sec-mao-ia">
   <div class="section-header">
     <span class="section-num">3</span>
-    <h2>Módulo MAO IA — Detección AIA</h2>
+    <h2>Detección asistida</h2>
   </div>
-  <p>El módulo <strong>MAO IA</strong> (botón <strong>AIA</strong> en la barra de herramientas) aplica un pipeline de segmentación automatizada para detectar múltiples objetos en la imagen de forma simultánea. Los objetos detectados se integran directamente en el flujo morfométrico estándar con las mismas 125+ métricas.</p>
+  <p>La <strong>detección asistida</strong> es el modo en que el operador fija los parámetros de la detección y revisa sus resultados objeto a objeto antes de enviarlos al análisis. Se abre desde el paso <strong>Detección asistida</strong> del stepper de <em>Captura › Escala y Detección</em> (botón <strong>Abrir…</strong>) y trabaja sobre la imagen completa o sobre la región que el operador encuadre. Los objetos aceptados se integran en el flujo morfométrico estándar con las mismas 125+ métricas.</p>
+  <div class="callout callout-info">
+    <strong>Sobre el nombre.</strong> Versiones anteriores rotulaban este modo «IA», «MAO IA» o «Analizar con IA». La sigla se retiró (ADR-022) porque se leía como «inteligencia artificial», y el modo no usa ningún modelo entrenado: todo el procesamiento es visión computacional clásica con OpenCV. <em>Asistida</em> se refiere a la participación del operador. Los modos se ordenan por esa participación: <strong>automática</strong> (ninguna) → <strong>asistida</strong> (el operador ajusta y revisa) → <strong>manual</strong> (el operador encuadra o señala cada pieza).
+  </div>
   <div class="col2">
     <div class="card">
-      <h5>Detección simultánea</h5>
-      <p>Un solo análisis AIA puede detectar todos los objetos presentes en la imagen, generando una tarjeta morfométrica individual por objeto. El campo <code>detection_method</code> es <code>MAO IA</code>.</p>
+      <h5>Parámetros del operador</h5>
+      <p>Umbralización <code>auto</code> (el núcleo OpenCV de la detección automática, recomendado), Otsu, adaptativa o manual; realce CLAHE; desenfoque; área mínima; número máximo de objetos; inversión de la binarización. Las umbralizaciones distintas de <code>auto</code> separan las piezas en contacto con el mismo watershed del núcleo.</p>
+    </div>
+    <div class="card">
+      <h5>Revisión objeto a objeto</h5>
+      <p>Cada objeto trae su confianza de detección (alta, media o baja). La tabla se ordena y se filtra por ella («Solo baja confianza»), y el panel de refinamiento re-detecta el contorno de un objeto con otros parámetros. El operador decide qué objetos pasan al análisis morfométrico.</p>
     </div>
     <div class="card">
       <h5>Modo bifacial</h5>
-      <p>En modo bifacial, los objetos de cara A y cara B se gestionan de forma independiente. Al cerrar el modal AIA, ambas caras quedan disponibles simultáneamente en el panel de análisis morfométrico.</p>
+      <p>En modo bifacial, los objetos de cara A y cara B se gestionan de forma independiente. Al cerrar la ventana de detección asistida, ambas caras quedan disponibles simultáneamente en el panel de análisis morfométrico.</p>
     </div>
     <div class="card">
       <h5>Identificación heredada</h5>
-      <p>Si el campo «Identificación del Objeto» está bloqueado (botón «Asignar» pulsado), los objetos AIA heredan ese identificador como nombre base del <code>object_id</code>.</p>
+      <p>Si el campo «Identificación del Objeto» está bloqueado (botón «Asignar» pulsado), los objetos de la detección asistida heredan ese identificador como nombre base del <code>object_id</code>.</p>
     </div>
     <div class="card">
       <h5>Métricas idénticas</h5>
-      <p>Los objetos AIA pasan por el mismo motor de cálculo morfométrico (§I–XV). El contorno pre-calculado por AIA sustituye el Paso 3 del ciclo de extracción (§XV). El <code>analysis_method</code> es <code>MAO IA — Detección automática</code>.</p>
+      <p>Los objetos de la detección asistida pasan por el mismo motor de cálculo morfométrico (§I–XV). Su contorno ya es el definitivo y sustituye el Paso 3 del ciclo de extracción (§XV). El <code>analysis_method</code> es <code>Detección asistida</code>.</p>
     </div>
   </div>
   <table>
-    <thead><tr><th>Campo</th><th>Valor en objetos MAO IA</th></tr></thead>
+    <thead><tr><th>Campo</th><th>Valor en objetos de detección asistida</th></tr></thead>
     <tbody>
-      <tr><td>detection_method</td><td style="font-family:inherit;"><code>MAO IA</code></td></tr>
-      <tr><td>analysis_method</td><td style="font-family:inherit;"><code>MAO IA — Detección automática</code></td></tr>
-      <tr><td>_fromIA</td><td style="font-family:inherit;"><code>true</code> — marca interna que identifica objetos generados por AIA</td></tr>
-      <tr><td>_samSegmented</td><td style="font-family:inherit;"><code>true</code> — contorno pre-calculado (omite §XV Paso 3)</td></tr>
+      <tr><td>detection_method</td><td style="font-family:inherit;"><code>ia</code> — identificador interno; el informe y el CSV lo rotulan «Detección asistida (parámetros fijados por el operador)»</td></tr>
+      <tr><td>analysis_method</td><td style="font-family:inherit;"><code>Detección asistida</code> (los análisis guardados antes de ADR-022 conservan «MAO IA — Detección automática»)</td></tr>
+      <tr><td>analysis_source</td><td style="font-family:inherit;"><code>ia</code> — procedencia canónica del análisis (ADR-018)</td></tr>
+      <tr><td>ia_threshold_method</td><td style="font-family:inherit;">Umbralización elegida: <code>auto</code>, <code>otsu</code>, <code>adaptive</code> o <code>manual</code></td></tr>
+      <tr><td>ia_segmentador</td><td style="font-family:inherit;">Motor que aisló la pieza: núcleo OpenCV, o umbralización OpenCV + watershed</td></tr>
+      <tr><td>_fromIA</td><td style="font-family:inherit;"><code>true</code> — marca interna de los objetos creados desde la ventana de detección asistida</td></tr>
+      <tr><td>_samSegmented</td><td style="font-family:inherit;"><code>true</code> — contorno definitivo, no se re-extrae (omite §XV Paso 3). No implica que haya intervenido SAM</td></tr>
       <tr><td>cara</td><td style="font-family:inherit;"><code>A</code> o <code>B</code> en modo bifacial; <code>null</code> en monofacial</td></tr>
     </tbody>
   </table>
+  <p style="font-size:12px;color:#718096;">Las claves que contienen <code>ia</code> (<code>ia_*</code>, <code>_fromIA</code>) y la marca <code>_samSegmented</code> son nombres históricos: se conservan porque los proyectos guardados las usan. No indican que intervenga inteligencia artificial.</p>
 </div>
 
 <!-- ── PORTADA ──────────────────────────────────────────────────── -->
@@ -572,9 +583,9 @@
     <tbody>
       <tr><td>object_id</td><td style="font-family:inherit;">Identificador único interno del objeto en la sesión de análisis.</td></tr>
       <tr><td>numero_objeto</td><td style="font-family:inherit;">Número de objeto asignado por el investigador (clave en modo bifacial).</td></tr>
-      <tr><td>analysis_method</td><td style="font-family:inherit;"><code>Contorno Real Extraído [REAL]</code> — extracción automática por detección de bordes · <code>MAO IA — Detección automática</code> — objeto generado por el módulo AIA (contorno pre-calculado, sin re-extracción).</td></tr>
+      <tr><td>analysis_method</td><td style="font-family:inherit;"><code>Contorno Real Extraído [REAL]</code> — extracción automática por detección de bordes · <code>Detección asistida</code> — objeto de la detección asistida (contorno definitivo, sin re-extracción; en análisis anteriores a ADR-022, «MAO IA — Detección automática»).</td></tr>
       <tr><td>analysis_timestamp</td><td style="font-family:inherit;">Fecha y hora exacta en que se ejecutó el análisis morfológico.</td></tr>
-      <tr><td>detection_method</td><td style="font-family:inherit;"><code>automatic</code> (umbralización adaptativa) · <code>manual</code> (delimitación manual por el usuario) · <code>MAO IA</code> (segmentación automática por módulo AIA).</td></tr>
+      <tr><td>detection_method</td><td style="font-family:inherit;"><code>automatic</code> — «Automático (núcleo OpenCV)» · <code>manual</code> — «Manual (área encuadrada por el operador)» · <code>ia</code> — «Detección asistida (parámetros fijados por el operador)». <code>ia</code> es el identificador histórico del modo asistido; no significa inteligencia artificial.</td></tr>
       <tr><td>scale_factor</td><td style="font-family:inherit;">Factor de escala calibrado en mm/px. Sin calibración: <code>No configurada</code>.</td></tr>
       <tr><td>versionMAO</td><td style="font-family:inherit;">Versión de MAO Plus con que se generó el análisis. Garantiza reproducibilidad.</td></tr>
       <tr><td>modo</td><td style="font-family:inherit;"><code>monofacial</code> (una cara) · <code>bifacial</code> (anverso + reverso).</td></tr>
@@ -1477,17 +1488,17 @@
   <h4>¿Qué significa <code>_contorno_refinado_por_textura = true</code> en el CSV?</h4>
   <p>Indica que MAO Plus aplicó el refinamiento adaptativo de máscara antes de extraer el contorno. Esto sucede automáticamente en imágenes con fondo blanco o muy claro cuando el objeto es heterogéneo y claramente más oscuro que el fondo. El contorno extraído — y todas las métricas derivadas — son más precisos cuando este campo es <code>true</code>. Si el campo no aparece o es <code>false</code>, el contorno se extrajo de la máscara original sin modificación.</p>
 
-  <h4>¿Qué diferencia al módulo MAO IA de la detección automática estándar?</h4>
-  <p>La detección automática estándar procesa un único objeto por ejecución mediante umbralización adaptativa, requiriendo que el usuario seleccione el objeto manualmente. El módulo <strong>MAO IA</strong> aplica un pipeline de segmentación automatizada que detecta y delimita todos los objetos presentes en la imagen en una sola operación. El <code>detection_method</code> de los objetos AIA es <code>MAO IA</code>, frente a <code>automatic</code> o <code>manual</code> en los métodos tradicionales. Ambos flujos producen el mismo conjunto de métricas morfométricas.</p>
+  <h4>¿Qué diferencia a la detección asistida de la detección automática?</h4>
+  <p>La participación del operador. Las dos detectan todos los objetos de la imagen en una sola operación, y con la umbralización <code>auto</code> usan el mismo núcleo OpenCV, así que producen el mismo contorno. En la detección automática el sistema decide solo; en la asistida el operador puede cambiar la umbralización (Otsu, adaptativa o manual), el realce CLAHE, el desenfoque y el área mínima, encuadrar una región, revisar cada objeto por su confianza de detección, refinarlo y elegir cuáles pasan al análisis. Ninguna de las dos usa un modelo entrenado. El <code>detection_method</code> es <code>automatic</code> en una e <code>ia</code> —el identificador histórico del modo asistido— en la otra; ambos flujos producen el mismo conjunto de métricas morfométricas.</p>
 
-  <h4>¿Los objetos detectados por MAO IA tienen las mismas métricas que los detectados manual o automáticamente?</h4>
-  <p>Sí, exactamente las mismas. Los objetos AIA pasan por el mismo motor de cálculo morfométrico (§I–XV). La única diferencia técnica es que el contorno ya fue calculado por el pipeline AIA (§XV, Paso 3 omitido). Las métricas de textura de superficie (§XIV) sí se calculan sobre la imagen original. El campo <code>_contorno_refinado_por_textura</code> puede ser <code>true</code> o <code>false</code> igual que en detección estándar, según las condiciones de la imagen.</p>
+  <h4>¿Los objetos de la detección asistida tienen las mismas métricas que los detectados manual o automáticamente?</h4>
+  <p>Sí, exactamente las mismas. Pasan por el mismo motor de cálculo morfométrico (§I–XV). La única diferencia técnica es que su contorno ya es el definitivo (§XV, Paso 3 omitido). Las métricas de textura de superficie (§XIV) sí se calculan sobre la imagen original. El campo <code>_contorno_refinado_por_textura</code> puede ser <code>true</code> o <code>false</code> igual que en la detección estándar, según las condiciones de la imagen.</p>
 
-  <h4>¿Cómo funciona la detección bifacial en MAO IA?</h4>
-  <p>En modo bifacial, MAO IA gestiona los objetos de cara A y cara B de forma completamente independiente. Cada cara se analiza por separado desde el modal AIA; al cerrarlo, los objetos de ambas caras se inyectan simultáneamente en el panel de análisis morfológico, respetando la asignación de cara de cada objeto (campo <code>cara: 'A'</code> o <code>cara: 'B'</code>). Si se re-analiza una cara, solo se reemplazan los objetos de esa cara: los de la otra se preservan.</p>
+  <h4>¿Cómo funciona la detección asistida en modo bifacial?</h4>
+  <p>Gestiona los objetos de cara A y cara B de forma completamente independiente. Cada cara se analiza por separado desde la ventana de detección asistida; al cerrarla, los objetos de ambas caras se inyectan simultáneamente en el panel de análisis morfológico, respetando la asignación de cara de cada objeto (campo <code>cara: 'A'</code> o <code>cara: 'B'</code>). Si se re-analiza una cara, solo se reemplazan los objetos de esa cara: los de la otra se preservan.</p>
 
-  <h4>¿Por qué el <code>object_id</code> de un objeto AIA puede contener el nombre del proyecto?</h4>
-  <p>Cuando el campo «Identificación del Objeto» tiene un nombre asignado y está bloqueado (botón «Asignar» pulsado), los objetos generados por MAO IA heredan ese identificador como nombre base del <code>object_id</code>, seguido de un sufijo numérico (<em>nombre_1</em>, <em>nombre_2</em>…). Si el campo no está bloqueado, el <code>object_id</code> utiliza un identificador genérico. Esto facilita la trazabilidad en proyectos que analizan múltiples piezas con la misma sesión AIA.</p>
+  <h4>¿Por qué el <code>object_id</code> de un objeto de detección asistida puede contener el nombre del proyecto?</h4>
+  <p>Cuando el campo «Identificación del Objeto» tiene un nombre asignado y está bloqueado (botón «Asignar» pulsado), los objetos de la detección asistida heredan ese identificador como nombre base del <code>object_id</code>, seguido de un sufijo numérico (<em>nombre_1</em>, <em>nombre_2</em>…). Si el campo no está bloqueado, el <code>object_id</code> utiliza un identificador genérico. Esto facilita la trazabilidad en proyectos que analizan múltiples piezas en la misma sesión de detección asistida.</p>
 </div>
 
 

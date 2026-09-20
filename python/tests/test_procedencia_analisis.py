@@ -59,7 +59,7 @@ def _contrato():
          "  enum: C.ANALYSIS_SOURCE,"
          "  casos: ['Bounding Box (Fallback) [APROXIMADO]','Bounding Box (Fallback)',"
          "          'Contorno Real Extraído [REAL]','Contorno Real Extraído [Python]',"
-         "          'MAO IA — Detección automática','OBJ3D + PCA',"
+         "          'MAO IA — Detección automática','Detección asistida','OBJ3D + PCA',"
          "          'OBJ3D + FRONT/BACK 2D HOMOLOGATED','MAO 3D — Cara A']"
          "         .map(t => [t, C.fuenteAnalisis({analysis_method:t})]),"
          "  precedencia: C.fuenteAnalisis({analysis_source:'ia', analysis_method:'OBJ3D + PCA'}),"
@@ -148,7 +148,9 @@ def test_las_cadenas_legacy_siguen_resolviendo():
     la distinción entre medición y aproximación.
 
     Incluye «Bounding Box (Fallback)» SIN sufijo — la cadena que el lector
-    esperaba y nadie escribía nunca.
+    esperaba y nadie escribía nunca — y las dos cadenas del modo asistido: la
+    vigente («Detección asistida», ADR-022) y la que llevan los análisis
+    guardados antes del cambio de nombre («MAO IA — Detección automática»).
     """
     c = _contrato()
     esperado = {
@@ -157,6 +159,7 @@ def test_las_cadenas_legacy_siguen_resolviendo():
         "Contorno Real Extraído [REAL]": "contorno_real",
         "Contorno Real Extraído [Python]": "contorno_real",
         "MAO IA — Detección automática": "ia",
+        "Detección asistida": "ia",
         "OBJ3D + PCA": "obj3d",
         "OBJ3D + FRONT/BACK 2D HOMOLOGATED": "obj3d",
         "MAO 3D — Cara A": "obj3d",

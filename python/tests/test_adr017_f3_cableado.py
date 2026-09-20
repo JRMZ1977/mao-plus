@@ -441,7 +441,7 @@ def test_el_puente_normaliza_el_contorno_a_pares():
 
 def test_las_rutas_python_e_ia_no_pisan_el_contorno_canonico():
     """
-    Las rutas Python e IA llamaban a calcularMetricasMorfologicas(obj) sólo para
+    Las rutas Python y de detección asistida llamaban a calcularMetricasMorfologicas(obj) sólo para
     cosechar `_forma_idealizada`, y esa función reemplaza `obj.contour_points` por los
     vértices idealizados. En Electron: 713 puntos reales → 101 vértices, y el
     emparejamiento, el dibujo «Contorno Real» y la EFA leían el polígono idealizado.
@@ -451,7 +451,7 @@ def test_las_rutas_python_e_ia_no_pisan_el_contorno_canonico():
     fin = core.index("\n  }\n", core.index("guardarAnalisisEnCache(obj, metricas);", ini))
     cuerpo = core[ini:fin]
     assert "MetricsOrchestrator.calcularMetricasMorfologicas(obj" not in cuerpo.split("if (!metricas) metricas =")[0], (
-        "una ruta Python/IA vuelve a llamar al pipeline JS sobre `obj` sin proteger su contorno"
+        "una ruta Python/asistida vuelve a llamar al pipeline JS sobre `obj` sin proteger su contorno"
     )
     assert cuerpo.count("metricasJSSinPisarContorno(obj") >= 1
     assert core.count("metricasJSSinPisarContorno(obj") >= 2

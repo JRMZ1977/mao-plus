@@ -198,48 +198,64 @@ def test_toda_referencia_bibliografica_se_usa(glosario):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Convenciones de nomenclatura (ADR-018)
+# Convenciones de nomenclatura (ADR-018 · sigla IA retirada en ADR-022)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 DETECCION_SECTION = ROOT / "js" / "modules" / "detection-section.js"
 
 
-def test_la_sigla_ia_se_declara_como_identificacion_automatizada(glosario):
+def test_la_sigla_ia_se_declara_retirada(glosario):
     """
-    En MAO Plus «IA» significa **Identificación Automatizada**, no «inteligencia
-    artificial». La sigla nombra QUÉ hace el modo de detección —aislar la pieza
-    sin trazado ni encuadre del operador—, no con qué técnica lo hace; ese dato
-    va aparte, en `ia_segmentador`.
+    ADR-022. La sigla «IA» tuvo tres lecturas incompatibles —«inteligencia
+    artificial» en las guías, «Identificación Automatizada» en ADR-018, «Imagen
+    Asistida» para su autor— y un lector hispanohablante la lee siempre como la
+    primera. Redefinirla no bastaba: se retira, y el modo se llama «detección
+    asistida». Las convenciones de IA y de AIA (la otra sigla del mismo modo)
+    tienen que declararlas retiradas y remitir al nombre vigente, y este tiene
+    que estar definido.
 
-    Sin esta convención declarada, un lector atribuye a un modelo entrenado
-    mediciones que a menudo produjo la umbralización clásica de OpenCV, y
-    desconfía de resultados tan deterministas como los del modo automático.
+    Sin eso, el anexo del informe vuelve a dejar que el lector atribuya a un
+    modelo entrenado mediciones que produjo la umbralización clásica de OpenCV.
     """
     conv = {c["id"]: c for c in glosario["convenciones"]}
-    assert "sigla_ia" in conv, (
-        "Falta la convención `sigla_ia` en glossary.js: la sigla IA volvería a "
-        "quedar sin expandir en el anexo del informe."
+    # El término va entre comillas angulares: una sigla retirada se menciona, no
+    # se usa (es la regla que vigila test_terminologia_deteccion_asistida.py).
+    for cid, sigla in (("sigla_ia", "«IA»"), ("sigla_aia", "«AIA»")):
+        assert cid in conv, (
+            f"Falta la convención `{cid}` en glossary.js: la sigla {sigla} "
+            "volvería a quedar sin explicar en el anexo del informe."
+        )
+        assert conv[cid]["termino"] == sigla
+        exp = conv[cid]["expansion"]
+        assert "retirada" in exp and "detección asistida" in exp, (
+            f"La convención de {sigla} ya no la declara retirada ni remite a "
+            f"«detección asistida»: «{exp}»"
+        )
+    assert "deteccion_asistida" in conv, (
+        "Falta la convención que define «Detección asistida», el nombre vigente del modo."
     )
-    assert conv["sigla_ia"]["termino"] == "IA"
-    assert conv["sigla_ia"]["expansion"] == "Identificación Automatizada", (
-        f"La expansión de IA cambió a «{conv['sigla_ia']['expansion']}»"
-    )
+    assert conv["deteccion_asistida"]["termino"] == "Detección asistida"
 
 
-def test_el_rotulo_del_modo_ia_expande_la_sigla():
+def test_el_rotulo_del_modo_asistido_no_usa_la_sigla():
     """
     El rótulo que ve el usuario en el informe, la Tabla y el CSV sale de
-    `METODO_LABEL` en detection-section.js. Si vuelve a decir sólo «IA», la
-    convención queda declarada en el glosario pero ausente donde importa.
+    `METODO_LABEL` en detection-section.js. La clave del enum sigue siendo `ia`
+    —es un dato persistido en los proyectos (ADR-008)—, pero el rótulo tiene que
+    nombrar el modo por su nombre y no puede contener la sigla retirada.
 
-    Es una etiqueta de PRESENTACIÓN: la clave canónica es el enum `ia` (ADR-008)
-    y nada compara contra este texto, así que desarrollarla no rompe consumidores.
+    Es una etiqueta de PRESENTACIÓN: nada compara contra este texto, así que
+    cambiarla no rompe consumidores (la procedencia se lee del enum).
     """
     txt = DETECCION_SECTION.read_text(encoding="utf-8")
     m = re.search(r"^\s*ia:\s*'([^']+)'", txt, re.M)
     assert m, "No se encontró la etiqueta del modo `ia` en METODO_LABEL"
-    assert "Identificación Automatizada" in m.group(1), (
-        f"El rótulo del modo IA volvió a no expandir la sigla: «{m.group(1)}»"
+    rotulo = m.group(1)
+    assert rotulo.startswith("Detección asistida"), (
+        f"El rótulo del modo asistido dejó de nombrarlo: «{rotulo}»"
+    )
+    assert not re.search(r"(?<![\w.])I\.?A(?![\w])", rotulo), (
+        f"El rótulo del modo asistido volvió a usar la sigla IA: «{rotulo}»"
     )
 
 
@@ -253,7 +269,8 @@ def test_las_convenciones_declaradas_no_retroceden(glosario):
     Ampliar la lista es lo esperado; encogerla, no.
     """
     esperadas = {
-        "sigla_ia", "sigla_aia", "confianza_calificada",
+        "deteccion_asistida", "sigla_ia", "sigla_aia", "inteligencia_artificial",
+        "confianza_calificada",
         "procedencia_deteccion_vs_analisis", "simetria_ambito", "eje_sistema",
         "area_variante", "rotulos_miden_no_diagnostican", "caras_a_b",
         "perforacion_horadacion",

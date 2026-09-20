@@ -646,7 +646,7 @@
     const _vMBtn = document.getElementById('sidebarVerMetricasBtn');
     if (_vMBtn) _vMBtn.hidden = false;
 
-    // ── Tipología arqueológica (Fase 2 IA) ──
+    // ── Tipología arqueológica (clasificador por reglas + evidencia EFA) ──
     const tipRow = document.getElementById('srcTipologiaRow');
     if (tipRow) {
       const tip = m.tipologia;
@@ -783,7 +783,7 @@
     init();
   }
 
-  // Exponer activatePanel para uso desde otros módulos (ej. mao-ia.js)
+  // Exponer activatePanel para uso desde otros módulos (ej. mao-ia.js, detección asistida)
   window.maoActivatePanel = activatePanel;
 
   // ── Modo 2D / 3D: mostrar u ocultar el ítem “Análisis 3D” en sidebar ──

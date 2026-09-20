@@ -33,8 +33,8 @@
   
   =====================================================================================
   -->
-  <link rel="stylesheet" href="css/main.css?v=20260915a">
-  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260915a">
+  <link rel="stylesheet" href="css/main.css?v=20260919a">
+  <link rel="stylesheet" href="css/mao-tabs-laar.css?v=20260919a">
   <link rel="stylesheet" href="css/procrustes.css?v=20260915a">
 </head>
 <body>
@@ -350,7 +350,7 @@
           <span class="src-bar-val" id="srcSimVal">0%</span>
         </div>
 
-        <!-- Badge de tipología arqueológica (Fase 2 IA — visible solo si hay resultado) -->
+        <!-- Badge de tipología arqueológica (clasificador por reglas + EFA — visible solo si hay resultado) -->
         <div class="src-tipologia-row" id="srcTipologiaRow" hidden>
           <span class="src-tipologia-icono" id="srcTipologiaIcono"></span>
           <span class="src-tipologia-tipo" id="srcTipologiaTipo"></span>
@@ -1270,17 +1270,20 @@
             </div>
           </div>
 
-          <!-- Conector + Paso IA -->
+          <!-- Conector + Paso «Detección asistida» (ADR-022). Los ids stepIA/maoIa*
+               son históricos: el modo se llamaba «IA», sigla retirada porque se
+               leía como «inteligencia artificial». El número del paso lo pone un
+               contador CSS (main.css): 3 si «Individualizar» está oculto, 4 si no. -->
           <div class="proc-step-connector" id="procConnectorStepIA" aria-hidden="true"></div>
           <div class="proc-step" id="stepIA">
             <div class="proc-step-badge">
-              <span class="proc-step-num" style="background:#6f42c1;color:#fff;">IA</span>
-              <span class="proc-step-label">Análisis IA</span>
+              <span class="proc-step-num proc-step-num--contador" style="background:#6f42c1;color:#fff;"></span>
+              <span class="proc-step-label">Detección asistida</span>
             </div>
             <div class="proc-step-btns">
               <button id="maoIaBtn" class="btn-step btn-purple" disabled
-                title="Analizar con el pipeline MAO IA (Identificación Automatizada, no «inteligencia artificial»): CLAHE + umbralización controlada + 141 métricas morfométricas">
-                Analizar con IA
+                title="Detección asistida: usted fija la umbralización (auto, Otsu, adaptativa o manual), el realce CLAHE y el área mínima; revisa cada objeto por su confianza de detección y elige cuáles pasan al análisis morfométrico. Visión computacional clásica (OpenCV); no interviene ningún modelo entrenado.">
+                Abrir…
               </button>
               <span id="maoIaStatusDot"
                 title="Servidor Python: verificando…"
@@ -1465,11 +1468,14 @@
             </div>
           </div>
 
-          <!-- F2.3 — Segmentación IA: motor activo (GrabCut AI / MobileSAM ONNX) + preparación -->
+          <!-- F2.3 — Segmentador de contorno por objeto: motor disponible (GrabCut clásico /
+               MobileSAM ONNX, red neuronal) + preparación. ADR-022: ningún modo de
+               detección lo invoca hoy; el rótulo antiguo («Segmentación IA», usado por
+               «Analizar con IA») afirmaba lo contrario. -->
           <div id="samPanel" style="margin-top: 8px; padding: 8px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 4px;">
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              <span style="font-weight: 600; color: var(--gray-600); font-size: 11px;">SEGMENTACIÓN IA:</span>
-              <span id="samModeBadge" class="laar-chip laar-chip--none" title="Motor de segmentación usado por «Analizar con IA»">Comprobando…</span>
+              <span style="font-weight: 600; color: var(--gray-600); font-size: 11px;">Segmentador opcional:</span>
+              <span id="samModeBadge" class="laar-chip laar-chip--none" title="Segmentador de contorno por objeto (/api/sam-contour): MobileSAM, red neuronal preentrenada, si está instalada; si no, GrabCut clásico. Hoy ningún modo de detección lo usa: la detección automática, la asistida y la manual trabajan con el núcleo OpenCV.">Comprobando…</span>
               <button id="samPrepareBtn" class="btn-sm btn-muted" style="margin-left: auto;" disabled>Preparar MobileSAM ONNX</button>
             </div>
             <div id="samStatusLine" style="margin-top: 6px; font-size: 10px; color: var(--gray-500); line-height: 1.4;"></div>
@@ -2339,15 +2345,15 @@
             ◎ Detección por punto
           </button>
           <button id="phDetectarAutoBtn"
-                  title="Detección IA automática por múltiples semillas dentro del objeto (requiere servidor Python)"
+                  title="Detección por malla: siembra una malla de puntos dentro del objeto y hace crecer una región desde cada uno; los huecos que encuentra quedan como candidatos a revisar (requiere servidor Python)"
                   style="flex:1; padding:7px 10px; background:transparent; color:#6f42c1; border:2px solid #6f42c1; border-radius:var(--radius-sm); font-size:12px; font-weight:600; cursor:pointer; transition:all 0.2s;">
-            ✦ Detección IA Auto
+            ⊞ Detección por malla
           </button>
           <span style="font-size:10px; color:var(--text-tertiary); flex-shrink:0;">Se clasifica automáticamente al cerrar</span>
         </div>
 
         <div style="display:flex; align-items:center; gap:10px; margin:-2px 0 12px; padding: 8px 12px; background: var(--bg-secondary); border-radius: var(--radius-md); border: 1px dashed var(--border-color);">
-          <label for="phAutoProfileSelect" style="font-size:11px; font-weight:600; color:var(--text-secondary);">Perfil IA:</label>
+          <label for="phAutoProfileSelect" style="font-size:11px; font-weight:600; color:var(--text-secondary);" title="Perfil de tamaño de la detección por malla: fija la densidad de la malla de semillas y los filtros de área según el tamaño del objeto">Perfil de tamaño:</label>
           <select id="phAutoProfileSelect" style="padding:5px 8px; border:1px solid var(--border-color); border-radius: var(--radius-sm); background:white; color:var(--text-primary); font-size:12px;">
             <option value="auto" selected>Auto</option>
             <option value="micro">Micro</option>
@@ -2883,22 +2889,22 @@
        ================================================================ -->
   <script src="js/mao-version.js?v=20260915a"></script>
   <script src="js/toast.js"></script>
-  <script src="js/python-bridge.js?v=20260915a"></script>
+  <script src="js/python-bridge.js?v=20260919a"></script>
   <script src="js/backend-status-badge.js"></script>
-  <script src="js/sam-status-ui.js?v=20260915a" defer></script>
+  <script src="js/sam-status-ui.js?v=20260919a" defer></script>
   <script src="js/progress.js"></script>
-  <script src="js/project-manager.js?v=20260915a"></script>
+  <script src="js/project-manager.js?v=20260919a"></script>
   <script src="js/file-io.js"></script>
   <script src="js/projects-ui.js"></script>
-  <script src="js/collection.js?v=20260915a"></script>
+  <script src="js/collection.js?v=20260919a"></script>
   <script src="js/mao-export-destino.js?v=20260915a"></script>
   <script src="js/tooltips.js"></script>
-  <script type="module" src="js/analysis-core.js?v=20260915a"></script>
+  <script type="module" src="js/analysis-core.js?v=20260919a"></script>
   <script src="js/obj3d-canonical-raster.js"></script>
   <script src="js/obj3d-export.js"></script>
   <script src="js/obj3d-morph-canvas.js"></script>
   <script src="js/obj3d-viewer.js"></script>
-  <script src="js/sidebar-nav.js?v=20260915a"></script>
+  <script src="js/sidebar-nav.js?v=20260919a"></script>
   <script src="js/diagnostics.js"></script>
 
 
@@ -3481,7 +3487,7 @@
 
   <script src="js/canvas-zoom.js"></script>
   <script src="js/object-dimension-mode.js"></script>
-  <script src="js/comparator.js?v=20260915a"></script>
+  <script src="js/comparator.js?v=20260919a"></script>
 
 
 <!-- ============================================================== -->
@@ -3588,12 +3594,13 @@
   </script>
 
   <!-- ═══════════════════════════════════════════════════════════════════════
-       PANEL LATERAL: MÉTRICAS COMPLETAS (drawer deslizable dentro del modal AIA)
+       PANEL LATERAL: MÉTRICAS COMPLETAS (drawer deslizable dentro de la ventana de detección asistida)
        ═══════════════════════════════════════════════════════════════ -->
   <!-- Panel de métricas: se inyecta como sibling dentro de #maoIaViewCanvas por JS -->
 
   <!-- ═══════════════════════════════════════════════════════════════════════
-       MODAL: ANALIZAR CON IA (pipeline MAO_IA con parámetros controlados)
+       VENTANA: DETECCIÓN ASISTIDA (ADR-022; ids históricos maoIa*) — parámetros
+       fijados por el operador y revisión objeto a objeto
        ═══════════════════════════════════════════════════════════════ -->
   <style>
     @keyframes mao-ia-spin{to{transform:rotate(360deg)}}
@@ -3644,8 +3651,8 @@
       <div style="background:linear-gradient(135deg,#6f42c1 0%,#5a32a3 100%); padding:13px 20px; display:flex; align-items:center; gap:12px; flex-shrink:0;">
         <div style="width:30px;height:30px;background:rgba(255,255,255,0.15);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;color:#fff;flex-shrink:0;">&#9672;</div>
         <div>
-          <div style="color:#fff;font-size:14px;font-weight:700;letter-spacing:-0.3px;">MAO_IA — Análisis Morfológico</div>
-          <div style="color:rgba(255,255,255,0.7);font-size:9.5px;margin-top:1px;">Pipeline de visión computacional · parámetros controlados</div>
+          <div style="color:#fff;font-size:14px;font-weight:700;letter-spacing:-0.3px;">Detección asistida</div>
+          <div style="color:rgba(255,255,255,0.7);font-size:9.5px;margin-top:1px;">Parámetros fijados por el operador · revisión objeto a objeto · visión computacional clásica (OpenCV)</div>
         </div>
         <div id="maoIaServerStatus" style="margin-left:auto;font-size:9.5px;padding:4px 11px;background:rgba(0,0,0,0.22);border-radius:20px;color:rgba(255,255,255,0.8);white-space:nowrap;">Comprobando...</div>
         <button id="maoIaFullscreen" title="Pantalla completa" style="background:rgba(255,255,255,0.15);border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;padding:3px 9px;line-height:1.6;margin-left:8px;" aria-label="Pantalla completa">&#x26F6;</button>
@@ -3967,7 +3974,7 @@
           <!-- Spinner overlay (visible durante el análisis) -->
           <div id="maoIaProgress" style="display:none;position:absolute;inset:0;background:rgba(255,255,255,0.86);z-index:20;align-items:center;justify-content:center;flex-direction:column;gap:14px;">
             <div style="width:42px;height:42px;border:3px solid #d6bcfa;border-top-color:#6f42c1;border-radius:50%;animation:mao-ia-spin 0.75s linear infinite;"></div>
-            <div style="font-size:12px;color:#6f42c1;font-weight:700;">Analizando con IA...</div>
+            <div style="font-size:12px;color:#6f42c1;font-weight:700;">Detectando y midiendo objetos…</div>
             <div style="font-size:10px;color:#a0aec0;">CLAHE &#8594; Blur &#8594; Umbral &#8594; Contornos &#8594; Métricas</div>
             <div id="maoIaProgressElapsed" style="font-size:11px;color:#6f42c1;font-weight:700;font-variant-numeric:tabular-nums;">0.0 s</div>
             <button id="maoIaProgressCancel" style="margin-top:2px;padding:5px 16px;font-size:10.5px;font-weight:700;background:#fff;color:#e53e3e;border:1px solid #fc8181;border-radius:6px;cursor:pointer;">&#x2715; Cancelar análisis</button>
@@ -3978,8 +3985,8 @@
     </div>
   </div>
 
-  <!-- ── MAO IA: controlador JS externo ── -->
-  <script src="js/mao-ia.js?v=20260915a"></script>
+  <!-- ── Detección asistida: controlador JS externo (nombre de archivo histórico) ── -->
+  <script src="js/mao-ia.js?v=20260919a"></script>
   <script src="js/procrustes.js"></script>
   <script src="js/aps-save.js"></script>
   <!-- ── Controles de ventana unificados (último, tras todos los módulos) ── -->
@@ -4724,9 +4731,9 @@
   <script src="js/mao-organizer-base.js?v=20260915a" defer></script>
   <!-- ADR-008 Fase 1 — Contrato de salida de captura: normaliza la forma de objeto
        de los 4 modos de detección antes de window.objects (aditivo, reversible). -->
-  <script src="js/mao-deteccion-contract.js?v=20260915a" defer></script>
+  <script src="js/mao-deteccion-contract.js?v=20260919a" defer></script>
   <!-- ADR-002 Fase 2 — Organizador del panel de Análisis (jerarquía §1–§8 + chip P/H) -->
-  <script src="js/mao-analysis-organizer.js?v=20260915a" defer></script>
+  <script src="js/mao-analysis-organizer.js?v=20260919a" defer></script>
   <!-- ADR-003 Fases 2-3 — Organizador de la pestaña Proyecto (chips + CTA con guard) -->
   <script src="js/mao-proyecto-organizer.js?v=20260915a" defer></script>
   <!-- ADR-004 Fase 2 — Organizador de la pestaña Captura (chips de estado) -->

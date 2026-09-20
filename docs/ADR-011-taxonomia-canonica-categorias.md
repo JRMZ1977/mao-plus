@@ -1,5 +1,7 @@
 # ADR-011 — Taxonomía canónica de categorías del análisis morfológico
 
+> **Nota terminológica (ADR-022, 2026-09-19).** En este documento, «IA» —también «MAO IA», «AIA», «modal IA», «flujo IA» u «objetos IA»— es el nombre histórico del modo que hoy se llama **detección asistida**. No designa inteligencia artificial: ningún modo de detección de MAO Plus usa un modelo entrenado. El texto se conserva como registro de lo que se decidió y de cómo se nombraba entonces.
+
 **Estado:** PROPUESTA — taxonomía pendiente de validación (JFRR, experto de dominio).
 **Fecha:** 2026-06-24.
 **Relacionados:** [[adr006_repertorio_canonico_morfometrico]] (registro canónico **backend**, `python/modules/morphometric_registry.py`), [[analysis_category_stability]] (esqueleto estable del panel), ADR-005 (lenguaje canónico LAAR), ADR-008 (contrato de salida de captura).

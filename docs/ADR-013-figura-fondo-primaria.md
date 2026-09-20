@@ -1,5 +1,7 @@
 # ADR-013 — Separación figura-fondo primaria; separación de instancias subordinada y no destructiva
 
+> **Nota terminológica (ADR-022, 2026-09-19).** En este documento, «IA» —también «MAO IA», «AIA», «modal IA», «flujo IA» u «objetos IA»— es el nombre histórico del modo que hoy se llama **detección asistida**. No designa inteligencia artificial: ningún modo de detección de MAO Plus usa un modelo entrenado. El texto se conserva como registro de lo que se decidió y de cómo se nombraba entonces. Donde se habla de SAM como *prior* neuronal del modo: el segmentador MobileSAM existe en el backend, pero ningún modo de detección lo invoca.
+
 - **Estado:** ✅ **Fases 1 + 2 implementadas.** F1: 2026-06-25. F2: 2026-09-12. Pendiente
   verificación visual en Electron. Refina (no contradice) ADR-012.
 - **Decisión JFRR:** la separación **figura-fondo** (objeto vs fondo) es la tarea **primaria** del

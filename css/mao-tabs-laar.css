@@ -1486,7 +1486,7 @@ details.adr2-sec > .adr2-body { padding: 6px 12px 10px; }
   background         : var(--laar-b600) !important;
   border-color      : var(--laar-b600) !important;
 }
-/* Insignias de paso (incl. IA púrpura) → b500 activo · ok hecho (semántica real) */
+/* Insignias de paso (incl. la púrpura de la detección asistida) → b500 activo · ok hecho (semántica real) */
 .mao-main #stepperProcesamiento .proc-step.step-active .proc-step-num,
 .mao-main #stepIA.step-active .proc-step-num {
   background         : var(--laar-b500) !important;
@@ -1503,7 +1503,7 @@ details.adr2-sec > .adr2-body { padding: 6px 12px 10px; }
 .mao-main #stepIA.step-done .proc-step-label {
   color             : var(--laar-g600) !important;
 }
-/* Insignia IA en reposo: el span trae `style="background:#6f42c1"` inline
+/* Insignia de la detección asistida en reposo: el span trae `style="background:#6f42c1"` inline
    (index.html) → idle morado aunque el paso no esté activo. Neutralizar para
    que iguale a las insignias «1»/«2» (gris); el azul/verde reaparece solo en
    step-active / step-done por las reglas de arriba (más específicas). */
@@ -1554,7 +1554,7 @@ details.adr2-sec > .adr2-body { padding: 6px 12px 10px; }
   color             : var(--laar-ok-tx) !important;
 }
 
-/* ─── Checkbox YOLO IA: gradiente púrpura inline → chip neutro (b500 si activo) */
+/* ─── Checkbox YOLO (red neuronal, rama retirada; regla inerte): gradiente → chip neutro */
 .mao-main #sectionEscala label:has(> #useYoloDetectionCheck) {
   background         : var(--laar-g50) !important;
   background-image   : none !important;

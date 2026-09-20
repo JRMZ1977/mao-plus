@@ -1,5 +1,7 @@
 # Nota de versión — ADR-017 F0: retirada del estimador de completitud
 
+> **Nota terminológica (ADR-022, 2026-09-19).** En este documento, «IA» —también «MAO IA», «AIA», «modal IA», «flujo IA» u «objetos IA»— es el nombre histórico del modo que hoy se llama **detección asistida**. No designa inteligencia artificial: ningún modo de detección de MAO Plus usa un modelo entrenado. El texto se conserva como registro de lo que se decidió y de cómo se nombraba entonces.
+
 **Fecha:** 2026-09-12 · **Alcance:** métricas exportadas a CSV, PDF, panel y comparador.
 **Tipo de cambio:** 🟠 **rompe continuidad de valores exportados.** Un CSV o PDF generado
 antes de esta versión NO es comparable columna a columna con uno posterior.

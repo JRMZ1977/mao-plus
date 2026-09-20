@@ -3,8 +3,8 @@
  * ---------------------------------------------------------------------------
  * Normaliza la FORMA de objeto que emiten los cuatro caminos de detección
  * (auto-backend `detection.detect`, auto-frontend `detectarObjetosHibrido`,
- * manual `detectarObjetosEnArea`, IA `mao_ia_analyzer`→`cardObj`) ANTES de que
- * crucen a `window.objects`. Único choke point cableado: el top de
+ * manual `detectarObjetosEnArea`, detección asistida `mao_ia_analyzer`→`cardObj`)
+ * ANTES de que crucen a `window.objects`. Único choke point cableado: el top de
  * `individualizarObjetos()` (el render que despacha `mao:objects:rendered`,
  * frontera de ADR-007).
  *
@@ -36,7 +36,11 @@
     return null;
   }
 
-  /** C3 · `detectionMethod` crudo → enum canónico 'automatic'|'manual'|'ia'. */
+  /**
+   * C3 · `detectionMethod` crudo → enum canónico 'automatic'|'manual'|'ia'.
+   * `ia` es el nombre HISTÓRICO del enum de la detección asistida (ADR-022): se
+   * conserva porque está persistido en los proyectos; nunca se muestra tal cual.
+   */
   function modoCanonico(obj) {
     if (obj._fromIA === true || obj._samSegmented === true) return 'ia';
     var raw = obj.detectionMethodRaw != null ? obj.detectionMethodRaw
@@ -55,7 +59,8 @@
    *
    * `analysis_method` es texto libre y siete sitios lo escriben con siete
    * cadenas distintas («Contorno Real Extraído [REAL]», «… [Python]»,
-   * «Bounding Box (Fallback) [APROXIMADO]», «MAO IA — Detección automática»,
+   * «Bounding Box (Fallback) [APROXIMADO]», «Detección asistida» —antes «MAO IA
+   * — Detección automática», que sigue en los análisis guardados—,
    * «OBJ3D + PCA», «OBJ3D + FRONT/BACK 2D HOMOLOGATED», «MAO 3D — <cara>»).
    * Dos sitios lo comparaban por IGUALDAD, y una de esas comparaciones ya
    * estaba muerta: `analysis-core.js` buscaba «Bounding Box (Fallback)» exacto
@@ -75,7 +80,7 @@
   var ANALYSIS_SOURCE = {
     CONTORNO_REAL: 'contorno_real',   // contorno extraído de verdad (JS o Python)
     BBOX_FALLBACK: 'bbox_fallback',   // aproximación por caja: métricas degradadas
-    IA:            'ia',              // Identificación Automatizada (modal MAO IA)
+    IA:            'ia',              // detección asistida (nombre histórico del enum, ADR-022)
     OBJ3D:         'obj3d',           // malla 3D / homologación de caras
   };
 
@@ -92,7 +97,9 @@
     var s = String(m.analysis_method || '').toLowerCase();
     if (s === '') return null;
     if (s.indexOf('bounding box') !== -1) return ANALYSIS_SOURCE.BBOX_FALLBACK;
-    if (s.indexOf('mao ia') !== -1)       return ANALYSIS_SOURCE.IA;
+    if (s.indexOf('detección asistida') !== -1 ||
+        s.indexOf('deteccion asistida') !== -1 ||
+        s.indexOf('mao ia') !== -1)       return ANALYSIS_SOURCE.IA;  // vigente · legacy
     if (s.indexOf('obj3d') !== -1 ||
         s.indexOf('mao 3d') !== -1)       return ANALYSIS_SOURCE.OBJ3D;
     if (s.indexOf('contorno real') !== -1) return ANALYSIS_SOURCE.CONTORNO_REAL;
@@ -107,7 +114,7 @@
     return fuenteAnalisis(m) === ANALYSIS_SOURCE.BBOX_FALLBACK;
   }
 
-  /** ¿El objeto proviene del modal de Identificación Automatizada? */
+  /** ¿El objeto proviene de la ventana de detección asistida? */
   function esAnalisisIA(m) {
     return fuenteAnalisis(m) === ANALYSIS_SOURCE.IA;
   }
@@ -225,7 +232,7 @@
   // ── ADR-019 · procedencia de detección → objeto de métricas ────────────────
   // ESCRITOR ÚNICO. Antes cada modo proyectaba la procedencia por su cuenta:
   // auto/manual escribían `detection_method` suelto (analysis-core.js ×2,
-  // metrics-orchestrator.js) y el modo IA no escribía NADA, porque su
+  // metrics-orchestrator.js) y la detección asistida no escribía NADA, porque su
   // `metricasFinal` se reconstruye desde las métricas de Python y descarta todo
   // lo que no se preserve a mano. Como `metricas.json` persiste literalmente el
   // objeto de métricas, lo que no se escribe aquí no se almacena y no puede
@@ -253,7 +260,8 @@
       // Alias legacy — hay lectores vivos de esta clave; mantenerla sincronizada.
       metricas.detection_confidence_level = metricas.confidence_level;
 
-      // Parámetros del modo IA (sólo si los hay; no ensuciar los otros modos).
+      // Parámetros de la detección asistida (sólo si los hay; no ensuciar los
+      // otros modos). Las claves `ia_*` conservan el nombre histórico (ADR-022).
       if (obj.ia_threshold_method != null) metricas.ia_threshold_method = obj.ia_threshold_method;
       if (obj.ia_segmentador != null)      metricas.ia_segmentador      = obj.ia_segmentador;
       if (obj.ia_enriquecido != null)      metricas.ia_enriquecido      = obj.ia_enriquecido;
@@ -307,9 +315,10 @@
   }
 
   // ── ADR-008 Fase 3 · telemetría unificada (C7) ─────────────────────────────
-  // Schema ÚNICO de [MONITOR_ANALISIS] para los 3 modos (auto/manual/IA). Antes
-  // vivía duplicado y divergente en analysis-core.js y mao-ia.js. Superset de
-  // ambos + confianza de detección canónica + método canónico.
+  // Schema ÚNICO de [MONITOR_ANALISIS] para los 3 modos (automático/manual/
+  // asistida). Antes vivía duplicado y divergente en analysis-core.js y
+  // mao-ia.js. Superset de ambos + confianza de detección canónica + método
+  // canónico.
   function buildMonitorAnalisis(obj, m) {
     obj = obj || {}; m = m || {};
     var enumModo = modoCanonico(obj);

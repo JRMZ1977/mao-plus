@@ -501,7 +501,8 @@ class ProjectManager {
         // ADR-019 — procedencia de detección. Vive también en metricas.json (dentro
         // del objeto de métricas), pero aquí queda legible sin abrir el bloque de
         // ~130 indicadores: cómo se detectó el objeto es metadato de la pieza, no
-        // una métrica morfológica más.
+        // una métrica morfológica más. Las claves `ia*` conservan el nombre
+        // histórico de la detección asistida (ADR-022): son datos persistidos.
         deteccion: (() => {
           const _m = analysis.data?.metricas || {};
           return {
@@ -893,7 +894,7 @@ class ProjectManager {
         || _captureCanvas('morphologicalCanvas');
       await _savePng('analisis_morfologico.png', morphDataURL);
 
-      // 3. FORMA IDEALIZADA — contorno depurado / forma IA
+      // 3. FORMA IDEALIZADA — contorno depurado / forma idealizada
       const idealDataURL = canvasImgenes.idealized
         || imagenesGuardadas.idealizada
         || _captureCanvas('idealizedShapeCanvas');
@@ -2994,8 +2995,11 @@ function _buildEnrichCsvRow(ref, m) {
     _f(m.aspect_ratio, 4),
     _csvVal(m.forma_detectada),
     // — Detección —
-    // ADR-016 #5: detection_method puede venir como detectionMethod en objetos IA legacy.
-    _csvVal(m.detection_method || m.detectionMethod || m.detection_mode),
+    // ADR-016 #5: detection_method puede venir como detectionMethod en objetos legacy.
+    // ADR-022: se publica el rótulo legible, no el enum crudo (`ia` es el nombre
+    // histórico de la detección asistida y en una hoja de cálculo se leía «IA»).
+    _csvVal((window.DetectionSection && window.DetectionSection.metodoLegible(m))
+            || m.detection_method || m.detectionMethod || m.detection_mode),
     _f(m.detection_confidence, 4),
     // ADR-019: los análisis anteriores en disco sólo tienen `detection_confidence_level`;
     // esta columna salía vacía SIEMPRE por leer únicamente la clave canónica.

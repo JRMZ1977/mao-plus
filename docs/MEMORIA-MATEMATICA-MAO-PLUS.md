@@ -149,11 +149,17 @@ intervalo de incertidumbre** y nunca se usan como base de comparación entre pie
 
 **Nota de arquitectura relevante para la revisión.** Desde ADR-012 («detección monolítica») existe
 **un único núcleo de segmentación canónico**: `detection.detect()` en Python/OpenCV. Los cuatro
-modos de uso de la aplicación (automático, manual por área, modal «IA», manual por componente) son
-*priors* distintos sobre el mismo núcleo, no algoritmos rivales. El motor JavaScript equivalente
-existe solo como *fallback* si el backend Python no está disponible, y reproduce las mismas
-fórmulas. Esto importa para la revisión porque **garantiza que un mismo objeto produce el mismo
-número por cualquiera de las cuatro vías**, salvo por el *prior* espacial que el operador aporte.
+modos de uso de la aplicación (automático, detección asistida, manual por área, manual por
+componente) son *priors* distintos sobre el mismo núcleo, no algoritmos rivales. El motor
+JavaScript equivalente existe solo como *fallback* si el backend Python no está disponible, y
+reproduce las mismas fórmulas. Esto importa para la revisión porque **garantiza que un mismo
+objeto produce el mismo número por cualquiera de las cuatro vías**, salvo por lo que el operador
+aporte: el encuadre en los modos manuales o, en la detección asistida, una umbralización distinta
+de `auto` (con `auto` usa el núcleo tal cual).
+
+*Nota terminológica.* La detección asistida se llamaba «IA» en versiones anteriores; la sigla se
+retiró (ADR-022) porque se leía como «inteligencia artificial». Ningún modo de detección usa un
+modelo entrenado: todo el procesamiento de imagen de esta memoria es OpenCV clásico.
 
 ### 1.3 Notación
 
@@ -2297,7 +2303,7 @@ Distribución por módulo:
 | `python/tests/test_shape_template.py` | 33 | ajuste contra plantilla ideal (F1) y **umbrales calibrados (F4)** |
 | `python/tests/test_adr017_f3_cableado.py` | 14 | cableado del emparejamiento al flujo (F3) |
 | `python/tests/test_adr017_calibracion.py` | 19 | **concordancia método ↔ observador** (ICC, Bland-Altman, κ) |
-| resto | 55 | persistencia, exportador, confianza IA, salud del servidor, coherencia de entrega |
+| resto | 55 | persistencia, exportador, confianza de la detección asistida, salud del servidor, coherencia de entrega |
 
 ### 12.2 Pruebas de respuesta conocida (*known-answer*)
 

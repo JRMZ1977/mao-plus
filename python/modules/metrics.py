@@ -1372,7 +1372,7 @@ async def calculate(
         0.4 * min(conv, 1.0) * 100 + 0.6 * solidez * 100, 1
     )
 
-    # ── 34. Defectos de convexidad MAO_IA (Guía §VIII ampliado) ──────────
+    # ── 34. Defectos de convexidad (mao_ia_analyzer · Guía §VIII ampliado) ─
     # cv2.convexityDefects(): concavidades del contorno respecto al convex hull.
     # Clave para: perforaciones/horadaciones, fragmentación, retoque bifácial.
     try:

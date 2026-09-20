@@ -1,5 +1,7 @@
 # MAO Plus 1.3.0 — nota de versión
 
+> **Nota terminológica (ADR-022, 2026-09-19).** En este documento, «IA» —también «MAO IA», «AIA», «modal IA», «flujo IA» u «objetos IA»— es el nombre histórico del modo que hoy se llama **detección asistida**. No designa inteligencia artificial: ningún modo de detección de MAO Plus usa un modelo entrenado. El texto se conserva como registro de lo que se decidió y de cómo se nombraba entonces.
+
 **Fecha:** 2026-09-15 · **Rama:** `claude/mao-plus-math-engine-verify-c8c8fd`
 **Sustituye a:** 1.2.0 (el `/Applications/MAO Plus.app` instalado es del 2026-06-03 y no contiene
 nada de lo que sigue).

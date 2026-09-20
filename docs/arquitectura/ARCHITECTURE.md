@@ -107,9 +107,9 @@ module semantics in the same way browsers do, and the IIFE provides a clean scop
 | `classifier.py` | Shape/typology classification |
 | `comparator.py` | Object comparison logic |
 | `contour.py` | Contour detection and processing |
-| `detection.py` | Object detection (YOLO integration) |
+| `detection.py` | Object detection — canonical OpenCV core: Z-scan + CLAHE + GrabCut + watershed (ADR-012; the YOLO branch was retired) |
 | `efa.py` | Elliptic Fourier Analysis |
-| `mao_ia_analyzer.py` | MAO-IA model integration |
+| `mao_ia_analyzer.py` | *Detección asistida* (assisted detection): OpenCV thresholding with operator-set parameters. Historical file name — no trained model involved (ADR-022) |
 | `metrics.py` | Metric computation |
 | `morphology.py` | Morphological operations |
 | `obj3d.py` | 3D object support |

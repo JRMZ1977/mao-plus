@@ -1,5 +1,7 @@
 # ADR-004 — Rediseño de la pestaña «Captura»: jerarquía de estado, estilo LAAR y de-rainbow
 
+> **Nota terminológica (ADR-022, 2026-09-19).** En este documento, «IA» —también «MAO IA», «AIA», «modal IA», «flujo IA» u «objetos IA»— es el nombre histórico del modo que hoy se llama **detección asistida**. No designa inteligencia artificial: ningún modo de detección de MAO Plus usa un modelo entrenado. El texto se conserva como registro de lo que se decidió y de cómo se nombraba entonces.
+
 - **Estado:** Aprobado (2026-06-12) · **Fase 1 en implementación**
 - **Decisores:** JFRR (alcance y orden de fases) · Claude (diagnóstico y diseño)
 - **Precedentes:** ADR-001 (guards de flujo UI) · ADR-002 (rediseño Análisis: cabecera sticky, chips tri-estado, de-rainbow) · ADR-003 (rediseño Proyecto: chips tri-estado, jerarquía, CTA con guard suave)

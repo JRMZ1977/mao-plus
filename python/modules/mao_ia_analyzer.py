@@ -1,7 +1,14 @@
 """
 mao_ia_analyzer.py
 ==================
-Adaptación de MorphologicalAnalyzer (MAO_IA) para el servidor FastAPI de MAO Plus.
+Motor de la DETECCIÓN ASISTIDA de MAO Plus (ADR-022): el operador fija los
+parámetros de umbralización y el módulo detecta y describe cada objeto con
+OpenCV clásico. No interviene ningún modelo entrenado.
+
+Nombre histórico: se adaptó de MorphologicalAnalyzer, de la aplicación autónoma
+«MAO_IA». La sigla IA se retiró de la interfaz porque se leía como «inteligencia
+artificial»; el nombre del archivo, la ruta `/api/mao-ia` y la clave `mao_ia` se
+conservan porque los usan el frontend y los proyectos guardados.
 
 Diferencias respecto a morphological_analyzer.py (standalone):
   - Sin dependencias matplotlib/pyplot (servidor headless).
@@ -66,7 +73,7 @@ def _binary_mask(gray: np.ndarray, method: str, value: int, invert: bool) -> np.
 
 def _morpho_from_contour(contour: np.ndarray, object_id: int) -> dict:
     """
-    Calcula descriptores morfológicos básicos de MAO_IA a partir de un contorno OpenCV.
+    Calcula descriptores morfológicos básicos a partir de un contorno OpenCV.
     No requiere imagen — solo el array (N,1,2) del contorno.
     """
     area      = float(cv2.contourArea(contour))
@@ -267,7 +274,7 @@ def compute_morpho_features(
     blur_kernel: int = 5,
 ) -> Optional[dict]:
     """
-    Ejecuta el pipeline MAO_IA sobre una ROI BGR y retorna los descriptores
+    Ejecuta el pipeline de detección asistida sobre una ROI BGR y retorna los descriptores
     morfológicos del objeto principal detectado, o None si no hay objeto.
 
     Pensado para enriquecer los objetos detectados por detection.py sin
@@ -308,7 +315,7 @@ def compute_morpho_features(
 
 
 # ============================================================================
-# FUNCIÓN PÚBLICA 3: detección completa MAO_IA sobre imagen entera
+# FUNCIÓN PÚBLICA 3: detección asistida completa sobre imagen entera
 # ============================================================================
 
 async def detect_with_mao_ia(
@@ -324,7 +331,7 @@ async def detect_with_mao_ia(
     max_objects: int = 50,
 ) -> dict:
     """
-    Ejecuta el pipeline completo MAO_IA sobre una imagen completa.
+    Ejecuta el pipeline completo de detección asistida sobre una imagen completa.
 
     Equivale a MorphologicalAnalyzer.analyze() del app standalone,
     pero retorna dicts sin generar imágenes anotadas.
@@ -365,7 +372,7 @@ async def detect_with_mao_ia(
 
     # ── Segmentación ──────────────────────────────────────────────────────────
     # ADR-012 F3: 'auto' usa el NÚCLEO canónico (detection.detect → Z-scan/CLAHE/
-    # GrabCut/watershed/confianza) = misma fidelidad que el modo automático; la IA
+    # GrabCut/watershed/confianza) = misma fidelidad que el modo automático; la asistida
     # conserva su enriquecimiento por objeto. Los modos manuales (otsu/adaptive/
     # manual) preservan el control de params del usuario y además ganan separación
     # de objetos pegados (watershed del núcleo; no-op si hay un solo centro).

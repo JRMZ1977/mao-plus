@@ -173,7 +173,7 @@ if (typeof window !== 'undefined') {
   const showToast = mostrarToast;
 
   // ── Pipeline JS de métricas SIN tocar el contorno del objeto ────────────────────
-  // Las rutas Python e IA ejecutan calcularMetricasMorfologicas sólo para cosechar
+  // Las rutas Python y de detección asistida ejecutan calcularMetricasMorfologicas sólo para cosechar
   // `_forma_idealizada` (distribución radial-angular) y campos de clasificación. Pero
   // esa función MUTA `obj`: si la forma sale «idealizada» sustituye `obj.contour_points`
   // por los vértices idealizados (p. ej. 713 puntos reales → 101 vértices {x,y}). En la
@@ -601,7 +601,7 @@ if (typeof window !== 'undefined') {
     PROGRESS_UPDATE_INTERVAL: 100      // ms entre actualizaciones de progreso
   });
 
-  // Presets para detección IA automática de perforaciones/horadaciones.
+  // Presets de la detección de perforaciones/horadaciones por malla de semillas.
   const PH_AUTO_DETECT_PROFILES = Object.freeze({
     micro: Object.freeze({
       areaMax: 35000,
@@ -751,7 +751,7 @@ if (typeof window !== 'undefined') {
     // Cambiar cursor del canvas
     canvas.style.cursor = 'crosshair';
     
-    // Limpiar objetos automáticos (preservar objetos de AIA)
+    // Limpiar objetos automáticos (preservar los de la detección asistida)
     objects = objects.filter(o => o._fromIA);
     UtilityHelpers.redrawCanvas();
     UtilityHelpers.updateDisplays();
@@ -4773,7 +4773,7 @@ if (typeof window !== 'undefined') {
 
   /**
    * Regla canónica de salida semántica (geometría observada, tipología inferida y forma mostrada).
-   * Se usa en manual e IA para evitar divergencias por campos desfasados en cache o rutas parciales.
+   * Se usa en manual y en detección asistida para evitar divergencias por campos desfasados en cache o rutas parciales.
    */
   function aplicarReglaCanonicaInterpretacion(metricas) {
     if (!metricas || typeof metricas !== 'object') {
@@ -5073,9 +5073,9 @@ if (typeof window !== 'undefined') {
       }
     }
 
-    // 🆕 REGLA 6: ESTABILIDAD CURVILÍNEA FRAGMENTARIA (Manual/IA)
+    // 🆕 REGLA 6: ESTABILIDAD CURVILÍNEA FRAGMENTARIA (manual/asistida)
     // Evita saltos de clase entre "Irregular" y "Oval/Elipsoidal" cuando ambos
-    // pipelines miden casi lo mismo pero el contorno IA añade ruido de borde.
+    // pipelines miden casi lo mismo pero el de la detección asistida añade ruido de borde.
     // Se activa solo en región de frontera curvilínea para no forzar falsos positivos.
     if (categoria_ganadora === "Irregular") {
       const _ratio6 = parseFloat(metrics.ratio_radios);
@@ -5102,7 +5102,7 @@ if (typeof window !== 'undefined') {
           ? `Fragmento ${_nombreCurv} (${completitud}% completo)`
           : _nombreCurv;
         console.log(`   ⚖️  REGLA 6: frontera curvilínea detectada (R=${_ratio6.toFixed(3)}, C=${_circ6.toFixed(3)}, S=${_sol6.toFixed(3)})`);
-        console.log(`   → Estabilizando salida a "${clasificacion_final}" para consistencia Manual/IA`);
+        console.log(`   → Estabilizando salida a "${clasificacion_final}" para consistencia manual/asistida`);
       }
     }
 
@@ -5364,7 +5364,7 @@ if (typeof window !== 'undefined') {
     } else if (obj.has_real_contour && obj.contour_points && obj.contour_points.length > 2) {
       console.log(`🔄 Convirtiendo contorno existente para objeto ${obj.id} (modo: ${obj.detectionMethod || 'automático'})`);
 
-      // ── Centroide desde datos AIA (si existen) o calculado por Shoelace ───
+      // ── Centroide de la detección asistida (si existe) o calculado por Shoelace ───
       const _cPts = obj.contour_points;
       const _cgX = (p) => p.x !== undefined ? p.x : p[0];
       const _cgY = (p) => p.y !== undefined ? p.y : p[1];
@@ -5386,7 +5386,7 @@ if (typeof window !== 'undefined') {
         for (const _cp of _cPts) { _csx += _cgX(_cp); _csy += _cgY(_cp); }
         _ccx = _csx / _cn; _ccy = _csy / _cn;
       }
-      // Si el objeto proviene de AIA, priorizar el centroide que AIA calculó
+      // Si el objeto proviene de la detección asistida, priorizar el centroide que ya trae
       const _iaRaw = obj._iaRaw;
       const _iaCx = _iaRaw?.centroide_x  ?? _iaRaw?.centroid_x  ?? null;
       const _iaCy = _iaRaw?.centroide_y  ?? _iaRaw?.centroid_y  ?? null;
@@ -5414,7 +5414,7 @@ if (typeof window !== 'undefined') {
       }
 
       // ── Área y perímetro distinguiendo hull vs contorno real ──────────────
-      // AIA separa área_px (hull/forma completa) de área_fragmentada_px (contorno real)
+      // La detección asistida separa área_px (hull/forma completa) de área_fragmentada_px (contorno real)
       const _hullArea   = _iaRaw?.area_px       ?? _iaRaw?.area       ?? obj.area;
       const _fragArea   = _iaRaw?.area_fragmentada_px ?? _iaRaw?.area_fragmentada ?? obj.real_area ?? _hullArea;
       const _hullPerim  = _iaRaw?.perimeter_px  ?? _iaRaw?.perimeter  ?? 0;
@@ -6394,7 +6394,7 @@ if (typeof window !== 'undefined') {
       metrics.forma_razon_tipologica = metaClasificacion.razon_tipologica || '';
       metrics.forma_requiere_reinterpretacion_tipologica = !!metaClasificacion.requiere_reinterpretacion_tipologica;
       metrics.forma_detectada_tipologica = metrics.forma_tipologica_inferida;
-      // Resolver salida final con la regla canónica compartida Manual/IA.
+      // Resolver salida final con la regla canónica compartida manual/asistida.
       ClassificationEngine.aplicarReglaCanonicaInterpretacion(metrics);
       metrics.forma_confianza = metaClasificacion.confianza_global;
       
@@ -6882,7 +6882,7 @@ if (typeof window !== 'undefined') {
           horadaciones: obj.horadaciones?.length || 0
         });
 
-        // ── Reconstruir punto_radio_maximo/minimo si faltan (objetos AIA) ────────
+        // ── Reconstruir punto_radio_maximo/minimo si faltan (objetos de detección asistida) ────────
         // Python no devuelve estos puntos; se recalculan desde convexHull + centroide.
         if (!metricasCached.punto_radio_maximo || !metricasCached.punto_radio_minimo) {
           // Fuente del hull en coords absolutas: prefiere _contour_data ya calculado,
@@ -6917,7 +6917,7 @@ if (typeof window !== 'undefined') {
           }
         }
 
-        // ── Reconstruir _contour_data si falta (objetos AIA: Python no lo devuelve) ──
+        // ── Reconstruir _contour_data si falta (detección asistida: Python no lo devuelve) ──
         if (!metricasCached._contour_data && obj.contour_points && obj.contour_points.length >= 3) {
           const _chx2 = parseFloat(metricasCached.centroide_hull_x || metricasCached.centroide_x) || 0;
           const _chy2 = parseFloat(metricasCached.centroide_hull_y || metricasCached.centroide_y) || 0;
@@ -6946,7 +6946,7 @@ if (typeof window !== 'undefined') {
           console.log(`[cache] _contour_data reconstruido para ${obj.id}`);
         }
 
-        // ── Reconstruir endpoints de ejes si faltan (objetos AIA inyectados) ────────
+        // ── Reconstruir endpoints de ejes si faltan (detección asistida) ────────
         // Canvas morfológico usa: eje_mayor_p1_recortado / eje_menor_p1_recortado
         // Canvas esquemático usa: punto_eje_mayor_1   / punto_eje_menor_1
         if (!metricasCached.eje_mayor_p1_recortado &&
@@ -6981,11 +6981,11 @@ if (typeof window !== 'undefined') {
           }
         }
 
-        // ── Reconstruir _forma_idealizada para objetos IA con análisis JS completo ──
-        // Los objetos IA tienen contorno real correcto; para que ClassificationEngine.metaClasificarForma()
+        // ── Reconstruir _forma_idealizada para objetos de detección asistida con análisis JS completo ──
+        // Esos objetos tienen contorno real correcto; para que ClassificationEngine.metaClasificarForma()
         // use distribucionRadialAngular real (y no el valor por defecto 0.85 del voter
         // radial_angular con peso 3.0), ejecutar calcularMetricasMorfologicas sobre el
-        // contorno IA. Condición: no hay _forma_idealizada, o la existente no tiene
+        // contorno detectado. Condición: no hay _forma_idealizada, o la existente no tiene
         // distribucionRadialAngular y aún no se ha ejecutado el pipeline JS (_formaIAFixed).
         if (obj.contour_points && obj.contour_points.length >= 3 &&
             (!metricasCached._forma_idealizada ||
@@ -7014,7 +7014,7 @@ if (typeof window !== 'undefined') {
           }
           // Fallback sintético si el análisis JS no produjo resultado
           metricasCached._forma_idealizada = _jsForma || metricasCached._forma_idealizada || {
-            nombre:  metricasCached.forma_detectada || 'Contorno IA',
+            nombre:  metricasCached.forma_detectada || 'Contorno real',
             color:   '#007bff',
             vertices: obj.contour_points,
             parametros: {
@@ -7023,7 +7023,7 @@ if (typeof window !== 'undefined') {
               puntos_simplificados:    obj.contour_points.length,
               reduccion_porcentaje:    '0.0',
               continuidad_promedio:    '1.000',
-              umbral_continuidad:      '— (contorno IA)',
+              umbral_continuidad:      '— (sin depuración estadística)',
               vertices_significativos: obj.contour_points.length,
               epsilon_usado:           0,
               ancho:                   obj.width,
@@ -7047,8 +7047,8 @@ if (typeof window !== 'undefined') {
           obj.analisisCached.metricas = metricasCached;
         }
 
-        // ── Meta-clasificación para objetos AIA (solo si faltan los campos JS) ──
-        // Los objetos AIA llegan con forma_detectada de Python, pero sin
+        // ── Meta-clasificación de la detección asistida (solo si faltan los campos JS) ──
+        // Esos objetos llegan con forma_detectada de Python, pero sin
         // forma_confianza_global / _clasificaciones_individuales / forma_razonamiento,
         // que son computadas por ClassificationEngine.metaClasificarForma() en el flujo estándar.
         // Se calcula aquí una sola vez y se persiste en analisisCached.
@@ -7114,7 +7114,7 @@ if (typeof window !== 'undefined') {
           UtilityHelpers.setStatus(`Análisis morfológico recuperado para objeto ${obj.id}`, false);
         }
 
-        // ADR-009: los análisis CACHEADOS (incl. objetos IA) no pasaron por el bloque
+        // ADR-009: los análisis CACHEADOS (incl. los de detección asistida) no pasaron por el bloque
         // /contour que captura candidatos P/H → si faltan, detectarlos ahora sobre la
         // imagen cargada (seedless) y refrescar el chip. Fire-and-forget; no bloquea.
         detectarCandidatosPHSiFaltan(obj);
@@ -7173,13 +7173,13 @@ if (typeof window !== 'undefined') {
 
       // ── B2: Contorno subpíxel Python /api/contour ───────────────────────────
       // Reemplaza extraerContornoReal() → cornerSubPix OpenCV (más preciso que JS)
-      // Si el objeto ya fue segmentado con IA (_samSegmented), se PRESERVA ese
-      // contorno — el segmentador IA usa la imagen completa con contexto de fondo y
+      // Si el contorno ya es definitivo (`_samSegmented`, detección asistida), se PRESERVA ese
+      // contorno — la detección asistida trabaja sobre la imagen completa, con fondo real, y
       // produce un contorno más preciso que el extractor estándar sobre el recorte.
-      // ADR-009: aun así se ejecuta /contour para objetos IA/SAM (antes excluidos)
+      // ADR-009: aun así se ejecuta /contour para esos objetos (antes excluidos)
       // con el ÚNICO fin de capturar `ph_candidates` — los huecos viven en la imagen,
       // no en el contorno; la adopción del contorno/hull/confianza queda gateada por
-      // `!obj._samSegmented` abajo, así el contorno IA no se pisa.
+      // `!obj._samSegmented` abajo, así ese contorno no se pisa.
       // Fase 3 obj3d: para `_canonicalRaster`, el contorno proviene de la geometría 3D
       // exacta y el raster sintético no tiene P/H reales → se omite por completo.
       if (window.PythonBridge && PythonBridge.isModuleActive('contour') && fullImageDataURL &&
@@ -7192,7 +7192,7 @@ if (typeof window !== 'undefined') {
           );
           if (pyCont && Array.isArray(pyCont.points) && pyCont.points.length >= 3) {
             // El contorno/hull/confianza del extractor SOLO se adoptan si el objeto NO
-            // viene segmentado por IA (para no pisar el contorno definitivo AIA/SAM).
+            // trae contorno definitivo (`_samSegmented`), para no pisar el de la detección asistida.
             if (!obj._samSegmented) {
               // Python devuelve coords ABSOLUTAS (paso 7 en contour.py suma bbox.x/y).
               // Los canvases (schematicCanvas, morphologicalCanvas) esperan absolutas y
@@ -7213,14 +7213,14 @@ if (typeof window !== 'undefined') {
             // ADR-008 Fase 2 — confianza AUTORITATIVA en la frontera del contorno.
             // Homogeneiza los 4 modos: manual/auto-frontend la heredan aquí (no la
             // calculan en detección); auto-backend reconcilia su preview. Misma
-            // fuente que detect()/IA (_confianza_objeto). Alias legacy
+            // fuente que detect() y la detección asistida (_confianza_objeto). Alias legacy
             // (_confidence/_confidenceLvl) para el triage y el export existentes.
             //
             // ADR-019: este bloque estaba DENTRO del gate `!obj._samSegmented`, así
-            // que los objetos IA —que nacen con `_samSegmented:true`— nunca recibían
+            // que los de detección asistida —que nacen con `_samSegmented:true`— nunca recibían
             // confianza y salían con «N/A» en el informe. El gate protege el CONTORNO
             // de la red neuronal, no la confianza; son cosas distintas. Fuera del gate,
-            // y sin pisar la que el propio flujo IA ya haya traído del backend.
+            // y sin pisar la que la propia detección asistida ya haya traído del backend.
             if (pyCont.detection_confidence != null && obj.detection_confidence == null) {
               obj.detection_confidence = pyCont.detection_confidence;
               obj.confidence_level     = pyCont.confidence_level;
@@ -7233,7 +7233,7 @@ if (typeof window !== 'undefined') {
             // (RETR_CCOMP). Son SUGERENCIAS neutras (tipo='candidato'): NO se escriben
             // en obj.perforaciones/horadaciones ni alteran el área neta hasta que el
             // usuario los confirma y tipa en el modal P/H. Se capturan SIEMPRE (incluido
-            // IA/SAM) y elevan P/H a tarea primaria vía el chip §2 de la pestaña Análisis.
+            // detección asistida) y elevan P/H a tarea primaria vía el chip §2 de la pestaña Análisis.
             obj.phCandidatos = Array.isArray(pyCont.ph_candidates) ? pyCont.ph_candidates : [];
             if (obj.phCandidatos.length) {
               console.log(`[Python] P/H candidatos seedless: ${obj.phCandidatos.length} hueco(s) (sin confirmar)`);
@@ -7335,7 +7335,7 @@ if (typeof window !== 'undefined') {
               }
 
               // _forma_idealizada: intentar análisis JS completo para distribucionRadialAngular
-            // (equivalente al pipeline Manual), usando el contorno correcto del objeto IA.
+            // (equivalente al pipeline Manual), usando el contorno correcto del objeto de detección asistida.
             if (!metricas._forma_idealizada) {
               let _jsFormaNC = null;
               if (obj.contour_points?.length >= 3 && typeof MetricsOrchestrator.calcularMetricasMorfologicas === 'function') {
@@ -7362,7 +7362,7 @@ if (typeof window !== 'undefined') {
                 // ── Fallback sin análisis JS: NO hubo depuración estadística ──────
                 // Debe cumplir el MISMO contrato que los otros cuatro productores de
                 // `_forma_idealizada` (shape-classification.js:1303 canónico, el
-                // fallback IA de ~:11723 y mao-ia.js:2199): `{nombre, color, vertices,
+                // fallback de detección asistida de ~:11723 y mao-ia.js:2199): `{nombre, color, vertices,
                 // parametros{...}, distribucionRadialAngular}`.
                 //
                 // Hasta 2026-09-12 este era el ÚNICO productor que devolvía un objeto
@@ -7374,7 +7374,7 @@ if (typeof window !== 'undefined') {
                 //
                 // Los valores dicen la verdad: N puntos de entrada, 0 eliminados, 0 %
                 // de reducción; `umbral_continuidad` marca explícitamente que no se
-                // ejecutó depuración, igual que la rama IA marca '— (contorno IA)'.
+                // ejecutó depuración, con la misma marca que la rama de detección asistida.
                 const _vertsNC = (metricas.vertices_coords || []).map(p => Array.isArray(p) ? p : [p.x, p.y]);
                 // Puntos de la máscara: entrada y salida COINCIDEN porque no se
                 // eliminó ninguno (reducción 0 %). `vertices_coords` son los vértices
@@ -7408,7 +7408,7 @@ if (typeof window !== 'undefined') {
 
             // ── Forzar etiqueta de fragmento en _forma_idealizada si Python indica baja completitud ──
             // ── Inyección de fragmento RETIRADA en ADR-017 F0 ─────────────────
-            // Gemela de la del flujo IA: forzaba «Fragmento X (N% completo)» a
+            // Gemela de la ruta de detección asistida: forzaba «Fragmento X (N% completo)» a
             // partir de `completitud_estimada < 95` o `perdida_area > 1.0%`, dos
             // medidas de CONCAVIDAD. Vuelve en F1 alimentada por el ajuste de
             // plantilla (`es_fragmento_candidato` + `plantilla_completitud`).
@@ -7482,7 +7482,7 @@ if (typeof window !== 'undefined') {
         return false;
       }
       
-      // ── Fase 2 IA: Clasificación tipológica arqueológica ─────────────────────
+      // ── Clasificación tipológica arqueológica (reglas + evidencia EFA) ───────
       if (window.PythonBridge && PythonBridge.isAvailable()) {
         try {
           const _tipologia = await PythonBridge.classifier.classify(metricas);
@@ -7491,16 +7491,16 @@ if (typeof window !== 'undefined') {
             metricas.tipo_artefacto      = _tipologia.tipo;
             metricas.subtipo_artefacto   = _tipologia.subtipo  || '';
             metricas.confianza_tipologia = _tipologia.confianza || 0;
-            console.log(`[IA Fase 2] Tipología: ${_tipologia.tipo} (${(_tipologia.confianza * 100).toFixed(0)}%)`);
+            console.log(`[Tipología] Tipología: ${_tipologia.tipo} (${(_tipologia.confianza * 100).toFixed(0)}%)`);
           }
         } catch (_eTip) {
-          console.warn('[IA Fase 2] classify falló:', _eTip.message);
+          console.warn('[Tipología] classify falló:', _eTip.message);
         }
       }
 
       const emitirMonitorAnalisis = (objMonitor, metricasMonitor) => {
         // ADR-008 Fase 3 — schema único de telemetría (C7): el builder canónico
-        // unifica auto/manual/IA e incluye método + confianza de detección.
+        // unifica automático/manual/asistida e incluye método + confianza de detección.
         const payload = (window.MaoDeteccion && window.MaoDeteccion.buildMonitorAnalisis)
           ? window.MaoDeteccion.buildMonitorAnalisis(objMonitor, metricasMonitor)
           : { objeto: objMonitor.id || null, modo: 'desconocido', timestamp: new Date().toISOString() };
@@ -8482,7 +8482,7 @@ if (typeof window !== 'undefined') {
    * Error óptico posicional AUTÓNOMO y AGNÓSTICO del modo de detección.
    * Depende SOLO de: (a) las características ópticas de la imagen adquirida
    * (params de cámara/escala) y (b) el área de detección del objeto (su centroide).
-   * No se delega a ningún método de detección — manual, IA, manual-asistido o lo que sea
+   * No se delega a ningún método de detección — automático, asistido, manual o lo que sea
    * llaman a esta única función y obtienen el mismo resultado. Adjunta los 11 campos
    * error_optico_* + la incertidumbre a `metricas`. Devuelve true si lo calculó.
    *
@@ -8631,7 +8631,7 @@ if (typeof window !== 'undefined') {
     
     // Fórmula mejorada: escala = (ancho_sensor / ancho_imagen) * (distancia / focal)
     scale = (sensorWidth / anchoImagen) * (distancia / focal);
-    // Parámetros canónicos de la escala → CUALQUIER modo (incl. IA) calcula el error
+    // Parámetros canónicos de la escala → CUALQUIER modo (incl. la detección asistida) calcula el error
     // óptico posicional con LOS MISMOS datos que la escala, sin releer #focalInput.
     window.escalaParamsOpticos = {
       focalMM: focal, sensorW: sensorWidth,
@@ -8927,7 +8927,7 @@ if (typeof window !== 'undefined') {
     const factorCorreccionRAW = 1.0; // Los metadatos RAW son más precisos
     scale = escalaBase * factorCorreccionRAW;
     // Mismos params canónicos para el error óptico. CRÍTICO aquí: focalRAW viene de los
-    // metadatos RAW y NO se escribe en #focalInput → por eso la IA leía focal=0.
+    // metadatos RAW y NO se escribe en #focalInput → por eso la detección asistida leía focal=0.
     window.escalaParamsOpticos = {
       focalMM: focalRAW, sensorW: sensorWidth,
       sensorH: parseFloat(sensorHeightInput.value) || sensorWidth,
@@ -11866,7 +11866,7 @@ if (typeof window !== 'undefined') {
   /**
    * Detección manual de área — ADR-012 (detección monolítica, Fase 1).
    * Núcleo canónico = OpenCV `/api/detect` (Z-scan + GrabCut + watershed + confianza),
-   * misma fidelidad que auto-backend/IA. Si Python no está disponible,
+   * misma fidelidad que auto-backend/asistida. Si Python no está disponible,
    * PythonBridge.detection.detect() devuelve null → cae al motor JS de abajo (fallback).
    */
   async function detectarObjetosManualRapida(areaSeleccionada) {
@@ -11903,10 +11903,10 @@ if (typeof window !== 'undefined') {
 
     // ── ADR-012 + fix segmentación manual: detectar el fondo con CONTEXTO ────────
     // El ROI es el prior espacial del modo manual; el núcleo separa pegados
-    // (watershed) y emite confianza, igual que auto/IA. PERO si el usuario dibuja
+    // (watershed) y emite confianza, igual que automático/asistida. PERO si el usuario dibuja
     // el ROI ajustado al objeto, los bordes del recorte son el propio objeto →
     // _detectar_color_fondo falla (brillo_min<230 → método erróneo → máscara mala),
-    // mientras IA acierta porque corre sobre la imagen completa (bordes=fondo real).
+    // mientras la asistida acierta porque corre sobre la imagen completa (bordes=fondo real).
     // Solución: ampliar el recorte con un MARGEN de fondo, detectar, y conservar los
     // objetos que solapan el ROI del usuario (descarta vecinos que capte el margen).
     // Si Python no está, PythonBridge.detection.detect() → null → motor JS abajo.
@@ -17195,7 +17195,7 @@ if (typeof window !== 'undefined') {
     const gradiente   = metricas.gradiente_medio       != null ? parseFloat(metricas.gradiente_medio)      : null;
     const tieneTextura = (varianza !== null || entropia !== null || gradiente !== null);
 
-    // XIV-b — métricas GLCM (disponibles cuando viene desde AIA)
+    // XIV-b — métricas GLCM (disponibles cuando viene de la detección asistida)
     const glcmContrast  = metricas.contrast      != null ? parseFloat(metricas.contrast)      : null;
     const glcmDissim    = metricas.dissimilarity  != null ? parseFloat(metricas.dissimilarity)  : null;
     const glcmHomog     = metricas.homogeneity    != null ? parseFloat(metricas.homogeneity)    : null;
@@ -17940,7 +17940,7 @@ if (typeof window !== 'undefined') {
     const claseCircularidad = metricas.shape_class_circularity || 'No clasificada';
     const claseAspect = metricas.shape_class_aspect || 'No clasificada';
 
-    // ── Tipología arqueológica (Fase 2 IA) ──
+    // ── Tipología arqueológica (clasificador por reglas + evidencia EFA) ──
     const tip = metricas.tipologia;
     let tipologiaHTML = '';
     if (tip && tip.tipo) {
@@ -17950,7 +17950,7 @@ if (typeof window !== 'undefined') {
       const tipText = tip.color?.text || '#4527a0';
       tipologiaHTML = `
       <h3 style="color: #4527a0; margin: 24px 0 12px 0; padding-bottom: 8px; border-bottom: 3px solid #4527a0;">
-        ${CategoryManifest.indiceDe('clasificacion')}-b. Tipología Arqueológica — IA Fase 2
+        ${CategoryManifest.indiceDe('clasificacion')}-b. Tipología Arqueológica — clasificador por reglas
       </h3>
       <div style="display:flex; align-items:center; gap:12px; padding:14px 16px; background:${tipColor}; border:2px solid ${tipBorder}; border-radius:8px; margin-bottom:14px;">
         <span style="font-size:28px; line-height:1;">${tip.icono || '🔩'}</span>
@@ -18542,7 +18542,7 @@ if (typeof window !== 'undefined') {
     // en ese caso _contour_data.points ya es el polígono simplificado, no el OpenCV.
     const candidatos = [
       metricas?._contour_data_original?.points, // OpenCV real (modo manual con idealización)
-      metricas?._contour_data?.points,          // OpenCV real (modo IA o manual sin idealización)
+      metricas?._contour_data?.points,          // OpenCV real (detección asistida o manual sin idealización)
       obj?.original_contour_points,             // respaldo en obj si se guardó antes
       obj?.contour_points,
       metricas?.contour_points,
@@ -21083,8 +21083,8 @@ if (typeof window !== 'undefined') {
       const _seccionesMetricas = [
         // ADR-019 — la procedencia encabeza también el informe bifacial, y se rinde
         // POR CARA: cada cara pudo detectarse con un método distinto (p. ej. la A con
-        // IA y la B en manual), así que un único bloque global sería engañoso.
-        { titulo: CategoryManifest.encabezadoDe('deteccion'), claves: [['Método de detección','detection_method'],['Confianza de detección  [0–1]','detection_confidence'],['Nivel de confianza','confidence_level'],['Segmentador / motor','ia_segmentador'],['Umbralización (modo IA)','ia_threshold_method']] },
+        // detección asistida y la B en manual), así que un único bloque global sería engañoso.
+        { titulo: CategoryManifest.encabezadoDe('deteccion'), claves: [['Método de detección','detection_method'],['Confianza de detección  [0–1]','detection_confidence'],['Nivel de confianza','confidence_level'],['Segmentador / motor','ia_segmentador'],['Umbralización (detección asistida)','ia_threshold_method']] },
         { titulo: `${CategoryManifest.encabezadoDe('identificacion')} — Clasificación Morfológica`, claves: [['Forma Detectada','forma_detectada'],['Confianza de Clasificación  [0–1]','forma_confianza'],['Razón de Clasificación','forma_razon'],['Simetría Bilateral  [0–1]','simetria_bilateral'],['Desplazamiento de Asimetría (mm)','simetria_distancia_asimetria'],['Clasificación Simetría','simetria_clasificacion'],['Orientación del Eje Principal','eje_principal_orientacion'],['Forma Dominante del Contorno','eje_principal_forma_dominante']] },
         { titulo: 'II. Dimensiones Métricas del Objeto (mm — escala calibrada)', claves: [['Área convex hull (mm²)','area'],['Perímetro convex hull (mm)','perimeter'],['Longitud máxima — Feret↑ (mm)','feret_max'],['Anchura máxima — Feret↓ (mm)','feret_min'],['Eje Mayor — tensor inercia (mm)','eje_mayor'],['Eje Menor — tensor inercia (mm)','eje_menor'],['Eje Mayor Real del Contorno (mm)','eje_mayor_real_longitud'],['Eje Menor Real del Contorno (mm)','eje_menor_real_longitud'],['Radio Máximo desde Centroide (mm)','radio_maximo'],['Radio Mínimo desde Centroide (mm)','radio_minimo'],['Radio Medio desde Centroide (mm)','radio_medio'],['Ancho BB convex hull (mm)','width'],['Alto BB convex hull (mm)','height']] },
         { titulo: 'III. Proporciones y Forma Global  [adimensional 0–1]', claves: [['Circularidad  [0–1]','circularity'],['Compacidad  [0–1]','compactness'],['Solidez  [0–1]','solidity'],['Rectangularidad  [0–1]','rectangularity'],['Elongación  [0–1]','elongation'],['Factor de Forma  [0–1]','shape_factor'],['Excentricidad  [0–1]','excentricidad'],['Relación de Aspecto Tight (L/A)','aspect_ratio_tight'],['Relación de Aspecto Original (L/A)','aspect_ratio_original'],['Ratio Feret (Máx./Mín.)','feret_ratio'],['Anisotropía del Eje Principal  [0–1]','eje_principal_anisotropia'],['Eficiencia Bounding Box  [0–1]','bounding_box_efficiency']] },
@@ -22531,14 +22531,14 @@ if (typeof window !== 'undefined') {
           const seccionesMetricas = [
             {
               // ADR-019 — procedencia del dato antes que el dato. Es el hallazgo #5
-              // de ADR-016: el PDF de un objeto IA no declaraba cómo se detectó.
+              // de ADR-016: el PDF de un objeto de detección asistida no declaraba cómo se detectó.
               titulo: CategoryManifest.encabezadoDe('deteccion'),
               metricas: [
                 ['Método de detección', 'detection_method'],
                 ['Confianza de detección  [0–1]', 'detection_confidence'],
                 ['Nivel de confianza', 'confidence_level'],
                 ['Segmentador / motor', 'ia_segmentador'],
-                ['Umbralización (modo IA)', 'ia_threshold_method'],
+                ['Umbralización (detección asistida)', 'ia_threshold_method'],
               ]
             },
             {
@@ -23606,7 +23606,7 @@ if (typeof window !== 'undefined') {
     UtilityHelpers.setStatus(`${objects.length} objetos individualizados y mostrados.`, false);
 
     // ── Auto-análisis silencioso para objetos sin métricas cacheadas ──────────
-    // Los objetos AIA ya tienen analisisCached desde inyectarObjetosDesdeIA.
+    // Los objetos de detección asistida ya tienen analisisCached desde inyectarObjetosDesdeIA.
     // Esta rutina analiza en background todos los demás (detección estándar,
     // manual, SAM) para que sus métricas estén disponibles sin que el usuario
     // tenga que pulsar "Analizar Forma" en cada tarjeta individualmente.
@@ -25453,7 +25453,7 @@ if (typeof window !== 'undefined') {
         return;
       }
 
-      // Garantizar que obj.metricas esté disponible (los AIA lo tienen en analisisCached.metricas)
+      // Garantizar que obj.metricas esté disponible (los de detección asistida lo tienen en analisisCached.metricas)
       if (!objActivo.metricas) {
         const _metFallback = currentAnalyzedObject?.metricas || objActivo.analisisCached?.metricas;
         if (_metFallback) objActivo.metricas = _metFallback;
@@ -25717,7 +25717,7 @@ if (typeof window !== 'undefined') {
         return;
       }
 
-      // Garantizar que obj.metricas esté disponible (los AIA lo tienen en analisisCached.metricas
+      // Garantizar que obj.metricas esté disponible (los de detección asistida lo tienen en analisisCached.metricas
       // y también en currentAnalyzedObject.metricas tras pasar por mostrarAnalisisMorfologico).
       if (!objActivo.metricas) {
         const _metFallback = currentAnalyzedObject?.metricas || objActivo.analisisCached?.metricas;
@@ -26046,7 +26046,7 @@ if (typeof window !== 'undefined') {
     // CATEGORÍA: Detección — ADR-019 (procedencia antes que resultados)
     // ==========================================================================
     // Antes sólo había un `Identificación,Método de Detección` suelto, sin confianza
-    // y sin los parámetros del modo IA. La procedencia es su propia categoría.
+    // y sin los parámetros de la detección asistida. La procedencia es su propia categoría.
     DetectionSection.filasDeteccion(m).forEach(f => {
       csvLines += `Detección,${f.label},${f.valor},-\n`;
     });
@@ -26082,7 +26082,7 @@ if (typeof window !== 'undefined') {
   csvLines += `Dimensiones Básicas,Perímetro,${fmt(m.perimeter, 2)},${m.perimeter_unit || 'mm'}\n`;
   csvLines += `Dimensiones Básicas,Ancho (BB Ajustado),${fmt(m.width, 2)},mm\n`;
   csvLines += `Dimensiones Básicas,Alto (BB Ajustado),${fmt(m.height, 2)},mm\n`;
-  // ADR-016 #1: bounding_width/height a veces quedan en px (path IA). Conversor px→mm fuente única.
+  // ADR-016 #1: bounding_width/height a veces quedan en px (ruta de detección asistida). Conversor px→mm fuente única.
   const _bbOrigF = MetricPresenter.conversorBBaMm(m);
   csvLines += `Dimensiones Básicas,Ancho (BB Original),${fmt(_bbOrigF(m.bounding_width), 2)},mm\n`;
   csvLines += `Dimensiones Básicas,Alto (BB Original),${fmt(_bbOrigF(m.bounding_height), 2)},mm\n`;
@@ -27296,14 +27296,14 @@ if (typeof window !== 'undefined') {
     // ============================================================================
     // Estructura consistente para bifaciales y monofaciales
     // LÓGICA CORREGIDA:
-    // - El modo puede venir del global modoAnalisis (flujo manual) O de obj.tipo (flujo MAO IA).
+    // - El modo puede venir del global modoAnalisis (flujo manual) O de obj.tipo (detección asistida).
     // - Se acepta bifacial si CUALQUIERA de las dos fuentes lo indica Y obj.cara es 'A'/'B'.
     // - Monofacial: cara siempre 'A'.
     
     const _caraValida = obj.cara === 'A' || obj.cara === 'B';
     const esBifacial = _caraValida && (
       modoAnalisis === 'bifacial' ||   // flujo manual
-      obj.tipo === 'bifacial'          // flujo MAO IA (obj.tipo viene de exportarAAnalisisMorfologico)
+      obj.tipo === 'bifacial'          // detección asistida (obj.tipo viene de exportarAAnalisisMorfologico)
     );
     const cara = esBifacial ? obj.cara : 'A'; // Monofaciales siempre son cara A
     
@@ -27342,7 +27342,7 @@ if (typeof window !== 'undefined') {
       
       // Dibujar solo la imagen del objeto (disponible en obj.imagenRecortadaOriginal o recrear desde imagen fuente)
       // Usamos la misma región que el morphCanvas pero sin los trazos
-      // Prioridad: imagen específica pasada a mostrarAnalisisMorfologico (flujo IA) → imageCaraA/B → image global
+      // Prioridad: imagen específica pasada a mostrarAnalisisMorfologico (detección asistida) → imageCaraA/B → image global
       const imagenFuente = (typeof window._maoGetImageCaraA === 'function'
         ? (obj.cara === 'A' ? window._maoGetImageCaraA()
          : obj.cara === 'B' ? window._maoGetImageCaraB()
@@ -32624,14 +32624,14 @@ if (typeof window !== 'undefined') {
    */
   async function analizarObjetoConIA(obj, imagenCara) {
     if (!window.PythonBridge || !PythonBridge.isAvailable()) {
-      UtilityHelpers.setStatus('⚠️ Servidor Python no disponible para análisis IA.', true);
+      UtilityHelpers.setStatus('⚠️ Servidor Python no disponible para la segmentación MobileSAM/GrabCut.', true);
       return;
     }
 
     const iaBtn = document.getElementById(`iaBtn_${obj.id}`);
     const _btnRestore = iaBtn ? iaBtn.innerHTML : '';
     const _btnDisable = () => {
-      if (iaBtn) { iaBtn.disabled = true; iaBtn.innerHTML = '⏳ Procesando IA…'; iaBtn.style.opacity = '0.7'; }
+      if (iaBtn) { iaBtn.disabled = true; iaBtn.innerHTML = '⏳ Segmentando…'; iaBtn.style.opacity = '0.7'; }
     };
     const _btnResetok = () => {
       if (iaBtn) { iaBtn.disabled = false; iaBtn.innerHTML = _btnRestore; iaBtn.style.opacity = '1'; }
@@ -32639,18 +32639,18 @@ if (typeof window !== 'undefined') {
     _btnDisable();
 
     try {
-      // ── 1. Verificar modo activo (GrabCut AI o MobileSAM ONNX) ───────────
-      UtilityHelpers.setStatus('🔍 Verificando motor IA…', false);
+      // ── 1. Verificar motor activo (GrabCut clásico o MobileSAM ONNX) ─────
+      UtilityHelpers.setStatus('🔍 Verificando motor de segmentación…', false);
       let samSt;
       try {
         samSt = await PythonBridge.sam.status();
       } catch (e) {
-        UtilityHelpers.setStatus('⚠️ No se pudo conectar con el servidor IA.', true);
+        UtilityHelpers.setStatus('⚠️ No se pudo conectar con el servidor de segmentación.', true);
         _btnResetok();
         return;
       }
 
-      const modeLabel = samSt?.mode === 'mobilesam_onnx' ? 'MobileSAM ONNX' : 'GrabCut AI';
+      const modeLabel = samSt?.mode === 'mobilesam_onnx' ? 'MobileSAM ONNX (red neuronal)' : 'GrabCut (clásico)';
 
       // ── 2. Obtener DataURL de la imagen completa (Cara A / B / mono) ───────
       UtilityHelpers.setStatus(`🧠 Segmentando con ${modeLabel}…`, false);
@@ -32675,7 +32675,7 @@ if (typeof window !== 'undefined') {
       } else if (imagenCara instanceof HTMLCanvasElement) {
         fullImageDataURL = imagenCara.toDataURL('image/png');
       } else {
-        UtilityHelpers.setStatus('⚠️ Tipo de imagen no soportado para análisis IA.', true);
+        UtilityHelpers.setStatus('⚠️ Tipo de imagen no soportado para la segmentación.', true);
         _btnResetok();
         return;
       }
@@ -32693,7 +32693,7 @@ if (typeof window !== 'undefined') {
       try {
         samCont = await PythonBridge.sam.extractContour(fullImageDataURL, bboxAbs, { subpixel: true, simplify: 2.0 });
       } catch (e) {
-        UtilityHelpers.setStatus(`❌ Error en segmentación IA: ${e.message}`, true);
+        UtilityHelpers.setStatus(`❌ Error en la segmentación: ${e.message}`, true);
         _btnResetok();
         return;
       }
@@ -32704,7 +32704,7 @@ if (typeof window !== 'undefined') {
         return;
       }
 
-      // ── 4. Inyectar contorno IA en el objeto ──────────────────────────────
+      // ── 4. Inyectar el contorno segmentado en el objeto ───────────────────
       // Los puntos ya vienen en coordenadas absolutas desde el servidor.
       obj.contour_points   = samCont.points;         // [[x,y],...] absolutos
       obj.has_real_contour = true;
@@ -32716,10 +32716,10 @@ if (typeof window !== 'undefined') {
       }
 
       const metodoUsado = samCont.metodoDeteccion || modeLabel;
-      console.log(`[IA] contorno ✓ → ${obj.contour_points.length} pts · método: ${metodoUsado} · quality: ${samCont.quality?.nivel}`);
-      UtilityHelpers.setStatus(`🧠 Contorno IA listo (${obj.contour_points.length} pts). Calculando métricas…`, false);
+      console.log(`[Segmentador] contorno ✓ → ${obj.contour_points.length} pts · método: ${metodoUsado} · quality: ${samCont.quality?.nivel}`);
+      UtilityHelpers.setStatus(`Contorno segmentado listo (${obj.contour_points.length} pts). Calculando métricas…`, false);
 
-      // ── 5. Pipeline de métricas con contorno IA ───────────────────────────
+      // ── 5. Pipeline de métricas con el contorno segmentado ────────────────
       const objIdx = objects.findIndex(o => o.id === obj.id);
       if (objIdx >= 0) {
         objects[objIdx].contour_points   = obj.contour_points;
@@ -32740,11 +32740,11 @@ if (typeof window !== 'undefined') {
         }
       }
 
-      UtilityHelpers.setStatus(`✅ Análisis IA completado para ${obj.id} (${metodoUsado})`, false);
+      UtilityHelpers.setStatus(`✅ Segmentación y análisis completados para ${obj.id} (${metodoUsado})`, false);
 
     } catch (err) {
-      console.error('[IA] Error inesperado:', err);
-      UtilityHelpers.setStatus(`❌ Error IA: ${err.message}`, true);
+      console.error('[Segmentador] Error inesperado:', err);
+      UtilityHelpers.setStatus(`❌ Error de segmentación: ${err.message}`, true);
     } finally {
       _btnResetok();
     }
@@ -34000,7 +34000,7 @@ if (typeof window !== 'undefined') {
       actualizarProgreso(progressContainer, 70, 'Detectando objetos arqueológicos...');
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      // Preservar objetos de AIA antes de limpiar detecciones previas
+      // Preservar los objetos de la detección asistida antes de limpiar detecciones previas
       const _savedIAObjs = objects.filter(o => o._fromIA);
       // Limpiar detecciones previas
       objects = [];
@@ -34085,10 +34085,10 @@ if (typeof window !== 'undefined') {
       // Inicializar estado de detección
       initializeDetectionStatus();
       
-      // Re-incorporar objetos de AIA generados previamente
+      // Re-incorporar los objetos de la detección asistida generados previamente
       if (_savedIAObjs.length > 0) {
         objects = objects.filter(o => !o._fromIA).concat(_savedIAObjs);
-        console.log(`[IA] Re-incorporados ${_savedIAObjs.length} objeto(s) AIA tras nueva detección`);
+        console.log(`[Detección asistida] Re-incorporados ${_savedIAObjs.length} objeto(s) tras nueva detección`);
       }
 
       // Actualizar objetos individuales
@@ -35787,7 +35787,7 @@ if (typeof window !== 'undefined') {
       console.log('✅ Event listeners agregados a Cara B');
     }
     
-    // Limpiar objetos automáticos (preservar objetos de AIA)
+    // Limpiar objetos automáticos (preservar los de la detección asistida)
     objects = objects.filter(o => o._fromIA);
     
     // Redibujar ambos canvas
@@ -36346,7 +36346,7 @@ if (typeof window !== 'undefined') {
       
       // Verificar que hay un objeto en análisis morfológico.
       // window.currentAnalyzedObject es la fuente autoritativa: la sincronizan
-      // visualization-export.js y analysis-core. El flujo IA/tabs renderiza vía
+      // visualization-export.js y analysis-core. La detección asistida y las pestañas renderizan vía
       // visualization-export.js, que setea ese global pero NO la var local del
       // IIFE → leer la local daba null y cortaba con el toast. Preferir el global.
       const cao = window.currentAnalyzedObject || currentAnalyzedObject;
@@ -36627,7 +36627,7 @@ if (typeof window !== 'undefined') {
           phAutoProfileMode = e.target.value || 'auto';
           persistPhAutoUiSettings();
           const modoTxt = phAutoProfileMode === 'auto' ? 'Auto' : phAutoProfileMode;
-          UtilityHelpers.setStatus(`Perfil IA seleccionado: ${modoTxt}.`, false);
+          UtilityHelpers.setStatus(`Perfil de tamaño seleccionado: ${modoTxt}.`, false);
         });
       }
 
@@ -36934,7 +36934,7 @@ if (typeof window !== 'undefined') {
     const _phDetBtn = document.getElementById('phDetectarPorPuntoBtn');
     if (_phDetBtn) { _phDetBtn.style.background = 'transparent'; _phDetBtn.style.color = '#e65100'; }
 
-    // Restaurar preferencias guardadas de IA Auto desde el análisis cargado.
+    // Restaurar preferencias guardadas de la detección de P/H por malla desde el análisis cargado.
     restorePhAutoUiSettings(obj, obj.metricas || currentAnalyzedObject?.metricas);
 
     const _phAutoProfile = document.getElementById('phAutoProfileSelect');
@@ -38965,7 +38965,7 @@ if (typeof window !== 'undefined') {
   }
 
   /**
-   * Detección IA automática de P/H (multi-semilla) sobre el objeto activo.
+   * Detección de P/H por malla de semillas sobre el objeto activo.
    * Recorre una malla de puntos internos y usa /api/ph/detect-at-point para
    * proponer contornos. Los candidatos se deduplican por centro/área.
    */
@@ -39045,12 +39045,12 @@ if (typeof window !== 'undefined') {
 
       if (!seeds.length) {
         toast.warning('No se generaron semillas internas para detección automática.');
-        UtilityHelpers.setStatus('No fue posible iniciar detección IA automática.', true);
+        UtilityHelpers.setStatus('No fue posible iniciar la detección por malla.', true);
         return;
       }
 
       UtilityHelpers.setStatus(
-        `✦ Detección IA Auto (${profileLabel}, sens ${sensitivity.toFixed(2)}x): evaluando hasta ${Math.min(autoMaxCandidates * 3, seeds.length)} semillas...`,
+        `⊞ Detección por malla (${profileLabel}, sens ${sensitivity.toFixed(2)}x): evaluando hasta ${Math.min(autoMaxCandidates * 3, seeds.length)} semillas...`,
         false
       );
 
@@ -39067,7 +39067,7 @@ if (typeof window !== 'undefined') {
         // Compatibilidad: backend antiguo sin endpoint batch => usar fallback por semilla.
         if (errAuto?.status === 404) {
           console.warn('[detectarPhAutomatico] /ph/detect-auto no disponible, activando fallback por semilla.');
-          UtilityHelpers.setStatus('Detección IA batch no disponible en backend actual. Usando fallback por semilla...', false);
+          UtilityHelpers.setStatus('Detección por malla en lote no disponible en el backend actual. Usando fallback por semilla...', false);
         } else {
           throw errAuto;
         }
@@ -39128,8 +39128,8 @@ if (typeof window !== 'undefined') {
       }
 
       if (!candidatos.length) {
-        toast.warning('No se detectaron candidatos IA. Puede usar trazado manual o detección por punto.');
-        UtilityHelpers.setStatus('Detección IA Auto finalizada sin candidatos.', false);
+        toast.warning('La detección por malla no encontró candidatos. Puede usar trazado manual o detección por punto.');
+        UtilityHelpers.setStatus('Detección por malla finalizada sin candidatos.', false);
         return;
       }
 
@@ -39150,15 +39150,15 @@ if (typeof window !== 'undefined') {
 
       const nPerf = candidatos.filter(c => c.tipo === 'perforacion').length;
       const nHor = candidatos.length - nPerf;
-      toast.success(`Detección IA Auto: ${candidatos.length} candidatos (${nPerf} P, ${nHor} H).`);
+      toast.success(`Detección por malla: ${candidatos.length} candidatos (${nPerf} P, ${nHor} H).`);
       UtilityHelpers.setStatus(
-        `Detección IA Auto completada: ${candidatos.length} candidatos añadidos. Revise/edite y pulse "Finalizar y Aplicar".`,
+        `Detección por malla completada: ${candidatos.length} candidatos añadidos. Revise/edite y pulse "Finalizar y Aplicar".`,
         false
       );
     } catch (err) {
       console.error('[detectarPhAutomatico]', err);
-      toast.warning('Error en detección IA automática. Intente detección por punto o trazado manual.');
-      UtilityHelpers.setStatus('Error en detección IA automática.', true);
+      toast.warning('Error en la detección por malla. Intente detección por punto o trazado manual.');
+      UtilityHelpers.setStatus('Error en la detección por malla.', true);
     } finally {
       phPointDetectActive = false;
     }
@@ -39516,7 +39516,7 @@ if (typeof window !== 'undefined') {
 
   /**
    * ADR-009 — Fallback de detección de candidatos P/H para análisis que NO pasaron
-   * por el bloque /contour (cacheados, objetos IA/SAM). Si `obj.phCandidatos` ya existe
+   * por el bloque /contour (cacheados, objetos de detección asistida). Si `obj.phCandidatos` ya existe
    * no hace nada. Detecta huecos seedless sobre la imagen cargada y refresca el chip.
    * Fire-and-forget (no bloquea el render). Reversible: si no hay imagen o falla, no-op.
    */
@@ -39562,7 +39562,7 @@ if (typeof window !== 'undefined') {
         obj.analisisCached.metricas.phCandidatos = cands;
       }
       if (cands.length) {
-        console.log(`[Python] P/H candidatos seedless (fallback caché/IA): ${cands.length} hueco(s)`);
+        console.log(`[Python] P/H candidatos seedless (fallback caché/asistida): ${cands.length} hueco(s)`);
       }
       // Nudge al organizador (observa #morphologicalMetrics) para reconstruir el chip §2.
       const mm = document.getElementById('morphologicalMetrics');
@@ -42356,7 +42356,7 @@ Pendientes a verificar (ADR-003/004/005/007/008/009):
   - Auto-ID poblado en pestaña Proyecto
   - Chip P/H «N candidatas — confirmar» + modal
   - Lenguaje .laar-chip en todas las pestañas
-  - Orden/filtro confianza en modal IA`);
+  - Orden/filtro confianza en la ventana de detección asistida`);
           }
         };
 
@@ -44446,17 +44446,17 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
   // Función de cálculo de área efectiva P/H (necesaria en collection.js y comparator.js)
   window.calcularAreaEfectivaPH = calcularAreaEfectivaPH;
 
-  // Funciones de métricas geométricas (necesarias para el flujo MAO IA → análisis morfológico)
+  // Funciones de métricas geométricas (necesarias para la detección asistida → análisis morfológico)
   window.calcularEjePrincipal = calcularEjePrincipal;
   window.aplicarReglaCanonicaInterpretacion = aplicarReglaCanonicaInterpretacion;
 
   /**
-   * Meta-clasificación morfológica para objetos IA — mismo pipeline que análisis manual.
+   * Meta-clasificación morfológica para objetos de detección asistida — mismo pipeline que análisis manual.
    * Enriquece _forma_idealizada con distribucionRadialAngular (necesario para detectar
    * fragmentación y completitud) y ejecuta el árbol de votación ponderada de metaClasificarForma.
-   * Garantiza coherencia matemática de etiquetas entre los modos manual e IA.
+   * Garantiza coherencia matemática de etiquetas entre los modos manual y asistido.
    *
-   * @param {Object} metricasFinal  Métricas ya fusionadas del objeto IA (con _contour_data)
+   * @param {Object} metricasFinal  Métricas ya fusionadas del objeto de detección asistida (con _contour_data)
    * @returns {Object}              Resultado de metaClasificarForma (clasificacion_final, etc.)
    */
 
@@ -44510,7 +44510,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
   window._maoGetIdentificacion = () => obtenerIdentificacionActual();
 
   /**
-   * Inyecta objetos detectados por MAO IA en el flujo principal de análisis morfológico.
+   * Inyecta los objetos de la detección asistida en el flujo principal de análisis morfológico.
    * Genera las tarjetas de objeto igual que la detección automática o manual,
    * permitiendo acceder al análisis morfológico completo desde allí.
    *
@@ -44545,7 +44545,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
         : (o.label || 'Obj. #' + o.object_id))
         + (cara ? ' (Cara ' + cara + ')' : '');
 
-      // Métricas básicas disponibles desde la respuesta AIA (sin Python adicional)
+      // Métricas básicas disponibles desde la respuesta de la detección asistida (sin Python adicional)
       // Se guardan como analisisCached para que el botón muestre "Abrir Análisis (guardado)"
       const cx  = o.centroide_x  != null ? o.centroide_x  : (o.centroid_x  || 0);
       const cy  = o.centroide_y  != null ? o.centroide_y  : (o.centroid_y  || 0);
@@ -44560,7 +44560,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       const _s = scale;
       const metricasIaCache = {
         object_id:                    label,
-        analysis_method:              'MAO IA — Detección automática',
+        analysis_method:              'Detección asistida',  // ADR-022; antes «MAO IA — Detección automática»
         analysis_source:              'ia',  // ADR-018
         contour_extraction_successful: !!(o.contour_points && o.contour_points.length > 2),
         // ── Área ─────────────────────────────────────────────────────────
@@ -44585,8 +44585,8 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
         solidity:                     o.solidity    || null,
         excentricidad:                o.excentricidad || null,
         forma_detectada:              o.forma_detectada || null,
-        // ── Ejes (px, si vienen del pipeline AIA) ───────────────────────
-        // eje_mayor_real_longitud: Python lo devuelve en px cuando scale=0 (AIA no pasa escala).
+        // ── Ejes (px, si vienen de la detección asistida) ───────────────────────
+        // eje_mayor_real_longitud: Python lo devuelve en px cuando scale=0 (la detección asistida no pasa escala).
         // Aquí se convierte a mm usando la escala JS, igual que los radios.
         // El panel prioriza eje_mayor_real_longitud sobre eje_mayor, por lo que sin este fix
         // mostraría el valor px con unidad mm.
@@ -44598,7 +44598,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
         eje_menor_real_longitud_px:   o.eje_menor_real_longitud_px || o.eje_menor_px || null,
         eje_mayor_real_longitud:      _s && o.eje_mayor_px ? +( o.eje_mayor_px * _s).toFixed(3) : (o.eje_mayor_px || null),
         eje_menor_real_longitud:      _s && o.eje_menor_px ? +( o.eje_menor_px * _s).toFixed(3) : (o.eje_menor_px || null),
-        // ── Feret (px, si vienen del pipeline AIA) ──────────────────────
+        // ── Feret (px, si vienen de la detección asistida) ──────────────────────
         feret_max_px:                 o.feret_max_px || null,
         feret_min_px:                 o.feret_min_px || null,
         feret_max:                    _s && o.feret_max_px ? +(o.feret_max_px * _s).toFixed(3) : (o.feret_max_px || null),
@@ -44612,7 +44612,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
         radio_medio:                  _s && o.radio_medio_px  ? +(o.radio_medio_px  * _s).toFixed(3) : (o.radio_medio_px  || null),
         ratio_radios:                 o.ratio_radios     || null,
         regularidad_radial:           o.regularidad_radial || null,
-        // desviacion_radial: Python la devuelve en px (scale=0 en AIA); convertir a mm.
+        // desviacion_radial: Python la devuelve en px (scale=0 en la detección asistida); convertir a mm.
         desviacion_radial_px:         o.desviacion_radial_px || null,
         desviacion_radial:            _s && o.desviacion_radial_px ? +(o.desviacion_radial_px * _s).toFixed(3) : (o.desviacion_radial_px || null),
         // Python restaura contour_points al array en mao_ia_analyzer; hay que
@@ -44649,11 +44649,11 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
         } : null,
       };
 
-      // ── Propagar todos los campos de metrics.py disponibles en la respuesta AIA
+      // ── Propagar todos los campos de metrics.py disponibles en la respuesta de la detección asistida
       // que no fueron mapeados explícitamente (rugosidad, curvatura, simetría,
       // índices, compactness, vértices, feret extendido, completitud, etc.).
       // Esto evita que el CSV muestre N/A en ~60 métricas cuando el análisis
-      // completo no se ha re-ejecutado manualmente sobre el objeto AIA.
+      // completo no se ha re-ejecutado manualmente sobre el objeto.
       const _iaSkipProp = new Set([
         'object_id', 'label',
         'bbox_x', 'bbox_y', 'bbox_w', 'bbox_h',
@@ -44686,7 +44686,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
         convexHull: (o.hull_points && o.hull_points.length >= 3)
           ? o.hull_points.map(([x, y]) => [x - bx, y - by])
           : null,
-        // Métricas AIA pre-calculadas → tarjeta muestra "Abrir Análisis (guardado)"
+        // Métricas pre-calculadas por la detección asistida → tarjeta muestra "Abrir Análisis (guardado)"
         metricas: null,
         analisisCached: {
           metricas:        metricasIaCache,
@@ -44697,7 +44697,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
         },
         perforaciones: [],
         horadaciones: [],
-        // Contorno AIA es el definitivo → no re-extraer con /api/contour al analizar
+        // El contorno de la detección asistida es el definitivo → no re-extraer con /api/contour al analizar
         _samSegmented: true,
         // Marca para distinguir y poder reemplazar en re-ejecuciones
         _fromIA: true,
@@ -44705,9 +44705,9 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       };
     });
 
-    // Reemplazar objetos IA previos sin afectar los de detección manual/auto.
+    // Reemplazar los objetos de detección asistida previos sin afectar los de detección manual/auto.
     // Si se especificó cara (bifacial), solo reemplaza los de ESA cara para no
-    // borrar los objetos IA de la otra cara (p.ej. cara A al inyectar cara B).
+    // borrar los de la otra cara (p.ej. cara A al inyectar cara B).
     if (cara !== null && cara !== undefined) {
       objects = objects.filter(o => !(o._fromIA && (o.cara || null) === cara)).concat(nuevos);
     } else {
@@ -44719,7 +44719,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       individualizarObjetos();
     }
 
-    console.log('[IA→Cards] Inyectados', nuevos.length, 'objetos IA como tarjetas morfológicas (cara:', cara || 'mono', ').');
+    console.log('[Asistida→Cards] Inyectados', nuevos.length, 'objetos de detección asistida como tarjetas morfológicas (cara:', cara || 'mono', ').');
   };
 
   /**
@@ -44964,7 +44964,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
   };
 
   /**
-   * Crea una tarjeta de objeto IA en individualObjectsGrid con métricas pre-calculadas
+   * Crea una tarjeta de objeto de detección asistida en individualObjectsGrid con métricas pre-calculadas
    * y navega al panel de resultados, igual que cuando se ejecutan otros modos de análisis.
    *
    * @param {Object} objMorf       Objeto morfológico compatible con mostrarAnalisisMorfologico
@@ -45037,8 +45037,8 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
     card.dataset.iaObjId = cardObj.id;
     grid.appendChild(card);
 
-    // No navegar automáticamente si el modal AIA está abierto — el usuario lo cierra manualmente.
-    // Solo navegamos si el modal AIA NO está visible en pantalla.
+    // No navegar automáticamente si la ventana de detección asistida está abierta — el usuario la cierra manualmente.
+    // Solo navegamos si esa ventana NO está visible en pantalla.
     const modalAIA = document.getElementById('maoIaModal') || document.getElementById('modalIA');
     const modalAbierto = modalAIA && modalAIA.style.display !== 'none';
     if (!modalAbierto && typeof window.maoActivatePanel === 'function') {
@@ -45046,7 +45046,7 @@ FUNCIÓN DE PRUEBA DISPONIBLE:
       setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
     }
 
-    console.log('[IA→Card] Tarjeta creada para', cardObj.id, '— modal AIA', modalAbierto ? 'abierto (sin navegación)' : 'cerrado (navega a panel)');
+    console.log('[Asistida→Card] Tarjeta creada para', cardObj.id, '— ventana', modalAbierto ? 'abierta (sin navegación)' : 'cerrada (navega a panel)');
   };
 
   console.log('✅ Funciones morfológicas expuestas globalmente');

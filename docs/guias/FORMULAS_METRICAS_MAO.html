@@ -471,7 +471,7 @@
   <div class="cover-super">Documentación técnica — Fórmulas y definiciones</div>
   <h1>Formulario de Métricas</h1>
   <div class="cover-subtitle">Definición matemática completa de todas las métricas morfométricas</div>
-  <div class="cover-badge">15 secciones · I–XV · Textura · Coherencia bifacial · Integración MAO IA</div>
+  <div class="cover-badge">15 secciones · I–XV · Textura · Coherencia bifacial · Detección asistida</div>
   <div class="cover-meta">
     <div class="cover-meta-item">
       <div class="label">Versión</div>
@@ -1707,7 +1707,7 @@
       <strong>Optimización de cómputo:</strong> las métricas de textura de superficie (§XIV) se calculan <em>una sola vez</em> antes de la extracción del contorno y se reutilizan al final. El Paso 2 consume L̄<sub>obj</sub> del Paso 1; el Paso 5 almacena σ², H y Ḡ como métricas definitivas sin recálculo. Esto garantiza coherencia numérica entre el proceso de refinamiento y los valores reportados en el CSV y el informe PDF.
     </div>
     <div class="callout callout-info">
-      <strong>Objetos detectados por MAO IA:</strong> Los objetos generados por el módulo AIA (<code>_samSegmented = true</code>) <em>omiten el Paso 3</em> — la re-extracción de contorno. El contorno fue calculado por el pipeline AIA y se entrega directamente al Paso 4. Las métricas de textura (§XIV) sí se calculan sobre la imagen original del objeto. El campo <code>analysis_method</code> toma el valor <code><strong>MAO IA — Detección automática</strong></code> (distinguible de <code>Contorno Real Extraído [REAL]</code>). En modo bifacial, los objetos de cara A y cara B se preservan de forma independiente y quedan disponibles simultáneamente al cerrar el modal AIA.
+      <strong>Objetos de la detección asistida:</strong> Los objetos que el operador acepta en la ventana de detección asistida (<code>_samSegmented = true</code>, nombre histórico de la marca: no implica que haya intervenido SAM) <em>omiten el Paso 3</em> — la re-extracción de contorno. El contorno lo calculó la detección asistida con la umbralización elegida por el operador (OpenCV clásico, sin modelos entrenados) y se entrega directamente al Paso 4. Las métricas de textura (§XIV) sí se calculan sobre la imagen original del objeto. El campo <code>analysis_method</code> toma el valor <code><strong>Detección asistida</strong></code> (distinguible de <code>Contorno Real Extraído [REAL]</code>; los análisis anteriores a ADR-022 conservan «MAO IA — Detección automática»). En modo bifacial, los objetos de cara A y cara B se preservan de forma independiente y quedan disponibles simultáneamente al cerrar la ventana de detección asistida.
     </div>
   </div>
 </div>

@@ -484,7 +484,7 @@
     <a class="toc-entry" href="#sec-XII"><span class="toc-num">XII</span>Clasificación morfológica multivariada<span class="toc-dots"></span></a>
     <a class="toc-entry" href="#sec-XIII"><span class="toc-num">XIII</span>Análisis de textura de superficie (GLCM)<span class="toc-dots"></span></a>
     <a class="toc-entry" href="#sec-XIV"><span class="toc-num">XIV</span>Coherencia bifacial (CI y CMS)<span class="toc-dots"></span></a>
-    <a class="toc-entry" href="#sec-XV"><span class="toc-num">XV</span>Pipeline MAO IA — integración completa<span class="toc-dots"></span></a>
+    <a class="toc-entry" href="#sec-XV"><span class="toc-num">XV</span>Pipeline de la detección asistida — integración completa<span class="toc-dots"></span></a>
   </div>
 </div>
 
@@ -1380,15 +1380,19 @@
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════
-     SECCIÓN XV — PIPELINE MAO IA
+     SECCIÓN XV — PIPELINE DE LA DETECCIÓN ASISTIDA
 ═══════════════════════════════════════════════════════════════════ -->
 <div class="section" id="sec-XV">
   <div class="section-header">
     <span class="section-num">XV</span>
-    <h2>Pipeline de integración MAO IA</h2>
+    <h2>Pipeline de la detección asistida</h2>
   </div>
 
-  <p>El módulo <strong>MAO IA</strong> (<em>Identificación Automatizada</em> — la sigla no abrevia «inteligencia artificial») integra los principios descritos en §I–XIV en un flujo computacional unificado activado cuando el usuario selecciona la opción de segmentación asistida por IA. Difiere del flujo estándar en el método de obtención de la máscara binaria inicial.</p>
+  <p>La <strong>detección asistida</strong> integra los principios descritos en §I–XIV en un flujo en el que el operador fija los parámetros de la segmentación y revisa cada objeto antes de medirlo. Difiere del flujo estándar en quién decide la máscara binaria inicial y en el momento de la revisión: los parámetros se fijan antes de detectar, y el contorno que el operador acepta ya es el definitivo. Todo el procesamiento es visión computacional clásica (OpenCV); no interviene ningún modelo entrenado.</p>
+
+  <div class="callout callout-info">
+    <strong>Sobre el nombre.</strong> Versiones anteriores de esta guía llamaban a este flujo «MAO IA». La sigla se retiró (ADR-022) porque se leía como «inteligencia artificial», lectura que esta misma sección llegó a reforzar describiendo una segmentación neuronal que el flujo no realiza. <em>Asistida</em> se refiere a la participación del operador.
+  </div>
 
   <div class="subsection">
     <h3>Diagrama del flujo de análisis</h3>
@@ -1406,11 +1410,13 @@
         </ol>
       </div>
       <div class="card">
-        <div class="card-title">Flujo MAO IA (AIA)</div>
+        <div class="card-title">Flujo de la detección asistida</div>
         <ol style="font-size:12px; margin-top:8px; padding-left:18px; line-height:2;">
           <li>Captura de imagen fotogramétrica calibrada</li>
-          <li>Segmentación por modelo SAM/YOLO — máscara de alta precisión</li>
-          <li style="color:#718096;"><em>Paso 3 omitido: la máscara IA no requiere refinamiento manual</em></li>
+          <li>Umbralización elegida por el operador: <code>auto</code> (núcleo OpenCV), Otsu, adaptativa o manual; CLAHE y desenfoque opcionales (§II.1)</li>
+          <li>Separación de piezas en contacto por watershed sobre la transformada de distancia</li>
+          <li>Revisión objeto a objeto: confianza de detección, refinamiento opcional y selección de las piezas que pasan al análisis</li>
+          <li style="color:#718096;"><em>Paso 3 omitido: el contorno revisado por el operador ya es el definitivo</em></li>
           <li>Extracción del contorno Suzuki-Abe (§II.2)</li>
           <li>Simplificación Douglas-Peucker (§II.3)</li>
           <li>Cálculo de métricas §III–XIV con recalculo JS-side</li>
@@ -1421,17 +1427,21 @@
   </div>
 
   <div class="subsection">
-    <h3>Segmentación por SAM (Segment Anything Model)</h3>
-    <p>SAM utiliza una arquitectura Vision Transformer (ViT) pre-entrenada que produce máscaras de segmentación de alta fidelidad a partir de <em>prompts</em> (clic sobre el objeto, bounding box, o segmentación automática). La máscara resultante tiene precisión sub-píxel en los bordes, superior a la umbralización adaptativa para objetos de bajo contraste o fondos texturados.</p>
+    <h3>Umbralización bajo control del operador</h3>
+    <p>El operador elige entre cuatro estrategias de umbral. Con <code>auto</code>, la detección delega en el núcleo canónico de MAO Plus (Z-scan cromático + CLAHE + GrabCut + watershed), el mismo que usa la detección automática: sobre la misma imagen produce el mismo contorno. Con <strong>Otsu</strong>, <strong>adaptativa</strong> (gaussiana) o <strong>manual</strong>, la máscara sale del umbral elegido, tras un realce CLAHE y un desenfoque gaussiano opcionales, y las piezas en contacto se separan con el watershed del núcleo. En los cuatro casos el resultado es determinista: los mismos parámetros sobre la misma imagen dan el mismo contorno, y la estrategia elegida queda registrada en cada pieza (<code>ia_threshold_method</code>, <code>ia_segmentador</code>).</p>
 
     <div class="callout callout-tip">
-      <strong>Ventaja morfométrica de SAM:</strong> La máscara SAM captura mejor la geometría del borde tallado (lascados, retoques) que la umbralización por intensidad. Esto se traduce en un vector de curvatura {κᵢ} más fiel y en defectos de convexidad mejor localizados, mejorando la precisión de los descriptores de §VII y §X.
+      <strong>Confianza de detección por objeto:</strong> cada pieza detectada recibe la misma puntuación de confianza que en la detección automática (contraste de borde figura-fondo y compacidad de la máscara). El operador la usa para ordenar la revisión —el filtro «Solo baja confianza» muestra primero las piezas cuyo recorte conviene comprobar— antes de que ninguna métrica se calcule sobre un contorno dudoso.
+    </div>
+
+    <div class="callout callout-info">
+      <strong>Sobre MobileSAM.</strong> El backend incluye un segmentador neuronal opcional, MobileSAM (variante ligera de Segment Anything, red neuronal preentrenada), accesible en <code>/api/sam-contour</code>. <strong>Ningún modo de detección lo invoca</strong>: la detección automática, la asistida y la manual trabajan con el núcleo OpenCV. Si algún día lo hiciera, el campo <code>ia_segmentador</code> de cada pieza tendría que registrarlo, porque sería el único punto del análisis en que intervendría un modelo entrenado.
     </div>
   </div>
 
   <div class="subsection">
     <h3>Recálculo de métricas en el cliente JS</h3>
-    <p>El backend Python calcula las métricas con factor de escala sc = 0 (sin calibración) cuando opera en modo AIA, devolviendo resultados en píxeles. La conversión a unidades métricas reales y el recálculo de los descriptores radiales se realiza en el cliente JavaScript una vez aplicada la escala calibrada del proyecto:</p>
+    <p>El backend Python calcula las métricas con factor de escala sc = 0 (sin calibración) cuando opera en la detección asistida, devolviendo resultados en píxeles. La conversión a unidades métricas reales y el recálculo de los descriptores radiales se realiza en el cliente JavaScript una vez aplicada la escala calibrada del proyecto:</p>
 
     <div class="formula-block">
       <div class="formula-name">Conversión pixel → métrica real</div>
@@ -1463,7 +1473,7 @@
   <hr>
 
   <div class="callout callout-info">
-    <strong>Integración sistémica:</strong> El pipeline MAO IA es la materialización computacional de los principios §I–XIV en un flujo de análisis arqueológico reproducible. Cada métrica del informe PDF integral tiene su fundamento matemático en alguna de las secciones precedentes de este documento. La correspondencia explícita entre principios y fórmulas se detalla en <em>FORMULAS_METRICAS_MAO.html</em>.
+    <strong>Integración sistémica:</strong> La detección asistida desemboca en el mismo pipeline de medición que los demás modos, materialización computacional de los principios §I–XIV en un flujo de análisis arqueológico reproducible. Cada métrica del informe PDF integral tiene su fundamento matemático en alguna de las secciones precedentes de este documento. La correspondencia explícita entre principios y fórmulas se detalla en <em>FORMULAS_METRICAS_MAO.html</em>.
   </div>
 </div>
 

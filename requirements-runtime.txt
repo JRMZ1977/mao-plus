@@ -33,7 +33,7 @@ trimesh==4.5.3
 scipy==1.13.1
 scikit-learn==1.6.1
 
-# ── Inferencia IA (MobileSAM ONNX — runtime, sin torch) ──────────────────────
+# ── Inferencia neuronal (MobileSAM ONNX, opcional — runtime, sin torch) ──────
 onnxruntime==1.19.2
 
 # ── Utilidades ───────────────────────────────────────────────────────────────

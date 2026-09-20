@@ -144,7 +144,7 @@ export function notaAreaNeta(metricas, obj) {
 
 /**
  * Devuelve un conversor px→mm para dimensiones de bounding box (ADR-016 #1).
- * El path IA a veces deja width/height/bounding_* en px aunque área/Feret estén en mm.
+ * La ruta de detección asistida a veces deja width/height/bounding_* en px aunque área/Feret estén en mm.
  * Convierte con el factor √(area_mm/area_px) SOLO si el valor empequeñece al Feret (magnitud mm
  * garantizada); en caso contrario lo deja igual (objeto sin escala → px legítimo).
  */

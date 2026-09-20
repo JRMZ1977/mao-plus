@@ -135,7 +135,7 @@ class TestContourPipeline:
 
 # ── ADR-008 Fase 2 — confianza de detección en la frontera del contorno ──────
 # `/contour` ahora propaga `detection_confidence`/`confidence_level` (misma fuente
-# que detect()/IA: _confianza_objeto), para que los 4 modos de captura hereden la
+# que detect() y la detección asistida: _confianza_objeto), para que los 4 modos de captura hereden la
 # confianza en el análisis y el contrato sea homogéneo.
 
 class TestContourConfidence:

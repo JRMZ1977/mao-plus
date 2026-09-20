@@ -80,9 +80,10 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
     // ============================================================================
     // 🔭 ERROR ÓPTICO POSICIONAL — red de seguridad AUTÓNOMA y AGNÓSTICA DEL MODO
     // ============================================================================
-    // ESTE es el renderer que usa el flujo IA/tabs (el de analysis-core es legacy).
+    // ESTE es el renderer que usan la detección asistida y las pestañas (el de
+    // analysis-core es legacy).
     // Se calcula sobre el MISMO `metricas` que alimenta el panel de la UI y la Tabla
-    // Completa (vía currentAnalyzedObject, más abajo). Así cualquier modo (manual, IA…)
+    // Completa (vía currentAnalyzedObject, más abajo). Así cualquier modo (manual, asistida…)
     // entrega la Sección IX. Solo si aún no hay dato óptico real (no pisa el manual).
     // window.aplicarErrorOpticoPosicional corre en el scope de analysis-core → resuelve
     // imgW y los parámetros de cámara (escalaParamsOpticos) correctamente.
@@ -392,8 +393,8 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
           // ============================================================================
           
           // Dibujar CENTROIDE del Convex Hull (forma completa estimada) - NARANJA
-          // Fuente prioritaria: _contour_data.metrics (análisis completo o AIA con hull calculado)
-          // Fallback: centroide_hull_x/y (siempre disponible en objetos AIA e inyectados)
+          // Fuente prioritaria: _contour_data.metrics (análisis completo o detección asistida con hull calculado)
+          // Fallback: centroide_hull_x/y (siempre disponible en objetos de detección asistida e inyectados)
           const _cdm = metricas._contour_data?.metrics;
           const centroidHull = _cdm?.centroid_hull || _cdm?.centroid ||
             (metricas.centroide_hull_x != null
@@ -1199,7 +1200,7 @@ export function mostrarAnalisisMorfologico(obj, metricas, imagenEspecifica = nul
     }
       
     // ============================================================================
-    // 🆕 MÉTRICAS ÓPTICAS GLCM (disponibles cuando el análisis viene desde AIA)
+    // 🆕 MÉTRICAS ÓPTICAS GLCM (disponibles cuando el análisis viene de la detección asistida)
     // ============================================================================
     const _glcmContrast  = metricas.contrast      != null ? parseFloat(metricas.contrast)      : null;
     const _glcmDissim    = metricas.dissimilarity  != null ? parseFloat(metricas.dissimilarity)  : null;

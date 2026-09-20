@@ -337,8 +337,8 @@ export function inferirInterpretacionTipologica(clasificacionGeometrica, categor
 
 /**
  * Regla canónica de salida semántica (geometría observada, tipología inferida y forma mostrada)
- * Se usa en manual e IA para evitar divergencias por campos desfasados en cache
- * CRITICAL: Usado por mao-ia.js
+ * Se usa en manual y en detección asistida para evitar divergencias por campos desfasados en cache
+ * CRITICAL: Usado por mao-ia.js (ventana de detección asistida)
  *
  * @param {Object} metricas - Objeto de métricas completo
  * @returns {Object} Salida canónica normalizada

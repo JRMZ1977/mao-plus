@@ -86,7 +86,7 @@
        · sin-ph       → evaluado, cero real (decisión humana, sin candidatos vivos).
        · sin-evaluar  → ni evaluado ni candidatos.
      OJO: NO se usa `evaluado` como prioridad sobre candidatos, porque varios flujos
-     (objetos IA, export) inicializan perforaciones/horadaciones a `[]` aunque el
+     (detección asistida, export) inicializan perforaciones/horadaciones a `[]` aunque el
      humano no haya decidido nada → `evaluado` no es señal fiable de «ya decidió».
      El «no nag» se preserva porque confirmar→hallazgos, descartar y finalizar limpian
      obj.phCandidatos (→ cae a sin-ph/sin-evaluar). */

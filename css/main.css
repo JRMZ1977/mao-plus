@@ -562,7 +562,8 @@
     }
     canvas:active { cursor: grabbing; }
 
-    /* ── MAO IA canvas: excluir de restricciones responsivas globales.
+    /* ── Canvas de la detección asistida (#maoIaCanvas, id histórico):
+          excluir de restricciones responsivas globales.
           Tiene sistema de zoom propio; max-width:100% causa deformación
           porque JS fija height explícito pero width quedaba limitado. ── */
     #maoIaCanvas {
@@ -576,7 +577,7 @@
     }
     @media (max-width: 768px) {
       /* Evitar que la regla `canvas { width:100% !important }` del breakpoint
-         768px rompa el zoom JS del canvas MAO IA */
+         768px rompa el zoom JS del canvas de la detección asistida */
       #maoIaCanvas { width: revert !important; }
     }
 
@@ -6796,7 +6797,13 @@ details.morph-result-group > .morph-result-group-body {
   animation: step-pulse 1.8s ease-in-out infinite;
 }
 
-/* ── Stepper: paso IA activo usa acento púrpura ── */
+/* ── Stepper: paso «Detección asistida» (#stepIA, id histórico) ──
+   Su número lo pone un contador: los pasos con display:none no cuentan, así que
+   es el 3.º mientras «Individualizar» esté oculto y el 4.º si se muestra (ADR-022:
+   la insignia decía «IA», sigla retirada). Activo, usa acento púrpura. */
+#stepperProcesamiento { counter-reset: paso-proc; }
+#stepperProcesamiento > .proc-step { counter-increment: paso-proc; }
+#stepperProcesamiento .proc-step-num--contador::before { content: counter(paso-proc); }
 #stepIA.step-active  .proc-step-num { background: #6f42c1; color: #fff; animation: step-ia-pulse 1.8s ease-in-out infinite; }
 #stepIA.step-done    .proc-step-num { background: #5a32a3; color: #fff; animation: none; }
 #stepIA.step-active  .proc-step-label { color: #6f42c1; }
@@ -6821,7 +6828,7 @@ details.morph-result-group > .morph-result-group-body {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
 }
 
-/* ── Badge tipología arqueológica (Fase 2 IA) ── */
+/* ── Badge tipología arqueológica (clasificador por reglas + EFA) ── */
 .src-tipologia-row {
   display: flex;
   align-items: center;

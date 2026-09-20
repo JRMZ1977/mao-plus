@@ -9,7 +9,7 @@
  * Se separa el CONTENIDO del ESTILO a propósito: la lección de ADR-016 es que
  * cuando cada superficie escribe su propia lista de campos, un fix hay que
  * aplicarlo N veces y las superficies divergen en silencio (fue así como el
- * objeto IA acabó mostrando «N/A» sólo en el PDF).
+ * objeto de detección asistida acabó mostrando «N/A» sólo en el PDF).
  *
  * Sin dependencias, igual que category-manifest.js y metric-presenter.js.
  * ============================================================================
@@ -19,21 +19,36 @@
 const METODO_LABEL = {
   automatic: 'Automático (núcleo OpenCV)',
   manual:    'Manual (área encuadrada por el operador)',
-  // ADR-018: la sigla se expande en el rótulo. En MAO, IA = Identificación
-  // Automatizada; sin desarrollarla, los informes se leían como «inteligencia
-  // artificial» y atribuían a un modelo lo que resuelve la umbralización clásica.
-  ia:        'IA — Identificación Automatizada (segmentación asistida)',
+  // ADR-022: el enum conserva su nombre histórico `ia` (lo usan los proyectos
+  // guardados), pero el modo se llama «detección asistida». La sigla IA se
+  // retiró: se leía como «inteligencia artificial» y atribuía a un modelo lo que
+  // resuelve la umbralización clásica bajo control del operador.
+  ia:        'Detección asistida (parámetros fijados por el operador)',
 };
+
+/**
+ * Enum canónico a partir de un valor crudo. Los análisis antiguos pueden traer
+ * el nombre histórico del modo asistido como texto («MAO IA», `mao_ia`); se
+ * rotulan con el nombre vigente para que un proyecto viejo no devuelva la sigla
+ * retirada al informe.
+ */
+function claveMetodo(canon) {
+  if (METODO_LABEL[canon]) return canon;
+  const s = String(canon).toLowerCase();
+  if (s.indexOf('mao ia') !== -1 || s.indexOf('mao_ia') !== -1) return 'ia';
+  return null;
+}
 
 /** Rótulo humano del método, tolerante con los valores crudos legacy. */
 export function metodoLegible(metricas) {
   const m = metricas || {};
-  // ADR-016 #5: los objetos IA guardados antes del contrato ADR-007/008 traen la
-  // clave como `detectionMethod` o `detection_mode` en su metricas.json.
+  // ADR-016 #5: los objetos de detección asistida guardados antes del contrato
+  // ADR-007/008 traen la clave como `detectionMethod` o `detection_mode` en su
+  // metricas.json.
   const canon = m.detection_method || m.detectionMethod || m.detection_mode;
-  if (canon && METODO_LABEL[canon]) return METODO_LABEL[canon];
-  if (canon) return String(canon);
-  return null;
+  if (!canon) return null;
+  const clave = claveMetodo(canon);
+  return clave ? METODO_LABEL[clave] : String(canon);
 }
 
 /**
@@ -74,8 +89,10 @@ export function filasDeteccion(metricas, opts) {
     ['Confianza de detección',   confianzaLegible(m)],
     ['Modo crudo registrado',    m.detection_method_raw || null],
     ['Segmentador / motor',      m.ia_segmentador || null],
-    ['Umbralización (modo IA)',  m.ia_threshold_method || null],
-    ['Enriquecido por IA',       m.ia_enriquecido == null ? null : (m.ia_enriquecido ? 'Sí' : 'No')],
+    // Las claves `ia_*` conservan el nombre histórico del modo (ADR-022); los
+    // rótulos, no.
+    ['Umbralización (detección asistida)',               m.ia_threshold_method || null],
+    ['Descriptores precalculados (detección asistida)',  m.ia_enriquecido == null ? null : (m.ia_enriquecido ? 'Sí' : 'No')],
   ];
 
   const filas = crudas.map(([label, valor]) => ({
@@ -88,7 +105,8 @@ export function filasDeteccion(metricas, opts) {
 }
 
 /**
- * Resumen de una línea para cabeceras y pies: «IA (segmentación asistida) · alta (0.986)».
+ * Resumen de una línea para cabeceras y pies:
+ * «Detección asistida (parámetros fijados por el operador) · alta (0.986)».
  * Devuelve null si no hay ningún dato de procedencia.
  */
 export function resumenDeteccion(metricas) {

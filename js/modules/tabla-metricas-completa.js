@@ -253,9 +253,9 @@ export function contarMetricas(metricas, obj) {
  * I. DETECCIÓN DEL OBJETO — ADR-019
  *
  * Procedencia del dato: con qué método se aisló el objeto de la imagen y con qué
- * confianza. Cierra el hallazgo #5 de ADR-016 (las fichas IA llegaban al PDF con
- * «N/A» en método y confianza). Categoría `estructural`: se rinde SIEMPRE, con
- * marcador «Sin datos» cuando un campo no aplica al modo empleado.
+ * confianza. Cierra el hallazgo #5 de ADR-016 (las fichas de detección asistida
+ * llegaban al PDF con «N/A» en método y confianza). Categoría `estructural`: se
+ * rinde SIEMPRE, con marcador «Sin datos» cuando un campo no aplica al modo empleado.
  */
 function generarSeccionDeteccion(metricas, estiloTabla, estiloTh, estiloTd) {
   const filas = filasDeteccion(metricas);
@@ -1975,7 +1975,7 @@ function generarSeccionPropiedadesContorno(metricas, estiloTabla, estiloTh, esti
     const gradiente   = metricas.gradiente_medio       != null ? parseFloat(metricas.gradiente_medio)      : null;
     const tieneTextura = (varianza !== null || entropia !== null || gradiente !== null);
 
-    // XIV-b — métricas GLCM (disponibles cuando viene desde AIA)
+    // XIV-b — métricas GLCM (disponibles cuando viene de la detección asistida)
     const glcmContrast  = metricas.contrast      != null ? parseFloat(metricas.contrast)      : null;
     const glcmDissim    = metricas.dissimilarity  != null ? parseFloat(metricas.dissimilarity)  : null;
     const glcmHomog     = metricas.homogeneity    != null ? parseFloat(metricas.homogeneity)    : null;
@@ -2731,7 +2731,7 @@ function generarSeccionClasificacion(metricas, estiloTabla, estiloTh, estiloTd) 
     const claseCircularidad = metricas.shape_class_circularity || 'No clasificada';
     const claseAspect = metricas.shape_class_aspect || 'No clasificada';
 
-    // ── Tipología arqueológica (Fase 2 IA) ──
+    // ── Tipología arqueológica (clasificador por reglas + evidencia EFA) ──
     const tip = metricas.tipologia;
     let tipologiaHTML = '';
     if (tip && tip.tipo) {
@@ -2741,7 +2741,7 @@ function generarSeccionClasificacion(metricas, estiloTabla, estiloTh, estiloTd) 
       const tipText = tip.color?.text || '#4527a0';
       tipologiaHTML = `
       <h3 style="color: #4527a0; margin: 24px 0 12px 0; padding-bottom: 8px; border-bottom: 3px solid #4527a0;">
-        ${indiceDe('clasificacion')}-b. Tipología Arqueológica — IA Fase 2
+        ${indiceDe('clasificacion')}-b. Tipología Arqueológica — clasificador por reglas
       </h3>
       <div style="display:flex; align-items:center; gap:12px; padding:14px 16px; background:${tipColor}; border:2px solid ${tipBorder}; border-radius:8px; margin-bottom:14px;">
         <span style="font-size:28px; line-height:1;">${tip.icono || '🔩'}</span>

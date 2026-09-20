@@ -619,7 +619,7 @@ async def extract(
     # El contorno es la frontera donde convergen los 4 modos de captura, así que
     # aquí la confianza es AUTORITATIVA y homogénea entre modos (manual y
     # auto-frontend, que no la calculan en detección, la heredan en el análisis).
-    # Misma fuente que detect()/IA: `_confianza_objeto` sobre la máscara y el ROI
+    # Misma fuente que detect() y la detección asistida: `_confianza_objeto` sobre la máscara y el ROI
     # ya calculados (contraste de borde + extent). No añade round-trips: reusa el
     # de `/contour`. Calidad geométrica (arriba) ≠ confianza de detección.
     detection_confidence = None

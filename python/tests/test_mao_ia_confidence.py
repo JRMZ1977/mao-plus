@@ -1,10 +1,11 @@
 """
-Tests — Confianza de detección por objeto en el pipeline MAO_IA
+Tests — Confianza de detección por objeto en la detección asistida (pipeline de
+`mao_ia_analyzer`; el nombre del módulo es histórico, ADR-022)
 ================================================================
 Verifica que detect_with_mao_ia() propaga `detection_confidence` (score ∈ [0,1])
 y `confidence_level` ('alta'|'media'|'baja') por cada objeto, igual que detect().
 
-El nivel alimenta el chip LAAR del modal de detección IA (ADR-007 §D2):
+El nivel alimenta el chip LAAR de la ventana de detección asistida (ADR-007 §D2):
 alta→ok · media→none · baja→wa.
 
 Ejecutar:

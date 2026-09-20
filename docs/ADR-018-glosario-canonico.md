@@ -2,6 +2,11 @@
 
 **Fecha:** 2026-09-03 · **Estado:** F0-F2 implementadas · **Decisión:** JFRR
 
+> **Nota (2026-09-19).** La convención de la sigla IA de este ADR («IA = Identificación
+> Automatizada») fue **sustituida por ADR-022**: la sigla se retiró y el modo se llama
+> **detección asistida**. Las secciones afectadas conservan su texto como registro de la decisión
+> anterior y llevan un aviso.
+
 ## Contexto
 
 MAO Plus publica 278 magnitudes distintas repartidas en cuatro salidas (panel, Tabla
@@ -67,8 +72,8 @@ Un glosario sin verificación se desincroniza en la siguiente sesión.
 5. los alias se declaran como tales (evita creer que hay dos mediciones);
 6. toda `fuente` apunta a un archivo existente;
 7. la cobertura de F1+F2 nunca retrocede;
-8. la sigla IA se declara como «Identificación Automatizada»;
-9. el rótulo del modo IA que ve el usuario expande la sigla;
+8. la sigla IA se declara ~~como «Identificación Automatizada»~~ **retirada** (ADR-022);
+9. el rótulo del modo que ve el usuario ~~expande la sigla~~ **no la usa**: dice «Detección asistida» (ADR-022);
 10. las convenciones declaradas no retroceden;
 11. toda convención declara si es `sigla` o `regla`.
 
@@ -129,8 +134,8 @@ Cada una nació de una ambigüedad **verificada en el código**, no de una intui
 
 | Término | Convención | Evidencia |
 |---|---|---|
-| **IA** | = Identificación Automatizada | 2 guías la expandían como «inteligencia artificial» |
-| **AIA** | sigla retirada; decir IA | segunda sigla del mismo módulo, nunca desarrollada; llega al usuario en 2 avisos |
+| **IA** | ~~= Identificación Automatizada~~ → **sigla retirada; el modo se llama «detección asistida»** (ADR-022) | 2 guías la expandían como «inteligencia artificial» |
+| **AIA** | sigla retirada; ~~decir IA~~ → decir «detección asistida» (ADR-022) | segunda sigla del mismo módulo, nunca desarrollada; llega al usuario en 2 avisos |
 | **Confianza** | nunca sola: «confianza DE qué» | **8** campos distintos; el código ya llevaba un aviso a mano |
 | **Procedencia** | detección ≠ análisis | el defecto de `analysis_method`, arriba |
 | **Simetría** | bilateral (1 pieza) ≠ bifacial (2 caras) | IX-b vs XX, medidas ortogonales |
@@ -145,6 +150,14 @@ darle clave propia al área neta, y neutralizar los rótulos de `solidity_class`
 hizo con los de rugosidad. Ambos cambian la salida del informe y exigen verificación visual.
 
 ## La sigla IA en detalle
+
+> **Sustituido por ADR-022 (2026-09-19).** Redefinir la sigla no bastó: su autor la concebía como
+> «Imagen Asistida», este ADR la fijó como «Identificación Automatizada», y cualquier lector
+> hispanohablante la sigue leyendo como «inteligencia artificial». ADR-022 la retira y llama al modo
+> **detección asistida**; `METODO_LABEL.ia` dice ahora «Detección asistida (parámetros fijados por el
+> operador)» y las pruebas 8 y 9 exigen la retirada en lugar de la expansión. Lo que sigue es el
+> registro de la decisión anterior. Una corrección adicional: la afirmación de que el modo puede
+> resolverse «con MobileSAM como prior» no se sostenía — ninguna ruta de ese modo invoca MobileSAM.
 
 **En MAO Plus «IA» significa «Identificación Automatizada», no «inteligencia artificial».**
 La sigla nombra QUÉ hace el modo de detección —aislar la pieza sin que el operador trace ni

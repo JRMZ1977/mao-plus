@@ -1,5 +1,7 @@
 # ADR-009 — Detección de P/H como tarea primaria (candidatos auto-detectados a confirmar)
 
+> **Nota terminológica (ADR-022, 2026-09-19).** En este documento, «IA» —también «MAO IA», «AIA», «modal IA», «flujo IA» u «objetos IA»— es el nombre histórico del modo que hoy se llama **detección asistida**. No designa inteligencia artificial: ningún modo de detección de MAO Plus usa un modelo entrenado. El texto se conserva como registro de lo que se decidió y de cómo se nombraba entonces. Donde se habla de SAM como *prior* neuronal del modo: el segmentador MobileSAM existe en el backend, pero ningún modo de detección lo invoca.
+
 - **Estado:** ✅ **Implementado (2026-06-13) + fixes tras prueba real (2026-06-14)** · Fases 0–4 completas. Verificado: 8 tests nuevos + suite completa (268 passed, 2 skipped), `node -c` limpio, **HTTP end-to-end** (huecos blancos, **grises** y oscuros detectados; 0 FP en sólido), **boot Electron** (0 renderer errors). **Pendiente manual**: confirmación visual del chip y del modal con la imagen real cargada por el usuario.
 
 ## Fixes tras la primera prueba con imagen real (2026-06-14)

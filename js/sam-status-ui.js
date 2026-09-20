@@ -1,5 +1,6 @@
-// MAO Plus — F2.3: estado de segmentación IA + preparación de MobileSAM ONNX.
-// Muestra el motor activo (GrabCut AI vs MobileSAM ONNX) y permite preparar los
+// MAO Plus — F2.3: estado del segmentador de contorno opcional + preparación de
+// MobileSAM ONNX. Muestra el motor disponible (GrabCut clásico vs MobileSAM, red
+// neuronal preentrenada) y permite preparar los
 // modelos ONNX (descarga mobile_sam.pt + instrucciones de exportación). Reusa
 // PythonBridge.sam (status/download). Reversible: comentar el <script> en index.html.
 // Inerte si PythonBridge no está disponible (modo solo-JS).
@@ -23,7 +24,9 @@
 
     const onnx = st.mode === 'mobilesam_onnx';
     badge.className = 'laar-chip ' + (onnx ? 'laar-chip--ok' : 'laar-chip--none');
-    badge.textContent = onnx ? 'MobileSAM ONNX' : 'GrabCut AI';
+    // ADR-022: GrabCut es un algoritmo clásico (corte de grafos); se rotulaba
+    // «GrabCut AI». Solo MobileSAM es una red neuronal, y se nombra como tal.
+    badge.textContent = onnx ? 'MobileSAM (red neuronal)' : 'GrabCut (clásico)';
 
     if (line) {
       const parts = [

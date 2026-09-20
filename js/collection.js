@@ -4174,7 +4174,7 @@ async function cargarAnalisisDesdeRuta(rutaAnalisis) {
     
     console.log('✅ Archivos leídos correctamente');
 
-    // ── Enriquecimiento automático para objetos AIA con métricas incompletas ──
+    // ── Enriquecimiento automático de objetos de detección asistida con métricas incompletas ──
     // Detecta proyectos guardados ANTES del fix de inyectarObjetosDesdeIA (< 40 campos).
     // Llama silenciosamente a Python /metrics y persiste metricas.json actualizado en disco
     // para que el CSV exportado contenga todos los campos desde esta apertura en adelante.
@@ -4183,16 +4183,17 @@ async function cargarAnalisisDesdeRuta(rutaAnalisis) {
       // ADR-018 · por enum, no por igualdad de cadena. Hoy coincide, pero basta
       // un sufijo nuevo en el escritor para matar este lector en silencio —que es
       // exactamente lo que le pasó al contador de fallback de analysis-core.
+      // `_isAIA`: nombre interno histórico (ADR-022) — ¿el análisis viene de la detección asistida?
       const _isAIA    = (window.MaoDeteccion && MaoDeteccion.esAnalisisIA)
         ? MaoDeteccion.esAnalisisIA(_om)
-        : String(_om.analysis_method || '').indexOf('MAO IA') !== -1;
+        : /mao ia|detecci[oó]n asistida/i.test(String(_om.analysis_method || ''));
       const _isLegacy = Object.keys(_om).length < 40;
       const _pts      = geometria.contornoReal?.puntos || [];
       if (_isAIA && _isLegacy && _pts.length >= 3 &&
           window.PythonBridge && PythonBridge.isModuleActive('metrics')) {
         try {
-          console.log('[AIA-enrich] métricas incompletas detectadas — actualizando desde Python...');
-          toast.info('Actualizando métricas del análisis AIA...', { duration: 3000 });
+          console.log('[Asistida-enrich] métricas incompletas detectadas — actualizando desde Python...');
+          toast.info('Actualizando métricas de la detección asistida…', { duration: 3000 });
           const _imgResult = await window.electronAPI.readFile(
             `${rutaAnalisis}/imagenes/objetoRecortado.png`
           );
@@ -4224,14 +4225,14 @@ async function cargarAnalisisDesdeRuta(rutaAnalisis) {
               window.electronAPI.saveFile(
                 metricasPath,
                 JSON.stringify(metricas, null, 2)
-              ).catch(_e => console.warn('[AIA-enrich] No se pudo escribir metricas.json:', _e.message));
-              console.log(`[AIA-enrich] métricas actualizadas: ${Object.keys(_om).length} campos`);
-              toast.success('Métricas AIA actualizadas correctamente');
+              ).catch(_e => console.warn('[Asistida-enrich] No se pudo escribir metricas.json:', _e.message));
+              console.log(`[Asistida-enrich] métricas actualizadas: ${Object.keys(_om).length} campos`);
+              toast.success('Métricas de la detección asistida actualizadas');
             }
           }
         } catch (_enrichErr) {
           // No bloquear la apertura del análisis si el enriquecimiento falla
-          console.warn('[AIA-enrich] No se pudieron actualizar las métricas AIA:', _enrichErr.message);
+          console.warn('[Asistida-enrich] No se pudieron actualizar las métricas:', _enrichErr.message);
         }
       }
     }

@@ -144,7 +144,7 @@ def test_regularidad_radial_no_se_reescala_por_100():
 
 def test_bounding_box_convierte_px_a_mm_en_el_reporte():
     """
-    ADR-016 #1 (regresión): el path IA entrega width/height en px aunque área/Feret estén
+    ADR-016 #1 (regresión): la ruta de detección asistida entrega width/height en px aunque área/Feret estén
     en mm. El reporte debe convertir el BB a mm — tras el fix estructural (Stage B) la
     conversión vive en la fuente única `metric-presenter.js` y el reporte la consume.
     """

@@ -1,16 +1,18 @@
 """
-MAO Plus — Módulo: Segmentación asistida por IA
-================================================
+MAO Plus — Módulo: segmentador de contorno por objeto (GrabCut / MobileSAM)
+============================================================================
 Pipeline dual de segmentación de objetos:
 
-  Nivel 1 — GrabCut AI (siempre disponible, sin descarga):
+  Nivel 1 — GrabCut (clásico: corte de grafos sobre mezclas gaussianas;
+            siempre disponible, sin descarga):
     GrabCut iterativo con seeds inteligentes derivados del bbox.
     BGD_SEGURO: franja exterior al bbox + bordes de imagen.
     FGD_SEGURO: 20% central del bbox.
     Sin dependencias adicionales — OpenCV puro.
 
-  Nivel 2 — MobileSAM ONNX (opcional, ~54 MB descarga):
-    Segment Anything Model variante mobile.
+  Nivel 2 — MobileSAM ONNX (red neuronal preentrenada, opcional, ~54 MB):
+    Segment Anything Model variante mobile. Es el ÚNICO componente neuronal
+    del repositorio.
     Solo activo cuando los modelos .onnx están en python/models/.
     Para exportarlos: requiere torch + ultralytics (ver README.md).
     Automáticamente preferido sobre GrabCut si están disponibles.
@@ -21,6 +23,10 @@ Endpoints expuestos en server.py:
     POST /api/sam-contour   → segmenta + extrae contorno
 
 La función pública principal es segment() — usa el mejor método disponible.
+
+ADR-022: hoy ningún modo de detección de la app invoca este módulo. La detección
+automática, la asistida (antes «IA») y la manual corren sobre el núcleo OpenCV de
+detection.py; por eso ni este módulo ni sus rótulos deben usar la sigla «IA».
 """
 
 from __future__ import annotations
@@ -77,10 +83,10 @@ def status() -> dict:
     enc_size = _ENCODER_PATH.stat().st_size if _ENCODER_PATH.exists() else 0
     dec_size = _DECODER_PATH.stat().st_size if _DECODER_PATH.exists() else 0
     sam_ready = models_ready() and ort_ok
-    mode     = "mobilesam_onnx" if sam_ready else "grabcut_ai"
+    mode     = "mobilesam_onnx" if sam_ready else "grabcut"
 
     return {
-        "ready":              True,          # GrabCut AI siempre está listo
+        "ready":              True,          # GrabCut siempre está listo
         "mode":               mode,
         "grabcut_available":  True,
         "onnxruntime":        ort_ok,
@@ -90,8 +96,8 @@ def status() -> dict:
         "decoder_size_mb":    round(dec_size / 1_048_576, 1),
         "models_dir":         str(_MODELS_DIR),
         "note": (
-            "MobileSAM ONNX activo." if sam_ready
-            else "GrabCut AI activo — no requiere descarga. "
+            "Segmentador activo: MobileSAM ONNX (red neuronal)." if sam_ready
+            else "Segmentador activo: GrabCut (clásico, sin descarga). "
                  "Para MobileSAM exporta los modelos .onnx (ver python/models/README.md)."
         ),
     }
@@ -129,10 +135,11 @@ def download_models(progress_cb=None) -> dict:
     readme = _MODELS_DIR / "README.md"
     readme.write_text(
         "# Modelos SAM para MAO Plus\n\n"
-        "## GrabCut AI (activo, sin descarga)\n"
-        "El botón 'Analizar con IA' ya funciona con GrabCut iterativo con\n"
-        "seeds inteligentes. No requiere instalación adicional.\n\n"
-        "## MobileSAM ONNX (opcional, mayor precisión en bordes)\n"
+        "## GrabCut (clásico, activo, sin descarga)\n"
+        "El segmentador de contorno por objeto (/api/sam-contour) usa GrabCut\n"
+        "iterativo con semillas derivadas del recuadro. No requiere instalación.\n"
+        "La detección asistida de la app no usa este segmentador.\n\n"
+        "## MobileSAM ONNX (red neuronal preentrenada, opcional)\n"
         "Requiere exportar los modelos desde el .pt oficial:\n\n"
         "```bash\n"
         "pip install torch torchvision ultralytics\n"
@@ -153,7 +160,7 @@ def download_models(progress_cb=None) -> dict:
         "sam_onnx_ready": False,
         "readme_path":    str(readme),
         "message": (
-            "GrabCut AI activo — el análisis con IA ya funciona. "
+            "GrabCut (clásico) activo, sin descarga. "
             + ("mobile_sam.pt descargado. " if pt_downloaded else "")
             + "Para MobileSAM ONNX de mayor precisión, sigue python/models/README.md"
         ),
@@ -161,10 +168,10 @@ def download_models(progress_cb=None) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# NIVEL 1 — GrabCut AI con seeds inteligentes
+# NIVEL 1 — GrabCut con semillas derivadas del recuadro
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _grabcut_ai(img_bgr: np.ndarray,
+def _grabcut_semillas(img_bgr: np.ndarray,
                 bbox_x: int, bbox_y: int, bbox_w: int, bbox_h: int) -> np.ndarray:
     """
     Segmentación GrabCut con seeds inteligentes sobre un ROI de contexto.
@@ -377,7 +384,7 @@ def segment(img_bgr: np.ndarray,
     """
     Segmenta el objeto dentro del bbox.
 
-    Preferencia: MobileSAM ONNX (si modelos disponibles) → GrabCut AI.
+    Preferencia: MobileSAM ONNX (si modelos disponibles) → GrabCut.
     Retorna (mask_uint8, method_str).
     mask: tamaño del bbox, objeto=255, fondo=0.
     """
@@ -386,7 +393,7 @@ def segment(img_bgr: np.ndarray,
             mask = _get_sam().segment(img_bgr, bbox_x, bbox_y, bbox_w, bbox_h)
             return mask, "mobilesam_onnx"
         except Exception as e:
-            _log.warning(f"MobileSAM falló, usando GrabCut AI: {e}")
+            _log.warning(f"MobileSAM falló, usando GrabCut: {e}")
 
-    mask = _grabcut_ai(img_bgr, bbox_x, bbox_y, bbox_w, bbox_h)
-    return mask, "grabcut_ai"
+    mask = _grabcut_semillas(img_bgr, bbox_x, bbox_y, bbox_w, bbox_h)
+    return mask, "grabcut"

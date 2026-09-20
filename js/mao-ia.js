@@ -1,4 +1,9 @@
-/* ─── MAO IA Modal — controlador v2 ──────────────────────────────────────────
+/* ─── Detección asistida — controlador de la ventana (v2) ────────────────────
+   ADR-022: el modo se llamaba «IA»/«MAO IA»; la sigla se retiró porque se leía
+   como «inteligencia artificial». Aquí no interviene ningún modelo entrenado:
+   el operador fija los parámetros de umbralización (OpenCV) y revisa objeto a
+   objeto. Los identificadores internos (`maoIa*`, `/api/mao-ia`, este archivo)
+   conservan el nombre histórico porque los usan el HTML y los proyectos guardados.
    Layout en dos columnas (controles | preview+resultados).
    Tabs: Contornos (canvas con zoom) / Tabla / Fichas.
    Selector de cara bifacial, estado de servidor, escala activa.
@@ -206,7 +211,7 @@
   async function ensureServerHealth(maxRetries = 30, intervalMs = 1000) {
     if (serverHealthy) return true;
 
-    console.log('[MAO IA] Verificando salud del servidor...');
+    console.log('[Detección asistida] Verificando salud del servidor...');
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -216,7 +221,7 @@
         });
         if (res.ok) {
           serverHealthy = true;
-          console.log(`[MAO IA] ✓ Servidor listo (intento ${attempt}/${maxRetries})`);
+          console.log(`[Detección asistida] ✓ Servidor listo (intento ${attempt}/${maxRetries})`);
           if (serverStatus) serverStatus.textContent = '🟢 Servidor listo';
           if (serverStatus) serverStatus.style.color = '#28a745';
           return true;
@@ -224,7 +229,7 @@
       } catch (err) {
         // Servidor aún no responde — esperar e intentar de nuevo
         if (attempt === 1) {
-          console.log('[MAO IA] Servidor no responde — esperando...');
+          console.log('[Detección asistida] Servidor no responde — esperando...');
           if (serverStatus) serverStatus.textContent = '🟡 Conectando...';
           if (serverStatus) serverStatus.style.color = '#ffc107';
         }
@@ -234,7 +239,7 @@
       }
     }
 
-    console.warn('[MAO IA] ❌ Servidor no disponible tras', maxRetries, 'reintentos');
+    console.warn('[Detección asistida] ❌ Servidor no disponible tras', maxRetries, 'reintentos');
     if (serverStatus) serverStatus.textContent = '🔴 Servidor no disponible';
     if (serverStatus) serverStatus.style.color = '#dc3545';
     return false;
@@ -700,7 +705,7 @@
         }
       });
     } catch (e) {
-      console.warn('[AIA closeModal] Error en re-sync de tarjetas:', e);
+      console.warn('[Detección asistida · cierre] Error en re-sync de tarjetas:', e);
     }
   }
   [btnClose, btnCancel].forEach(b => b && b.addEventListener('click', closeModal));
@@ -759,7 +764,7 @@
     if (!document.fullscreenElement) {
       const target = modalInner || modal;
       target.requestFullscreen().catch(err => {
-        console.warn('[MAO-IA] requestFullscreen:', err.message);
+        console.warn('[Detección asistida] requestFullscreen:', err.message);
         _cssFullscreen(true);
       });
     } else {
@@ -989,7 +994,7 @@
       inlineError.textContent = '';
     }
     
-    console.log('[MAO IA] Verificando disponibilidad del servidor...');
+    console.log('[Detección asistida] Verificando disponibilidad del servidor...');
     const serverReady = await ensureServerHealth(5, 500); // 5 intentos rápidos = máx 2.5s
     
     if (!serverReady) {
@@ -1150,7 +1155,7 @@
     const csv = header + '\n' + rows.join('\n');
     try {
       if (window.electronAPI && window.electronAPI.saveFileWithDialog) {
-        await window.electronAPI.saveFileWithDialog('MAO_IA_resultados.csv', csv, 'csv');
+        await window.electronAPI.saveFileWithDialog('MAO_deteccion_asistida.csv', csv, 'csv');
       } else {
         await navigator.clipboard.writeText(csv);
         exportCSVBtn.textContent = '\u2713 Copiado';
@@ -1953,7 +1958,7 @@
     // ── solidez clase ──────────────────────────────────────────────────────────
     const sol      = maoObj.solidity || 0;
     // ADR-018 · era una TERCERA escalera, con umbrales propios (0.90/0.75/0.55) y
-    // rótulos propios: la misma pieza salía «Casi completo» por la vía IA y
+    // rótulos propios: la misma pieza salía «Casi completo» por la detección asistida y
     // «Mayormente completo» por la vía estándar. Ahora delega en la fuente única.
     const solClass = maoObj.solidity_class ||
       (window.MetricPresenter ? MetricPresenter.clasificarSolidez(sol) : '');
@@ -1983,14 +1988,16 @@
       // _hullIsAbsolute NO se define → el dibujo usa coords relativas tal cual (sin sumar offset)
       perforaciones:   [],
       horadaciones:    [],
-      // El contorno AIA ya es el contorno definitivo (red neuronal);
-      // marca para que analizarObjetoMorfologicamente NO lo re-extraiga con /api/contour.
+      // El contorno de la detección asistida ya es el definitivo (umbralización
+      // OpenCV bajo control del operador — NO hay red neuronal, pese al nombre de
+      // la marca): `_samSegmented` solo indica a analizarObjetoMorfologicamente
+      // que NO lo re-extraiga con /api/contour. Nombre histórico, se conserva.
       _samSegmented:   true,
 
       // ── ADR-019 · procedencia de detección ────────────────────────────────
       // Este objeto se construye de cero para el renderer y NO atraviesa el choke
       // point del contrato (`individualizarObjetos` → normalizarLista). Sin estos
-      // campos, la ficha IA llegaba al informe sin método ni confianza —el
+      // campos, la ficha de detección asistida llegaba al informe sin método ni confianza —el
       // hallazgo #5 de ADR-016— pese a que el backend sí los calcula.
       detection_confidence: maoObj.detection_confidence ?? null,
       confidence_level:     maoObj.confidence_level     ?? null,
@@ -2045,14 +2052,16 @@
     // El spread va PRIMERO (valores px brutos como base), luego las conversiones
     // sobreescriben los campos que requieren transformación a mm.
     const metricas = {
-      // 1) Pass-through: resto de campos raw del objeto MAO IA
+      // 1) Pass-through: resto de campos raw del objeto de la detección asistida
       ...Object.fromEntries(
         Object.entries(maoObj).filter(([k]) => !SKIP_PASSTHROUGH.has(k))
       ),
 
       // 2) Identificación (fija, sobreescribe si el pass-through trajo algo)
       object_id:                    objLabel,
-      analysis_method:              'MAO IA \u2014 Detecci\u00f3n autom\u00e1tica',
+      // ADR-022: antes «MAO IA — Detección automática»; `fuenteAnalisis` sigue
+      // leyendo la cadena antigua en los análisis ya guardados.
+      analysis_method:              'Detecci\u00f3n asistida',
       analysis_source:              'ia',  // ADR-018
       contour_extraction_successful: objMorf.has_real_contour,
 
@@ -2113,7 +2122,7 @@
             }
           } catch (_e) { /* fall through to Python values */ }
         }
-        // Fall-back: valores de la primera llamada Python (AIA con sc=0)
+        // Fall-back: valores de la primera llamada Python (detección asistida, sc=0)
         return {
           radio_maximo_px:  +(maoObj.radio_maximo_px  || maoObj.radio_maximo  || 0).toFixed(2),
           radio_minimo_px:  +(maoObj.radio_minimo_px  || maoObj.radio_minimo  || 0).toFixed(2),
@@ -2180,7 +2189,7 @@
       } : null,
 
       // 9) Puntos de extremo de ejes (necesarios para dibujarlos en el canvas morfológico).
-      // Cuando llegan del pipeline IA faltan eje_mayor_p1_recortado et al.; se recalculan aquí
+      // Cuando llegan de la detección asistida faltan eje_mayor_p1_recortado et al.; se recalculan aquí
       // usando calcularEjePrincipal() expuesto desde analysis-core.js.
       ...(() => {
         if (!objMorf.has_real_contour) return {};
@@ -2219,12 +2228,12 @@
       bounding_area_mm2:  s ? +((bw * bh) * s * s).toFixed(4) : null,
       circularity_approx: +cir.toFixed(4),
 
-      // 11) Contorno depurado / vista esquemática — disponibles desde datos AIA
+      // 11) Contorno depurado / vista esquemática — disponibles desde la detección asistida
       // _forma_idealizada es la estructura que usa analysis-core para renderizar
-      // el canvas "Contorno Depurado" (idealizedShapeCanvas). El contorno de AIA
+      // el canvas "Contorno Depurado" (idealizedShapeCanvas). El contorno de la detección asistida
       // ya es un contorno limpio detectado por la red, equivalente al depurado.
       _forma_idealizada:  (maoObj.contour_points && maoObj.contour_points.length >= 3) ? {
-        nombre:  maoObj.forma_detectada || 'Contorno IA',
+        nombre:  maoObj.forma_detectada || 'Contorno real',
         color:   '#007bff',
         vertices: maoObj.contour_points,
         parametros: {
@@ -2233,7 +2242,7 @@
           puntos_simplificados:    maoObj.contour_points.length,
           reduccion_porcentaje:    '0.0',
           continuidad_promedio:    '1.000',
-          umbral_continuidad:      '— (contorno IA)',
+          umbral_continuidad:      '— (sin depuración estadística)',
           vertices_significativos: maoObj.contour_points.length,
           epsilon_usado:           0,
           ancho:                   bw,
@@ -2249,14 +2258,14 @@
     // directamente en «Parcial» o «Fragmento». Vuelve en F1 desde el ajuste de
     // plantilla (`plantilla_completitud`), que sí mide cobertura de la forma.
 
-    // ── 🔭 CALCULAR ERROR ÓPTICO POSICIONAL EN FLUJO IA ─────────────────────
-    // Este cálculo FALTABA en el flujo IA (solo existía en análisis manual).
-    // Sin este paso, la sección IX (Error Óptico) no se renderizaba en fichas de IA.
+    // ── 🔭 CALCULAR ERROR ÓPTICO POSICIONAL EN LA DETECCIÓN ASISTIDA ────────
+    // Este cálculo FALTABA en la detección asistida (solo existía en análisis manual).
+    // Sin este paso, la sección IX (Error Óptico) no se renderizaba en esas fichas.
     try {
       // Parámetros de cámara: PRIMERO los que usó la escala (fuente canónica =
       // window.escalaParamsOpticos, fijada en calcularEscala/Hibrida). Garantiza los
       // MISMOS datos que la escala — el camino híbrido RAW no escribe #focalInput, por
-      // eso la IA leía focal=0. Respaldo: inputs y localStorage.
+      // eso la detección asistida leía focal=0. Respaldo: inputs y localStorage.
       const _ep = window.escalaParamsOpticos || {};
       const focalVal = _ep.focalMM ||
                        parseFloat(document.getElementById('focalInput')?.value) ||
@@ -2285,7 +2294,7 @@
       const cyObj = hcy || cy;
       
       // Log de parámetros para debugging
-      console.log(`[IA→ErrorOptico] Parámetros: focal=${focalVal}mm | sensor=${swVal}×${shVal}mm | dist=${distVal}mm | img=${imgW}×${imgH}px | centro=(${cxObj.toFixed(0)},${cyObj.toFixed(0)})`);
+      console.log(`[Asistida→ErrorOptico] Parámetros: focal=${focalVal}mm | sensor=${swVal}×${shVal}mm | dist=${distVal}mm | img=${imgW}×${imgH}px | centro=(${cxObj.toFixed(0)},${cyObj.toFixed(0)})`);
       
       const errorOptico = window.estimarErrorOptico && typeof window.estimarErrorOptico === 'function'
         ? window.estimarErrorOptico({
@@ -2314,12 +2323,12 @@
         if (typeof window.aplicarIncertidumbreOptica === 'function') {
           window.aplicarIncertidumbreOptica(metricas, errorOptico);
         }
-        console.log(`[IA→ErrorOptico] ✓ Calculado: ±${errorOptico.error_lineal_percent}% lineal | ±${errorOptico.error_area_percent}% área | ${errorOptico.confianza_optica}`);
+        console.log(`[Asistida→ErrorOptico] ✓ Calculado: ±${errorOptico.error_lineal_percent}% lineal | ±${errorOptico.error_area_percent}% área | ${errorOptico.confianza_optica}`);
       } else if (focalVal === 0 || swVal === 0 || distVal === 0) {
-        console.log(`[IA→ErrorOptico] ⚠️ Parámetros de cámara incompletos - error óptico NO calculado`);
+        console.log(`[Asistida→ErrorOptico] ⚠️ Parámetros de cámara incompletos - error óptico NO calculado`);
       }
     } catch (eoErr) {
-      console.warn('[IA→ErrorOptico] ❌ No se pudo calcular error óptico:', eoErr.message);
+      console.warn('[Asistida→ErrorOptico] ❌ No se pudo calcular error óptico:', eoErr.message);
     }
 
     // ── Cerrar modal inmediatamente para dar feedback visual al usuario ───────
@@ -2362,11 +2371,11 @@
           const pyM = pyMetsRes.value.metricas;
 
           // Fusionar: Python da todos los indicadores correctamente convertidos a mm.
-          // Preservamos sólo los campos de contexto IA que Python no conoce.
+          // Preservamos sólo los campos de contexto de la detección asistida que Python no conoce.
           metricasFinal = {
             ...pyM,                          // 124+ indicadores de Python (mm correctos)
 
-            // ── Metadatos IA (sobreescriben los de Python) ──────────────────
+            // ── Metadatos de la detección asistida (sobreescriben los de Python) ─
             object_id:                    metricas.object_id,
             analysis_method:              metricas.analysis_method,
             contour_extraction_successful: metricas.contour_extraction_successful,
@@ -2379,7 +2388,7 @@
             // ── Error óptico posicional (Sección IX): calculado en JS (estimarErrorOptico),
             //    Python NO lo conoce. Sin preservarlo aquí, la fusión `...pyM` lo descartaba
             //    y la re-aplicación posterior (lee metricasFinal.error_optico_*) recibía NaN
-            //    → se saltaba → Sección IX quedaba vacía en fichas IA. (validación científica)
+            //    → se saltaba → Sección IX quedaba vacía en estas fichas. (validación científica)
             error_optico_lineal_percent:  metricas.error_optico_lineal_percent,
             error_optico_area_percent:    metricas.error_optico_area_percent,
             error_perspectiva_percent:    metricas.error_perspectiva_percent,
@@ -2450,7 +2459,7 @@
             // ── Contorno depurado/idealizado (canvas de forma depurada) ──────
             _forma_idealizada: metricas._forma_idealizada,
 
-            // ── Clasificaciones específicas IA (forma, fragmentación) ─────────
+            // ── Clasificaciones específicas de la detección asistida (forma, fragmentación)
             forma_detectada:              metricas.forma_detectada,
             solidity_class:               metricas.solidity_class,
             shape_class_circularity:      metricas.shape_class_circularity,
@@ -2474,7 +2483,7 @@
 
           // ── ADR-019 · procedencia de detección ────────────────────────────
           // La fusión `{...pyM}` descarta todo lo no listado, y /api/metrics no
-          // devuelve método ni confianza → sin esto, la ficha IA sale del merge sin
+          // devuelve método ni confianza → sin esto, la ficha sale del merge sin
           // procedencia y así se persiste en metricas.json. Escritor único del
           // contrato, aplicado DESPUÉS de la fusión.
           if (window.MaoDeteccion?.aplicarProcedencia) {
@@ -2518,19 +2527,19 @@
               };
               // Re-aplicar con objeto completo (no solo recalcular ranges)
               window.aplicarIncertidumbreOptica(metricasFinal, errorOpticoCompleto);
-              console.log(`[IA→ErrorOptico/Final] Re-aplicado tras Python: ±${_eL}% | ${metricasFinal.confianza_optica}`);
+              console.log(`[Asistida→ErrorOptico/Final] Re-aplicado tras Python: ±${_eL}% | ${metricasFinal.confianza_optica}`);
             }
           }
 
-          console.log('[IA→Morf] Métricas Python fusionadas:',
+          console.log('[Asistida→Morf] Métricas Python fusionadas:',
             Object.keys(pyM).length, 'indicadores, escala:', s, 'mm/px');
         }
       }
     } catch (err) {
-      console.warn('[IA→Morf] PythonBridge.metrics falló, usando métricas JS:', err.message);
+      console.warn('[Asistida→Morf] PythonBridge.metrics falló, usando métricas JS:', err.message);
     }
 
-    // ── Clasificación tipológica Python (reglas + EFA) en flujo IA ─────────
+    // ── Clasificación tipológica Python (reglas + EFA) en la detección asistida
     // No sustituye la meta-clasificación geométrica JS; la complementa.
     if (window.PythonBridge && PythonBridge.isAvailable()) {
       try {
@@ -2540,10 +2549,10 @@
           metricasFinal.tipo_artefacto      = _tipologia.tipo;
           metricasFinal.subtipo_artefacto   = _tipologia.subtipo || '';
           metricasFinal.confianza_tipologia = _tipologia.confianza || 0;
-          console.log(`[IA Fase 2] Tipología IA: ${_tipologia.tipo} (${(_tipologia.confianza * 100).toFixed(0)}%)`);
+          console.log(`[Asistida·Tipología] Tipología (reglas + EFA): ${_tipologia.tipo} (${(_tipologia.confianza * 100).toFixed(0)}%)`);
         }
       } catch (_eTip) {
-        console.warn('[IA Fase 2] classify falló en modo IA:', _eTip.message);
+        console.warn('[Asistida·Tipología] classify falló en la detección asistida:', _eTip.message);
       }
     }
 
@@ -2579,7 +2588,7 @@
       m.forma_detectada_tipologica = tip;
       m.forma_requiere_reinterpretacion_tipologica = true;
       m.forma_razon_tipologica = m.forma_razon_tipologica ||
-        `Fallback IA: lectura lunar por Rmin/Rmax=${rr.toFixed(3)}, circ=${cc.toFixed(3)}, solidez=${ss.toFixed(3)}.`;
+        `Lectura lunar de respaldo: Rmin/Rmax=${rr.toFixed(3)}, circ=${cc.toFixed(3)}, solidez=${ss.toFixed(3)}.`;
       return true;
     };
     if (typeof window.metaClasificarFormaIA === 'function' &&
@@ -2604,16 +2613,16 @@
           metricasFinal.forma_detectada_mostrada = _formaMostrada;
           if (!metricasFinal.forma_categoria_base && _mc.categoria_base)
             metricasFinal.forma_categoria_base = _mc.categoria_base;
-          console.log('[IA→Meta] forma unificada por árbol JS:', _formaFinal,
+          console.log('[Asistida→Meta] forma unificada por árbol JS:', _formaFinal,
             '(conf:', metricasFinal.forma_confianza_global + '%)');
-          if (typeof window._maoLog === 'function') window._maoLog(`[IA] meta-clasif="${_formaFinal}" tipologia="${metricasFinal.forma_tipologica_inferida || _formaFinal}" reinterpretada=${!!metricasFinal.forma_requiere_reinterpretacion_tipologica} conf=${metricasFinal.forma_confianza_global}% metodos=${metricasFinal.forma_metodos_coincidentes}`);
+          if (typeof window._maoLog === 'function') window._maoLog(`[Asistida] meta-clasif="${_formaFinal}" tipologia="${metricasFinal.forma_tipologica_inferida || _formaFinal}" reinterpretada=${!!metricasFinal.forma_requiere_reinterpretacion_tipologica} conf=${metricasFinal.forma_confianza_global}% metodos=${metricasFinal.forma_metodos_coincidentes}`);
         }
       } catch (_emc) {
-        console.warn('[IA→Meta] metaClasificarFormaIA falló:', _emc.message);
+        console.warn('[Asistida→Meta] metaClasificarFormaIA falló:', _emc.message);
       }
     }
 
-    // Red de seguridad para discrepancias de cache/render en IA.
+    // Red de seguridad para discrepancias de cache/render en la detección asistida.
     aplicarFallbackTipologicoIA(metricasFinal);
 
     const _tipologiaEfaLabel = metricasFinal.tipo_artefacto
@@ -2628,7 +2637,7 @@
       metricasFinal.forma_detectada_tipologica = _tipologiaEfaLabel;
       if (!metricasFinal.forma_razon_tipologica ||
           /sin reinterpretación tipológica adicional/i.test(metricasFinal.forma_razon_tipologica)) {
-        metricasFinal.forma_razon_tipologica = `Tipología asistida por clasificador EFA: ${_tipologiaEfaLabel}. La forma geométrica observada se conserva como salida principal.`;
+        metricasFinal.forma_razon_tipologica = `Tipología sugerida por el clasificador EFA: ${_tipologiaEfaLabel}. La forma geométrica observada se conserva como salida principal.`;
       }
     }
 
@@ -2642,7 +2651,7 @@
     metricasFinal.forma_detectada = _formaMostradaIA;
     metricasFinal.forma_detectada_mostrada = _formaMostradaIA;
 
-    // Sincronizar el objeto del modal IA para que tabla/fichas reflejen la misma salida.
+    // Sincronizar el objeto de la ventana para que tabla/fichas reflejen la misma salida.
     maoObj.forma_geometrica_observada = metricasFinal.forma_geometrica_observada || maoObj.forma_geometrica_observada;
     maoObj.forma_tipologia_asistida_efa = !!metricasFinal.forma_tipologia_asistida_efa;
     maoObj.forma_tipologica_inferida = metricasFinal.forma_tipologica_inferida || maoObj.forma_tipologica_inferida;
@@ -2665,11 +2674,11 @@
     //    objeto FINAL (tras toda fusión Python/clasificación). Es la MISMA función que
     //    usa cualquier modo: el error óptico depende solo de (ópticas de la imagen) ×
     //    (centroide del objeto), no del método de detección. Garantiza la Sección IX en
-    //    fichas IA sin merge-drop ni lógica duplicada.
+    //    fichas de detección asistida sin merge-drop ni lógica duplicada.
     if (typeof window.aplicarErrorOpticoPosicional === 'function') {
       const _okEO = window.aplicarErrorOpticoPosicional(
         metricasFinal, { x: hcx || cx, y: hcy || cy }, objMorf.cara || null);
-      console.log(`[IA→Card] Error óptico (autónomo): ${_okEO ? 'OK ±' + metricasFinal.error_optico_lineal_percent + '%' : 'sin datos — ' + (metricasFinal.nota_error_optico || '')}`);
+      console.log(`[Asistida→Card] Error óptico (autónomo): ${_okEO ? 'OK ±' + metricasFinal.error_optico_lineal_percent + '%' : 'sin datos — ' + (metricasFinal.nota_error_optico || '')}`);
     }
 
     // 🔎 PROCEDENCIA DE DETECCIÓN — mismo espíritu que la red de seguridad óptica de
@@ -2683,7 +2692,7 @@
     // ── Crear tarjeta en panel de resultados ────────────────────────────────
     try {
       // 🔭 DEBUG: Verificar que error_optico llegó a metricasFinal antes de mostrar
-      console.log(`[IA→Card] Error óptico en metricasFinal:`, {
+      console.log(`[Asistida→Card] Error óptico en metricasFinal:`, {
         error_optico_lineal_percent: metricasFinal.error_optico_lineal_percent,
         error_optico_area_percent: metricasFinal.error_optico_area_percent,
         confianza_optica: metricasFinal.confianza_optica,
@@ -2723,17 +2732,18 @@
     if (_cf) _cf.checked = false;
     _updateSortIndicators();
 
-    // ── ADR-019 · parámetros del modo IA ────────────────────────────────────
+    // ── ADR-019 · parámetros de la detección asistida ──────────────────────
     // El backend los devuelve en `params_used` a nivel de RESPUESTA, no por objeto,
     // y hasta ahora se descartaban por completo (nada en js/ leía `params_used`).
     // Se proyectan sobre cada objeto para que viajen con él hasta el informe: sin
     // esto, el reporte no puede declarar CÓMO se obtuvo la detección.
     maoIaLastParams = data.params_used || null;
     const _thr = maoIaLastParams?.threshold_method || null;
-    // `/api/mao-ia` no devuelve nombre de modelo; el segmentador se deriva del modo:
-    // "auto" = núcleo canónico OpenCV (ADR-012), el resto = umbralización del modal.
+    // `/api/mao-ia` no devuelve nombre de motor; se deriva del modo de umbral:
+    // "auto" = núcleo canónico OpenCV (ADR-012); el resto = el umbral que eligió
+    // el operador + separación por watershed (mao_ia_analyzer.detect_with_mao_ia).
     const _seg = _thr === 'auto' ? 'Núcleo OpenCV (Z-scan+CLAHE+GrabCut+watershed)'
-               : _thr ? `Umbralización IA (${_thr})`
+               : _thr ? `Umbralización OpenCV (${_thr}) + watershed`
                : null;
 
     const INTERNAL = new Set(['object_id','label','contour_points','hull_points',
@@ -2889,8 +2899,8 @@
     const lines = [];
     lines.push(`LM=${landmarks.length}`);
     landmarks.forEach((p) => lines.push(`${Number(p[0]).toFixed(6)} ${Number(p[1]).toFixed(6)}`));
-    lines.push(`ID=${String(obj?.id || `IA_OBJ_${obj?.object_id || 'X'}`)}`);
-    lines.push('COMMENT=MAO Plus IA semi-landmarks (arc-length)');
+    lines.push(`ID=${String(obj?.id || `OBJ_${obj?.object_id || 'X'}`)}`);
+    lines.push('COMMENT=MAO Plus semi-landmarks (longitud de arco) - deteccion asistida');
     return lines.join('\n') + '\n';
   }
 
@@ -3173,7 +3183,7 @@
       metricsModalBody.innerHTML = '';
       metricsModalBody.appendChild(frag);
       _appendMaoEfaPanel(obj).catch((e) => {
-        console.warn('[MAO-IA] Error al renderizar panel EFA:', e?.message || e);
+        console.warn('[Detección asistida] Error al renderizar panel EFA:', e?.message || e);
       });
     }, 0); // setTimeout 0 — cede el hilo antes de construir el DOM
   }

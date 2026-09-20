@@ -953,7 +953,8 @@ async def detect(
     for idx, obj in enumerate(objects):
         obj["id"] = f"PY_{idx + 1:02d}"
 
-    # ── Enriquecimiento MAO_IA: descriptores morfológicos rápidos por objeto ──
+    # ── Enriquecimiento morfológico rápido por objeto (descriptores de
+    #    mao_ia_analyzer; la clave `mao_ia` es histórica, ADR-022) ──────────
     # El contorno se deriva de la máscara del propio componente (labels==_label):
     # correcto también tras watershed, donde cada objeto separado tiene su contorno
     # (la máscara global aún los mostraría fusionados).
@@ -969,7 +970,7 @@ async def detect(
                 continue
             best_cnt = max(cnts, key=cv2.contourArea)
             # ADR-012 F3: exponer el contorno del núcleo (coords absolutas) para que
-            # la rama 'auto' del modal IA reuse esta segmentación. Gated → sin coste
+            # la rama 'auto' de la detección asistida reuse esta segmentación. Gated → sin coste
             # ni cambio de salida para los demás llamadores (automático).
             if include_contours:
                 obj["contour_points"] = best_cnt.reshape(-1, 2).tolist()

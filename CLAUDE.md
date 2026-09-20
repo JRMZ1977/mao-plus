@@ -4,6 +4,46 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-09-19 — ADR-022: «detección asistida» sustituye a la sigla IA
+
+⚠️ **Convención vigente.** El modo de detección que la interfaz llamaba «IA», «MAO IA», «AIA» o
+«Analizar con IA» se llama **detección asistida**: el operador fija los parámetros de umbralización
+y revisa objeto a objeto. **Ningún modo de detección usa un modelo entrenado** (OpenCV clásico). En
+texto nuevo —interfaz, CSV/PDF, guías, glosario, avisos, logs— **no usar la sigla**; solo citarla
+entre comillas angulares («IA») para explicar la historia. «Inteligencia artificial» se reserva para
+un modelo entrenado nombrado (hoy solo MobileSAM, que ningún modo invoca). Las entradas de sesiones
+anteriores de este archivo usan «IA» en ese sentido histórico. Doc: `docs/ADR-022-deteccion-asistida.md`.
+
+- **Por qué.** La sigla tenía tres lecturas (inteligencia artificial en las guías, «Identificación
+  Automatizada» en ADR-018, «Imagen Asistida» para JFRR) y rotulaba **cinco** cosas, ninguna neuronal:
+  la ventana de detección, la detección de P/H por malla, el clasificador tipológico por reglas («IA
+  Fase 2»), GrabCut («GrabCut AI») y un panel de MobileSAM que se decía usado por «Analizar con IA»
+  (falso: `analizarObjetoConIA` no tiene llamadores). Había errores de contenido en las guías
+  (PRINCIPIOS §XV: «Segmentación por modelo SAM/YOLO»).
+- **Qué cambió.** Stepper «Detección asistida» + botón «Abrir…» (el número del paso lo pone un contador
+  CSS); cabecera de la ventana; `METODO_LABEL.ia` = «Detección asistida (parámetros fijados por el
+  operador)»; CSV › Detección: **2 columnas renombradas** —«Umbralización (detección asistida)» y
+  «Descriptores precalculados (detección asistida)»—; `analysis_method` nuevo = «Detección asistida»
+  (`fuenteAnalisis` sigue leyendo «MAO IA — Detección automática»); P/H «⊞ Detección por malla» +
+  «Perfil de tamaño»; tipología «clasificador por reglas»; «GrabCut (clásico)» / «MobileSAM (red
+  neuronal)»; CSV de colección con rótulo legible en vez del enum crudo. Guías, glosario (convenciones
+  nuevas `deteccion_asistida` e `inteligencia_artificial`; `sigla_ia`/`sigla_aia` → retiradas),
+  memoria matemática y docs vivos reescritos; ADR anteriores, auditorías y notas de versión solo anotados.
+- **Qué NO cambió (a propósito).** Identificadores internos: `mao-ia.js`, `mao_ia_analyzer.py`,
+  `/api/mao-ia`, ids `maoIa*`/`stepIA`, enum `ia`, claves `ia_*`/`mao_ia`, marcas `_fromIA` y
+  `_samSegmented` (esta última **no** implica SAM). Están persistidos o son contrato front↔back.
+- **Enforcement.** `python/tests/test_terminologia_deteccion_asistida.py` (6): texto visible de
+  `index.html`, todas las cadenas de `js/` (léxico mínimo que ignora comentarios y regex), cadenas de
+  Python no-docstring, guías y glosario generado. Regla: la sigla solo **citada**. Además
+  `test_glosario.py` (pruebas 8-9 reescritas) y `test_procedencia_analisis.py` (cadena nueva → `ia`).
+  **Suite: 598 passed** · `npm test` verde.
+- **Verificado en Electron (macOS, 2026-09-19)** por CDP con `sintetico_pegados.png`: stepper «3 ·
+  Detección asistida · Abrir…», cabecera nueva, 2 objetos separados por watershed con confianza alta,
+  envío al análisis con las filas de procedencia nuevas, 0 errores de consola.
+- **Fuera de alcance, registrado en ADR-022:** código muerto de MobileSAM; los objetos re-detectados en
+  el panel de refinamiento pierden `ia_threshold_method`/`ia_segmentador`/`ia_params`.
+- **Caché:** `?v=20260919a` en los 12 `<script>`/`<link>` tocados.
+
 ## 🎯 Sesión 2026-09-15 — MAO Plus 1.3.0: consolidación + verificación independiente del motor
 
 **Nota de versión (léase antes de comparar exportaciones con 1.2):** `docs/NOTA-VERSION-1.3.0.md`.
@@ -505,7 +545,7 @@ de forma preservada; rechaza por debajo del 15 % en vez de inventar).
   daban **91,3 / 91,3 / 91,0 %**, los tres «casi completo». Y `metodo_convexidad` era el **extent**
   (π/4 = 78,5 % para un círculo) → **toda pieza redonda íntegra salía «fragmento»**. **Causa raíz de
   ADR-016 #6** (cuenta circular de La Draga rotulada «fracturada»).
-- **Lo más consecuente:** dos rutas (flujo IA `analysis-core.js` y flujo manual) **inyectaban** la
+- **Lo más consecuente:** dos rutas (detección asistida en `analysis-core.js` y flujo manual) **inyectaban** la
   etiqueta `Fragmento X (N% completo)` cuando `perdida_area > 1 %` —o sea, con casi cualquier contorno
   real— derivando el porcentaje como `100 − concavidad`. Ambas retiradas.
 - **Cuarto estimador descubierto al implementar:** Python tenía su propio `completitud_estimada`
@@ -584,26 +624,24 @@ umbrales propios 0.90/0.75/0.55 → la misma pieza recibía rótulos distintos s
 una: `metric-presenter.js::clasificarSolidez`, paridad textual en Python, **umbrales intactos**.
 +4 tests en `test_coherencia_entrega.py`; la solidez entra en el enforcement de fuente única.
 
-📐 **10 convenciones de nomenclatura** en `CONVENCIONES` de `glossary.js` (aparte de
-`TERMINOS`: una sigla no tiene clave, unidad ni fórmula), rendidas como preámbulo del anexo.
-El campo `tipo` separa `sigla` («A = B») de `regla` (enunciado). Cada una nació de una
-ambigüedad **verificada en el código**: **IA** = Identificación Automatizada · **AIA**
-retirada (2ª sigla del mismo módulo, nunca desarrollada) · **Confianza** nunca sola (hay **8**
+📐 **12 convenciones de nomenclatura** (10 de ADR-018 + 2 de ADR-022) en `CONVENCIONES` de
+`glossary.js` (aparte de `TERMINOS`: una sigla no tiene clave, unidad ni fórmula), rendidas como
+preámbulo del anexo. El campo `tipo` separa `sigla` («A = B») de `regla` (enunciado). Cada una
+nació de una ambigüedad **verificada en el código**: **Detección asistida** es el nombre del modo ·
+«IA» y «AIA» **retiradas** (ADR-022; ADR-018 había fijado IA = «Identificación Automatizada») ·
+**Inteligencia artificial** solo para un modelo entrenado nombrado · **Confianza** nunca sola (hay **8**
 distintas) · **Procedencia** detección≠análisis · **Simetría** bilateral≠bifacial ·
 **Eje** 3 sistemas · **Área** 6 magnitudes (la **neta** no tiene clave propia) · **Rótulos**
 miden y no diagnostican (`solidity_class` dice «fragmentado» y contradice a XII) ·
 **Cara A**=anverso · **P/H** pasante-vs-ciega NO observable en 2D. Dos señalan deuda que no
 se arregla escribiendo: clave propia para el área neta, y neutralizar `solidity_class`.
 
-⚠️ **Convención de nomenclatura — la sigla IA.** En MAO Plus **IA = «Identificación
-Automatizada»**, NO «inteligencia artificial». Nombra QUÉ hace el modo (aislar la pieza sin
-trazado ni encuadre del operador), no con qué técnica: eso va en `ia_segmentador` (núcleo
-OpenCV, MobileSAM como prior, o ambos). Leerla mal atribuye a un modelo estadístico
-mediciones que produjo la umbralización clásica. Vive en `CONVENCIONES` de `glossary.js`
-(aparte de `TERMINOS`: una sigla no tiene clave, ni unidad, ni fórmula) y se rinde como
-preámbulo del anexo. Corregido en `detection-section.js::METODO_LABEL` (etiqueta de
-presentación; el enum canónico `ia` no cambia, ADR-008), en las dos guías de referencia que
-la expandían mal y en el tooltip del botón. 2 tests lo sostienen.
+⚠️ **Convención de nomenclatura — la sigla IA (sustituida por ADR-022).** ADR-018 fijó
+**IA = «Identificación Automatizada»**; no bastó —el lector la sigue leyendo como «inteligencia
+artificial»— y ADR-022 retiró la sigla: el modo se llama **detección asistida** (ver la sesión
+2026-09-19 arriba). `METODO_LABEL.ia` = «Detección asistida (parámetros fijados por el operador)»;
+el enum canónico `ia` no cambia (ADR-008). Las pruebas 8-9 de `test_glosario.py` exigen ahora
+la retirada, y `test_terminologia_deteccion_asistida.py` vigila todas las superficies.
 
 ⚠️ **`GLOSARIO_METRICAS_MAO.html` es una SALIDA generada.** No editarla a mano: se pierde al
 regenerar y diverge de lo que muestra la app. Las definiciones se corrigen en `glossary.js`.
@@ -652,11 +690,11 @@ segmentación **único y canónico = OpenCV `detection.detect()`** (Z-scan+CLAHE
 confianza); los modos son priors complementarios, no reimplementaciones redundantes. Motor JS
 `detectarObjetosHibrido` = **fallback** solo si Python no está.
 
-**Cierre:** los 4 modos (automático, manual de área, IA, manual por componente) comparten el núcleo;
-SAM = prior neuronal. **Fase 2 (automático) ya estaba hecha** desde ADR-007/008 (`ejecutarDeteccionAutomatica`
-→ `PythonBridge.detection.detect`); mi tabla inicial del ADR la describía mal. **Fase 3 (IA)**: nueva opción
+**Cierre:** los 4 modos (automático, manual de área, asistida —antes «IA»—, manual por componente)
+comparten el núcleo; SAM = prior neuronal (ADR-022: hoy ningún modo lo invoca). **Fase 2 (automático) ya estaba hecha** desde ADR-007/008 (`ejecutarDeteccionAutomatica`
+→ `PythonBridge.detection.detect`); mi tabla inicial del ADR la describía mal. **Fase 3 (detección asistida)**: nueva opción
 **«Auto (núcleo OpenCV)» por defecto** en el modal (`threshold_method="auto"` → `detect(separate_touching,
-include_contours)` + enriquecimiento IA); modos manuales del modal ganan watershed; `detect()` gana flag
+include_contours)` + enriquecimiento por objeto); modos manuales del modal ganan watershed; `detect()` gana flag
 aditivo `include_contours`. Cache `mao-ia.js?v=20260624a`. Verif: suite 288/2 + HTTP `/api/mao-ia auto` (200,
 conf alta) + 422 inválido.
 - **M1**: `detectarObjetosManualRapida` → `async`; enruta el ROI a `PythonBridge.detection.detect(...,
@@ -678,10 +716,10 @@ conf alta) + 422 inválido.
   (esquina/borde = carta de color/escala) — dentro del ROI ya no hay referencias. Cableado:
   `detectarObjetosManualRapida` → `PythonBridge.detection.detect(..., {roiMode:true})` → `/api/detect`
   Form `roi_mode` → `detection.detect`. Tests: `TestModoROI` (4) en `tests/test_detection.py`. Suite 292/2.
-- **Fase 3 (IA)**: `detection.detect()` gana flag aditivo `include_contours`; `detect_with_mao_ia` añade
-  rama `threshold_method=="auto"` (→ núcleo + enriquecimiento IA); modos manuales del modal ganan
+- **Fase 3 (detección asistida)**: `detection.detect()` gana flag aditivo `include_contours`; `detect_with_mao_ia` añade
+  rama `threshold_method=="auto"` (→ núcleo + enriquecimiento por objeto); modos manuales del modal ganan
   watershed; `/api/mao-ia` valida `"auto"`. **ADR-012 completo** (4 modos en el núcleo, JS=fallback).
-  **Pendiente único**: verif. visual del modal IA en Electron (flakiness app:// en frío bloqueó la headless).
+  **Pendiente único**: verif. visual de la ventana de detección asistida en Electron (flakiness app:// en frío bloqueó la headless).
   **Nota ADR-013 F2**: GrabCut sigue activo en `detection.detect()` y `sam_segmenter`; en `contour.extract`
   fue reemplazado por fallback determinista (2026-09-12) para garantizar el invariante de replicabilidad.
 
@@ -744,7 +782,7 @@ respecto al radio medio del contorno» (fiel a la fórmula de `_simetria_bilater
 ## 🎯 Sesión 2026-09-12 — ADR-016 #5 cabecera detección/confianza en PDF ✅
 
 **ADR-016 #5 cerrado** (`74a0e3c`). La cabecera del reporte PDF mostraba
-«Método detección N/A · Confianza detección — (N/A)» en objetos IA/SAM. Dos bugs independientes:
+«Método detección N/A · Confianza detección — (N/A)» en objetos de detección asistida. Dos bugs independientes:
 
 **(a) Clave errónea `confidence_level`:**
 El análisis morfométrico escribe `metrics.detection_confidence_level` (línea 10202 de
@@ -754,14 +792,14 @@ en la columna CSV de colección (`project-manager.js:2837`). Fix: cadena de fall
 `m.detection_confidence_level || m.confidence_level` en ambos puntos.
 
 **(b) `detection_method` sin cadena de fallback:**
-Objetos IA guardados antes del contrato ADR-007/008 tienen la clave como `detectionMethod`
+Objetos de detección asistida guardados antes del contrato ADR-007/008 tienen la clave como `detectionMethod`
 o `detection_mode` en su `metricas.json`, no como `detection_method`. Fix: cadena
 `m.detection_method || m.detectionMethod || m.detection_mode` en cabecera y CSV.
 
 **Archivos:** `js/analysis-core.js` (líneas 20372-20373) · `js/project-manager.js` (líneas 2835-2837).
 **Cache-bust:** `analysis-core.js?v=20260912b` · `project-manager.js?v=20260912a`.
 **Suite:** 340 passed / 4 skipped. `node -c` OK.
-**Pendiente:** verificar en Electron con PDF real de objeto IA (requiere `npm start`).
+**Pendiente:** verificar en Electron con PDF real de objeto de detección asistida (requiere `npm start`).
 
 **Estado ADR-016 completo tras esta sesión:**
 ✅ #1 (BB px→mm) · #2 (excentricidad) · #3 (regularidad ×100) · #4 (hull 0.0000) ·
@@ -952,9 +990,9 @@ limpio: 369/2 sin torch ni matplotlib.
 
 **Gotcha — aislamiento del event-loop asyncio (2026-06-12):** los tests sync que ejecutan corrutinas deben usar un **loop propio por llamada** (`asyncio.new_event_loop()` + `close()` en `finally`), nunca `asyncio.get_event_loop().run_until_complete()`. Otros archivos usan `asyncio.run()`, que al salir hace `set_event_loop(None)` y rompe `get_event_loop()` en Py3.9 (`RuntimeError: There is no current event loop` + `coroutine ... was never awaited`) — falla solo en la suite completa, no aislado. Patrón ya aplicado en `python/tests/test_phase4.py` y `test_bajo_contraste.py`. Los `test_bifacial_parity{,_v2}.py` hacen `pytest.skip(allow_module_level=True)` si falta la checkout externa `MAO_A`.
 
-## Modal de detección IA — confianza por objeto + análisis cancelable (2026-06-13)
+## Ventana de detección asistida (antes «modal IA») — confianza por objeto + análisis cancelable (2026-06-13)
 
-Dos mejoras sobre la ventana de detección con IA (`#maoIaModal` · `js/mao-ia.js`):
+Dos mejoras sobre la ventana de detección asistida (`#maoIaModal` · `js/mao-ia.js`, ids históricos):
 
 - **#1 Confianza por objeto (lenguaje canónico LAAR · ADR-007).** El endpoint `/api/mao-ia` (`python/modules/mao_ia_analyzer.py`) ahora propaga `detection_confidence` (score ∈ [0,1]) y `confidence_level` (`alta`/`media`/`baja`) por objeto, reusando `detection._confianza_objeto` (import **perezoso** obligatorio: `detection.py` importa `_morpho_from_contour` de `mao_ia_analyzer` a nivel de módulo → el ciclo solo se evita con import diferido dentro de `detect_with_mao_ia`). En el modal: chip `.laar-chip --ok/--none/--wa` en el selector (solo media/baja, compacto), **columna «Confianza»** ordenable en la Tabla, **resumen de chips** en la cabecera de resultados, **filtro de triage** «solo baja confianza», y columnas `Confianza_nivel`/`Confianza_score` en el CSV del modal. Test: `python/tests/test_mao_ia_confidence.py` (3 tests).
 - **#3 Cancelar + cronómetro.** El `fetch` pasó de `AbortSignal.timeout(120_000)` fijo a un `AbortController` propio (cancelable) con timeout duro de respaldo de 120 s (`abort('timeout')`). El overlay de progreso muestra **tiempo transcurrido** (cronómetro) y un botón **Cancelar** (`abort('user')`); el `catch` distingue cancelación de usuario, timeout y error real.
@@ -966,10 +1004,10 @@ Dos mejoras sobre la ventana de detección con IA (`#maoIaModal` · `js/mao-ia.j
 Eleva perforaciones/horadaciones de tarea **secundaria/manual** a **primaria**: el backend detecta huecos internos **sin semillas** durante el análisis y los surge como **candidatos a confirmar**. Doc: `docs/ADR-009-deteccion-ph-primaria.md`. Decisiones JFRR: **sugerencias a confirmar** (no alteran métricas hasta confirmar) + **candidato sin tipo** (la profundidad pasante/ciega no es observable en 2D; el usuario asigna perforación/horadación). Aditivo, reversible.
 
 - **Backend (Fase 1).** Antes, `contour.extract` rellenaba los huecos (`MORPH_CLOSE`) y usaba `RETR_EXTERNAL` → los P/H se destruían. Ahora se snapshotea `mask_raw_holes` **antes** del CLOSE y `detection.detect_holes()` (nueva) detecta huecos por **2 señales** sobre la silueta rellena: (1) interior clasificado como fondo (`silueta & ¬máscara`, también sin imagen para tests) y (2) **desviación de color** vs la mediana del cuerpo (`|gray−mediana|>max(25,1.5·std)`, silueta erosionada para excluir el borde) — la (2) capta through-holes **grises** y recesos en sombra que el umbral de blancos no veía. Filtra por área relativa al objeto, descarta huecos pegados al borde del ROI, confianza por hueco (`_confianza_hueco`). `/api/contour` emite `ph_candidates[]` en **coords absolutas** (`tipo:"candidato"`). Si GrabCut reemplazó la máscara, se omite. Tests: `python/tests/test_ph_candidates.py` (8).
-- **Flujo (Fase 2).** `analysis-core.js` captura `obj.phCandidatos` en el choke point del contorno (junto a la confianza ADR-008); persistido en el caché. **NO** escribe en `obj.perforaciones`/`horadaciones`. El bloque `/contour` corre **también para objetos IA/SAM** (`_samSegmented`, antes excluidos) solo para capturar candidatos — la adopción del contorno/hull/confianza sigue gateada por `!_samSegmented` (no pisa el contorno IA). `mao-analysis-organizer.js` añade el **4º estado** de `phEstado()`, con prioridad **hallazgos → candidatos → sin-ph → sin-evaluar** (NO usa `evaluado` por encima de candidatos: los objetos IA nacen con `perforaciones:[]`, lo que falseaba `evaluado`). Chip `--wa` «P/H: N candidatas — confirmar» + botón «Revisar P/H».
+- **Flujo (Fase 2).** `analysis-core.js` captura `obj.phCandidatos` en el choke point del contorno (junto a la confianza ADR-008); persistido en el caché. **NO** escribe en `obj.perforaciones`/`horadaciones`. El bloque `/contour` corre **también para objetos de detección asistida** (`_samSegmented`, antes excluidos) solo para capturar candidatos — la adopción del contorno/hull/confianza sigue gateada por `!_samSegmented` (no pisa ese contorno). `mao-analysis-organizer.js` añade el **4º estado** de `phEstado()`, con prioridad **hallazgos → candidatos → sin-ph → sin-evaluar** (NO usa `evaluado` por encima de candidatos: los objetos de detección asistida nacen con `perforaciones:[]`, lo que falseaba `evaluado`). Chip `--wa` «P/H: N candidatas — confirmar» + botón «Revisar P/H».
 - **Modal (Fase 3).** `#perforationCanvasModal` precarga los candidatos como sugerencias (ámbar **discontinuo**, etiqueta `?N`) solo si el objeto no fue evaluado. Lista con **Perforación / Horadación / Descartar** por candidato (`confirmarCandidatoPH`/`descartarCandidatoPH`, expuestas en `window`). Al confirmar, el candidato pasa a su tipo y `finalizarTodosTrazados` (que filtra por tipo exacto → candidatos excluidos) lo guarda → el área neta se recalcula con la lógica existente (`calcularAreaEfectivaPH`, **sin cambios**). `sincronizarCandidatosPHEnObjeto()` mantiene `obj.phCandidatos` al día.
 - **Telemetría (Fase 4).** `buildMonitorAnalisis` (contrato ADR-008) añade `ph_candidatos_detectados` vs `ph_confirmados`. Cache-bust: `analysis-core.js?v=20260614b`, `mao-analysis-organizer.js?v=20260614b`, `mao-deteccion-contract.js?v=20260613e`.
-- **Fixes tras prueba real (2026-06-14).** La 1ª prueba (donut IA con hueco gris) reveló 3 defectos, corregidos: (a) hueco gris no detectado → señal de desviación de color en `detect_holes`; (b) objetos IA/SAM no capturaban candidatos → `/contour` corre también para ellos; (c) chip mostraba «sin P/H» → prioridad `phEstado` recolocada. Verificado por HTTP: gris 195/210/230 y oscuro 60 → detectados; sólido → 0.
+- **Fixes tras prueba real (2026-06-14).** La 1ª prueba (donut de detección asistida con hueco gris) reveló 3 defectos, corregidos: (a) hueco gris no detectado → señal de desviación de color en `detect_holes`; (b) objetos de detección asistida no capturaban candidatos → `/contour` corre también para ellos; (c) chip mostraba «sin P/H» → prioridad `phEstado` recolocada. Verificado por HTTP: gris 195/210/230 y oscuro 60 → detectados; sólido → 0.
 
 **Invariante:** el área neta solo cuenta P/H **confirmados**; la detección automática propone, el humano dispone. **Verificado:** 268 passed/2 skipped, `node -c`, HTTP end-to-end (huecos blancos/grises/oscuros detectados, centroides absolutos exactos, 0 FP en sólido), boot Electron (0 renderer errors). **Pendiente manual:** chip+modal con la imagen real cargada (límite `<input type=file>`).
 

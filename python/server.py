@@ -192,9 +192,12 @@ async def detect_objects(
 
 
 # ============================================================================
-# MÓDULO: ANÁLISIS MAO_IA — detección con parámetros controlados por usuario
+# MÓDULO: DETECCIÓN ASISTIDA — parámetros controlados por el operador (ADR-022)
 # Llama a detect_with_mao_ia() con pipeline completo: CLAHE → blur → umbral →
-# findContours → descriptores morfológicos por objeto.
+# findContours → descriptores morfológicos por objeto. La ruta `/mao-ia` y los
+# nombres `mao_ia_*` son históricos: el modo se llamaba «IA», sigla retirada
+# porque se leía como «inteligencia artificial». No interviene ningún modelo
+# entrenado.
 # ============================================================================
 
 @app.post(f"{API_PREFIX}/mao-ia")
@@ -211,11 +214,11 @@ async def mao_ia_detect(
     max_objects:       int        = Form(default=50),
 ):
     """
-    Detección completa usando el pipeline MAO_IA con parámetros controlados.
+    Detección asistida: pipeline OpenCV con parámetros fijados por el operador.
 
-    Permite al usuario ajustar umbralización, CLAHE y filtros desde la UI
-    antes de lanzar el análisis. Equipara los controles del app MAO_IA
-    standalone dentro del flujo de MAO Plus.
+    Permite al operador ajustar umbralización, CLAHE y filtros desde la ventana
+    de detección asistida antes de lanzar el análisis. Porta los controles de la
+    aplicación autónoma «MAO_IA» (nombre histórico) al flujo de MAO Plus.
 
     Retorna la misma estructura que /api/detect + descriptor morfológico
     completo (circularity, solidity, extent, equivalent_diameter,
@@ -1065,18 +1068,19 @@ async def detect_edges(
 
 
 # ============================================================================
-# MÓDULO: SEGMENTACIÓN IA (GrabCut AI + MobileSAM ONNX opcional)
+# MÓDULO: SEGMENTADOR DE CONTORNO POR OBJETO (GrabCut clásico + MobileSAM ONNX
+# opcional, red neuronal). Hoy ningún modo de detección de la app lo invoca.
 # ============================================================================
 
 @app.get(f"{API_PREFIX}/sam/status")
 async def sam_status():
     """
-    Estado del módulo de segmentación IA.
+    Estado del segmentador de contorno por objeto (GrabCut / MobileSAM).
 
     Respuesta:
       {
-        "ready":              bool,   # siempre True (GrabCut AI siempre activo)
-        "mode":               str,    # "grabcut_ai" | "mobilesam_onnx"
+        "ready":              bool,   # siempre True (GrabCut siempre activo)
+        "mode":               str,    # "grabcut" | "mobilesam_onnx"
         "grabcut_available":  bool,   # siempre True
         "onnxruntime":        bool,
         "encoder_downloaded": bool,
@@ -1095,7 +1099,7 @@ async def sam_download():
     """
     Inicia el pipeline de descarga/exportación de modelos MobileSAM ONNX.
 
-    GrabCut AI ya está activo sin esta llamada.
+    GrabCut (clásico) ya está activo sin esta llamada.
     Esta llamada descarga mobile_sam.pt y genera instrucciones de exportación ONNX.
     Respuesta: {"ok": bool, "message": str, "grabcut_active": bool, ...}
     """
@@ -1114,21 +1118,23 @@ async def sam_contour(
     simplify: float      = Form(default=2.0),
 ):
     """
-    Extrae contorno usando GrabCut AI (siempre) o MobileSAM ONNX (si disponible).
+    Extrae contorno usando GrabCut (clásico, siempre) o MobileSAM ONNX (red
+    neuronal, si está instalada).
 
     Idéntica firma que /api/contour. Retorna el mismo formato.
-    No requiere descarga previa — GrabCut AI siempre está activo.
+    No requiere descarga previa — GrabCut siempre está activo.
 
     Cuándo usar:
       - Cuando /api/contour falla (metodoDeteccion indica máscara degenerada)
       - Objetos con fondo heterogéneo o que llenan completamente su bbox
-      - Modo "analizar con IA" activado desde la UI
+    Hoy ningún modo de detección de la app lo invoca (ADR-022): la detección
+    asistida usa /api/mao-ia, que es OpenCV puro.
     """
     from python.modules.detection import _bytes_to_cv
 
     data = await _read_image(image)
 
-    # 1. Segmentación: GrabCut AI (siempre) o MobileSAM (si modelos disponibles)
+    # 1. Segmentación: GrabCut (siempre) o MobileSAM (si modelos disponibles)
     img_bgr = _bytes_to_cv(data)
     h_full_pre, w_full_pre = img_bgr.shape[:2]
     _log.info(
@@ -1139,7 +1145,7 @@ async def sam_contour(
         mask_u8, metodo_seg = sam_segmenter.segment(img_bgr, bbox_x, bbox_y, bbox_w, bbox_h)
     except Exception as e:
         _log.error("[sam-contour] segmentación fallida: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error de segmentación IA: {e}")
+        raise HTTPException(status_code=500, detail=f"Error de segmentación: {e}")
 
     _log.info("[sam-contour] método=%s mask_shape=%s", metodo_seg, mask_u8.shape)
 
@@ -1161,7 +1167,7 @@ async def sam_contour(
     if mask_u8.shape != (bh, bw):
         mask_u8 = cv2.resize(mask_u8, (bw, bh), interpolation=cv2.INTER_NEAREST)
 
-    # La limpieza morfológica ya la aplica _grabcut_ai / el segmentador.
+    # La limpieza morfológica ya la aplica _grabcut_semillas / el segmentador.
     # No repetirla aquí para no sobre-suavizar los bordes del contorno.
     coverage = float((mask_u8 > 0).sum()) / max(bw * bh, 1)
     _log.info("[sam-contour] cobertura=%.3f roi=%dx%d", coverage, bw, bh)
@@ -1596,7 +1602,7 @@ async def bifacial_comparison(
 
 # ============================================================================
 # ============================================================================
-# FASE 2 IA — CLASIFICACIÓN TIPOLÓGICA ARQUEOLÓGICA
+# CLASIFICACIÓN TIPOLÓGICA ARQUEOLÓGICA (reglas + evidencia EFA)
 # Módulo: classifier.py
 # Clasifica objetos en tipos funcionales mediante reglas morfométricas.
 # Input: métricas de /api/metrics. No requiere GPU ni datos de entrenamiento.
@@ -1663,7 +1669,7 @@ async def classify_object(request: Request):
 
 
 # ============================================================================
-# FASE 1 IA — DETECCIÓN CON YOLOv8n
+# DETECCIÓN CON YOLOv8n (red neuronal) — RETIRADA
 # Separación de objetos pegados/solapados.
 # RETIRADO 2026-06-12: la rama YOLO (yolo_detector.py, borrado en bba1910 el
 # 2026-04-23) dejó este endpoint importando un módulo inexistente → HTTP 500.

@@ -692,7 +692,8 @@ const PythonBridge = (() => {
   };
 
   /**
-   * Módulo clasificador tipológico arqueológico (Fase 2 IA).
+   * Módulo clasificador tipológico arqueológico (reglas morfométricas + evidencia
+   * EFA; sin datos de entrenamiento).
    * Retorna null si el servidor no está disponible → no bloqueante.
    */
   const classifier = {
@@ -761,7 +762,9 @@ const PythonBridge = (() => {
   };
 
   /**
-   * Módulo SAM (MobileSAM ONNX) — segmentación asistida por IA.
+   * Módulo SAM — segmentador de contorno por objeto: MobileSAM ONNX (red neuronal
+   * preentrenada, opcional) o, si no está instalada, GrabCut (clásico). Hoy ningún
+   * modo de detección lo invoca (ADR-022; ver `analizarObjetoConIA`).
    * Endpoints: GET /api/sam/status · POST /api/sam/download · POST /api/sam-contour
    */
   let _samStatusCache = null;
@@ -784,7 +787,7 @@ const PythonBridge = (() => {
 
     /**
      * Descarga los modelos MobileSAM ONNX (~54 MB).
-     * Llamar UNA vez antes de usar extractContour con useIA=true.
+     * Llamar UNA vez antes de usar extractContour con MobileSAM.
      */
     async download() {
       if (!_serverAvailable) throw new Error('Servidor no disponible');
@@ -794,7 +797,7 @@ const PythonBridge = (() => {
     },
 
     /**
-     * Extrae contorno usando SAM o GrabCut AI como segmentador primario.
+     * Extrae contorno usando MobileSAM (si está instalada) o GrabCut como segmentador.
      * Misma firma y retorno que contour.extract().
      * image      : imageDataURL completa (imagen entera, no recortada)
      * bbox       : { x, y, w, h } en coordenadas absolutas de la imagen

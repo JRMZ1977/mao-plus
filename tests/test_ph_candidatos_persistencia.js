@@ -40,7 +40,7 @@ const check = (nombre, ok) => resultados.push([nombre, Boolean(ok)]);
 const candidato = (n) => ({ tipo: 'candidato', points: [[n, n]] });
 const trazado = (tipo, n) => ({ tipo, puntos: [{ x: n, y: n }], _confidence: 0.9, _confidenceLvl: 'alta' });
 
-// Estado como en el flujo IA → «Abrir análisis (guardado)»: el objeto de `objects` y el
+// Estado como en la detección asistida → «Abrir análisis (guardado)»: el objeto de `objects` y el
 // del análisis son instancias DISTINTAS; el modal trabaja sobre una tercera (spread).
 function preparar() {
   const cuatro = [1, 2, 3, 4].map(candidato);

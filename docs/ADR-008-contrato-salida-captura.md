@@ -1,5 +1,7 @@
 # ADR-008 — Contrato de salida de captura (coherencia entre modos de detección)
 
+> **Nota terminológica (ADR-022, 2026-09-19).** En este documento, «IA» —también «MAO IA», «AIA», «modal IA», «flujo IA» u «objetos IA»— es el nombre histórico del modo que hoy se llama **detección asistida**. No designa inteligencia artificial: ningún modo de detección de MAO Plus usa un modelo entrenado. El texto se conserva como registro de lo que se decidió y de cómo se nombraba entonces.
+
 - **Estado:** ✅ **Completado (2026-06-13)** · Fases 0 (doc) + 1 (normalizador) + 2 (paridad de confianza) + 3 (telemetría + CSV + guard) **implementadas y verificadas en Electron**. Fase 1+2 en commit `d3e4628`; Fase 3 encima.
 - **Decisores:** JFRR (alcance: «establecer coherencia de salida entre modos de captura») · Claude (diagnóstico y diseño)
 - **Precedentes:** ADR-005 (lenguaje canónico LAAR + `window.MaoOrganizer`) · ADR-007 (reconciliación captura→análisis, confianza por objeto) · ADR-006 (patrón «registro + contrato» aplicado al núcleo morfométrico). Detección backend: commits `8675ede` (watershed + confianza, retira YOLO), `4fef282` (confianza a UI/CSV).

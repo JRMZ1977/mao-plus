@@ -1,5 +1,7 @@
 # ADR-002 — Rediseño de la pestaña «Análisis»: jerarquía, estilo LAAR y flujo P/H
 
+> **Nota terminológica (ADR-022, 2026-09-19).** En este documento, «IA» —también «MAO IA», «AIA», «modal IA», «flujo IA» u «objetos IA»— es el nombre histórico del modo que hoy se llama **detección asistida**. No designa inteligencia artificial: ningún modo de detección de MAO Plus usa un modelo entrenado. El texto se conserva como registro de lo que se decidió y de cómo se nombraba entonces.
+
 - **Estado:** Aprobado (2026-06-11) · implementación pendiente por fases
 - **Decisores:** JFRR (orden de secciones y rol de P/H) · Claude (diagnóstico y diseño)
 - **Precedentes:** ADR-001 (guards de flujo UI, documentado en `CLAUDE.md`) · fix de visibilidad del panel morfológico (commit `67a6599`)

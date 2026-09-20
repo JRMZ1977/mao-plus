@@ -1,5 +1,7 @@
 # Auditoría de código y coherencia de módulos — MAO Plus
 
+> **Nota terminológica (ADR-022, 2026-09-19).** En este documento, «IA» —también «MAO IA», «AIA», «modal IA», «flujo IA» u «objetos IA»— es el nombre histórico del modo que hoy se llama **detección asistida**. No designa inteligencia artificial: ningún modo de detección de MAO Plus usa un modelo entrenado. El texto se conserva como registro de lo que se decidió y de cómo se nombraba entonces.
+
 **Fecha:** 2026-08-14
 **Rama auditada:** `claude/app-audit-8d7d3a` (idéntica a `main`, HEAD `32cc8e2`, 2026-07-19)
 **Alcance:** aplicación completa (Electron + FastAPI), excluyendo `node_modules/`, `.venv/`, `.git/`, `libs/` (vendor).
