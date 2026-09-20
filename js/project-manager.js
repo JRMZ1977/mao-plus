@@ -2526,12 +2526,13 @@ class ProjectManager {
        Aditivas: con `options = {}` (lo que envía «Actualizar colección») los
        valores por defecto reproducen exactamente el comportamiento previo.
 
-       formatos   → qué se escribe en la carpeta de exportación
+       formatos   → qué se escribe en la carpeta de exportación. `tps` (ADR-021)
+                    añade un TPS con el contorno de cada pieza como un espécimen
        objetos    → subconjunto de `carpeta` a procesar (null/vacío = todos)
        exportDir  → destino explícito (por defecto {proyecto}/_exportados/FECHA)
        recalcular → false ⇒ exportar sin recomputar ni reescribir metricas.json  */
     const fmt = Object.assign(
-      { pdf: true, efa: true, csvColeccion: true, png: false, svg: false },
+      { pdf: true, efa: true, csvColeccion: true, png: false, svg: false, tps: false },
       options.formatos || {}
     );
     const recalcular = options.recalcular !== false;
@@ -2596,6 +2597,7 @@ class ProjectManager {
     let enriched = 0, skipped = 0;
     const errors = [];
     const filasCsv = []; // acumula una fila por objeto para el CSV colección
+    const bloquesTps = []; // un espécimen (contorno) por objeto para el TPS de colección
 
     // Carpeta centralizada de exportación: {proyecto}/_exportados/YYYY-MM-DD/
     // `options.exportDir` la sustituye (destino elegido por el usuario).
@@ -2703,7 +2705,16 @@ class ProjectManager {
           if (Array.isArray(_contourPts) && _contourPts.length >= 8) {
             try {
               _emit('mao:enrich:progress', { done: i + 1, total, nombreObjeto: nombreObj, fase: 'efa' });
-              const _efaResult = await window.PythonBridge.efa.calculate(_contourPts, { n_harmonics: 40 });
+              // Las opciones del puente son `nHarmonics`/`scalePxMm`. Hasta 1.3.0 se
+              // pasaba `{ n_harmonics: 40 }`, que se ignoraba: el EFA salía con 20
+              // armónicos en PÍXELES y `scale_px_mm: 1`, que el CSV EFA declaraba como
+              // 1 mm/px. Sin escala conocida se envía 0 (centinela «sin escala»).
+              const _f = (typeof factorMmPxDeAnalisis === 'function')
+                ? factorMmPxDeAnalisis({ metricas }, null) : null;
+              const _efaResult = await window.PythonBridge.efa.calculate(_contourPts, {
+                nHarmonics: 20,
+                scalePxMm: _f > 0 ? _f : 0,
+              });
               if (_efaResult && _efaResult.status === 'ok') {
                 nuevasMetricas._efa_data = _efaResult;
               }
@@ -2906,6 +2917,15 @@ class ProjectManager {
           }
         }
 
+        // TPS de colección (ADR-021): el CONTORNO de cada pieza como un espécimen.
+        // Es el TPS con varios especímenes que tiene sentido —la misma estructura en
+        // individuos distintos— y el que superponen tpsRelw y geomorph::gpagen().
+        if (fmt.tps) {
+          const bloque = _bloqueTpsContornoGuardado(ref, metricasFinal, analysis.geometria);
+          if (bloque.texto) bloquesTps.push(bloque.texto);
+          else errors.push(`${nombreObj}: TPS omitido — ${bloque.motivo}`);
+        }
+
         // Acumular fila para el CSV colección
         filasCsv.push(_buildEnrichCsvRow(ref, metricasFinal));
 
@@ -2926,6 +2946,26 @@ class ProjectManager {
     //    (solo tras un recómputo: en exportación pura nada cambió en disco)
     if (recalcular) {
       try { await this.updateProjectSummaryCSV(); } catch (_) { /* no crítico */ }
+    }
+
+    // 8b. TPS de colección + matriz de deslizamiento para geomorph (ADR-021).
+    //     Todos los especímenes tienen el mismo número de semilandmarks.
+    if (fmt.tps && exportDirOk && bloquesTps.length > 0) {
+      const tpsSlug = (collection.nombre || project.name).replace(/[^a-zA-Z0-9_-]/g, '_');
+      try {
+        const api = window.electronAPI || _fs;
+        await api.saveFile(`${exportDir}/${tpsSlug}_contornos_semilandmarks.tps`, bloquesTps.join(''));
+        await api.saveFile(`${exportDir}/curveslide.csv`,
+          window.MaoInteropGMM.curveslideCerrado(window.MaoInteropGMM.N_SEMILANDMARKS));
+        // geomorph::readland.tps sólo aplica SCALE= si TODOS los especímenes la traen.
+        const sinEscala = bloquesTps.filter(b => !/^SCALE=/m.test(b)).length;
+        if (sinEscala > 0 && sinEscala < bloquesTps.length) {
+          errors.push(`TPS de colección: ${sinEscala} de ${bloquesTps.length} piezas sin escala — ` +
+            'geomorph::readland.tps no escalará ninguna (sólo aplica SCALE= si todas la traen)');
+        }
+      } catch (_tpsErr) {
+        errors.push(`TPS de colección: ${_tpsErr && _tpsErr.message}`);
+      }
     }
 
     // 9. Guardar CSV de colección en _exportados/ + descarga en browser
@@ -3062,33 +3102,60 @@ function _buildEnrichCsvContent(projectName, filas) {
     '# Generado: ' + new Date().toISOString(),
     '# Las columnas de incertidumbre (rango_min / rango_max) son propagadas desde el error óptico posicional',
     '# EFA_varH1-H3: varianza acumulada de los 3 primeros armónicos (espectro de potencia normalizado)',
-    '# Los coeficientes completos (an/bn/cn/dn) se guardan por objeto en efa_contorno.csv / efa_ph_N.csv',
+    '# Los coeficientes completos se guardan por objeto en <carpeta>_efa_contorno.csv / _efa_perforacion_N.csv / _efa_horadacion_N.csv, en el convenio de Kuhl & Giardina (Momocs, pyefd)',
     '',
   ];
   return meta.join('\n') + headers.join(',') + '\n' + filas.join('\n');
 }
 
 function _buildEfaCsvContent(efaData, nombreObj, tipoContorno) {
-  // Genera el contenido del CSV de coeficientes EFA para un contorno (principal o P/H)
-  // Formato: harmonic,an,bn,cn,dn[,power_spectrum]
-  const coeffs = Array.isArray(efaData.coefficients) ? efaData.coefficients : [];
-  const ps     = Array.isArray(efaData.power_spectrum) ? efaData.power_spectrum : [];
-  const meta = [
-    `# MAO Plus — EFA coeficientes: ${_csvVal(nombreObj)} / ${tipoContorno}`,
-    `# Generado: ${new Date().toISOString()}`,
-    `# Armónicos: ${efaData.n_harmonics || coeffs.length} | Puntos entrada: ${efaData.n_points_input || 'N/A'}`,
-    `# 95% varianza en: h${efaData.harmonics_for_95pct || 'N/A'} | 99%: h${efaData.harmonics_for_99pct || 'N/A'}`,
-    `# Método: Kuhl & Giardina (1982). Normalización: primer armónico = referencia de escala/fase`,
-    '',
+  // El MISMO CSV que la exportación por análisis (ADR-021): una sola fuente,
+  // `MaoInteropGMM.csvEFA`, con las columnas intercambiables en el convenio de
+  // Kuhl & Giardina. Hasta 1.3.0 este archivo decía «Método: Kuhl & Giardina
+  // (1982)» sobre coeficientes del convenio interno de MAO, desfasados 90°.
+  return window.MaoInteropGMM.csvEFA(efaData, `${nombreObj} / ${tipoContorno}`);
+}
+
+/**
+ * Contorno canónico de un análisis guardado (misma prioridad que el EFA del panel).
+ * Basta un polígono (≥ 3 vértices): un contorno trazado a mano puede ser un
+ * rectángulo, y los semilandmarks se interpolan a lo largo de sus lados.
+ */
+function _puntosContornoGuardado(m, geometria) {
+  const candidatos = [
+    m && m._contour_data_original && m._contour_data_original.points,
+    m && m._contour_data && m._contour_data.points,
+    m && m.contour_points,
+    m && m.puntosContorno,
+    geometria && geometria.contornoReal && geometria.contornoReal.puntos,
   ];
-  const hasPs = ps.length > 0;
-  const header = hasPs ? 'harmonic,an,bn,cn,dn,power_spectrum' : 'harmonic,an,bn,cn,dn';
-  const rows = coeffs.map((c, idx) => {
-    if (!Array.isArray(c) || c.length < 4) return null;
-    const base = `${idx + 1},${c[0]},${c[1]},${c[2]},${c[3]}`;
-    return hasPs && ps[idx] != null ? `${base},${ps[idx]}` : base;
-  }).filter(Boolean);
-  return meta.join('\n') + header + '\n' + rows.join('\n') + '\n';
+  for (const c of candidatos) if (Array.isArray(c) && c.length >= 3) return c;
+  return [];
+}
+
+/**
+ * Bloque TPS (semilandmarks del contorno) de un análisis guardado, para el TPS
+ * de colección. Escala: la de las métricas (`factorMmPxDeAnalisis`, métricas
+ * primero — geometria.json guardó 1 mm/px hasta 1.3.0) o la usada por su EFA.
+ */
+function _bloqueTpsContornoGuardado(ref, metricas, geometria) {
+  const G = window.MaoInteropGMM;
+  if (!G) return { texto: null, motivo: 'js/mao-interop-gmm.js no cargado' };
+  const slm = G.semilandmarksContorno(_puntosContornoGuardado(metricas, geometria), G.N_SEMILANDMARKS);
+  if (!slm.n) return { texto: null, motivo: slm.motivo || 'contorno insuficiente' };
+  let escala = (typeof factorMmPxDeAnalisis === 'function') ? factorMmPxDeAnalisis({ metricas }, null) : null;
+  if (!(escala > 0)) {
+    const e = Number(metricas && metricas._efa_data && metricas._efa_data.scale_px_mm);
+    escala = (e > 0 && e !== 1) ? e : null;   // 1 era el valor por defecto del puente, no una escala
+  }
+  return {
+    texto: G.bloqueTPS(slm, {
+      id: ref.carpeta,
+      escalaMmPx: escala,
+      curveslide: 'curveslide.csv (geomorph::gpagen curves=)',
+    }),
+    motivo: null,
+  };
 }
 
 // Instancia global

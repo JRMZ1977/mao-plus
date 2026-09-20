@@ -194,7 +194,7 @@
   /** Nombres cortos de los formatos realmente escritos, para el mensaje final. */
   function _formatosEscritos(fmt) {
     if (!fmt) return [];
-    var etiquetas = { pdf: 'PDF', csvColeccion: 'CSV', efa: 'EFA', png: 'PNG', svg: 'SVG' };
+    var etiquetas = { pdf: 'PDF', csvColeccion: 'CSV', efa: 'EFA', png: 'PNG', svg: 'SVG', tps: 'TPS' };
     var out = [];
     for (var k in etiquetas) if (fmt[k]) out.push(etiquetas[k]);
     return out;
@@ -319,7 +319,8 @@
       csvColeccion: chk('excFmtCsv'),
       efa         : chk('excFmtEfa'),
       png         : chk('excFmtPng'),
-      svg         : chk('excFmtSvg')
+      svg         : chk('excFmtSvg'),
+      tps         : chk('excFmtTps')
     };
   }
 
@@ -526,7 +527,7 @@
     on('excElegirCarpeta',   'click', _excElegirCarpeta);
     on('excDestinoDefecto',  'click', function () { _excSetDestino(null); });
 
-    ['excFmtPdf', 'excFmtCsv', 'excFmtEfa', 'excFmtPng', 'excFmtSvg'].forEach(function (id) {
+    ['excFmtPdf', 'excFmtCsv', 'excFmtEfa', 'excFmtPng', 'excFmtSvg', 'excFmtTps'].forEach(function (id) {
       on(id, 'change', _excActualizarResumen);
     });
 

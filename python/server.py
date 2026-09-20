@@ -2049,9 +2049,13 @@ async def efa_analysis(
         "status":            "ok",
         "n_harmonics":       int,
         "n_points_input":    int,
-        "coefficients":      [[an,bn,cn,dn], ...],   # normalizados
-        "coefficients_raw":  [[an,bn,cn,dn], ...],   # sin normalizar
+        "coefficients":      [[an,bn,cn,dn], ...],   # normalizados, convenio MAO (interno)
+        "coefficients_raw":  [[an,bn,cn,dn], ...],   # sin normalizar, convenio MAO
         "normalization":     {theta_1_deg, psi_1_deg, scale_factor},
+        "coefficients_kg":     [[an,bn,cn,dn], ...], # normalizados, Kuhl & Giardina (ADR-021)
+        "coefficients_raw_kg": [[an,bn,cn,dn], ...], # sin normalizar, Kuhl & Giardina
+        "normalization_kg":  {theta_1_deg, psi_1_deg, scale_factor},
+        "coefficient_convention": {campo: "mao" | "kuhl_giardina_1982"},
         "power_spectrum":    [float, ...],
         "variance_explained": [float, ...],           # % acumulado por armónico
         "harmonics_for_95pct": int,
@@ -2060,6 +2064,10 @@ async def efa_analysis(
         "dc":                [a0, c0],
         "scale_px_mm":       float,
       }
+
+    Los campos `*_kg` son los intercambiables con Momocs / pyefd (normalización de
+    K&G §4 sin canonizar la quiralidad, como ellos); `coefficients` es el
+    descriptor interno de MAO y NO lo es. Ver la cabecera de efa.py.
 
     Estado: IMPLEMENTADO (efa.py, IMPLEMENTED=True).
     """

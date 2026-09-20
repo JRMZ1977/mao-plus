@@ -5672,16 +5672,36 @@ const ComparadorMultiObjeto = (() => {
       btnEl.addEventListener('click', () => {
         const sep = ',';
         const q   = s => { const t = String(s ?? ''); return t.includes(sep) || t.includes('"') ? `"${t.replace(/"/g,'""')}"` : t; };
-        // Encabezado: Objeto, Cara, Armónico, an, bn, cn, dn
+        // ADR-021: columnas intercambiables en el convenio de Kuhl & Giardina (las de
+        // Momocs y pyefd) y las del descriptor interno de MAO rotuladas aparte. Hasta
+        // 1.3.0 salían sólo las internas bajo `an,bn,cn,dn`, desfasadas 90° sin aviso.
+        const G = window.MaoInteropGMM;
         const rows = [];
-        rows.push(['Objeto','Cara','Armonico','an','bn','cn','dn'].map(q).join(sep));
+        rows.push(['Objeto', 'Cara', 'Armonico',
+          'a_norm_kg', 'b_norm_kg', 'c_norm_kg', 'd_norm_kg',
+          'a_raw_kg', 'b_raw_kg', 'c_raw_kg', 'd_raw_kg',
+          'a_norm_mao', 'b_norm_mao', 'c_norm_mao', 'd_norm_mao', 'origen_kg'].map(q).join(sep));
+        const fila4 = (m, i) => {
+          const r = Array.isArray(m) ? m[i] : null;
+          if (Array.isArray(r)) return r.slice(0, 4);
+          if (r && typeof r === 'object') return [r.an ?? '', r.bn ?? '', r.cn ?? '', r.dn ?? ''];
+          return ['', '', '', ''];
+        };
         conEFA.forEach(d => {
-          const coeffs = Array.isArray(d.efa.coefficients) ? d.efa.coefficients : [];
-          coeffs.forEach((c, i) => {
-            const [an, bn, cn, dn] = Array.isArray(c) ? c : [c.an ?? '', c.bn ?? '', c.cn ?? '', c.dn ?? ''];
-            rows.push([d.nombre, d.cara, i + 1, an, bn, cn, dn].map(q).join(sep));
-          });
+          const mao = Array.isArray(d.efa.coefficients) ? d.efa.coefficients : [];
+          const kg = G ? G.efaKuhlGiardina(d.efa) : null;
+          const n = Math.max(mao.length, kg ? kg.normalizados.length : 0);
+          for (let i = 0; i < n; i++) {
+            rows.push([d.nombre, d.cara, i + 1,
+              ...fila4(kg && kg.normalizados, i), ...fila4(kg && kg.crudos, i), ...fila4(mao, i),
+              kg ? kg.origen : 'no_disponible'].map(q).join(sep));
+          }
         });
+        rows.push('');
+        rows.push(q('Convenio: *_kg = Kuhl & Giardina (1982), el de Momocs y pyefd (normalizacion K&G sec. 4, ' +
+          'sin canonizar la quiralidad; crudos con t=0 en el primer punto del contorno). *_mao = descriptor ' +
+          'interno de MAO (d_EFD), desfasado 90 grados: NO cargar en Momocs ni pyefd. origen_kg=derivado: ' +
+          'analisis anterior a MAO 1.3.1, convertido de los crudos MAO redondeados a 1e-8.'));
         const csv = '﻿' + rows.join('\n');
         _guardarCSV(_buildCMOExportFilename('efa', 'coeficientes_efa', 'csv'), csv)
           .then(() => { if (typeof toast !== 'undefined') toast.success('CSV de coeficientes EFA exportado.'); });

@@ -2859,49 +2859,14 @@
       .filter((p) => p && Number.isFinite(p[0]) && Number.isFinite(p[1]));
   }
 
-  function _resampleByArcForLandmarks(pts, nSamples) {
-    if (!Array.isArray(pts) || pts.length < 3) return [];
-    const n = pts.length;
-    const arc = [0];
-    for (let i = 1; i < n; i++) {
-      const dx = pts[i][0] - pts[i - 1][0];
-      const dy = pts[i][1] - pts[i - 1][1];
-      arc.push(arc[i - 1] + Math.hypot(dx, dy));
-    }
-    const dx0 = pts[0][0] - pts[n - 1][0];
-    const dy0 = pts[0][1] - pts[n - 1][1];
-    const totalLen = arc[n - 1] + Math.hypot(dx0, dy0);
-    if (totalLen <= 0) return [];
-
-    const step = totalLen / nSamples;
-    const out = [];
-    let j = 0;
-    for (let i = 0; i < nSamples; i++) {
-      const target = i * step;
-      while (j < n - 1 && arc[j + 1] < target) j++;
-      const a0 = arc[j];
-      const a1 = j + 1 < n ? arc[j + 1] : totalLen;
-      const t = a1 > a0 ? (target - a0) / (a1 - a0) : 0;
-      const p0 = pts[j];
-      const p1 = pts[(j + 1) % n];
-      out.push([p0[0] + t * (p1[0] - p0[0]), p0[1] + t * (p1[1] - p0[1])]);
-    }
-    return out;
-  }
-
-  function _generateSemiAutoLandmarks(points, nLandmarks = 32) {
-    const pts = _normalizeEfaContourPoints(points);
-    if (pts.length < 8) return [];
-    return _resampleByArcForLandmarks(pts, nLandmarks);
-  }
-
-  function _buildTpsText(landmarks, obj) {
-    const lines = [];
-    lines.push(`LM=${landmarks.length}`);
-    landmarks.forEach((p) => lines.push(`${Number(p[0]).toFixed(6)} ${Number(p[1]).toFixed(6)}`));
-    lines.push(`ID=${String(obj?.id || `OBJ_${obj?.object_id || 'X'}`)}`);
-    lines.push('COMMENT=MAO Plus semi-landmarks (longitud de arco) - deteccion asistida');
-    return lines.join('\n') + '\n';
+  // ADR-021: los landmarks del TPS salen de js/mao-interop-gmm.js, igual que en el
+  // panel de análisis y en los lotes. Aquí eran 32 puntos equidistantes desde el
+  // primer punto del contorno: sin inicio ni sentido normalizados, el punto i de
+  // una pieza no correspondía al punto i de otra.
+  function _semilandmarksIA(points) {
+    const G = window.MaoInteropGMM;
+    return G ? G.semilandmarksContorno(points, G.N_SEMILANDMARKS)
+             : { puntos: [], n: 0, motivo: 'js/mao-interop-gmm.js no cargado' };
   }
 
   async function _appendMaoEfaPanel(obj) {
@@ -2944,8 +2909,7 @@
       }
 
       obj._efa_data = efa;
-      const landmarks = _generateSemiAutoLandmarks(points, 32);
-      obj._landmarks_semiauto = landmarks;
+      const slm = _semilandmarksIA(points);
       const ps = Array.isArray(efa.power_spectrum) ? efa.power_spectrum.slice(0, 5).map(v => Number(v).toFixed(4)).join(', ') : 'N/A';
       const btnId = `maoIaEfaTpsBtn_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
       section.innerHTML =
@@ -2954,22 +2918,26 @@
           '<tr><td style="padding:2px 6px;color:#718096;">Armónicos</td><td style="padding:2px 6px;text-align:right;font-weight:600;">' + efa.n_harmonics + '</td></tr>' +
           '<tr><td style="padding:2px 6px;color:#718096;">h para 95% var</td><td style="padding:2px 6px;text-align:right;font-weight:600;">' + efa.harmonics_for_95pct + '</td></tr>' +
           '<tr><td style="padding:2px 6px;color:#718096;">h para 99% var</td><td style="padding:2px 6px;text-align:right;font-weight:600;">' + efa.harmonics_for_99pct + '</td></tr>' +
-          '<tr><td style="padding:2px 6px;color:#718096;">Landmarks semi-auto</td><td style="padding:2px 6px;text-align:right;font-weight:600;">' + landmarks.length + '</td></tr>' +
+          '<tr><td style="padding:2px 6px;color:#718096;">Semilandmarks TPS</td><td style="padding:2px 6px;text-align:right;font-weight:600;">' + (slm.n || 0) + '</td></tr>' +
         '</table>' +
         '<div style="margin-top:4px;padding:4px 6px;background:#f8fbff;border:1px solid #dbeafe;border-radius:4px;font-size:9px;color:#334155;line-height:1.4;">' +
           '<b>Power spectrum (1..5):</b> ' + ps +
         '</div>' +
-        '<button id="' + btnId + '" style="margin-top:6px;padding:5px 8px;border:1px solid #0d6efd;background:#fff;color:#0d6efd;border-radius:5px;cursor:pointer;font-size:10px;font-weight:600;">Exportar landmarks TPS</button>';
+        '<button id="' + btnId + '" style="margin-top:6px;padding:5px 8px;border:1px solid #0d6efd;background:#fff;color:#0d6efd;border-radius:5px;cursor:pointer;font-size:10px;font-weight:600;">Exportar semilandmarks TPS</button>';
 
       const tpsBtn = document.getElementById(btnId);
       if (tpsBtn) {
         tpsBtn.addEventListener('click', () => {
-          const text = _buildTpsText(landmarks, obj);
+          const esc = Number(callGetter('_maoGetScale'));
+          const text = window.MaoInteropGMM.bloqueTPS(slm, {
+            id: String(obj?.id || `IA_OBJ_${obj?.object_id || 'X'}`),
+            escalaMmPx: Number.isFinite(esc) && esc > 0 ? esc : null,
+          });
           const fileBase = String(obj?.id || `ia_obj_${obj?.object_id || 'x'}`).replace(/[^a-zA-Z0-9_-]/g, '_');
           const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
           const link = document.createElement('a');
           link.href = URL.createObjectURL(blob);
-          link.download = `${fileBase}_landmarks.tps`;
+          link.download = `${fileBase}_semilandmarks.tps`;
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
