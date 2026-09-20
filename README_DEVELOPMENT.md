@@ -41,39 +41,43 @@ The application launches at `http://localhost:3000` (Electron) with backend at `
 
 > **Phase 2 note:** `js/analysis-core.js` no longer contains the analysis logic directly — it delegates to ES6 modules in `js/modules/`. See [MODULES.md](docs/arquitectura/MODULES.md) for the full module reference.
 
-### Lanzador de desarrollo (macOS · icono/Dock)
+### Lanzador (macOS · icono/Dock)
 
-Para arrancar la app sin abrir una terminal, se compila un applet **dentro del propio repositorio**:
+Un único **«MAO Plus»** en `/Applications`, que arranca la app contra esta copia de trabajo:
 
 ```bash
-npm run launcher      # → "MAO Plus (dev).app" en la raíz del repo
-open "MAO Plus (dev).app"
+npm run launcher                       # compila e instala en /Applications/MAO Plus.app
+scripts/build-launcher.sh --destino D  # o lo deja en D, para probar sin tocar nada
 ```
 
-Fuente: [`scripts/mao-dev-launcher.applescript`](scripts/mao-dev-launcher.applescript) (versionada; el
-`.app` compilado está en `.gitignore`). El applet **se auto-localiza** —deduce el repositorio del
-directorio que lo contiene—, así que mover o clonar el proyecto no lo rompe. Antes de lanzar comprueba
-`node_modules/.bin/electron` y `.venv/bin/python`, y avisa con un diálogo indicando el comando exacto
-que falta. Log de arranque: `/tmp/mao_launch.log`.
+**Por qué está siempre al día:** no copia nada dentro del bundle. El applet es una lámina fina que
+ejecuta `electron .` contra el repositorio, así que el código que corre es el que hay en el repo, sin
+recompilar nada. No hay bundle que envejezca porque no hay bundle. Solo se recompila
+(`npm run launcher`) si se edita el `.applescript` o si se mueve el repositorio.
 
-**Selector de copia de trabajo.** Si el proyecto tiene git worktrees en `.claude/worktrees/` (ramas en
-paralelo), el applet los detecta y pregunta cuál arrancar, mostrando la rama de cada copia y marcando
-las que aún no tienen dependencias instaladas:
+Fuente: [`scripts/mao-launcher.applescript`](scripts/mao-launcher.applescript). La ruta del repo la
+**inyecta el script de construcción** al compilar, de modo que el applet funciona desde
+`/Applications` sin rutas escritas a mano; si el applet vive dentro del repo, usa ese repo. Antes de
+arrancar comprueba `node_modules/.bin/electron` (bloqueante, con el comando exacto en un diálogo que
+puedes copiar) y `.venv/bin/python` (solo avisa: sin él la app cae a modo solo-JS, que es un modo
+degradado deliberado). Log de arranque: `/tmp/mao_launch.log`.
 
-```
-principal — fix/exportaciones-fuente-unica-estado
-worktree quizzical-cannon-452596 — claude/detection-optical-error-improvements   [faltan dependencias]
-```
+**No toca el repositorio.** Ni `pull`, ni `checkout`, ni `stash`. Tras arrancar lanza en segundo plano
+[`scripts/mao-launcher-check.sh`](scripts/mao-launcher-check.sh), que mira el estado de git y avisa por
+notificación si `origin/main` va por delante, si la rama no es `main` o si hay cambios sin commitear.
+Va **después** del arranque para que la red no lo retrase nunca, y el `fetch` lleva un perro guardián
+que lo mata a los 15 s: el aviso puede faltar, el arranque no. Si todo está en orden **calla**: una
+notificación en cada arranque es ruido. Los archivos sin seguimiento no cuentan como «sin commitear»,
+porque suelen ser trabajo deliberadamente fuera de git.
 
-Con una sola copia arranca directo, sin preguntar. **No hay que recompilar el applet al cambiar el
-código de la app**: es una lámina fina que ejecuta `electron .` contra la copia elegida, así que
-siempre corre el árbol al día. Solo se recompila (`npm run launcher`) si se edita el `.applescript`.
+Vive fuera del applet a propósito: se puede editar sin recompilar nada.
 
-Un worktree recién creado no hereda `node_modules` ni `.venv` del principal: hay que instalarlos
-**dentro** de esa copia, y el diálogo indica la ruta exacta.
+**Para arrancar un worktree concreto**, usa `npm start` dentro de él. El lanzador anterior ofrecía un
+selector de copias de trabajo; se retiró porque la copia canónica es la principal y el diálogo solo
+añadía fricción al arranque.
 
-Arrástralo al Dock para anclarlo. Es un lanzador de **desarrollo** (corre el código del repo); para un
-bundle autónomo, ver *Build & Distribution* abajo.
+Es un lanzador que corre el código del repositorio, no un bundle distribuible: necesita el repo con
+`node_modules` y `.venv` en la máquina. Para un bundle autónomo, ver *Build & Distribution* abajo.
 
 ---
 

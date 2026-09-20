@@ -15,8 +15,10 @@ dist/
 out/
 build/
 
-# Lanzador de desarrollo compilado (la fuente es scripts/mao-dev-launcher.applescript;
-# se reconstruye con `npm run launcher`)
+# Lanzador compilado. La fuente es scripts/mao-launcher.applescript y se instala en
+# /Applications con `npm run launcher`; estas entradas cubren una compilación a la
+# raíz del repo (--destino) y el applet «(dev)» retirado el 2026-09-20.
+MAO Plus.app/
 MAO Plus (dev).app/
 
 # Runtime Python embebible (Fase A) — generado por scripts/build-runtime.sh (~400 MB)
