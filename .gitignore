@@ -69,3 +69,6 @@ VERIFICACION_*.txt
 # Modelos SAM — los genera sam_segmenter.download_models en tiempo de ejecución:
 # el .pt ya cae en *.pt de arriba, y el README lo escribe el propio código.
 python/models/
+
+# Capturas de las verificaciones visuales en Electron (tools/verificacion_*_electron.mjs)
+verificacion-visual/

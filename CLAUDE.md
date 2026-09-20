@@ -4,6 +4,36 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-09-20 (b) — ADR-021 verificado en Electron: panel EFA y casilla TPS
+
+Cierra el único pendiente visual que quedaba de la integración. Arnés nuevo
+`tools/verificacion_adr021_electron.mjs` (mismo patrón que `verificacion_visual_electron.mjs`:
+Electron por CDP + hook `__maoE2E` de ADR-010). **19/19 comprobaciones, 0 errores de consola.**
+
+**(A) Panel EFA de la ventana de detección asistida** — con `sintetico_fragmento_disco.png`:
+`window.MaoInteropGMM` cargado (`N_SEMILANDMARKS=64`), sección «EFA (Fourier Eliptico)» renderizada,
+armónicos 20, h95/h99 = 2/3, power spectrum, **«Semilandmarks TPS: 64»** (el valor que ADR-021
+cambió: antes eran 32 equidistantes desde `pts[0]`) y botón «Exportar semilandmarks TPS» presente y
+clicable. El bloque que produce ese botón: `LM=64`, 64 pares de coordenadas finitas, `SCALE=`, y un
+`COMMENT=` que documenta inicio, sentido y **origen arriba-izquierda con y hacia abajo** — es decir,
+el eje y del TPS está declarado en el propio archivo, no silenciado.
+
+**(B) Casilla «TPS — Contornos de la colección» (`#excFmtTps`)** — presente en el modal de
+exportación con su descripción («Un espécimen por pieza: 64 semilandmarks + curveslide.csv»),
+**desmarcada por defecto** (opt-in: no altera exportaciones previas), se deja marcar y el resumen del
+pie reacciona: «3 objetos · 3 formatos» → «3 objetos · 4 formatos». Probado contra una colección real
+del usuario (3 análisis). La escritura del `.tps` y del `curveslide.csv` ya la cubre
+`tests/test_export_lote.js`; lo que faltaba era exactamente esta capa de interfaz.
+
+⚠ **Trampa del arnés, no de la app.** Tras detectar, la vista por defecto de la ventana es el
+**lienzo**; `#maoIaViewTable` es el CONTENEDOR (`display:none`), no el conmutador. Quien cambia de
+vista es la pestaña `[data-tab="table"]`. Sin ese clic el botón de métricas mide 0×0 y parece un
+defecto de interfaz: no lo es. Segunda trampa: `_showMaoMetrics` compara `object_id === id` y el
+`onclick` pasa un NÚMERO; leer el id del atributo da una cadena y no encuentra nada.
+
+**Higiene:** `package-lock.json` seguía declarando `1.2.0` mientras `package.json` ya iba por `1.3.1`
+desde ADR-021 — `npm install` lo sincronizó. `verificacion-visual/` (capturas) pasa a `.gitignore`.
+
 ## 🎯 Sesión 2026-09-20 — Integración de ramas: una sola línea de código (rama `integracion/v1.3.1`)
 
 Consolidación de las ramas dispersas en una única versión. Punto de partida: `38186f2`
@@ -119,8 +149,9 @@ distintos; ahora todos por aquí.
 `npm run test:js` verde · ESM 17/17 · cada test nuevo falla contra `fe84b9d` por contenido. Referencia
 K&G escrita aparte en los tests; `pyefd` NO está en el `.venv` (el test lo usa si se instala).
 Contornos reales de OpenCV a 24 rotaciones: d ≤ 0,012 (lisas), ≤ 0,031 (fragmentos en «D»).
-**Pendiente:** verificación visual en Electron de la casilla TPS del modal y del panel EFA; eje y del
-TPS frente a tpsDig (origen abajo-izquierda); O-28.
+**Verificado en Electron el 2026-09-20** (`tools/verificacion_adr021_electron.mjs`, 19/19, 0 errores
+de consola): panel EFA y casilla TPS — ver la entrada de esa sesión arriba. **Pendiente:** O-28
+(ambigüedad de 180° de θ₁, requiere ADR con recálculo de bancos).
 
 ## 🎯 Sesión 2026-09-15 — MAO Plus 1.3.0: consolidación + verificación independiente del motor
 
