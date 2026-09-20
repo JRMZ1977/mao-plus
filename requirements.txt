@@ -8,9 +8,9 @@ python-multipart==0.0.20
 
 # ── Análisis de imagen ────────────────────────────────────────────────────────
 opencv-python-headless==4.13.0.92   # cv2: contornos, morfología, bordes, color
-opencv-python==4.13.0.92            # lo exige ultralytics SIN pin; sin esta línea pip
-                                    # instala OpenCV 5.x, que eclipsa al headless y
-                                    # cambia el cv2 efectivo de rama major.
+                                    # ÚNICO proveedor de cv2. El pin defensivo de
+                                    # opencv-python se retiró junto con ultralytics
+                                    # (era quien lo exigía sin pin y colaba OpenCV 5.x).
 numpy==2.0.2                        # operaciones matriciales
 pillow==11.3.0                      # lectura/escritura de imágenes (PIL)
 scikit-image==0.24.0                # GLCM textura, LBP, watershed
@@ -26,10 +26,16 @@ scikit-learn==1.6.1                 # PCA, StandardScaler, KMeans, silhouette �
 
 # ── Inferencia neuronal (MobileSAM ONNX, opcional) ───────────────────────────
 onnxruntime==1.19.2             # runtime ONNX CPU — MobileSAM encoder+decoder
-# Solo build-time: re-exportar MobileSAM .pt → ONNX (ver sam_segmenter.py).
-# No se importa en runtime; arrastra torch+torchvision (~88 MB). La rama YOLO
-# se retiró en bba1910 (2026-06-12).
-ultralytics>=8.3.0
+#
+# ultralytics: RETIRADO (2026-07-19). No lo importa ningún módulo — la rama YOLO
+# se borró en bba1910 (2026-06-12) y el runtime de SAM es onnxruntime, no torch.
+# Su único uso era exportar MobileSAM .pt → .onnx, un proceso OFFLINE y de una
+# sola vez cuyo procedimiento vive en python/modules/sam_segmenter.py
+# (download_models genera python/models/README.md con los pasos).
+# NO lo reintroduzcas aquí ni en requirements-dev.txt: arrastra torch +
+# torchvision + matplotlib + polars + nvidia-ml-py (≈514 MB) y exige
+# opencv-python sin pin, que eclipsa al headless con OpenCV 5.x.
+# Para exportar, instálalo en un venv desechable (ver el README generado).
 
 # ── Utilidades ────────────────────────────────────────────────────────────────
 python-dotenv==1.2.1
@@ -38,8 +44,8 @@ piexif==1.1.3                       # EXIF: extracción de metadatos — scale.p
 
 # ── NO instalado aún (Fase 3+) ────────────────────────────────────────────────
 # pandas              # exportación CSV estructurada
-# matplotlib          — OJO: sí acaba instalado, como dependencia transitiva de
-#                       ultralytics. No lo importa ningún módulo de MAO.
+# matplotlib          # gráficas estáticas (radar, scatter). Ya NO se cuela por la
+#                       puerta de atrás: entraba como transitiva de ultralytics.
 # reportlab           # generación de PDF en Python
 # rawpy               # lectura de archivos RAW fotográficos
 # exifread            # extracción de metadatos EXIF

@@ -4,11 +4,13 @@
 # Lo instala scripts/build-runtime.sh dentro del CPython relocatable embebido.
 #
 # EXCLUIDO a propósito (verificado: 0 imports en runtime, solo dev/exporter):
-#   torch, torchvision      → solo el exporter offline de MobileSAM (no runtime). ~313 MB
-#   ultralytics             → idem exporter de SAM. El runtime usa onnxruntime.
-#   polars, matplotlib,     → no se importan en python/ (eran transitivas/leftover)
-#   sympy, pandas
+#   sympy                   → entra como transitiva de onnxruntime; no se importa
 #   pip, setuptools         → se podan tras instalar (no se ejecutan en producción)
+#
+# NOTA (2026-07-19): torch, torchvision, ultralytics, polars, matplotlib y pandas
+# ya NO aparecen aquí como exclusiones porque dejaron de ser dependencias del
+# proyecto — se retiró ultralytics de requirements.txt y con él toda esa cola
+# transitiva. La poda de build-runtime.sh los sigue listando como red de seguridad.
 #
 # INCLUIDO aunque requirements.txt lo marcaba «Fase 3»:
 #   scikit-learn            → comparator.py lo importa (PCA/StandardScaler/KMeans/silhouette)
