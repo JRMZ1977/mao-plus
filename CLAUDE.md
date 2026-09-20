@@ -4,6 +4,41 @@ MAO Plus is an Electron desktop application for archaeological morphometric anal
 It processes images to extract contours, classify shapes, and compute typological metrics.
 Backend: FastAPI (Python 3.9, port 8765). Frontend: Electron + ES6 modules.
 
+## 🎯 Sesión 2026-09-20 — Integración de ramas: una sola línea de código (rama `integracion/v1.3.1`)
+
+Consolidación de las ramas dispersas en una única versión. Punto de partida: `38186f2`
+(`claude/mao-plus-math-engine-verify-c8c8fd`), que ya contenía **28 de las 32 referencias** del
+repositorio —`main`, `origin/main`, los `respaldo/*`, ADR-017/018/019/022, el fix de escala y el
+menú «Exportar colección…»—. Solo 4 ramas tenían trabajo único, de 1 commit cada una:
+
+| Rama | Decisión |
+|------|----------|
+| `claude/mao-plus-academic-description-3daf8a` | ✅ integrada (merge limpio) — `docs/MAO-PLUS-DESCRIPCION-ACADEMICA.md` |
+| `claude/quizzical-cannon-452596` | ✅ integrada — retira `ultralytics` y el pin de `opencv-python` |
+| `claude/interop-tps-efa` | ✅ integrada — **ADR-021 / 1.3.1**, TPS y EFA interoperables |
+| `feat/header-variante-a` | ⏸ **archivada, no integrada** — parte de una base del 2026-07-19, anterior a la armonización de cabeceras de ADR-005; su `index.html` y su CSS revierten el lenguaje LAAR vigente. La rama se conserva por si el diseño se retoma |
+
+**Conflictos y cómo se resolvieron** (5 en total, todos en el merge de ADR-021 salvo el primero):
+- `python/modules/sam_segmenter.py` — se conserva la terminología de ADR-022 y se incorpora la
+  advertencia sobre `ultralytics` de la rama, reescrita en ese mismo lenguaje.
+- `js/mao-ia.js` — gana ADR-021. El código ya fusionado alrededor del conflicto llama a
+  `_semilandmarksIA()` y `MaoInteropGMM.bloqueTPS()`; el bloque de HEAD habría quedado muerto y con
+  `_buildTpsText` partido a la mitad.
+- `index.html` — gana HEAD (comentarios en terminología ADR-022) **más** el bump de caché: los 7
+  `<script>` cuyo contenido cambió al integrar pasan a `?v=20260920a`.
+- `docs/ESTADO-ADRS.md` — fila 019 de HEAD, fila 021 adaptada a la terminología y con su commit de
+  integración, fila 022 de HEAD; la nota de renumeración deja de decir que ADR-021 está fuera.
+- `CLAUDE.md` — se conservan las dos entradas de sesión, 2026-09-19 sobre 2026-09-18.
+
+**Verificado:** `npm test` completo y verde (`EXIT=0`) — ESM **17/17**, contratos `window.*`
+**36/36**, pytest **655 passed / 0 skipped** (la punta traía 598 y ADR-021 aportó sus 57).
+
+**Higiene:** `python/models/` pasa a `.gitignore` — lo genera `sam_segmenter.download_models` en
+tiempo de ejecución (el `.pt` ya caía en `*.pt`; faltaba el `README.md` que escribe el propio código).
+
+**Pendiente:** verificación visual en Electron de lo que ADR-021 dejó anotado (casilla TPS de la
+ventana de detección y panel EFA) — ninguna de las dos la cubre `npm test`.
+
 ## 🎯 Sesión 2026-09-19 — ADR-022: «detección asistida» sustituye a la sigla IA
 
 ⚠️ **Convención vigente.** El modo de detección que la interfaz llamaba «IA», «MAO IA», «AIA» o
