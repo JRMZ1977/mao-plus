@@ -150,8 +150,8 @@ distintos; ahora todos por aquí.
 K&G escrita aparte en los tests; `pyefd` NO está en el `.venv` (el test lo usa si se instala).
 Contornos reales de OpenCV a 24 rotaciones: d ≤ 0,012 (lisas), ≤ 0,031 (fragmentos en «D»).
 **Verificado en Electron el 2026-09-20** (`tools/verificacion_adr021_electron.mjs`, 19/19, 0 errores
-de consola): panel EFA y casilla TPS — ver la entrada de esa sesión arriba. **Pendiente:** O-28
-(ambigüedad de 180° de θ₁, requiere ADR con recálculo de bancos).
+de consola): panel EFA y casilla TPS — ver la entrada de esa sesión arriba. **Pendiente:** O-28,
+ahora con ADR abierto: `docs/ADR-023-ambiguedad-180-efa.md` (🟡 propuesto, bloqueado en 5 decisiones).
 
 ## 🎯 Sesión 2026-09-15 — MAO Plus 1.3.0: consolidación + verificación independiente del motor
 
